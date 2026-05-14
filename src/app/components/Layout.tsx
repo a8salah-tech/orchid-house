@@ -56,7 +56,10 @@ const menuItems = [
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+
+// Auto-close on mobile
   const [notifOpen, setNotifOpen] = useState(false)
 
   const notifications = [
@@ -204,7 +207,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   return (
                     <button
                       key={ii}
-                      onClick={() => router.push(item.path)}
+                      onClick={() => { router.push(item.path); if (window.innerWidth < 768) setSidebarOpen(false) }}
                       style={{
                         width: '100%', display: 'flex', alignItems: 'center',
                         gap: 10, padding: '10px 18px',
@@ -264,7 +267,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: ${S.navy}; }
-        aside::-webkit-scrollbar { width: 4px; }
+        aside::-webkit-scrollbar { width: 6px; }
+aside::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 3px; }
+aside::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #C9A84C, #8B6914); border-radius: 3px; box-shadow: 0 0 6px rgba(201,168,76,0.3); }
+aside::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #E8C97A, #C9A84C); }
         aside::-webkit-scrollbar-track { background: transparent; }
         aside::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 2px; }
         button:hover { opacity: 0.85; }

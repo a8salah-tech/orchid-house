@@ -22,18 +22,75 @@ const menuItems = [
     ]
   },
   {
-    group: 'إدارة المخزون',
+group: 'إدارة المخزون',
     items: [
       { label: 'المستودعات', icon: '🏭', path: '/dashboard/warehouse' },
       { label: 'المشتريات', icon: '🛒', path: '/dashboard/purchases' },
+      { label: 'طلبات الفروع', icon: '📦', path: '/dashboard/branch-requests' },
     ]
   },
-  {
+{
     group: 'العمليات',
     items: [
       { label: 'المطبخ', icon: '👨‍🍳', path: '/dashboard/kitchen' },
-      { label: 'الصالة', icon: '🍽️', path: '/dashboard/hall' },
+      { label: 'الحلويات', icon: '🍰', path: '/dashboard/desserts' },
       { label: 'البار', icon: '☕', path: '/dashboard/bar' },
+      { label: 'الصالة', icon: '🍽️', path: '/dashboard/hall' },
+    ]
+  },
+  {
+      group: 'قائمة الطعام',
+      items: [
+        { label: 'الأصناف (المنيو)', icon: '📖', path: '/dashboard/menu/items' },
+        { label: 'التصنيفات', icon: '📁', path: '/dashboard/menu/categories' },
+        { label: 'إضافات الأصناف', icon: '➕', path: '/dashboard/menu/modifiers' },
+      ]
+    },
+  {
+      group: 'العملاء والبيع',
+      items: [
+        { label: 'حجوزات العملاء', icon: '📅', path: '/dashboard/bookings' },
+        { label: 'قاعدة بيانات العملاء', icon: '👥', path: '/dashboard/customers' },
+        { label: 'نقاط الولاء', icon: '🎁', path: '/dashboard/loyalty' },
+      ]
+    },
+    {
+      group: 'التسويق والنمو',
+      items: [
+        { label: 'الحملات الإعلانية', icon: '📢', path: '/dashboard/marketing/campaigns' },
+        { label: 'كوبونات الخصم', icon: '🎫', path: '/dashboard/marketing/coupons' },
+        { label: 'إرسال الإشعارات', icon: '📲', path: '/dashboard/marketing/notifications' },
+        { label: 'تحليل المنافسين', icon: '🔍', path: '/dashboard/marketing/analysis' },
+      ]
+    },
+    {
+      group: 'المالية والحسابات',
+      items: [
+        { label: 'شجرة الحسابات', icon: '🧾', path: '/dashboard/accounting/chart' },
+        { label: 'سندات القيد', icon: '💸', path: '/dashboard/accounting/entries' },
+        { label: 'الخزينة والبنوك', icon: '🏦', path: '/dashboard/accounting/banks' },
+      ]
+    },
+    {
+      group: 'الموارد البشرية',
+      items: [
+        { label: 'الموظفون', icon: '👷', path: '/dashboard/hr/employees' },
+        { label: 'الرواتب والحضور', icon: '📅', path: '/dashboard/hr/payroll' },
+      ]
+    },
+  {
+    group: 'التقارير',
+    items: [
+      { label: 'التقارير اليومية', icon: '📊', path: '/dashboard/reports/daily' },
+      { label: 'التقارير الشهرية', icon: '📈', path: '/dashboard/reports/monthly' },
+      { label: 'تحليل التكاليف', icon: '💰', path: '/dashboard/reports/costs' },
+    ]
+  },
+  {
+    group: 'الإعدادات',
+    items: [
+      { label: 'الموردون', icon: '🤝', path: '/dashboard/suppliers' },
+      { label: 'الإعدادات', icon: '⚙️', path: '/dashboard/settings' },
     ]
   },
   {

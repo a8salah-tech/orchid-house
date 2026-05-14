@@ -302,15 +302,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: ${S.navy}; }
-        aside::-webkit-scrollbar { width: 4px; }
-        aside::-webkit-scrollbar-track { background: transparent; }
-        aside::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.2); border-radius: 2px; }
-        button:hover { opacity: 0.85; }
-      `}</style>
+<style>{`
+  @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: ${S.navy}; }
+  aside::-webkit-scrollbar { width: 10px; }
+  aside::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 3px; }
+  aside::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #C9A84C, #8B6914); border-radius: 3px; box-shadow: 0 0 6px rgba(201,168,76,0.3); }
+  aside::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #E8C97A, #C9A84C); }
+  button:hover { opacity: 0.85; }
+`}</style>
     </div>
   )
 }

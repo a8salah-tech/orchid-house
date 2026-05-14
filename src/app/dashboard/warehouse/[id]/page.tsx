@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
+import { formatMYR } from '../../../../lib/supabase'
+
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -719,7 +721,7 @@ export default function WarehouseDetailPage() {
                         <td style={{ padding: '12px 16px', color: S.gold, fontWeight: 700 }}>{inv.invoice_number || '—'}</td>
                         <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{inv.invoice_date}</td>
                         <td style={{ padding: '12px 16px', fontSize: 13, color: S.white }}>{inv.warehouse_suppliers?.name || '—'}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700, color: S.green }}>{inv.total_amount?.toFixed(2)} MYR</td>
+                        <td style={{ padding: '12px 16px', fontWeight: 700, color: S.green }}>{formatMYR(inv.total_amount)}</td>
                         <td style={{ padding: '12px 16px' }}>
                           {inv.image_url
                             ? <img src={inv.image_url} alt="فاتورة" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }} onClick={() => window.open(inv.image_url, '_blank')} />

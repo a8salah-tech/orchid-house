@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { useAuth } from './AuthProvider'
+
 
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
@@ -75,7 +77,8 @@ group: 'إدارة المخزون',
       group: 'الموارد البشرية',
       items: [
         { label: 'الموظفون', icon: '👷', path: '/dashboard/hr/employees' },
-        { label: 'الرواتب والحضور', icon: '📅', path: '/dashboard/hr/payroll' },
+        { label: 'طلبات الموظفين', icon: '📋', path: '/dashboard/hr/requests' },
+        { label: 'إدارة الصلاحيات', icon: '🔐', path: '/dashboard/settings/permissions' },
       ]
     },
   {
@@ -111,10 +114,11 @@ group: 'إدارة المخزون',
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const { signOut } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
 // Auto-close on mobile
   const [notifOpen, setNotifOpen] = useState(false)
@@ -294,16 +298,20 @@ const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
             {/* Logout */}
             <div style={{ borderTop: `1px solid ${S.border}`, margin: '8px 0', paddingTop: 8 }}>
-              <button style={{
-                width: '100%', display: 'flex', alignItems: 'center',
-                gap: 10, padding: '10px 18px',
-                background: 'transparent', border: 'none',
-                cursor: 'pointer', color: S.red, fontSize: 13,
-                fontFamily: 'Tajawal, sans-serif',
-              }}>
-                <span>🚪</span>
-                <span>تسجيل الخروج</span>
-              </button>
+ <div style={{ borderTop: `1px solid ${S.border}`, margin: '8px 0', paddingTop: 8 }}>
+  <button
+    onClick={signOut}
+    style={{
+      width: '100%', display: 'flex', alignItems: 'center',
+      gap: 10, padding: '10px 18px',
+      background: 'transparent', border: 'none',
+      cursor: 'pointer', color: S.red, fontSize: 13,
+      fontFamily: 'Tajawal, sans-serif',
+    }}>
+    <span>🚪</span>
+    <span>تسجيل الخروج</span>
+  </button>
+</div>
             </div>
           </div>
         </aside>

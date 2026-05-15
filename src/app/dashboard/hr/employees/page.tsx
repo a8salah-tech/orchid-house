@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 
 const createClient = () => createBrowserClient(
@@ -46,9 +46,140 @@ interface Employee {
   id: string; name: string; name_en: string; employee_number: string
   role: string; department: string; branch_id: string; phone: string
   email: string; join_date: string; salary: number; is_active: boolean
-  notes: string; branches?: { name: string }
+  notes: string; photo_url?: string; national_id_url?: string
+  auth_user_id?: string; branches?: { name: string }
 }
 interface Branch { id: string; name: string }
+
+// ══ Upload image to Supabase Storage ══
+async function uploadImage(supabase: ReturnType<typeof createClient>, file: File, path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage.from('employees').upload(path, file, { upsert: true })
+  if (error) { console.error(error); return null }
+  const { data: urlData } = supabase.storage.from('employees').getPublicUrl(data.path)
+  return urlData.publicUrl
+}
+
+// ══ Create Account Modal ══
+function CreateAccountModal({ employee, onClose, onSaved }: {
+  employee: Employee; onClose: () => void; onSaved: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [email, setEmail] = useState(employee.email || '')
+  const [password, setPassword] = useState('')
+  const [showPass, setShowPass] = useState(false)
+  const [error, setError] = useState('')
+
+  async function create() {
+    if (!email || !password) { setError('يرجى إدخال الإيميل وكلمة المرور'); return }
+    if (password.length < 6) { setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return }
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch('/api/create-employee-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: employee.id, email, password }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'حدث خطأ'); setSaving(false); return }
+      onSaved()
+    } catch { setError('خطأ في الاتصال'); setSaving(false) }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 420, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>🔑 إنشاء حساب دخول</h3>
+            <p style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>{employee.name}</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        {error && (
+          <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: S.red }}>❌ {error}</div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>البريد الإلكتروني *</label>
+            <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={email} onChange={e => setEmail(e.target.value)} placeholder="email@orchid.com" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>كلمة المرور * (6 أحرف على الأقل)</label>
+            <div style={{ position: 'relative' }}>
+              <input style={{ ...inp, direction: 'ltr', textAlign: 'left', paddingLeft: 40 }} type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+              <button onClick={() => setShowPass(p => !p)} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 14 }}>
+                {showPass ? '🙈' : '👁️'}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={create} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳ جاري الإنشاء...' : '✅ إنشاء الحساب'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══ Change Password Modal ══
+function ChangePasswordModal({ employee, onClose, onSaved }: {
+  employee: Employee; onClose: () => void; onSaved: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [password, setPassword] = useState('')
+  const [showPass, setShowPass] = useState(false)
+  const [error, setError] = useState('')
+
+  async function change() {
+    if (password.length < 6) { setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return }
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch('/api/create-employee-auth', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_user_id: employee.auth_user_id, new_password: password }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'حدث خطأ'); setSaving(false); return }
+      onSaved()
+    } catch { setError('خطأ في الاتصال'); setSaving(false) }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 380, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>🔄 تغيير كلمة المرور</h3>
+            <p style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>{employee.name}</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        {error && <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: S.red }}>❌ {error}</div>}
+        <div>
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>كلمة المرور الجديدة *</label>
+          <div style={{ position: 'relative' }}>
+            <input style={{ ...inp, direction: 'ltr', textAlign: 'left', paddingLeft: 40 }} type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+            <button onClick={() => setShowPass(p => !p)} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 14 }}>
+              {showPass ? '🙈' : '👁️'}
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={change} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '🔄 تغيير'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ══ Add/Edit Employee Modal ══
 function EmployeeModal({ employee, branches, onClose, onSaved }: {
@@ -56,7 +187,13 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: {
   onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
+  const photoRef = useRef<HTMLInputElement>(null)
+  const idRef = useRef<HTMLInputElement>(null)
   const [saving, setSaving] = useState(false)
+  const [photoPreview, setPhotoPreview] = useState<string>(employee?.photo_url || '')
+  const [idPreview, setIdPreview] = useState<string>(employee?.national_id_url || '')
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [idFile, setIdFile] = useState<File | null>(null)
   const [form, setForm] = useState({
     name: employee?.name || '',
     name_en: employee?.name_en || '',
@@ -72,10 +209,40 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: {
     is_active: employee?.is_active !== false,
   })
 
+  function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return
+    setPhotoFile(file)
+    setPhotoPreview(URL.createObjectURL(file))
+  }
+
+  function handleId(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return
+    setIdFile(file)
+    setIdPreview(URL.createObjectURL(file))
+  }
+
   async function save() {
     if (!form.name || !form.role) { alert('يرجى إدخال الاسم والدور'); return }
     setSaving(true)
-    const payload = { ...form, salary: parseFloat(form.salary) || 0 }
+
+    let photo_url = employee?.photo_url || null
+    let national_id_url = employee?.national_id_url || null
+
+    // رفع صورة الموظف
+    if (photoFile) {
+      const empId = employee?.id || `temp_${Date.now()}`
+      const url = await uploadImage(supabase, photoFile, `photos/${empId}_${Date.now()}.jpg`)
+      if (url) photo_url = url
+    }
+
+    // رفع صورة الهوية
+    if (idFile) {
+      const empId = employee?.id || `temp_${Date.now()}`
+      const url = await uploadImage(supabase, idFile, `ids/${empId}_${Date.now()}.jpg`)
+      if (url) national_id_url = url
+    }
+
+    const payload = { ...form, salary: parseFloat(form.salary) || 0, photo_url, national_id_url }
     const { error } = employee
       ? await supabase.from('employees').update(payload).eq('id', employee.id)
       : await supabase.from('employees').insert([payload])
@@ -86,7 +253,7 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
-      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 680, padding: 32, margin: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 720, padding: 32, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
             <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>
@@ -97,6 +264,48 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: {
           <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
 
+        {/* ── صور الموظف والهوية ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20, padding: 16, background: S.card, borderRadius: 14 }}>
+          {/* صورة الموظف */}
+          <div>
+            <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 10 }}>📸 صورة الموظف</div>
+            <div onClick={() => photoRef.current?.click()} style={{ width: 100, height: 100, borderRadius: '50%', border: `2px dashed ${photoPreview ? S.green : S.border}`, cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: S.navy3, transition: 'all .2s', margin: '0 auto 10px' }}>
+              {photoPreview ? (
+                <img src={photoPreview} alt="صورة" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 28 }}>👤</div>
+                  <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>اضغط لرفع</div>
+                </div>
+              )}
+            </div>
+            <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
+            {photoPreview && (
+              <button onClick={() => { setPhotoPreview(''); setPhotoFile(null) }} style={{ display: 'block', margin: '0 auto', padding: '4px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>🗑️ حذف</button>
+            )}
+          </div>
+
+          {/* صورة الهوية */}
+          <div>
+            <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 10 }}>🪪 صورة الهوية</div>
+            <div onClick={() => idRef.current?.click()} style={{ width: '100%', height: 100, borderRadius: 12, border: `2px dashed ${idPreview ? S.green : S.border}`, cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: S.navy3, transition: 'all .2s', marginBottom: 10 }}>
+              {idPreview ? (
+                <img src={idPreview} alt="هوية" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 28 }}>🪪</div>
+                  <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>اضغط لرفع صورة الهوية</div>
+                </div>
+              )}
+            </div>
+            <input ref={idRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleId} />
+            {idPreview && (
+              <button onClick={() => { setIdPreview(''); setIdFile(null) }} style={{ display: 'block', margin: '0 auto', padding: '4px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>🗑️ حذف</button>
+            )}
+          </div>
+        </div>
+
+        {/* ── البيانات ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الاسم (عربي) *</label>
@@ -152,7 +361,7 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: {
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>ملاحظات</label>
             <input style={inp} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="أي ملاحظات..." />
           </div>
-          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 16 }}>
+          <div style={{ gridColumn: '1 / -1' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: S.card, borderRadius: 10, padding: '10px 16px' }}>
               <input type="checkbox" checked={form.is_active} onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))} style={{ accentColor: S.green, width: 16, height: 16 }} />
               <div>
@@ -175,8 +384,9 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: {
 }
 
 // ══ Employee Detail Modal ══
-function EmployeeDetailModal({ employee, onClose, onEdit }: {
+function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onChangePassword }: {
   employee: Employee; onClose: () => void; onEdit: () => void
+  onCreateAccount: () => void; onChangePassword: () => void
 }) {
   const role = ROLES[employee.role] || ROLES.employee
   const yearsInService = employee.join_date
@@ -185,16 +395,20 @@ function EmployeeDetailModal({ employee, onClose, onEdit }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
-      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 520, padding: 28, margin: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, padding: 28, margin: 'auto' }}>
+
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 60, height: 60, borderRadius: '50%', background: role.bg, border: `2px solid ${role.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>
-              {role.icon}
+            {/* صورة الموظف */}
+            <div style={{ width: 64, height: 64, borderRadius: '50%', border: `2px solid ${role.color}`, overflow: 'hidden', flexShrink: 0, background: role.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30 }}>
+              {employee.photo_url ? (
+                <img src={employee.photo_url} alt={employee.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : role.icon}
             </div>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: S.white, marginBottom: 4 }}>{employee.name}</div>
-              {employee.name_en && <div style={{ fontSize: 13, color: S.muted, fontStyle: 'italic' }}>{employee.name_en}</div>}
+              {employee.name_en && <div style={{ fontSize: 13, color: S.muted, fontStyle: 'italic', marginBottom: 6 }}>{employee.name_en}</div>}
               <span style={{ background: role.bg, color: role.color, borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>
                 {role.icon} {role.label}
               </span>
@@ -203,7 +417,8 @@ function EmployeeDetailModal({ employee, onClose, onEdit }: {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+        {/* Info Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
           {[
             { label: 'رقم الموظف', value: employee.employee_number || '—', icon: '🔢' },
             { label: 'القسم', value: employee.department || '—', icon: '🏷️' },
@@ -219,6 +434,37 @@ function EmployeeDetailModal({ employee, onClose, onEdit }: {
               <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{row.value}</div>
             </div>
           ))}
+        </div>
+
+        {/* صورة الهوية */}
+        {employee.national_id_url && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 8 }}>🪪 صورة الهوية</div>
+            <img
+              src={employee.national_id_url} alt="هوية"
+              style={{ width: '100%', maxHeight: 160, borderRadius: 10, objectFit: 'cover', cursor: 'pointer', border: `1px solid ${S.border}` }}
+              onClick={() => window.open(employee.national_id_url, '_blank')}
+            />
+          </div>
+        )}
+
+        {/* حساب الدخول */}
+        <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>🔑 حساب الدخول</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: employee.auth_user_id ? S.green : S.red }}>
+              {employee.auth_user_id ? '✅ حساب نشط' : '❌ لا يوجد حساب'}
+            </div>
+          </div>
+          {employee.auth_user_id ? (
+            <button onClick={onChangePassword} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>
+              🔄 تغيير كلمة المرور
+            </button>
+          ) : (
+            <button onClick={onCreateAccount} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>
+              🔑 إنشاء حساب
+            </button>
+          )}
         </div>
 
         {employee.notes && (
@@ -246,6 +492,8 @@ export default function EmployeesPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editEmp, setEditEmp] = useState<Employee | null>(null)
   const [detailEmp, setDetailEmp] = useState<Employee | null>(null)
+  const [createAccountEmp, setCreateAccountEmp] = useState<Employee | null>(null)
+  const [changePassEmp, setChangePassEmp] = useState<Employee | null>(null)
   const [search, setSearch] = useState('')
   const [filterRole, setFilterRole] = useState('all')
   const [filterDept, setFilterDept] = useState('all')
@@ -270,14 +518,12 @@ export default function EmployeesPage() {
     fetchAll()
   }
 
-  // Stats
   const activeCount = employees.filter(e => e.is_active).length
   const roleCounts = Object.keys(ROLES).reduce((acc, r) => {
     acc[r] = employees.filter(e => e.role === r).length
     return acc
   }, {} as Record<string, number>)
 
-  // Filter
   const filtered = employees.filter(e => {
     const matchSearch = !search || e.name.includes(search) || (e.name_en || '').toLowerCase().includes(search.toLowerCase()) || (e.employee_number || '').includes(search)
     const matchRole = filterRole === 'all' || e.role === filterRole
@@ -369,12 +615,18 @@ export default function EmployeesPage() {
               <div key={emp.id} className="emp-card" onClick={() => setDetailEmp(emp)}
                 style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${emp.is_active ? S.border : S.redB}`, padding: 20, cursor: 'pointer', opacity: emp.is_active ? 1 : 0.7 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                  <div style={{ width: 52, height: 52, borderRadius: '50%', background: role.bg, border: `2px solid ${role.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>
-                    {role.icon}
+                  {/* صورة الموظف في الكارد */}
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', border: `2px solid ${role.color}`, overflow: 'hidden', background: role.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
+                    {emp.photo_url ? (
+                      <img src={emp.photo_url} alt={emp.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : role.icon}
                   </div>
-                  <span style={{ background: emp.is_active ? S.greenB : S.redB, color: emp.is_active ? S.green : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
-                    {emp.is_active ? '✅ نشط' : '⏸ موقف'}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    <span style={{ background: emp.is_active ? S.greenB : S.redB, color: emp.is_active ? S.green : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
+                      {emp.is_active ? '✅ نشط' : '⏸ موقف'}
+                    </span>
+                    {emp.auth_user_id && <span style={{ fontSize: 10, color: S.green }}>🔑 حساب نشط</span>}
+                  </div>
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>{emp.name}</div>
                 {emp.name_en && <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', marginBottom: 8 }}>{emp.name_en}</div>}
@@ -399,10 +651,10 @@ export default function EmployeesPage() {
       ) : (
         <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 750 }}>
               <thead>
                 <tr style={{ background: S.navy3 }}>
-                  {['الموظف', 'الدور', 'القسم', 'الفرع', 'الراتب', 'تاريخ الانضمام', 'الحالة', ''].map(h => (
+                  {['الموظف', 'الدور', 'القسم', 'الفرع', 'الراتب', 'تاريخ الانضمام', 'الحساب', 'الحالة', ''].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                   ))}
                 </tr>
@@ -414,7 +666,9 @@ export default function EmployeesPage() {
                     <tr key={emp.id} onClick={() => setDetailEmp(emp)} style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer', opacity: emp.is_active ? 1 : 0.6 }}>
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: role.bg, border: `1px solid ${role.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{role.icon}</div>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', border: `1px solid ${role.color}`, overflow: 'hidden', background: role.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                            {emp.photo_url ? <img src={emp.photo_url} alt={emp.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : role.icon}
+                          </div>
                           <div>
                             <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{emp.name}</div>
                             <div style={{ fontSize: 11, color: S.muted }}>{emp.employee_number || emp.name_en}</div>
@@ -428,6 +682,11 @@ export default function EmployeesPage() {
                       <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{emp.branches?.name || '—'}</td>
                       <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 700, color: S.gold }}>{emp.salary ? `MYR ${emp.salary.toLocaleString()}` : '—'}</td>
                       <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{emp.join_date || '—'}</td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <span style={{ fontSize: 12, color: emp.auth_user_id ? S.green : S.muted }}>
+                          {emp.auth_user_id ? '🔑 نشط' : '—'}
+                        </span>
+                      </td>
                       <td style={{ padding: '12px 16px' }}>
                         <span style={{ background: emp.is_active ? S.greenB : S.redB, color: emp.is_active ? S.green : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
                           {emp.is_active ? '✅ نشط' : '⏸ موقف'}
@@ -457,9 +716,27 @@ export default function EmployeesPage() {
           onSaved={() => { setShowAdd(false); setEditEmp(null); fetchAll() }} />
       )}
       {detailEmp && (
-        <EmployeeDetailModal employee={detailEmp}
+        <EmployeeDetailModal
+          employee={detailEmp}
           onClose={() => setDetailEmp(null)}
-          onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }} />
+          onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }}
+          onCreateAccount={() => { setCreateAccountEmp(detailEmp); setDetailEmp(null) }}
+          onChangePassword={() => { setChangePassEmp(detailEmp); setDetailEmp(null) }}
+        />
+      )}
+      {createAccountEmp && (
+        <CreateAccountModal
+          employee={createAccountEmp}
+          onClose={() => setCreateAccountEmp(null)}
+          onSaved={() => { setCreateAccountEmp(null); fetchAll() }}
+        />
+      )}
+      {changePassEmp && (
+        <ChangePasswordModal
+          employee={changePassEmp}
+          onClose={() => setChangePassEmp(null)}
+          onSaved={() => { setChangePassEmp(null); fetchAll() }}
+        />
       )}
     </div>
   )

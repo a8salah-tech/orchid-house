@@ -115,7 +115,7 @@ const ALL_MENU: MenuGroup[] = [
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { employee, permissions, hasPermission, signOut } = useAuth()
+  const { employee, permissions, hasPermission, signOut, loading } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -124,6 +124,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const roleInfo = ROLE_LABELS[employee?.role || 'employee'] || ROLE_LABELS.employee
   const isAdmin = permissions?.all === true
 
+  if (loading) return (
+    <div style={{ minHeight: '100vh', background: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#C9A84C', fontFamily: 'Tajawal, sans-serif', fontSize: 18 }}>
+      🌸 جاري التحميل...
+    </div>
+  )
+  
   // فلتر القائمة بناءً على الصلاحيات
 const visibleMenu = useMemo(() => 
   ALL_MENU.map(group => ({

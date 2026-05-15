@@ -330,7 +330,7 @@ export default function MenuItemsPage() {
     setLoading(true)
     const [cats, itms] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('*, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_items').select('*, menu_categories(name,name_en,icon)').order('sort_order').order('name').order('sort_order').order('name'),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,

@@ -64,13 +64,13 @@ interface EmployeeRequest {
 }
 
 // ══ New Request Modal ══
-function NewRequestModal({ employees, onClose, onSaved }: {
-  employees: Employee[]; onClose: () => void; onSaved: () => void
+function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId }: {
+  employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    employee_id: '', request_type: 'leave_annual',
+    employee_id: currentEmployeeId || '', request_type: 'leave_annual',
     title: '', description: '', amount: '',
     start_date: '', end_date: '',
   })
@@ -130,10 +130,16 @@ function NewRequestModal({ employees, onClose, onSaved }: {
           {/* الموظف */}
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الموظف *</label>
-            <select style={{ ...inp }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
-              <option value="">اختر الموظف</option>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.name} — {e.department || e.role}</option>)}
-            </select>
+            {currentEmployeeId ? (
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8' }}>
+                👤 {employees.find(e => e.id === currentEmployeeId)?.name || 'أنت'}
+              </div>
+            ) : (
+              <select style={{ ...inp }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
+                <option value="">اختر الموظف</option>
+                {employees.map(e => <option key={e.id} value={e.id}>{e.name} — {e.department || e.role}</option>)}
+              </select>
+            )}
           </div>
 
           {/* العنوان */}
@@ -332,6 +338,11 @@ function RequestDetailModal({ request, onClose, onUpdate }: {
 // ══ الصفحة الرئيسية ══
 export default function EmployeeRequestsPage() {
   const supabase = createClient()
+  const { employee: currentUser, permissions } = useAuth()
+  const isAdmin = permissions?.all === true
+  const isManager = isAdmin || ['branch_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
+  const isEmployee = !isManager
+
   const [requests, setRequests] = useState<EmployeeRequest[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
@@ -344,16 +355,23 @@ export default function EmployeeRequestsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
+    let reqQuery = supabase.from('employee_requests')
+      .select('*, employees(name, role, department)')
+      .order('created_at', { ascending: false })
+
+    // الموظف العادي يشوف طلباته فقط
+    if (isEmployee && currentUser?.id) {
+      reqQuery = reqQuery.eq('employee_id', currentUser.id)
+    }
+
     const [req, emp] = await Promise.all([
-      supabase.from('employee_requests')
-        .select('*, employees(name, role, department)')
-        .order('created_at', { ascending: false }),
+      reqQuery,
       supabase.from('employees').select('id,name,role,department').eq('is_active', true).order('name'),
     ])
     setRequests(req.data || [])
     setEmployees(emp.data || [])
     setLoading(false)
-  }, [])
+  }, [isEmployee, currentUser?.id])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -386,8 +404,12 @@ export default function EmployeeRequestsPage() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>📋 طلبات الموظفين</h1>
-          <p style={{ fontSize: 13, color: S.muted }}>إدارة طلبات الإجازات والسلف والمقترحات</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>
+            {isEmployee ? '📋 طلباتي' : '📋 طلبات الموظفين'}
+          </h1>
+          <p style={{ fontSize: 13, color: S.muted }}>
+            {isEmployee ? 'طلباتك الشخصية — إجازات، سلف، ومقترحات' : 'إدارة طلبات الإجازات والسلف والمقترحات'}
+          </p>
         </div>
         <button onClick={() => setShowNew(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
           ➕ طلب جديد
@@ -436,10 +458,12 @@ export default function EmployeeRequestsPage() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث بالاسم أو رقم الطلب..." />
-        <select style={{ ...inp, width: 'auto', minWidth: 160 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
-          <option value="all">كل الموظفين</option>
-          {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-        </select>
+        {!isEmployee && (
+          <select style={{ ...inp, width: 'auto', minWidth: 160 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
+            <option value="all">كل الموظفين</option>
+            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        )}
         {(search || filterStatus !== 'all' || filterType !== 'all' || filterEmp !== 'all') && (
           <button onClick={() => { setSearch(''); setFilterStatus('all'); setFilterType('all'); setFilterEmp('all') }}
             style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
@@ -522,7 +546,7 @@ export default function EmployeeRequestsPage() {
         </div>
       )}
 
-      {showNew && <NewRequestModal employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} />}
+      {showNew && <NewRequestModal employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployeeId={isEmployee ? currentUser?.id : undefined} />}
       {selected && <RequestDetailModal request={selected} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} />}
     </div>
   )

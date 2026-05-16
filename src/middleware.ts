@@ -6,7 +6,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // الصفحات العامة — مش محتاجة login
-  const publicPaths = ['/login', '/unauthorized']
+  const publicPaths = ['/login', '/unauthorized', '/register']
   if (publicPaths.includes(pathname)) {
     return NextResponse.next()
   }

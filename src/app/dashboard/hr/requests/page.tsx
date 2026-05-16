@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useAuth } from '../../../components/AuthProvider'
 import { createBrowserClient } from '@supabase/ssr'
 
 const createClient = () => createBrowserClient(

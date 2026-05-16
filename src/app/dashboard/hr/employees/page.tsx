@@ -50,6 +50,12 @@ interface Employee {
   auth_user_id?: string; branches?: { name: string }
 }
 interface Branch { id: string; name: string }
+interface Registration {
+  id: string; created_at: string; name: string; name_en: string
+  phone: string; email: string; email_account: string; password_hint: string
+  department: string; role: string
+  notes: string; photo_url: string; national_id_url: string; status: string
+}
 
 // ══ Upload image to Supabase Storage ══
 async function uploadImage(supabase: ReturnType<typeof createClient>, file: File, path: string): Promise<string | null> {
@@ -499,19 +505,76 @@ export default function EmployeesPage() {
   const [filterDept, setFilterDept] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [view, setView] = useState<'grid' | 'list'>('grid')
+  const [registrations, setRegistrations] = useState<Registration[]>([])
+  const [showRegistrations, setShowRegistrations] = useState(false)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [emp, br] = await Promise.all([
+    const [emp, br, reg] = await Promise.all([
       supabase.from('employees').select('*, branches(name)').order('name'),
       supabase.from('branches').select('id,name').eq('is_active', true),
+      supabase.from('employee_registrations').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
     ])
     setEmployees(emp.data || [])
     setBranches(br.data || [])
+    setRegistrations(reg.data || [])
     setLoading(false)
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  async function activateRegistration(reg: Registration) {
+    // نقل بيانات التسجيل لجدول الموظفين
+    const { data: newEmp, error } = await supabase.from('employees').insert([{
+      name: reg.name,
+      name_en: reg.name_en || null,
+      phone: reg.phone || null,
+      email: reg.email_account || reg.email || null,
+      department: reg.department || null,
+      role: reg.role || 'employee',
+      photo_url: reg.photo_url || null,
+      national_id_url: reg.national_id_url || null,
+      notes: reg.notes || null,
+      is_active: true,
+      join_date: new Date().toISOString().split('T')[0],
+    }]).select().single()
+    if (error) { alert('خطأ: ' + error.message); return }
+
+    // لو في إيميل وباسورد — ننشئ حساب تلقائياً
+    if (reg.email_account && reg.password_hint && newEmp?.id) {
+      try {
+        const res = await fetch('/api/create-employee-auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_id: newEmp.id,
+            email: reg.email_account,
+            password: reg.password_hint,
+          }),
+        })
+        const result = await res.json()
+        if (!res.ok) {
+          alert('✅ تم إضافة الموظف لكن فشل إنشاء الحساب: ' + result.error)
+        } else {
+          alert('✅ تم تفعيل الموظف ' + reg.name + ' وإنشاء حسابه بنجاح!')
+        }
+      } catch {
+        alert('✅ تم إضافة الموظف لكن فشل إنشاء الحساب')
+      }
+    } else {
+      alert('✅ تم تفعيل الموظف ' + reg.name + ' بنجاح!')
+    }
+
+    // تغيير حالة الطلب لـ approved
+    await supabase.from('employee_registrations').update({ status: 'approved' }).eq('id', reg.id)
+    fetchAll()
+  }
+
+  async function rejectRegistration(reg: Registration) {
+    if (!confirm('هل أنت متأكد من رفض طلب ' + reg.name + '؟')) return
+    await supabase.from('employee_registrations').update({ status: 'rejected' }).eq('id', reg.id)
+    fetchAll()
+  }
 
   async function toggleActive(emp: Employee) {
     await supabase.from('employees').update({ is_active: !emp.is_active }).eq('id', emp.id)
@@ -552,6 +615,79 @@ export default function EmployeesPage() {
           ➕ موظف جديد
         </button>
       </div>
+
+      {/* ══ طلبات التسجيل المعلقة ══ */}
+      {registrations.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: S.amberB, border: `1px solid ${S.amber}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>📋</div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>طلبات التسجيل الجديدة</div>
+                <div style={{ fontSize: 12, color: S.muted }}>{registrations.length} طلب في انتظار المراجعة</div>
+              </div>
+            </div>
+            <button onClick={() => setShowRegistrations(p => !p)}
+              style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {showRegistrations ? 'إخفاء' : 'عرض الطلبات'}
+            </button>
+          </div>
+
+          {showRegistrations && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              {registrations.map(reg => (
+                <div key={reg.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.amber}30`, padding: '16px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      {reg.photo_url ? (
+                        <img src={reg.photo_url} alt={reg.name} style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${S.gold}` }} />
+                      ) : (
+                        <div style={{ width: 48, height: 48, borderRadius: '50%', background: S.gold3, border: `2px solid ${S.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👤</div>
+                      )}
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>{reg.name}</div>
+                        {reg.name_en && <div style={{ fontSize: 12, color: S.muted, fontStyle: 'italic', marginBottom: 4 }}>{reg.name_en}</div>}
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {reg.role && <span style={{ background: S.gold3, color: S.gold, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>{reg.role}</span>}
+                          {reg.department && <span style={{ background: S.blueB, color: S.blue, borderRadius: 20, padding: '2px 10px', fontSize: 11 }}>{reg.department}</span>}
+                          {reg.phone && <span style={{ fontSize: 11, color: S.muted }}>📞 {reg.phone}</span>}
+                          {reg.email && <span style={{ fontSize: 11, color: S.muted }}>📧 {reg.email}</span>}
+                          {reg.email_account && <span style={{ background: S.greenB, color: S.green, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>🔑 حساب جاهز</span>}
+                        </div>
+                        {reg.national_id_url && (
+                          <button onClick={() => window.open(reg.national_id_url, '_blank')}
+                            style={{ marginTop: 6, padding: '3px 10px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                            🪪 عرض الهوية
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      <button onClick={() => activateRegistration(reg)}
+                        style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        ✅ تفعيل
+                      </button>
+                      <button onClick={() => rejectRegistration(reg)}
+                        style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        ❌ رفض
+                      </button>
+                    </div>
+                  </div>
+                  {reg.notes && (
+                    <div style={{ marginTop: 10, background: S.card, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: S.muted }}>
+                      📝 {reg.notes}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 6, fontSize: 10, color: S.muted }}>
+                    ⏰ {new Date(reg.created_at).toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ height: 1, background: S.border, marginBottom: 8 }} />
+        </div>
+      )}
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 24 }}>

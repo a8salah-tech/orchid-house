@@ -70,6 +70,7 @@ export default function RegisterPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [idFile, setIdFile] = useState<File | null>(null)
 
+  const [showPass, setShowPass] = useState(false)
   const [form, setForm] = useState({
     name: '',
     name_en: '',
@@ -79,6 +80,8 @@ export default function RegisterPage() {
     branch: '',
     phone: '',
     email: '',
+    email_account: '',
+    password: '',
     join_date: new Date().toISOString().split('T')[0],
     salary: '',
     notes: '',
@@ -108,6 +111,8 @@ export default function RegisterPage() {
 
   async function handleSubmit() {
     if (!form.name) { setError('يرجى إدخال الاسم الكامل'); return }
+    if (form.email_account && !form.password) { setError('يرجى إدخال كلمة المرور مع البريد الإلكتروني'); return }
+    if (form.password && form.password.length < 6) { setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return }
     if (!form.role) { setError('يرجى اختيار الدور الوظيفي'); return }
 
     setStep('uploading')
@@ -145,6 +150,8 @@ export default function RegisterPage() {
       name_en: form.name_en || null,
       phone: form.phone || null,
       email: form.email || null,
+      email_account: form.email_account || null,
+      password_hint: form.password || null,
       department: form.department || null,
       role: form.role,
       notes: form.notes ? `رقم الموظف: ${form.employee_number || '—'} | الفرع: ${form.branch || '—'} | الراتب: ${form.salary || '—'} | تاريخ الانضمام: ${form.join_date} | ${form.notes}` : `رقم الموظف: ${form.employee_number || '—'} | الفرع: ${form.branch || '—'} | الراتب: ${form.salary || '—'} | تاريخ الانضمام: ${form.join_date}`,
@@ -354,6 +361,33 @@ export default function RegisterPage() {
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>الراتب الأساسي (MYR)</label>
                 <input style={inp} type="number" value={form.salary} onChange={e => setForm(p => ({ ...p, salary: e.target.value }))} placeholder="0.00" />
+              </div>
+            </div>
+
+            {/* ══ حساب الدخول ══ */}
+            <div style={{ background: S.blueB, border: `1px solid ${S.blue}30`, borderRadius: 14, padding: '16px', marginTop: 4 }}>
+              <div style={{ fontSize: 13, color: S.blue, fontWeight: 700, marginBottom: 12 }}>🔑 حساب الدخول </div>
+              <p style={{ fontSize: 11, color: S.muted, marginBottom: 12, lineHeight: 1.6 }}>
+                يمكنك تحديد بريد إلكتروني وكلمة مرور لحسابك في النظام الأن.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>البريد الإلكتروني للدخول</label>
+                  <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} type="email" value={form.email_account} onChange={e => setForm(p => ({ ...p, email_account: e.target.value }))} placeholder="email@orchid.com" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>كلمة المرور (6 أحرف على الأقل)</label>
+                  <div style={{ position: 'relative' }}>
+                    <input style={{ ...inp, direction: 'ltr', textAlign: 'left', paddingLeft: 40 }}
+                      type={showPass ? 'text' : 'password'}
+                      value={form.password}
+                      onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                      placeholder="••••••••" />
+                    <button onClick={() => setShowPass(p => !p)} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 16 }}>
+                      {showPass ? '🙈' : '👁️'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

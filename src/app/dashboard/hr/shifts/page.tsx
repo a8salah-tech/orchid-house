@@ -9,7 +9,6 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
-
 // تحويل التاريخ بدون UTC offset
 function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -200,6 +199,17 @@ function AssignModal({ employees, shifts, onClose, onSaved }: {
     await supabase.from('shift_schedules').delete()
       .eq('employee_id', form.employee_id).eq('date', form.date)
     const { error } = await supabase.from('shift_schedules').insert([{ ...form, status: 'confirmed' }])
+    if (!error) {
+      // إشعار للموظف بالشيفت الجديد
+      const shift = shifts.find(s => s.id === form.shift_id)
+      await supabase.from('employee_requests').insert([{
+        employee_id: form.employee_id,
+        request_type: 'shift_assigned',
+        title: `تم تعيين شيفت: ${shift?.name || ''}`,
+        description: `تم تعيينك في ${shift?.name} يوم ${form.date} من ${shift?.start_time?.slice(0,5)} إلى ${shift?.end_time?.slice(0,5)}`,
+        status: 'approved',
+      }])
+    }
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
     onSaved()
@@ -389,19 +399,26 @@ export default function ShiftsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [sh, emp, sch, req] = await Promise.all([
-      supabase.from('shifts').select('*').eq('is_active', true).order('start_time'),
-      supabase.from('employees').select('id,name,role,department,photo_url').eq('is_active', true).order('name'),
-      supabase.from('shift_schedules').select('*, employees(name,department), shifts(name,start_time,end_time,color)')
-        .gte('date', toLocalDateStr(weekDays[0]))
-        .lte('date', toLocalDateStr(weekDays[6]))
-        .order('date'),
-      supabase.from('shift_requests').select('*, employees(name,department), shifts(name,start_time,end_time,color)')
-        .eq('status', 'pending').order('created_at', { ascending: false }),
-    ])
+    // حساب الأسبوع جوا fetchAll عشان يكون محدّث
+    const start = new Date()
+    start.setDate(start.getDate() + weekOffset * 7 - start.getDay())
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(start)
+      d.setDate(start.getDate() + i)
+      return toLocalDateStr(d)
+    })
+const [sh, emp, sch, req] = await Promise.all([
+  supabase.from('shifts').select('*').eq('is_active', true).order('start_time'),
+  supabase.from('employees').select('id,name,role,department,photo_url').eq('is_active', true).order('name'),
+  supabase.from('shift_schedules').select('*, employees(name,department), shifts(name,start_time,end_time,color)')
+    .order('date', { ascending: false }).limit(500),
+  supabase.from('shift_requests').select('*, employees(name,department), shifts(name,start_time,end_time,color)')
+    .eq('status', 'pending').order('created_at', { ascending: false }),
+])
     setShifts(sh.data || [])
     setEmployees(emp.data || [])
-    setSchedules(sch.data || [])
+    const schedulesData = sch.data || []
+    setSchedules(schedulesData)
 
     // طلبات حسب الدور
     if (isAdmin) {
@@ -581,6 +598,45 @@ export default function ShiftsPage() {
         )
       })()}
 
+
+          {/* ══ من يعمل الآن ══ */}
+          {(() => {
+            const now = new Date()
+            const currentTime = now.getHours() * 60 + now.getMinutes()
+            const todayDate = toLocalDateStr(now)
+            const workingNow = schedules.filter(s => {
+              if (!s.date || s.date.slice(0,10) !== todayDate) return false
+              if (!s.shifts?.start_time || !s.shifts?.end_time) return false
+              const [sh, sm] = s.shifts.start_time.split(':').map(Number)
+              const [eh, em] = s.shifts.end_time.split(':').map(Number)
+              const start = sh * 60 + sm
+              let end = eh * 60 + em
+              if (end < start) end += 24 * 60
+              return currentTime >= start && currentTime <= end
+            })
+            if (workingNow.length === 0) return (
+              <div style={{ marginBottom: 16, background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: '12px 16px', fontSize: 13, color: S.muted }}>
+                🔴 لا يوجد موظفون في الشيفت حالياً
+              </div>
+            )
+            return (
+              <div style={{ marginBottom: 16, background: S.greenB, border: `1px solid rgba(34,197,94,0.3)`, borderRadius: 12, padding: '14px 18px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: S.green, marginBottom: 10 }}>
+                  🟢 يعملون الآن — {workingNow.length} موظف
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {workingNow.map(s => (
+                    <div key={s.id} style={{ background: (s.shifts?.color || S.green) + '20', border: `1px solid ${(s.shifts?.color || S.green)}40`, borderRadius: 10, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: S.green }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: S.white }}>{s.employees?.name}</span>
+                      <span style={{ fontSize: 10, color: S.muted }}>• {s.shifts?.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Week Navigation */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -616,7 +672,7 @@ export default function ShiftsPage() {
                     <tr style={{ background: S.navy3 }}>
                       <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, minWidth: 150, position: 'sticky', right: 0, background: S.navy3 }}>الموظف</th>
                       {weekDays.map((d, i) => {
-                        const isToday = d.toDateString() === new Date().toDateString()
+                        const isToday = toLocalDateStr(d) === toLocalDateStr(new Date())
                         return (
                           <th key={i} style={{ padding: '12px 10px', textAlign: 'center', fontSize: 11, color: isToday ? S.gold : S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, minWidth: 110, background: isToday ? S.gold3 : 'transparent' }}>
                             <div>{DAYS_AR[d.getDay()]}</div>
@@ -645,7 +701,7 @@ export default function ShiftsPage() {
                         {weekDays.map((d, di) => {
                           const dateStr = toLocalDateStr(d)
                           const schedule = getEmployeeShift(emp.id, dateStr)
-                          const isToday = d.toDateString() === new Date().toDateString()
+                          const isToday = toLocalDateStr(d) === toLocalDateStr(new Date())
                           return (
                             <td key={di} style={{ padding: '6px 8px', textAlign: 'center', background: isToday ? 'rgba(201,168,76,0.03)' : 'transparent' }}>
                               {schedule ? (

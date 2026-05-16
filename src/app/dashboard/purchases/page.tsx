@@ -56,45 +56,14 @@ async function scanInvoiceWithAI(base64Image: string, products: Product[]): Prom
   supplier_name: string; invoice_number: string; invoice_date: string
   items: { name: string; quantity: number; unit_price: number }[]; notes: string
 }> {
-  const productList = products.map(p => `${p.name}${p.name_en ? ` (${p.name_en})` : ''}`).join(', ')
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('/api/scan-invoice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image.split(',')[1] || base64Image } },
-          {
-            type: 'text',
-            text: `أنت نظام استخراج بيانات الفواتير. استخرج من هذه الفاتورة:
-1. اسم المورد/الشركة
-2. رقم الفاتورة
-3. تاريخ الفاتورة (بصيغة YYYY-MM-DD)
-4. قائمة الأصناف مع الكمية والسعر
-
-قائمة المنتجات الموجودة في النظام للمطابقة:
-${productList}
-
-أعد الرد بـ JSON فقط بهذا الشكل بدون أي نص إضافي:
-{
-  "supplier_name": "اسم المورد",
-  "invoice_number": "رقم الفاتورة",
-  "invoice_date": "YYYY-MM-DD",
-  "items": [{"name": "اسم الصنف", "quantity": 0, "unit_price": 0}],
-  "notes": "أي ملاحظات"
-}`
-          }
-        ]
-      }]
-    })
+    body: JSON.stringify({ base64Image, products })
   })
-  const data = await response.json()
-  const text = data.content?.[0]?.text || '{}'
-  const clean = text.replace(/```json|```/g, '').trim()
-  return JSON.parse(clean)
+  const result = await response.json()
+  if (!result.success) throw new Error(result.error)
+  return result.data
 }
 
 // ══ Add Supplier Modal ══

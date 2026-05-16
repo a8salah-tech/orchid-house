@@ -10,6 +10,13 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// تحويل التاريخ بدون UTC offset
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+function todayStr(): string { return toLocalDateStr(new Date()) }
+
+
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
   gold: '#C9A84C', gold2: '#E8C97A', gold3: 'rgba(201,168,76,0.12)',
@@ -182,7 +189,7 @@ function AssignModal({ employees, shifts, onClose, onSaved }: {
   const [form, setForm] = useState({
     employee_id: '',
     shift_id: '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayStr(),
     notes: '',
   })
 
@@ -266,7 +273,7 @@ function RequestShiftModal({ shifts, employeeId, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     shift_id: '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayStr(),
     reason: '',
   })
 
@@ -386,8 +393,8 @@ export default function ShiftsPage() {
       supabase.from('shifts').select('*').eq('is_active', true).order('start_time'),
       supabase.from('employees').select('id,name,role,department,photo_url').eq('is_active', true).order('name'),
       supabase.from('shift_schedules').select('*, employees(name,department), shifts(name,start_time,end_time,color)')
-        .gte('date', weekDays[0].toISOString().split('T')[0])
-        .lte('date', weekDays[6].toISOString().split('T')[0])
+        .gte('date', toLocalDateStr(weekDays[0]))
+        .lte('date', toLocalDateStr(weekDays[6]))
         .order('date'),
       supabase.from('shift_requests').select('*, employees(name,department), shifts(name,start_time,end_time,color)')
         .eq('status', 'pending').order('created_at', { ascending: false }),
@@ -455,7 +462,7 @@ export default function ShiftsPage() {
   })()
 
   const getEmployeeShift = (empId: string, date: string) =>
-    schedules.find(s => s.employee_id === empId && s.date === date)
+    schedules.find(s => s.employee_id === empId && s.date?.slice(0, 10) === date)
 
   // Tabs حسب الدور
   const tabs = isEmployee ? [
@@ -539,6 +546,41 @@ export default function ShiftsPage() {
       {/* ══ Tab: جدول الأسبوع ══ */}
       {activeTab === 'schedule' && (
         <div>
+
+      {/* ══ من يعمل الآن ══ */}
+      {activeTab === 'schedule' && (() => {
+        const now = new Date()
+        const currentTime = now.getHours() * 60 + now.getMinutes()
+        const todayDate = todayStr()
+        const workingNow = schedules.filter(s => {
+          if (s.date?.slice(0, 10) !== todayDate) return false
+          if (!s.shifts?.start_time || !s.shifts?.end_time) return false
+          const [sh, sm] = s.shifts.start_time.split(':').map(Number)
+          const [eh, em] = s.shifts.end_time.split(':').map(Number)
+          const start = sh * 60 + sm
+          let end = eh * 60 + em
+          if (end < start) end += 24 * 60 // شيفت ليلي
+          return currentTime >= start && currentTime <= end
+        })
+        if (workingNow.length === 0) return null
+        return (
+          <div style={{ marginBottom: 20, background: S.greenB, border: `1px solid ${S.green}30`, borderRadius: 14, padding: '14px 18px' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.green, marginBottom: 10 }}>
+              🟢 يعملون الآن — {workingNow.length} موظف
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {workingNow.map(s => (
+                <div key={s.id} style={{ background: (s.shifts?.color || S.green) + '20', border: `1px solid ${s.shifts?.color || S.green}40`, borderRadius: 10, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: S.green }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: S.white }}>{s.employees?.name}</span>
+                  <span style={{ fontSize: 10, color: S.muted }}>{s.shifts?.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
           {/* Week Navigation */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -601,7 +643,7 @@ export default function ShiftsPage() {
                           </div>
                         </td>
                         {weekDays.map((d, di) => {
-                          const dateStr = d.toISOString().split('T')[0]
+                          const dateStr = toLocalDateStr(d)
                           const schedule = getEmployeeShift(emp.id, dateStr)
                           const isToday = d.toDateString() === new Date().toDateString()
                           return (
@@ -706,7 +748,7 @@ export default function ShiftsPage() {
                             {req.shifts?.name}
                           </span>
                           <span style={{ fontSize: 12, color: S.muted }}>
-                            📅 {new Date(req.date).toLocaleDateString('ar-SA', { weekday: 'long', month: 'long', day: 'numeric' })}
+                            📅 {new Date(req.date + 'T00:00:00').toLocaleDateString('ar-SA', { weekday: 'long', month: 'long', day: 'numeric' })}
                           </span>
                         </div>
                         {req.reason && (
@@ -760,8 +802,8 @@ export default function ShiftsPage() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{new Date(sch.date).getDate()}</div>
-                      <div style={{ fontSize: 11, color: S.muted }}>{DAYS_AR[new Date(sch.date).getDay()]}</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{new Date(sch.date + 'T00:00:00').getDate()}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{DAYS_AR[new Date(sch.date + 'T00:00:00').getDay()]}</div>
                     </div>
                     <span style={{ background: S.greenB, color: S.green, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>✅ مؤكد</span>
                   </div>

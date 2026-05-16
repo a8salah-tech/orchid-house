@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useAuth } from '../../../components/AuthProvider'
 import { createBrowserClient } from '@supabase/ssr'
 
 const createClient = () => createBrowserClient(
@@ -489,9 +490,148 @@ function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onCha
   )
 }
 
+
+// ══ أنواع الطلبات للموظف ══
+const EMP_REQUEST_TYPES = [
+  { key: 'leave_annual',   label: 'إجازة سنوية',     icon: '🏖️' },
+  { key: 'leave_sick',     label: 'إجازة مرضية',     icon: '🏥' },
+  { key: 'leave_emergency',label: 'إجازة طارئة',     icon: '🚨' },
+  { key: 'advance',        label: 'سلفة راتب',        icon: '💰' },
+  { key: 'extra_meal',     label: 'وجبة إضافية',     icon: '🍽️' },
+  { key: 'complaint',      label: 'شكوى / مشكلة',    icon: '⚠️' },
+  { key: 'suggestion',     label: 'اقتراح',           icon: '💡' },
+  { key: 'other',          label: 'طلب آخر',          icon: '📋' },
+]
+
+// ══ Modal طلب الموظف ══
+function EmployeeRequestModal({ employeeId, onClose, onSaved }: {
+  employeeId: string; onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    request_type: 'leave_annual',
+    title: '',
+    description: '',
+    amount: '',
+    start_date: '',
+    end_date: '',
+  })
+
+  const reqType = EMP_REQUEST_TYPES.find(r => r.key === form.request_type)
+  const hasDates = ['leave_annual','leave_sick','leave_emergency'].includes(form.request_type)
+  const hasAmount = form.request_type === 'advance'
+  const daysCount = form.start_date && form.end_date
+    ? Math.ceil((new Date(form.end_date).getTime() - new Date(form.start_date).getTime()) / (1000*60*60*24)) + 1
+    : 0
+
+  async function save() {
+    if (!form.description) { alert('يرجى إدخال تفاصيل الطلب'); return }
+    setSaving(true)
+    const { error } = await supabase.from('employee_requests').insert([{
+      employee_id: employeeId,
+      request_type: form.request_type,
+      title: form.title || reqType?.label,
+      description: form.description,
+      amount: form.amount ? parseFloat(form.amount) : null,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      days_count: daysCount || null,
+      status: 'pending',
+    }])
+    setSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
+    onSaved()
+  }
+
+  const inp2: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 10, padding: '10px 14px', fontSize: 13,
+    color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
+    boxSizing: 'border-box', direction: 'rtl',
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 540, padding: 28, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 4 }}>📋 تقديم طلب جديد</h2>
+            <p style={{ fontSize: 12, color: S.muted }}>سيتم إرسال طلبك للإدارة</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* نوع الطلب */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+          {EMP_REQUEST_TYPES.map(r => (
+            <button key={r.key} onClick={() => setForm(p => ({ ...p, request_type: r.key }))}
+              style={{ padding: '10px 6px', borderRadius: 10, border: `1px solid ${form.request_type === r.key ? S.gold : S.border}`, background: form.request_type === r.key ? S.gold3 : 'transparent', color: form.request_type === r.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: form.request_type === r.key ? 700 : 400, textAlign: 'center' }}>
+              <div style={{ fontSize: 20, marginBottom: 4 }}>{r.icon}</div>
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>عنوان الطلب</label>
+            <input style={inp2} value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder={reqType?.label} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>تفاصيل الطلب *</label>
+            <textarea style={{ ...inp2, minHeight: 90, resize: 'vertical' } as React.CSSProperties}
+              value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+              placeholder="اشرح طلبك بالتفصيل..." />
+          </div>
+          {hasAmount && (
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المبلغ المطلوب (MYR)</label>
+              <input style={inp2} type="number" value={form.amount} onChange={e => setForm(p => ({ ...p, amount: e.target.value }))} placeholder="0.00" />
+            </div>
+          )}
+          {hasDates && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>من تاريخ</label>
+                <input style={inp2} type="date" value={form.start_date} onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>إلى تاريخ</label>
+                <input style={inp2} type="date" value={form.end_date} onChange={e => setForm(p => ({ ...p, end_date: e.target.value }))} />
+              </div>
+              {daysCount > 0 && (
+                <div style={{ gridColumn: '1/-1', background: S.blueB, borderRadius: 10, padding: '8px 14px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12, color: S.muted }}>عدد الأيام</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.blue }}>{daysCount} يوم</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '📤 إرسال الطلب'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ══ الصفحة الرئيسية ══
 export default function EmployeesPage() {
   const supabase = createClient()
+  const { employee: currentUser, permissions } = useAuth()
+  const isAdmin = permissions?.all === true
+  const isManager = isAdmin || ['branch_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
+  const isEmployee = !isManager
+
+  const [myRequests, setMyRequests] = useState<any[]>([])
+  const [showNewRequest, setShowNewRequest] = useState(false)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(true)
@@ -518,8 +658,19 @@ export default function EmployeesPage() {
     setEmployees(emp.data || [])
     setBranches(br.data || [])
     setRegistrations(reg.data || [])
+
+    // جلب طلبات الموظف الحالي
+    if (currentUser?.id) {
+      const { data: myReq } = await supabase.from('employee_requests')
+        .select('*')
+        .eq('employee_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(20)
+      setMyRequests(myReq || [])
+    }
+
     setLoading(false)
-  }, [])
+  }, [currentUser?.id])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -594,6 +745,103 @@ export default function EmployeesPage() {
     const matchStatus = filterStatus === 'all' || (filterStatus === 'active' ? e.is_active : !e.is_active)
     return matchSearch && matchRole && matchDept && matchStatus
   })
+
+  // ══ شاشة الموظف العادي ══
+  if (isEmployee && currentUser) {
+    const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
+      pending:  { label: '⏳ قيد المراجعة', color: S.amber, bg: S.amberB },
+      approved: { label: '✅ موافق عليه',   color: S.green, bg: S.greenB },
+      rejected: { label: '❌ مرفوض',        color: S.red,   bg: S.redB },
+      completed:{ label: '🏁 مكتمل',        color: S.teal,  bg: S.tealB },
+    }
+    return (
+      <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap'); select option { background: #0F2040; color: #FAFAF8; } input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }`}</style>
+
+        {/* بيانات الموظف */}
+        <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: '24px', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: S.gold3, border: `2px solid ${S.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>
+                {currentUser.name?.charAt(0) || '👤'}
+              </div>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: S.white, marginBottom: 4 }}>{currentUser.name}</div>
+                <div style={{ fontSize: 13, color: S.muted }}>
+                  {currentUser.department && `🏷️ ${currentUser.department}`}
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setShowNewRequest(true)}
+              style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              ➕ طلب جديد
+            </button>
+          </div>
+        </div>
+
+        {/* طلباتي */}
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: S.white, marginBottom: 16 }}>📋 طلباتي</div>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
+          ) : myRequests.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}` }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد طلبات بعد</div>
+              <div style={{ fontSize: 13, color: S.muted, marginBottom: 20 }}>اضغط "طلب جديد" لتقديم طلبك</div>
+              <button onClick={() => setShowNewRequest(true)}
+                style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ➕ طلب جديد
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {myRequests.map((req: any) => {
+                const st = STATUS_MAP[req.status] || STATUS_MAP.pending
+                const EMP_REQUEST_LABELS: Record<string, string> = {
+                  leave_annual: '🏖️ إجازة سنوية', leave_sick: '🏥 إجازة مرضية',
+                  leave_emergency: '🚨 إجازة طارئة', advance: '💰 سلفة راتب',
+                  extra_meal: '🍽️ وجبة إضافية', complaint: '⚠️ شكوى',
+                  suggestion: '💡 اقتراح', other: '📋 طلب آخر',
+                }
+                return (
+                  <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>
+                          {EMP_REQUEST_LABELS[req.request_type] || req.request_type}
+                          {req.title && req.title !== EMP_REQUEST_LABELS[req.request_type]?.slice(2) && ` — ${req.title}`}
+                        </div>
+                        <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>{req.description?.slice(0, 80)}{req.description?.length > 80 ? '...' : ''}</div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {req.amount && <span style={{ fontSize: 11, color: S.gold }}>💰 MYR {req.amount}</span>}
+                          {req.days_count && <span style={{ fontSize: 11, color: S.blue }}>📅 {req.days_count} يوم</span>}
+                          <span style={{ fontSize: 11, color: S.muted }}>{new Date(req.created_at).toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                      </div>
+                      <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{st.label}</span>
+                    </div>
+                    {req.rejection_reason && (
+                      <div style={{ marginTop: 8, background: S.redB, borderRadius: 8, padding: '6px 12px', fontSize: 12, color: S.red }}>
+                        سبب الرفض: {req.rejection_reason}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {showNewRequest && currentUser.id && (
+          <EmployeeRequestModal
+            employeeId={currentUser.id}
+            onClose={() => setShowNewRequest(false)}
+            onSaved={() => { setShowNewRequest(false); fetchAll() }} />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>

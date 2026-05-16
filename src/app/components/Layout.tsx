@@ -93,6 +93,7 @@ const ALL_MENU: MenuGroup[] = [
     items: [
       { label: 'الموظفون',        icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },
       { label: 'طلبات الموظفين', icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
+      { label: 'إدارة الشيفتات', icon: '🕐', path: '/dashboard/hr/shifts', permission: 'hr' },
       { label: 'الرواتب والحضور',icon: '📅', path: '/dashboard/hr/payroll',   permission: 'hr' },
     ]
   },

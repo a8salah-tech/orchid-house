@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 
@@ -347,6 +347,12 @@ export default function ShiftsPage() {
   const isEmployee = !isManager
 
   const [activeTab, setActiveTab] = useState<'shifts' | 'schedule' | 'requests' | 'my_schedule' | 'my_requests'>('schedule')
+
+  // تغيير التاب حسب الدور لما يتحمل
+  useEffect(() => {
+    if (isEmployee) setActiveTab('my_schedule')
+    else setActiveTab('schedule')
+  }, [isEmployee])
   const [shifts, setShifts] = useState<Shift[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [schedules, setSchedules] = useState<ShiftSchedule[]>([])

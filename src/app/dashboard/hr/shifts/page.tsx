@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { useAuth } from '../../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -256,10 +257,96 @@ function AssignModal({ employees, shifts, onClose, onSaved }: {
   )
 }
 
+
+// ══ Request Shift Modal (للموظف العادي) ══
+function RequestShiftModal({ shifts, employeeId, onClose, onSaved }: {
+  shifts: Shift[]; employeeId: string; onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    shift_id: '',
+    date: new Date().toISOString().split('T')[0],
+    reason: '',
+  })
+
+  async function save() {
+    if (!form.shift_id || !form.date) { alert('يرجى اختيار الشيفت والتاريخ'); return }
+    setSaving(true)
+    const { error } = await supabase.from('shift_requests').insert([{
+      employee_id: employeeId,
+      shift_id: form.shift_id,
+      date: form.date,
+      reason: form.reason,
+      status: 'pending',
+    }])
+    setSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
+    onSaved()
+  }
+
+  const selectedShift = shifts.find(s => s.id === form.shift_id)
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 440, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div>
+            <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 4 }}>🔄 طلب تغيير شيفت</h2>
+            <p style={{ fontSize: 12, color: S.muted }}>سيتم إرسال طلبك لمدير القسم</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الشيفت المطلوب *</label>
+            <select style={inp} value={form.shift_id} onChange={e => setForm(p => ({ ...p, shift_id: e.target.value }))}>
+              <option value="">اختر الشيفت</option>
+              {shifts.map(s => <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0,5)} — {s.end_time.slice(0,5)})</option>)}
+            </select>
+          </div>
+          {selectedShift && (
+            <div style={{ background: selectedShift.color + '20', border: `1px solid ${selectedShift.color}50`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 8, height: 32, borderRadius: 4, background: selectedShift.color }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{selectedShift.name}</div>
+                <div style={{ fontSize: 11, color: S.muted }}>{selectedShift.start_time.slice(0,5)} — {selectedShift.end_time.slice(0,5)}</div>
+              </div>
+            </div>
+          )}
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التاريخ المطلوب *</label>
+            <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>سبب الطلب</label>
+            <textarea style={{ ...inp, minHeight: 80, resize: 'vertical' } as React.CSSProperties}
+              value={form.reason} onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
+              placeholder="اشرح سبب طلب تغيير الشيفت..." />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '📤 إرسال الطلب'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ══ الصفحة الرئيسية ══
 export default function ShiftsPage() {
   const supabase = createClient()
-  const [activeTab, setActiveTab] = useState<'shifts' | 'schedule' | 'requests'>('schedule')
+  const { employee, hasPermission, permissions } = useAuth()
+
+  // تحديد دور المستخدم
+  const isAdmin = permissions?.all === true
+  const isManager = isAdmin || ['branch_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role || '')
+  const isEmployee = !isManager
+
+  const [activeTab, setActiveTab] = useState<'shifts' | 'schedule' | 'requests' | 'my_schedule' | 'my_requests'>('schedule')
   const [shifts, setShifts] = useState<Shift[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [schedules, setSchedules] = useState<ShiftSchedule[]>([])
@@ -268,6 +355,9 @@ export default function ShiftsPage() {
   const [showAddShift, setShowAddShift] = useState(false)
   const [showAssign, setShowAssign] = useState(false)
   const [editShift, setEditShift] = useState<Shift | null>(null)
+  const [showRequestShift, setShowRequestShift] = useState(false)
+  const [mySchedules, setMySchedules] = useState<ShiftSchedule[]>([])
+  const [myRequests, setMyRequests] = useState<ShiftRequest[]>([])
   const [filterDept, setFilterDept] = useState('الكل')
   const [weekOffset, setWeekOffset] = useState(0)
 
@@ -299,9 +389,32 @@ export default function ShiftsPage() {
     setShifts(sh.data || [])
     setEmployees(emp.data || [])
     setSchedules(sch.data || [])
-    setRequests(req.data || [])
+
+    // طلبات حسب الدور
+    if (isAdmin) {
+      // مدير النظام يشوف الكل
+      setRequests(req.data || [])
+    } else if (isManager) {
+      // مدير القسم يشوف طلبات قسمه + طلباته الشخصية ترفع لمدير النظام
+      setRequests((req.data || []).filter((r: ShiftRequest) =>
+        r.employees?.department === employee?.department
+      ))
+    }
+
+    // شيفتات الموظف الحالي
+    if (employee?.id) {
+      const mySchedule = (sch.data || []).filter((s: ShiftSchedule) => s.employee_id === employee.id)
+      setMySchedules(mySchedule)
+      const { data: myReq } = await supabase.from('shift_requests')
+        .select('*, shifts(name,start_time,end_time,color)')
+        .eq('employee_id', employee.id)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      setMyRequests(myReq || [])
+    }
+
     setLoading(false)
-  }, [weekOffset])
+  }, [weekOffset, employee?.id])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -322,17 +435,34 @@ export default function ShiftsPage() {
     fetchAll()
   }
 
-  const filteredEmployees = filterDept === 'الكل'
-    ? employees
-    : employees.filter(e => e.department === filterDept)
+  const filteredEmployees = (() => {
+    let emps = employees
+    // مدير القسم يشوف موظفيه بس
+    if (!isAdmin && isManager && employee?.department) {
+      emps = emps.filter(e => e.department === employee.department)
+    }
+    // فلتر القسم
+    if (filterDept !== 'الكل') {
+      emps = emps.filter(e => e.department === filterDept)
+    }
+    return emps
+  })()
 
   const getEmployeeShift = (empId: string, date: string) =>
     schedules.find(s => s.employee_id === empId && s.date === date)
 
-  const tabs = [
+  // Tabs حسب الدور
+  const tabs = isEmployee ? [
+    { key: 'my_schedule', label: 'شيفتاتي', icon: '📅' },
+    { key: 'my_requests', label: 'طلباتي', icon: '🔄', badge: myRequests.filter(r => r.status === 'pending').length },
+  ] : isAdmin ? [
     { key: 'schedule', label: 'جدول الأسبوع', icon: '📅' },
     { key: 'shifts', label: 'الشيفتات', icon: '⏰' },
-    { key: 'requests', label: `طلبات التغيير`, icon: '🔄', badge: requests.length },
+    { key: 'requests', label: 'طلبات التغيير', icon: '🔄', badge: requests.length },
+  ] : [
+    { key: 'schedule', label: 'جدول قسمي', icon: '📅' },
+    { key: 'shifts', label: 'الشيفتات', icon: '⏰' },
+    { key: 'requests', label: 'طلبات قسمي', icon: '🔄', badge: requests.length },
   ]
 
   return (
@@ -352,12 +482,22 @@ export default function ShiftsPage() {
           <p style={{ fontSize: 13, color: S.muted }}>جدول العمل الأسبوعي وطلبات تغيير الشيفت</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => setShowAddShift(true)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            ⏰ شيفت جديد
-          </button>
-          <button onClick={() => setShowAssign(true)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            📅 تعيين شيفت
-          </button>
+          {isEmployee ? (
+            <button onClick={() => setShowRequestShift(true)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              🔄 طلب تغيير شيفت
+            </button>
+          ) : (
+            <>
+              {isAdmin && (
+                <button onClick={() => setShowAddShift(true)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  ⏰ شيفت جديد
+                </button>
+              )}
+              <button onClick={() => setShowAssign(true)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                📅 تعيين شيفت
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -591,6 +731,86 @@ export default function ShiftsPage() {
         </div>
       )}
 
+      {/* ══ Tab: شيفتاتي (للموظف) ══ */}
+      {activeTab === 'my_schedule' && (
+        <div>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 14, color: S.muted, fontWeight: 700, marginBottom: 14 }}>شيفتاتك هذا الأسبوع</div>
+            {mySchedules.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+                <div style={{ fontSize: 14, color: S.white, marginBottom: 6 }}>لا يوجد شيفت مجدول لك هذا الأسبوع</div>
+                <div style={{ fontSize: 12 }}>تواصل مع مديرك لتعيين شيفتك</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {mySchedules.map(sch => (
+                  <div key={sch.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${(sch.shifts?.color || S.gold)}30`, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{ width: 8, height: 50, borderRadius: 4, background: sch.shifts?.color || S.gold, flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 4 }}>{sch.shifts?.name}</div>
+                      <div style={{ fontSize: 12, color: S.muted }}>
+                        🕐 {sch.shifts?.start_time?.slice(0,5)} — {sch.shifts?.end_time?.slice(0,5)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{new Date(sch.date).getDate()}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{DAYS_AR[new Date(sch.date).getDay()]}</div>
+                    </div>
+                    <span style={{ background: S.greenB, color: S.green, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>✅ مؤكد</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══ Tab: طلباتي (للموظف) ══ */}
+      {activeTab === 'my_requests' && (
+        <div>
+          {myRequests.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🔄</div>
+              <div style={{ fontSize: 14, color: S.white, marginBottom: 6 }}>لا توجد طلبات سابقة</div>
+              <div style={{ fontSize: 12 }}>اضغط "طلب تغيير شيفت" لتقديم طلب جديد</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {myRequests.map(req => {
+                const statusMap: Record<string, { label: string; color: string; bg: string }> = {
+                  pending:  { label: '⏳ قيد المراجعة', color: S.amber, bg: S.amberB },
+                  approved: { label: '✅ موافق عليه',   color: S.green, bg: S.greenB },
+                  rejected: { label: '❌ مرفوض',        color: S.red,   bg: S.redB },
+                }
+                const st = statusMap[req.status] || statusMap.pending
+                return (
+                  <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                        <div style={{ width: 8, height: 40, borderRadius: 4, background: req.shifts?.color || S.gold, flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{req.shifts?.name}</div>
+                          <div style={{ fontSize: 12, color: S.muted }}>
+                            📅 {new Date(req.date).toLocaleDateString('ar-SA', { weekday: 'long', month: 'long', day: 'numeric' })}
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>{st.label}</span>
+                    </div>
+                    {req.rejection_reason && (
+                      <div style={{ marginTop: 10, background: S.redB, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: S.red }}>
+                        سبب الرفض: {req.rejection_reason}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Modals */}
       {(showAddShift || editShift) && (
         <ShiftModal shift={editShift}
@@ -601,6 +821,13 @@ export default function ShiftsPage() {
         <AssignModal employees={employees} shifts={shifts}
           onClose={() => setShowAssign(false)}
           onSaved={() => { setShowAssign(false); fetchAll() }} />
+      )}
+      {showRequestShift && employee?.id && (
+        <RequestShiftModal
+          shifts={shifts}
+          employeeId={employee.id}
+          onClose={() => setShowRequestShift(false)}
+          onSaved={() => { setShowRequestShift(false); fetchAll() }} />
       )}
     </div>
   )

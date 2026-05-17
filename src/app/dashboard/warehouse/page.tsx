@@ -106,6 +106,81 @@ function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved:
   )
 }
 
+
+// ══ دالة طباعة تقرير المخزون ══
+async function printInventoryReport(supabase: any) {
+  const { data: products } = await supabase
+    .from('warehouse_products')
+    .select('name, name_en, category, current_stock, min_stock, last_purchase_price, units(symbol)')
+    .eq('is_active', true)
+    .order('category')
+    .order('name')
+
+  if (!products || products.length === 0) { alert('لا توجد منتجات'); return }
+
+  const grouped: Record<string, any[]> = {}
+  products.forEach((p: any) => {
+    const cat = p.category || 'غير مصنف'
+    if (!grouped[cat]) grouped[cat] = []
+    grouped[cat].push(p)
+  })
+
+  const now = new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })
+  const lowStock = products.filter((p: any) => p.current_stock <= p.min_stock && p.min_stock > 0).length
+
+  const rows = Object.entries(grouped).map(([category, items]) => `
+    <tr><td colspan="6" style="padding:10px 14px;font-weight:800;font-size:13px;color:#8B6914;background:#f5e6c0;border-bottom:2px solid #C9A84C">📦 ${category} (${items.length} صنف)</td></tr>
+    ${(items as any[]).map((p: any, i: number) => {
+      const unit = p.units?.symbol || ''
+      const low = p.current_stock <= p.min_stock && p.min_stock > 0
+      return `<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">
+        <td style="padding:6px 12px;font-weight:600">${p.name}</td>
+        <td style="padding:6px 12px;color:#666;font-style:italic;direction:ltr;text-align:left">${p.name_en||''}</td>
+        <td style="padding:6px 12px;text-align:center">${unit}</td>
+        <td style="padding:6px 12px;text-align:center;font-weight:700;color:${low?'#dc2626':'#16a34a'}">${p.current_stock??0}</td>
+        <td style="padding:6px 12px;text-align:center;color:#666">${p.min_stock??0}</td>
+        <td style="padding:6px 12px;text-align:center;color:#92400e">${p.last_purchase_price?'MYR '+p.last_purchase_price:'—'}</td>
+      </tr>`
+    }).join('')}
+  `).join('')
+
+  const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8">
+    <title>تقرير المخزون — Orchid House</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap');
+      body{font-family:'Tajawal',Arial,sans-serif;margin:20px;direction:rtl;color:#1a1a1a}
+      .header{text-align:center;padding:20px;background:#0F2040;border-radius:8px;margin-bottom:16px;color:white}
+      .logo{font-size:28px;margin-bottom:6px}
+      h1{color:#C9A84C;font-size:20px;margin:0 0 4px}
+      .date{color:#8A9BB5;font-size:12px}
+      .stats{display:flex;gap:12px;margin-bottom:16px;justify-content:center}
+      .stat{border:1px solid #ddd;border-radius:8px;padding:10px 20px;text-align:center}
+      .sv{font-size:20px;font-weight:800;color:#C9A84C}
+      .sl{font-size:11px;color:#666;margin-top:2px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th{background:#0F2040;color:white;padding:8px 12px;text-align:center;font-size:11px}
+      th:first-child{text-align:right}
+      td{border-bottom:1px solid #eee;font-size:12px}
+      .footer{text-align:center;color:#999;font-size:10px;margin-top:16px}
+      @media print{button{display:none}}
+    </style>
+    </head><body>
+    <div class="header"><div class="logo">🌸</div><h1>Orchid House — تقرير المخزون</h1><div class="date">${now}</div></div>
+    <div class="stats">
+      <div class="stat"><div class="sv">${products.length}</div><div class="sl">إجمالي الأصناف</div></div>
+      <div class="stat"><div class="sv">${Object.keys(grouped).length}</div><div class="sl">الأقسام</div></div>
+      <div class="stat"><div class="sv" style="color:${lowStock>0?'#dc2626':'#16a34a'}">${lowStock}</div><div class="sl">مخزون منخفض</div></div>
+    </div>
+    <table><thead><tr>
+      <th style="text-align:right">الصنف</th><th>Item Name</th><th>الوحدة</th><th>المخزون</th><th>الحد الأدنى</th><th>سعر الشراء</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <div class="footer">🌸 Orchid House Restaurant Management System — ${now}</div>
+    </body></html>`
+
+  const win = window.open('','_blank')
+  if (win) { win.document.write(html); win.document.close(); setTimeout(()=>win.print(),500) }
+}
+
 export default function WarehousesPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -158,12 +233,20 @@ export default function WarehousesPage() {
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>🏭 المستودعات</h1>
           <p style={{ fontSize: 13, color: S.muted }}>إدارة جميع المستودعات — اضغط على أي مستودع للدخول إليه</p>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
-        >
-          ➕ مستودع جديد
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => printInventoryReport(supabase)}
+            style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid #3B82F6`, background: 'rgba(59,130,246,0.12)', color: '#3B82F6', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            🖨️ طباعة تقرير المخزون
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            ➕ مستودع جديد
+          </button>
+        </div>
       </div>
 
       {loading ? (

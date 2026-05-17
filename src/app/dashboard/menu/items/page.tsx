@@ -90,10 +90,9 @@ interface Category {
 interface MenuItem {
   id: string; category_id: string; name: string; name_en: string
   or_code: string; description: string; description_en: string
-  price: number; cost_price: number; image_url: string
+  price: number; cost_price: number; image_url?: string
   is_active: boolean; is_available: boolean; sort_order: number
-  menu_categories?: { name: string; name_en: string; icon: string }
-}
+  menu_categories?: { name: string; name_en: string; icon: string } | any}
 
 // ══ Image Upload Helper ══
 function toBase64(file: File): Promise<string> {
@@ -375,7 +374,7 @@ export default function MenuItemsPage() {
     setLoading(true)
     const [cats, itms] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('*, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, is_active, is_available, sort_order, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,

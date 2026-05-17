@@ -357,50 +357,131 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 
 // ══ الصفحة الرئيسية ══
 
+// ══ وحدات القياس مع معاملات التحويل ══
+// كل وحدة تحتوي على: الاسم، الرمز، ونسبة التحويل إلى الوحدة الأساسية (كيلو للوزن، لتر للسوائل، حبة لما عدا ذلك)
+const UNIT_OPTIONS = [
+  // وزن
+  { label: 'كيلوجرام', symbol: 'كجم', factor: 1 },
+  { label: 'جرام', symbol: 'جم', factor: 0.001 },
+  { label: 'مليجرام', symbol: 'مجم', factor: 0.000001 },
+  // حجم
+  { label: 'لتر', symbol: 'ل', factor: 1 },
+  { label: 'مليلتر', symbol: 'مل', factor: 0.001 },
+  // عدد
+  { label: 'حبة', symbol: 'حبة', factor: 1 },
+  { label: 'ملعقة كبيرة', symbol: 'م.ك', factor: 1 },
+  { label: 'ملعقة صغيرة', symbol: 'م.ص', factor: 1 },
+  { label: 'كوب', symbol: 'كوب', factor: 1 },
+  { label: 'علبة', symbol: 'علبة', factor: 1 },
+  { label: 'كيس', symbol: 'كيس', factor: 1 },
+]
+
+// حساب تكلفة المكون مع مراعاة وحدة الوصفة vs وحدة المستودع
+function calcIngCost(ing: any): number {
+  const basePrice = ing.warehouse_products?.last_purchase_price || 0
+  const qty = ing.quantity || 0
+  const factor = ing.unit_conversion ?? 1
+  return basePrice * qty * factor
+}
+
 // ══ Ingredients Modal ══
 function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => void }) {
-  const supabase = createClient()
+  const sbRef = useRef(createClient())
+  const sb = sbRef.current
+
   const [ingredients, setIngredients] = useState<any[]>([])
-  const [products, setProducts] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [products, setProducts]       = useState<any[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [quantities, setQuantities]   = useState<Record<string, string>>({})
+  const [search, setSearch]           = useState<Record<string, string>>({})
+  const searchRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  useEffect(() => {
+    function handleDown(e: MouseEvent) {
+      setSearch(prev => {
+        const open = Object.keys(prev)
+        if (!open.length) return prev
+        const still = open.filter(id => searchRefs.current[id]?.contains(e.target as Node))
+        if (still.length === open.length) return prev
+        const next = { ...prev }
+        open.forEach(id => { if (!still.includes(id)) delete next[id] })
+        return next
+      })
+    }
+    document.addEventListener('mousedown', handleDown)
+    return () => document.removeEventListener('mousedown', handleDown)
+  }, [])
+
+  const fetchIngredients = useCallback(async () => {
+    const { data } = await sb
+      .from('menu_item_ingredients')
+      .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
+      .eq('menu_item_id', item.id)
+    const rows = data || []
+    setIngredients(rows)
+    setQuantities(prev => {
+      const next = { ...prev }
+      rows.forEach((r: any) => { if (!(r.id in next)) next[r.id] = r.quantity?.toString() ?? '' })
+      return next
+    })
+  }, [item.id, sb])
 
   useEffect(() => {
     Promise.all([
-      supabase.from('menu_item_ingredients')
+      sb.from('menu_item_ingredients')
         .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
         .eq('menu_item_id', item.id),
-      supabase.from('warehouse_products')
+      sb.from('warehouse_products')
         .select('id, name, category, last_purchase_price, units(symbol)')
         .eq('is_active', true).order('category').order('name'),
     ]).then(([ing, prods]) => {
-      setIngredients(ing.data || [])
+      const rows = ing.data || []
+      setIngredients(rows)
+      setQuantities(Object.fromEntries(rows.map((r: any) => [r.id, r.quantity?.toString() ?? ''])))
       setProducts(prods.data || [])
       setLoading(false)
     })
-  }, [item.id])
+  }, [item.id, sb])
 
   async function addIngredient() {
-    const { data } = await supabase.from('menu_item_ingredients')
-      .insert([{ menu_item_id: item.id, quantity: 1 }])
+    const { data } = await sb.from('menu_item_ingredients')
+      .insert([{ menu_item_id: item.id, quantity: 1, unit_label: null, unit_conversion: 1 }])
       .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
-    if (data) setIngredients(p => [...p, data[0]])
+    if (data?.[0]) {
+      setIngredients(p => [...p, data[0]])
+      setQuantities(p => ({ ...p, [data[0].id]: '1' }))
+    }
   }
 
   async function updateField(id: string, field: string, value: any) {
-    await supabase.from('menu_item_ingredients').update({ [field]: value }).eq('id', id)
-    const { data } = await supabase.from('menu_item_ingredients')
-      .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
-      .eq('menu_item_id', item.id)
-    setIngredients(data || [])
+    await sb.from('menu_item_ingredients').update({ [field]: value }).eq('id', id)
+    await fetchIngredients()
+  }
+
+  async function saveQuantity(id: string) {
+    const val = parseFloat(quantities[id] ?? '0') || 0
+    await sb.from('menu_item_ingredients').update({ quantity: val }).eq('id', id)
+    setIngredients(p => p.map(i => i.id === id ? { ...i, quantity: val } : i))
+  }
+
+  async function updateUnit(ing: any, symbol: string, factor: number) {
+    await sb.from('menu_item_ingredients')
+      .update({ unit_label: symbol, unit_conversion: factor })
+      .eq('id', ing.id)
+    setIngredients(p => p.map(i =>
+      i.id === ing.id ? { ...i, unit_label: symbol, unit_conversion: factor } : i
+    ))
   }
 
   async function deleteIng(id: string) {
-    await supabase.from('menu_item_ingredients').delete().eq('id', id)
+    await sb.from('menu_item_ingredients').delete().eq('id', id)
     setIngredients(p => p.filter(i => i.id !== id))
+    setQuantities(p => { const n = { ...p }; delete n[id]; return n })
   }
 
   const totalCost = ingredients.reduce((s, ing) => {
-    return s + ((ing.warehouse_products?.last_purchase_price || 0) * (ing.quantity || 0))
+    const qty = parseFloat(quantities[ing.id] ?? ing.quantity ?? 0)
+    return s + (ing.warehouse_products?.last_purchase_price || 0) * qty * (ing.unit_conversion ?? 1)
   }, 0)
 
   const margin = item.price > 0 && totalCost > 0
@@ -415,9 +496,8 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
-      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 700, padding: 28, margin: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 720, padding: 28, margin: 'auto' }}>
 
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
             <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 4 }}>🧪 مكونات الوصفة</h2>
@@ -426,7 +506,6 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
-        {/* ملخص التكلفة */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
           <div style={{ background: S.redB, border: `1px solid ${S.red}30`, borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🏭 تكلفة المكونات</div>
@@ -452,7 +531,6 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
           </div>
         )}
 
-        {/* المكونات */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: S.white }}>{ingredients.length} مكون</div>
           <button onClick={addIngredient} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -470,42 +548,124 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {ingredients.map((ing) => (
-              <div key={ing.id} style={{ background: S.card, borderRadius: 12, padding: '12px 16px', display: 'grid', gridTemplateColumns: '2fr 1fr auto auto', gap: 10, alignItems: 'center' }}>
-                <div>
-                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>المكون من المستودع</label>
-                  <select style={{ ...inpS, direction: 'rtl' }}
-                    value={ing.warehouse_product_id || ''}
-                    onChange={e => updateField(ing.id, 'warehouse_product_id', e.target.value || null)}>
-                    <option value="">اختر المكون</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.category}) — MYR {p.last_purchase_price || 0}/{p.units?.symbol || 'وحدة'}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input type="number" min="0" step="0.01" style={{ ...inpS, direction: 'ltr', textAlign: 'center' }}
-                      value={ing.quantity || ''}
-                      onChange={e => updateField(ing.id, 'quantity', parseFloat(e.target.value) || 0)} />
-                    <span style={{ fontSize: 12, color: S.muted, flexShrink: 0 }}>{ing.warehouse_products?.units?.symbol || ''}</span>
+            {ingredients.map((ing) => {
+              const baseUnit    = ing.warehouse_products?.units?.symbol || 'وحدة'
+              const displayUnit = ing.unit_label || baseUnit
+              const localQty    = quantities[ing.id] ?? ing.quantity?.toString() ?? ''
+              const numQty      = parseFloat(localQty) || 0
+              const ingCost     = (ing.warehouse_products?.last_purchase_price || 0) * numQty * (ing.unit_conversion ?? 1)
+
+              return (
+                <div key={ing.id} style={{ background: S.card, borderRadius: 12, padding: '14px 16px', display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto auto', gap: 10, alignItems: 'start' }}>
+
+                  {/* المكون */}
+                  <div ref={el => { searchRefs.current[ing.id] = el }}>
+                    <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>المكون من المستودع</label>
+                    {ing.warehouse_product_id && !(ing.id in search) ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <div style={{ flex: 1, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: S.white }}>
+                          {products.find(p => p.id === ing.warehouse_product_id)?.name || '—'}
+                        </div>
+                        <button
+                          onClick={() => setSearch(p => ({ ...p, [ing.id]: '' }))}
+                          style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' }}>
+                          تغيير
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          autoFocus
+                          style={{ ...inpS, direction: 'rtl' }}
+                          placeholder="🔍 ابحث عن مكون..."
+                          value={search[ing.id] || ''}
+                          onChange={e => setSearch(p => ({ ...p, [ing.id]: e.target.value }))}
+                        />
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto', zIndex: 100, marginTop: 2 }}>
+                          {(() => {
+                            const q = (search[ing.id] || '').trim()
+                            const filtered = products.filter((p: any) =>
+                              !q || p.name.includes(q) || (p.category || '').includes(q)
+                            ).slice(0, 10)
+                            return filtered.length > 0 ? filtered.map((p: any) => (
+                              <div key={p.id}
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => { updateField(ing.id, 'warehouse_product_id', p.id); setSearch(prev => { const n = { ...prev }; delete n[ing.id]; return n }) }}
+                                style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: `1px solid ${S.border}`, fontSize: 12 }}
+                                onMouseEnter={e => (e.currentTarget.style.background = S.card2)}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                                <div style={{ color: S.white, fontWeight: 600 }}>{p.name}</div>
+                                <div style={{ color: S.muted, fontSize: 11 }}>{p.category} — MYR {p.last_purchase_price || 0}/{p.units?.symbol || 'وحدة'}</div>
+                              </div>
+                            )) : <div style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>لا توجد نتائج</div>
+                          })()}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>التكلفة</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: S.red }}>
-                    {ing.warehouse_products?.last_purchase_price && ing.quantity
-                      ? 'MYR ' + (ing.warehouse_products.last_purchase_price * ing.quantity).toFixed(2)
-                      : '—'}
+
+                  {/* الكمية */}
+                  <div>
+                    <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية</label>
+                    <input
+                      type="number" min="0" step="0.01"
+                      style={{ ...inpS, direction: 'ltr', textAlign: 'center' }}
+                      value={localQty}
+                      onChange={e => setQuantities(p => ({ ...p, [ing.id]: e.target.value }))}
+                      onBlur={() => saveQuantity(ing.id)}
+                    />
                   </div>
+
+                  {/* الوحدة */}
+                  <div>
+                    <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>
+                      الوحدة
+                      {ing.unit_label && ing.unit_label !== baseUnit && (
+                        <span style={{ color: S.gold, marginRight: 4 }}>({baseUnit} أساسي)</span>
+                      )}
+                    </label>
+                    <select
+                      style={{ ...inpS, cursor: 'pointer' }}
+                      value={ing.unit_label || baseUnit}
+                      onChange={e => {
+                        const opt = UNIT_OPTIONS.find(u => u.symbol === e.target.value)
+                        updateUnit(ing, e.target.value, opt?.factor ?? 1)
+                      }}
+                    >
+                      {!UNIT_OPTIONS.find(u => u.symbol === baseUnit) && (
+                        <option value={baseUnit}>{baseUnit} (أساسي)</option>
+                      )}
+                      {UNIT_OPTIONS.map(u => (
+                        <option key={u.symbol} value={u.symbol}>{u.label} ({u.symbol})</option>
+                      ))}
+                    </select>
+                    {ing.unit_label && ing.unit_label !== baseUnit && (
+                      <div style={{ fontSize: 10, color: S.teal, marginTop: 3 }}>×{ing.unit_conversion} تحويل</div>
+                    )}
+                  </div>
+
+                  {/* التكلفة */}
+                  <div style={{ textAlign: 'center', minWidth: 80 }}>
+                    <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>التكلفة</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: S.red }}>
+                      {ingCost > 0 ? 'MYR ' + ingCost.toFixed(3) : '—'}
+                    </div>
+                    {ing.unit_label && ing.unit_label !== baseUnit && numQty > 0 && (
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
+                        {numQty}{displayUnit} = {(numQty * (ing.unit_conversion ?? 1)).toFixed(4)}{baseUnit}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* حذف */}
+                  <button onClick={() => deleteIng(ing.id)}
+                    style={{ padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, marginTop: 18, alignSelf: 'start' }}>
+                    🗑️
+                  </button>
+
                 </div>
-                <button onClick={() => deleteIng(ing.id)}
-                  style={{ padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, marginTop: 14 }}>
-                  🗑️
-                </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
@@ -516,6 +676,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
     </div>
   )
 }
+
 
 export default function MenuItemsPage() {
   const supabase = createClient()

@@ -1074,7 +1074,6 @@ async function deleteEmployee(emp: Employee) {
                   {role.label}
                 </span>
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                 // بعد ✅
                  <div style={{ fontSize: 12, color: S.muted }}>🏷️ {emp.department || '—'}</div>
                  <div style={{ fontSize: 12, color: S.muted }}>🏪 {emp.branches?.name || '—'}</div>
                  <div style={{ fontSize: 12, color: S.muted }}>📞 {emp.phone || '—'}</div>

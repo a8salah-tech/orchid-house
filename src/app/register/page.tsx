@@ -28,13 +28,22 @@ const inp: React.CSSProperties = {
 
 const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'الكاشير', 'الإدارة', 'التوصيل', 'النظافة']
 const ROLES = [
-  { value: 'admin',               label: 'مدير النظام',   icon: '👑' },
-  { value: 'branch_manager',      label: 'مدير الفرع',    icon: '🏪' },
-  { value: 'kitchen_supervisor',  label: 'مشرف المطبخ',   icon: '👨‍🍳' },
-  { value: 'hall_supervisor',     label: 'مشرف الصالة',   icon: '🍽️' },
-  { value: 'bar_supervisor',      label: 'مشرف البار',    icon: '☕' },
-  { value: 'cashier',             label: 'كاشير',           icon: '💰' },
-  { value: 'employee',            label: 'موظف',            icon: '👤' },
+  { value: 'admin',                label: 'مدير النظام',   icon: '👑' },
+  { value: 'branch_manager',       label: 'مدير الفرع',    icon: '🏪' },
+  { value: 'kitchen_manager',      label: 'مدير المطبخ',   icon: '🍳' },
+  { value: 'hall_manager',         label: 'مدير الصالة',   icon: '🏛️' },
+  { value: 'kitchen_supervisor',   label: 'مشرف المطبخ',   icon: '👨‍🍳' },
+  { value: 'hall_supervisor',      label: 'مشرف الصالة',   icon: '🍽️' },
+  { value: 'bar_supervisor',       label: 'مشرف البار',    icon: '☕' },
+  { value: 'assistant_supervisor', label: 'مساعد مشرف',    icon: '🤝' },
+  { value: 'cashier',              label: 'كاشير',          icon: '💰' },
+  { value: 'assistant_cashier',    label: 'مساعد كاشير',   icon: '💳' },
+  { value: 'chef',                 label: 'طباخ',           icon: '🧑‍🍳' },
+  { value: 'assistant_chef',       label: 'مساعد طباخ',    icon: '🥘' },
+  { value: 'kitchen_worker',       label: 'عامل مطبخ',     icon: '🔪' },
+  { value: 'bar_assistant',        label: 'مساعد بار',     icon: '🧃' },
+  { value: 'hall_worker',          label: 'عامل صالة',     icon: '🪑' },
+  { value: 'employee',             label: 'موظف',           icon: '👤' },
 ]
 
 // تحويل الصورة لـ base64 ثم رفعها

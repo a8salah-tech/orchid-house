@@ -111,11 +111,11 @@ export default function BarPage() {
       const remaining = order.order_items.filter(i => i.id !== itemId && i.status !== 'ready')
       if (remaining.length === 0) {
         // تحقق كمان من items الـ kitchen — لو كلها ready، غير الـ order لـ ready
-        const { data: allItems } = await sb
-          .from('order_items')
-          .select('status')
-          .eq('order_id', orderId)
-        const allReady = (allItems || []).every(i => i.status === 'ready' || i.id === itemId)
+const { data: allItems } = await sb
+  .from('order_items')
+  .select('id, status')
+  .eq('order_id', orderId)
+const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id === itemId)
         if (allReady) {
           await sb.from('orders').update({ status: 'ready' }).eq('id', orderId)
         }

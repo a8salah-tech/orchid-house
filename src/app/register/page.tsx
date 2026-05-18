@@ -27,7 +27,6 @@ const inp: React.CSSProperties = {
 }
 
 const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'الكاشير', 'الإدارة', 'التوصيل', 'النظافة']
-
 const ROLES = [
   { value: 'admin',                label: 'مدير النظام',      icon: '👑' },
   { value: 'branch_manager',       label: 'مدير الفرع',       icon: '🏪' },
@@ -49,7 +48,6 @@ const ROLES = [
   { value: 'hall_cleaner',         label: 'عامل نظافة صالة',  icon: '🧽' },
   { value: 'employee',             label: 'موظف',              icon: '👤' },
 ]
-
 // تحويل الصورة لـ base64 ثم رفعها
 async function uploadImageFile(
   supabase: ReturnType<typeof createClient>,

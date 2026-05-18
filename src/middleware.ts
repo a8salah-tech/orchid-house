@@ -6,10 +6,8 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // الصفحات العامة — مش محتاجة login
-  const publicPaths = ['/login', '/unauthorized', '/register']
-if (publicPaths.includes(pathname) || pathname.startsWith('/menu')) {
-  return NextResponse.next()
-}  if (publicPaths.includes(pathname)) {
+  const publicPaths = ['/login', '/unauthorized']
+  if (publicPaths.includes(pathname) || pathname.startsWith('/menu')) {
     return NextResponse.next()
   }
 
@@ -35,8 +33,8 @@ if (publicPaths.includes(pathname) || pathname.startsWith('/menu')) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // لو مش logged in وبيحاول يدخل dashboard
-  if (!user && pathname.startsWith('/dashboard')) {
+  // لو مش logged in
+  if (!user) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 

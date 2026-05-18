@@ -93,6 +93,7 @@ const ALL_MENU: MenuGroup[] = [
   {
     group: 'المالية والحسابات',
     items: [
+      { label: 'التقارير اليومية', icon: '📊', path: '/dashboard/reports/daily',   permission: 'reports' },
       { label: 'شجرة الحسابات',   icon: '🧾', path: '/dashboard/accounting/chart',   permission: 'accounting' },
       { label: 'سندات القيد',     icon: '💸', path: '/dashboard/accounting/entries', permission: 'accounting' },
       { label: 'الخزينة والبنوك', icon: '🏦', path: '/dashboard/accounting/banks',   permission: 'accounting' },
@@ -110,7 +111,6 @@ const ALL_MENU: MenuGroup[] = [
   {
     group: 'التقارير',
     items: [
-      { label: 'التقارير اليومية', icon: '📊', path: '/dashboard/reports/daily',   permission: 'reports' },
       { label: 'التقارير الشهرية',icon: '📈', path: '/dashboard/reports/monthly', permission: 'reports' },
       { label: 'تحليل التكاليف', icon: '💰', path: '/dashboard/reports/costs',   permission: 'reports' },
     ]

@@ -1068,8 +1068,12 @@ async function deleteEmployee(emp: Employee) {
                     {emp.auth_user_id && <span style={{ fontSize: 10, color: S.green }}>🔑 حساب نشط</span>}
                   </div>
                 </div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>{emp.name}</div>
-                {emp.name_en && <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', marginBottom: 8 }}>{emp.name_en}</div>}
+<div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>
+  {emp.name} {emp.name_en}
+</div>
+<div style={{ fontSize: 13, fontWeight: 800, color: S.gold, letterSpacing: 1 }}>
+  {emp.employee_number || '—'}
+</div>
                 <span style={{ background: role.bg, color: role.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
                   {role.label}
                 </span>

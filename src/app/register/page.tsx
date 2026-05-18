@@ -26,10 +26,10 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'ltr', transition: 'border-color .2s',
 }
 
-const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'الCashier', 'الإدارة', 'التوصيل', 'نظافة مطبخ', 'نظافة صالة']
+const DEPARTMENTS = ['Kitchen', 'Bar', 'Hall', 'Desserts', 'Cashier', 'Management', 'Delivery', 'Cleaning']
 const ROLES = [
   { value: 'admin',                label: 'System Admin',      icon: '👑' },
-  { value: 'branch_manager',       label: 'مدير Branch',       icon: '🏪' },
+  { value: 'branch_manager',       label: 'Branch Manager',       icon: '🏪' },
   { value: 'kitchen_manager',      label: 'Kitchen Manager',      icon: '🍳' },
   { value: 'hall_manager',         label: 'Hall Manager',      icon: '🏛️' },
   { value: 'bar_manager',          label: 'Bar Manager',       icon: '🍹' },
@@ -40,7 +40,7 @@ const ROLES = [
   { value: 'assistant_cashier',    label: 'Assistant Cashier',      icon: '💳' },
   { value: 'employee',             label: 'Employee',              icon: '👤' },
 ]
-// تحويل الصورة لـ base64 ثم رفعها
+// Convert image to base64 then upload
 async function uploadImageFile(
   supabase: ReturnType<typeof createClient>,
   file: File,
@@ -113,8 +113,8 @@ export default function RegisterPage() {
   }
 
   async function handleSubmit() {
-    if (!form.name) { setError('يرجى إدخال Full Name'); return }
-    if (form.email_account && !form.password) { setError('يرجى إدخال كلمة المرور مع Personal Email'); return }
+    if (!form.name) { setError('Please enter your first name'); return }
+    if (form.email_account && !form.password) { setError('Please enter a password with the login email'); return }
     if (form.password && form.password.length < 6) { setError('Password must be at least 6 characters'); return }
     if (!form.role) { setError('Please select a job role'); return }
 
@@ -124,7 +124,7 @@ export default function RegisterPage() {
     let photo_url: string | null = null
     let national_id_url: string | null = null
 
-    // رفع الصورة الشخصية
+        // Upload employee photo
     if (photoFile) {
       setUploadProgress('Uploading employee photo...')
       photo_url = await uploadImageFile(supabase, photoFile, 'registrations/photos')
@@ -135,7 +135,7 @@ export default function RegisterPage() {
       }
     }
 
-    // رفع صورة الهوية
+        // Upload ID photo
     if (idFile) {
       setUploadProgress('Uploading ID photo...')
       national_id_url = await uploadImageFile(supabase, idFile, 'registrations/ids')
@@ -146,7 +146,7 @@ export default function RegisterPage() {
       }
     }
 
-    setUploadProgress('Saving data...')
+    setUploadProgress('Saving your data...')
 
     const { error: dbError } = await supabase.from('employee_registrations').insert([{
       name: form.name,
@@ -157,7 +157,7 @@ export default function RegisterPage() {
       password_hint: form.password || null,
       department: form.department || null,
       role: form.role,
-      notes: form.notes ? `Employee Number: ${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date} | ${form.notes}` : `Employee Number: ${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date}`,
+      notes: form.notes ? `Employee #: ${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date} | ${form.notes}` : `Employee #: ${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date}`,
       photo_url,
       national_id_url,
       status: 'pending',
@@ -172,7 +172,7 @@ export default function RegisterPage() {
     setStep('success')
   }
 
-  // صفحة النجاح
+  // Success page
   if (step === 'success') {
     return (
       <div style={{ minHeight: '100vh', background: S.navy, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Tajawal, sans-serif', direction: 'ltr', padding: 20 }}>
@@ -182,8 +182,8 @@ export default function RegisterPage() {
           <h1 style={{ fontSize: 26, fontWeight: 800, color: S.gold, marginBottom: 12 }}>Your Details Have Been Received!</h1>
           <p style={{ fontSize: 15, color: S.muted, lineHeight: 1.9, marginBottom: 28 }}>
             Thank you <strong style={{ color: S.white }}>{form.name}</strong>,<br />
-            Your details have been submitted successfully and will be reviewed by management.<br />
-            We will get in touch with you soon.
+            Your details have been submitted and will be reviewed by management.<br />
+            We will be in touch with you soon.
           </p>
           <div style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.3)', borderRadius: 16, padding: '20px 24px', marginBottom: 20 }}>
             <div style={{ fontSize: 24, marginBottom: 8 }}>🌸</div>
@@ -196,7 +196,7 @@ export default function RegisterPage() {
     )
   }
 
-  // صفحة الرفع
+  // Uploading page
   if (step === 'uploading') {
     return (
       <div style={{ minHeight: '100vh', background: S.navy, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }}>
@@ -225,17 +225,30 @@ export default function RegisterPage() {
 
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 18, background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, margin: '0 auto 14px', boxShadow: `0 0 32px rgba(201,168,76,0.3)` }}>🌸</div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>Orchid House</h1>
+          {/* Logos */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20, marginBottom: 18 }}>
+            <div style={{ position: 'relative' }}>
+              <div style={{ width: 90, height: 90, borderRadius: 22, overflow: 'hidden', border: `2px solid ${S.gold}40`, boxShadow: `0 0 30px rgba(201,168,76,0.25), 0 8px 24px rgba(0,0,0,0.4)` }}>
+                <img src="https://i.ibb.co/NcC46CQ/Whats-App-Image-2026-05-15-at-8-59-09-AM.jpg" alt="Orchid House" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            </div>
+            <div style={{ width: 1, height: 60, background: `linear-gradient(to bottom, transparent, ${S.gold}60, transparent)` }} />
+            <div style={{ position: 'relative' }}>
+              <div style={{ width: 90, height: 90, borderRadius: 22, overflow: 'hidden', border: `2px solid ${S.gold}40`, boxShadow: `0 0 30px rgba(201,168,76,0.25), 0 8px 24px rgba(0,0,0,0.4)` }}>
+                <img src="https://i.ibb.co/KjYtL5LV/Whats-App-Image-2026-05-15-at-8-59-09-AM1.jpg" alt="Orchid House" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            </div>
+          </div>
+          <h1 style={{ fontSize: 24, fontWeight: 900, color: S.white, marginBottom: 4, letterSpacing: 1 }}>Orchid House</h1>
           <p style={{ fontSize: 14, color: S.gold, fontWeight: 600, marginBottom: 2 }}>Employee Registration Form</p>
           <p style={{ fontSize: 12, color: S.muted }}>Please fill in all details accurately</p>
         </div>
 
-        {/* Eid Banner */}
-        <div style={{ background: 'linear-gradient(135deg, rgba(201,168,76,0.12), rgba(201,168,76,0.04))', border: '1px solid rgba(201,168,76,0.25)', borderRadius: 14, padding: '14px 18px', marginBottom: 24, textAlign: 'center' }}>
+        {/* Welcome Banner */}
+        <div style={{ background: 'linear-gradient(135deg, rgba(201,168,76,0.10), rgba(201,168,76,0.03))', border: '1px solid rgba(201,168,76,0.20)', borderRadius: 14, padding: '14px 18px', marginBottom: 24, textAlign: 'center' }}>
           <div style={{ fontSize: 18, marginBottom: 4 }}>🌸</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: S.gold }}>Welcome to Orchid House</div>
-          <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>We are glad to have you join our team</div>
+          <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>We are excited to have you join our team</div>
         </div>
 
         {/* Error */}
@@ -248,18 +261,18 @@ export default function RegisterPage() {
         {/* Form Card */}
         <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: '24px 22px' }}>
 
-          {/* الصور */}
+          {/* Photos */}
           <div style={{ background: S.card, borderRadius: 14, padding: 16, marginBottom: 24 }}>
             <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 14 }}>📎 Attachments</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
 
-              {/* صورة شخصية */}
+              {/* Employee Photo */}
               <div>
-                <div style={{ fontSize: 12, color: S.muted, marginBottom: 8, fontWeight: 600 }}>📸 Employee Photo</div>
+              <div style={{ fontSize: 12, color: S.muted, marginBottom: 8, fontWeight: 600 }}>📸 Employee Photo</div>
                 <div className="upload-box" onClick={() => photoRef.current?.click()}
                   style={{ width: 90, height: 90, borderRadius: '50%', border: `2px dashed ${photoPreview ? S.green : 'rgba(255,255,255,0.2)'}`, cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: S.navy3, margin: '0 auto 8px', transition: 'all .2s' }}>
                   {photoPreview
-                    ? <img src={photoPreview} alt="صورة" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ? <img src={photoPreview} alt="photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 26 }}>👤</div>
                         <div style={{ fontSize: 9, color: S.muted, marginTop: 2 }}>Tap to upload</div>
@@ -273,16 +286,16 @@ export default function RegisterPage() {
                 }
               </div>
 
-              {/* صورة الهوية */}
+              {/* ID Photo */}
               <div>
-                <div style={{ fontSize: 12, color: S.muted, marginBottom: 8, fontWeight: 600 }}>🪪 ID / Passport</div>
+              <div style={{ fontSize: 12, color: S.muted, marginBottom: 8, fontWeight: 600 }}>🪪 ID / Passport</div>
                 <div className="upload-box" onClick={() => idRef.current?.click()}
                   style={{ width: '100%', height: 90, borderRadius: 10, border: `2px dashed ${idPreview ? S.green : 'rgba(255,255,255,0.2)'}`, cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: S.navy3, marginBottom: 8, transition: 'all .2s' }}>
                   {idPreview
-                    ? <img src={idPreview} alt="هوية" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ? <img src={idPreview} alt="id" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 26 }}>🪪</div>
-                        <div style={{ fontSize: 9, color: S.muted, marginTop: 2 }}>Tap to upload الهوية</div>
+                        <div style={{ fontSize: 9, color: S.muted, marginTop: 2 }}>Tap to upload ID</div>
                       </div>
                   }
                 </div>
@@ -295,18 +308,18 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* البيانات الأساسية */}
+          {/* Basic Info */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-            {/* الاسم */}
+            {/* Name */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Full Name *</label>
-                <input style={inp} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Full Name" />
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>First Name *</label>
+                <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="First Name" />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Name (English)</label>
-                <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Full Name" />
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Last Name *</label>
+                <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Last Name" />
               </div>
             </div>
 
@@ -324,58 +337,58 @@ export default function RegisterPage() {
               </select>
             </div>
 
-            {/* Department وBranch */}
+            {/* Department & Branch */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Department</label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Department</label>
                 <select style={inp} value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}>
-                  <option value="">اختر Department</option>
+                  <option value="">Select Department</option>
                   {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Branch</label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Branch</label>
                 <select style={inp} value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value }))}>
-                  <option value="">اختر Branch</option>
+                  <option value="">Select Branch</option>
                   <option value="Orchid House">Orchid House</option>
                   <option value="Orchid House KLCC">Orchid House KLCC</option>
                 </select>
               </div>
             </div>
 
-            {/* الهاتف والإيميل */}
+            {/* Phone & Email */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Phone Number</label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Phone Number</label>
                 <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="+60 12-345 6789" />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Personal Email</label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Personal Email</label>
                 <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" />
               </div>
             </div>
 
-            {/* Joining Date والراتب */}
+            {/* Joining Date & Salary */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Joining Date</label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Joining Date</label>
                 <input style={inp} type="date" value={form.join_date} onChange={e => setForm(p => ({ ...p, join_date: e.target.value }))} />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Basic Salary (MYR)</label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Basic Salary (MYR)</label>
                 <input style={inp} type="number" value={form.salary} onChange={e => setForm(p => ({ ...p, salary: e.target.value }))} placeholder="0.00" />
               </div>
             </div>
 
-            {/* ══ حساب الدخول ══ */}
+            {/* ══ System Account ══ */}
             <div style={{ background: S.blueB, border: `1px solid ${S.blue}30`, borderRadius: 14, padding: '16px', marginTop: 4 }}>
-              <div style={{ fontSize: 13, color: S.blue, fontWeight: 700, marginBottom: 12 }}>🔑 System Account</div>
+              <div style={{ fontSize: 13, color: S.blue, fontWeight: 700, marginBottom: 12 }}>🔑 System Account </div>
               <p style={{ fontSize: 11, color: S.muted, marginBottom: 12, lineHeight: 1.6 }}>
                 You may set your login email and password for the system now.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Personal Email للدخول</label>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Login Email</label>
                   <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} type="email" value={form.email_account} onChange={e => setForm(p => ({ ...p, email_account: e.target.value }))} placeholder="email@orchid.com" />
                 </div>
                 <div>
@@ -394,7 +407,7 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* ملاحظات */}
+            {/* Notes */}
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Additional Notes</label>
               <textarea style={{ ...inp, minHeight: 80, resize: 'vertical' } as React.CSSProperties}

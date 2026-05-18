@@ -29,7 +29,7 @@ const AuthContext = createContext<AuthContextType>({
 
 export function useAuth() { return useContext(AuthContext) }
 
-const PUBLIC_PATHS = ['/login', '/unauthorized']
+const PUBLIC_PATHS = ['/login', '/unauthorized', '/register']
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()

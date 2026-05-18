@@ -362,23 +362,13 @@ export default function RegisterPage() {
               </select>
             </div>
 
-            {/* Department & Branch */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
+            {/* Department */}
+            <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Department</label>
-                <select style={inp} value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}>
-                  <option value="">Select Department</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Branch</label>
-                <select style={inp} value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value }))}>
-                  <option value="">Select Branch</option>
-                  <option value="Orchid House">Orchid House</option>
-                  <option value="Orchid House KLCC">Orchid House KLCC</option>
-                </select>
-              </div>
+              <select style={inp} value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}>
+                <option value="">Select Department</option>
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
 
             {/* Phone & Email */}

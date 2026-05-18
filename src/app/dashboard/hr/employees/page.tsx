@@ -684,6 +684,31 @@ export default function EmployeesPage() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   async function activateRegistration(reg: Registration) {
+    // استخراج البيانات من حقل الملاحظات
+    // الصيغة: Employee #: ORH-001 | Branch: Orchid House | Salary: 3500 | Joining Date: 2023-02-16
+    function parseNotes(notes: string | null) {
+      if (!notes) return { employee_number: null, branch_name: null, salary: null, join_date: null, extra_notes: null }
+      const empMatch    = notes.match(/Employee #:\s*([^\|]+)/)
+      const branchMatch = notes.match(/Branch:\s*([^\|]+)/)
+      const salaryMatch = notes.match(/Salary:\s*([^\|]+)/)
+      const dateMatch   = notes.match(/Joining Date:\s*([^\|]+)/)
+      // باقي الملاحظات بعد الـ pattern
+      const extra = notes.replace(/Employee #:[^\|]+\|?/g, '')
+                         .replace(/Branch:[^\|]+\|?/g, '')
+                         .replace(/Salary:[^\|]+\|?/g, '')
+                         .replace(/Joining Date:[^\|]+\|?/g, '')
+                         .trim().replace(/^\|/, '').trim()
+      return {
+        employee_number: empMatch?.[1]?.trim() || null,
+        branch_name:     branchMatch?.[1]?.trim() || null,
+        salary:          salaryMatch ? parseFloat(salaryMatch[1].trim()) || null : null,
+        join_date:       dateMatch?.[1]?.trim() || null,
+        extra_notes:     extra || null,
+      }
+    }
+
+    const parsed = parseNotes(reg.notes)
+
     // نقل بيانات التسجيل لجدول الموظفين
     const { data: newEmp, error } = await supabase.from('employees').insert([{
       name: reg.name,
@@ -694,9 +719,11 @@ export default function EmployeesPage() {
       role: reg.role || 'employee',
       photo_url: reg.photo_url || null,
       national_id_url: reg.national_id_url || null,
-      notes: reg.notes || null,
+      notes: parsed.extra_notes || null,
+      employee_number: parsed.employee_number || null,
+      salary: parsed.salary || null,
+      join_date: parsed.join_date || new Date().toISOString().split('T')[0],
       is_active: true,
-      join_date: new Date().toISOString().split('T')[0],
     }]).select().single()
     if (error) { alert('خطأ: ' + error.message); return }
 

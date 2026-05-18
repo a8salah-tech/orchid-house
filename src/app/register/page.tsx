@@ -239,7 +239,7 @@ export default function RegisterPage() {
               </div>
             </div>
           </div>
-          <h1 style={{ fontSize: 24, fontWeight: 900, color: S.white, marginBottom: 4, letterSpacing: 1 }}>Orchid House</h1>
+          <h1 style={{ fontSize: 24, fontWeight: 900, color: S.white, marginBottom: 4, letterSpacing: 1 }}>Orchid Group</h1>
           <p style={{ fontSize: 14, color: S.gold, fontWeight: 600, marginBottom: 2 }}>Employee Registration Form</p>
           <p style={{ fontSize: 12, color: S.muted }}>Please fill in all details accurately</p>
         </div>
@@ -247,7 +247,7 @@ export default function RegisterPage() {
         {/* Welcome Banner */}
         <div style={{ background: 'linear-gradient(135deg, rgba(201,168,76,0.10), rgba(201,168,76,0.03))', border: '1px solid rgba(201,168,76,0.20)', borderRadius: 14, padding: '14px 18px', marginBottom: 24, textAlign: 'center' }}>
           <div style={{ fontSize: 18, marginBottom: 4 }}>🌸</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: S.gold }}>Welcome to Orchid House</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: S.gold }}>Welcome to Orchid Group</div>
           <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>We are excited to have you join our team</div>
         </div>
 

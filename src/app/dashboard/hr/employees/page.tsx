@@ -741,12 +741,23 @@ export default function EmployeesPage() {
     fetchAll()
   }
 
-  async function deleteEmployee(emp: Employee) {
-    const confirmed = window.confirm(`هل أنت متأكد من حذف الموظف "${emp.name}" نهائياً؟\nلا يمكن التراجع عن هذا الإجراء.`)
-    if (!confirmed) return
-    await supabase.from('employees').delete().eq('id', emp.id)
-    fetchAll()
+async function deleteEmployee(emp: Employee) {
+  const confirmed = window.confirm(`هل أنت متأكد من حذف الموظف "${emp.name}" نهائياً؟\nلا يمكن التراجع عن هذا الإجراء.`)
+  if (!confirmed) return
+
+  // حذف الطلبات المرتبطة أولاً
+  await supabase.from('employee_requests').delete().eq('employee_id', emp.id)
+  
+  // ثم حذف الموظف
+  const { error } = await supabase.from('employees').delete().eq('id', emp.id)
+  
+  if (error) {
+    alert('حدث خطأ أثناء الحذف: ' + error.message)
+    return
   }
+  
+  fetchAll()
+}
 
   const activeCount = employees.filter(e => e.is_active).length
   const roleCounts = Object.keys(ROLES).reduce((acc, r) => {

@@ -741,6 +741,13 @@ export default function EmployeesPage() {
     fetchAll()
   }
 
+  async function deleteEmployee(emp: Employee) {
+    const confirmed = window.confirm(`هل أنت متأكد من حذف الموظف "${emp.name}" نهائياً؟\nلا يمكن التراجع عن هذا الإجراء.`)
+    if (!confirmed) return
+    await supabase.from('employees').delete().eq('id', emp.id)
+    fetchAll()
+  }
+
   const activeCount = employees.filter(e => e.is_active).length
   const roleCounts = Object.keys(ROLES).reduce((acc, r) => {
     acc[r] = employees.filter(e => e.role === r).length
@@ -1036,6 +1043,9 @@ export default function EmployeesPage() {
                   <button onClick={() => toggleActive(emp)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${emp.is_active ? S.red : S.green}`, background: emp.is_active ? S.redB : S.greenB, color: emp.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12 }}>
                     {emp.is_active ? '⏸' : '▶'}
                   </button>
+                  <button onClick={() => deleteEmployee(emp)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>
+                    🗑️
+                  </button>
                 </div>
               </div>
             )
@@ -1091,6 +1101,7 @@ export default function EmployeesPage() {
                           <button onClick={() => toggleActive(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${emp.is_active ? S.red : S.green}`, background: emp.is_active ? S.redB : S.greenB, color: emp.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12 }}>
                             {emp.is_active ? '⏸' : '▶'}
                           </button>
+                          <button onClick={() => deleteEmployee(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
                         </div>
                       </td>
                     </tr>

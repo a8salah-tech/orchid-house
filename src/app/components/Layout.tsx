@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from './AuthProvider'
 
@@ -131,6 +131,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [notifOpen, setNotifOpen] = useState(false)
+  const sidebarRef = useRef<HTMLElement>(null)
+
+  // حفظ موضع السايدبار في localStorage واستعادته عند التحديث
+  useEffect(() => {
+    const saved = sessionStorage.getItem('sidebar-scroll')
+    if (saved && sidebarRef.current) {
+      sidebarRef.current.scrollTop = parseInt(saved)
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = sidebarRef.current
+    if (!el) return
+    const handleScroll = () => sessionStorage.setItem('sidebar-scroll', String(el.scrollTop))
+    el.addEventListener('scroll', handleScroll)
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [])
 
   const roleInfo = ROLE_LABELS[employee?.role || 'employee'] || ROLE_LABELS.employee
   const isAdmin = permissions?.all === true
@@ -227,7 +244,7 @@ const visibleMenu = useMemo(() =>
       <div style={{ display: 'flex', marginTop: 60, minHeight: 'calc(100vh - 60px)' }}>
 
         {/* ══ SIDEBAR ══ */}
-        <aside style={{ position: 'fixed', top: 60, right: 0, bottom: 0, width: sidebarOpen ? 230 : 0, background: S.navy3, borderLeft: `1px solid ${S.border}`, overflowY: 'auto', overflowX: 'hidden', transition: 'width 0.25s ease', zIndex: 90 }}>
+        <aside ref={sidebarRef} style={{ position: 'fixed', top: 60, right: 0, bottom: 0, width: sidebarOpen ? 230 : 0, background: S.navy3, borderLeft: `1px solid ${S.border}`, overflowY: 'auto', overflowX: 'hidden', transition: 'width 0.25s ease', zIndex: 90 }}>
           <div style={{ width: 230, padding: '12px 0' }}>
 
             {/* بيانات الموظف في السايدبار */}

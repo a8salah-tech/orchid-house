@@ -129,7 +129,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { employee, permissions, hasPermission, signOut, loading } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [notifOpen, setNotifOpen] = useState(false)
 
   const roleInfo = ROLE_LABELS[employee?.role || 'employee'] || ROLE_LABELS.employee
@@ -251,11 +251,10 @@ const visibleMenu = useMemo(() =>
                   const active = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path))
                   return (
                     <button key={ii}
-                      onClick={() => {
-                        router.push(item.path)
-                        if (typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false)
-                      }}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', background: active ? S.gold3 : 'transparent', border: 'none', borderRight: active ? `3px solid ${S.gold}` : '3px solid transparent', cursor: 'pointer', textAlign: 'right', transition: 'all 0.15s', color: active ? S.gold : S.muted, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: active ? 700 : 400 }}>
+                     onClick={() => {
+  router.push(item.path)
+}}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', background: active ? S.gold3 : 'transparent', border: 'none', borderRight: active ? `3px solid ${S.gold}` : '3px solid transparent', cursor: 'pointer', textAlign: 'right', transition: 'all 0.15s', color: active ? S.gold : S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: active ? 700 : 400 }}>
                       <span style={{ fontSize: 16 }}>{item.icon}</span>
                       <span>{item.label}</span>
                       {active && <span style={{ marginRight: 'auto', width: 6, height: 6, borderRadius: '50%', background: S.gold }} />}

@@ -112,12 +112,37 @@ export default function RegisterPage() {
     setError('')
   }
 
-  async function handleSubmit() {
-    if (!form.name) { setError('Please enter your first name'); return }
-    if (form.email_account && !form.password) { setError('Please enter a password with the login email'); return }
-    if (form.password && form.password.length < 6) { setError('Password must be at least 6 characters'); return }
-    if (!form.role) { setError('Please select a job role'); return }
+async function handleSubmit() {
+  if (!form.name) { setError('Please enter your first name'); return }
 
+  // ✅ تحقق من الإيميل المكرر
+  if (form.email_account) {
+    const { data: existing } = await supabase
+      .from('employee_registrations')
+      .select('id')
+      .eq('email_account', form.email_account)
+      .maybeSingle()
+
+    if (existing) {
+      setError('This email is already registered. Please contact your manager.')
+      return
+    }
+
+    const { data: existingEmp } = await supabase
+      .from('employees')
+      .select('id')
+      .eq('email', form.email_account)
+      .maybeSingle()
+
+    if (existingEmp) {
+      setError('This email already exists in the system. Please contact your manager.')
+      return
+    }
+  }
+
+  if (form.email_account && !form.password) { setError('Please enter a password with the login email'); return }
+  if (form.password && form.password.length < 6) { setError('Password must be at least 6 characters'); return }
+  if (!form.role) { setError('Please select a job role'); return }
     setStep('uploading')
     setError('')
 

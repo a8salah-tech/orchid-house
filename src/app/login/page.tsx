@@ -25,6 +25,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showPass, setShowPass] = useState(false)
+  const [tab, setTab] = useState<'login' | 'reset'>('login')
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetSent, setResetSent] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
 
   async function handleLogin() {
     if (!email || !password) { setError('يرجى إدخال البريد الإلكتروني وكلمة المرور'); return }
@@ -66,6 +70,18 @@ export default function LoginPage() {
     router.refresh()
   }
 
+  async function handleResetPassword() {
+    if (!resetEmail) { setError('يرجى إدخال البريد الإلكتروني'); return }
+    setResetLoading(true)
+    setError('')
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    setResetLoading(false)
+    if (resetError) { setError('حدث خطأ: ' + resetError.message); return }
+    setResetSent(true)
+  }
+
   return (
     <div style={{
       minHeight: '100vh', background: S.navy,
@@ -96,19 +112,22 @@ export default function LoginPage() {
             fontSize: 36, margin: '0 auto 16px',
             boxShadow: `0 0 40px rgba(201,168,76,0.3)`,
           }}>🌸</div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: S.white, marginBottom: 6 }}>Orchid House</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: S.white, marginBottom: 6 }}>Orchid Group</h1>
           <p style={{ fontSize: 13, color: S.muted }}>نظام إدارة المطعم</p>
         </div>
 
         {/* Card */}
-        <div style={{
-          background: S.navy2, borderRadius: 20,
-          border: `1px solid ${S.border}`,
-          padding: '32px 28px',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
-        }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: S.white, marginBottom: 6 }}>تسجيل الدخول</h2>
-          <p style={{ fontSize: 13, color: S.muted, marginBottom: 28 }}>أدخل بياناتك للدخول على النظام</p>
+        <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: '32px 28px', boxShadow: '0 24px 64px rgba(0,0,0,0.4)' }}>
+
+          {/* Tabs */}
+          <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 4, marginBottom: 24 }}>
+            {(['login', 'reset'] as const).map(t => (
+              <button key={t} onClick={() => { setTab(t); setError(''); setResetSent(false) }}
+                style={{ flex: 1, padding: '9px', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === t ? 700 : 400, background: tab === t ? S.gold3 : 'transparent', color: tab === t ? S.gold : S.muted, transition: 'all .2s', borderBottom: tab === t ? `2px solid ${S.gold}` : '2px solid transparent' }}>
+                {t === 'login' ? '🔓 تسجيل الدخول' : '🔑 استعادة كلمة المرور'}
+              </button>
+            ))}
+          </div>
 
           {/* Error */}
           {error && (
@@ -117,78 +136,97 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Email */}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>البريد الإلكتروني</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                placeholder="email@orchid.com"
-                style={{
-                  width: '100%', background: 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${error ? S.red + '50' : 'rgba(255,255,255,0.10)'}`,
-                  borderRadius: 12, padding: '12px 14px 12px 44px', fontSize: 14,
-                  color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif',
-                  boxSizing: 'border-box', direction: 'ltr', textAlign: 'left',
-                  transition: 'border-color .2s',
-                }}
-                onFocus={e => e.target.style.borderColor = S.gold}
-                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
-              />
-              <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18 }}>📧</span>
-            </div>
-          </div>
+          {tab === 'login' ? (
+            <>
+              {/* Email */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>البريد الإلكتروني</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                    placeholder="email@orchid.com"
+                    style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? S.red + '50' : 'rgba(255,255,255,0.10)'}`, borderRadius: 12, padding: '12px 14px 12px 44px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'ltr', textAlign: 'left', transition: 'border-color .2s' }}
+                    onFocus={e => e.target.style.borderColor = S.gold}
+                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
+                  />
+                  <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18 }}>📧</span>
+                </div>
+              </div>
 
-          {/* Password */}
-          <div style={{ marginBottom: 28 }}>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>كلمة المرور</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showPass ? 'text' : 'password'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                placeholder="••••••••"
-                style={{
-                  width: '100%', background: 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${error ? S.red + '50' : 'rgba(255,255,255,0.10)'}`,
-                  borderRadius: 12, padding: '12px 44px 12px 44px', fontSize: 14,
-                  color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif',
-                  boxSizing: 'border-box', direction: 'ltr', textAlign: 'left',
-                  transition: 'border-color .2s',
-                }}
-                onFocus={e => e.target.style.borderColor = S.gold}
-                onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
-              />
-              
-              <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18 }}>🔒</span>
+              {/* Password */}
+              <div style={{ marginBottom: 28 }}>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>كلمة المرور</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPass ? 'text' : 'password'} value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                    placeholder="••••••••"
+                    style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? S.red + '50' : 'rgba(255,255,255,0.10)'}`, borderRadius: 12, padding: '12px 44px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'ltr', textAlign: 'left', transition: 'border-color .2s' }}
+                    onFocus={e => e.target.style.borderColor = S.gold}
+                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
+                  />
+                  <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18 }}>🔒</span>
+                  <button onClick={() => setShowPass(p => !p)}
+                    style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 16, padding: 4 }}>
+                    {showPass ? '🙈' : '👁️'}
+                  </button>
+                </div>
+              </div>
 
-            </div>
-          </div>
+              <button onClick={handleLogin} disabled={loading}
+                style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: loading ? 'rgba(201,168,76,0.4)' : `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: loading ? 'not-allowed' : 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, transition: 'all .2s', boxShadow: loading ? 'none' : `0 4px 20px rgba(201,168,76,0.3)` }}>
+                {loading ? '⏳ جاري تسجيل الدخول...' : '🔓 دخول'}
+              </button>
+            </>
+          ) : (
+            <>
+              {resetSent ? (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>📨</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: S.green, marginBottom: 8 }}>تم إرسال رابط الاستعادة!</div>
+                  <div style={{ fontSize: 13, color: S.muted, lineHeight: 1.7 }}>
+                    تفقد بريدك الإلكتروني<br />
+                    <strong style={{ color: S.white }}>{resetEmail}</strong><br />
+                    واضغط على الرابط لإعادة تعيين كلمة المرور
+                  </div>
+                  <button onClick={() => { setTab('login'); setResetSent(false); setResetEmail('') }}
+                    style={{ marginTop: 20, padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    ← العودة لتسجيل الدخول
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.7 }}>
+                    أدخل بريدك الإلكتروني وسنرسل لك رابطاً لإعادة تعيين كلمة المرور
+                  </p>
+                  <div style={{ marginBottom: 24 }}>
+                    <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>البريد الإلكتروني</label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="email" value={resetEmail}
+                        onChange={e => setResetEmail(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleResetPassword()}
+                        placeholder="email@orchid.com"
+                        style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 12, padding: '12px 14px 12px 44px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'ltr', textAlign: 'left' }}
+                        onFocus={e => e.target.style.borderColor = S.gold}
+                        onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
+                      />
+                      <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 18 }}>📧</span>
+                    </div>
+                  </div>
+                  <button onClick={handleResetPassword} disabled={resetLoading}
+                    style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: resetLoading ? 'rgba(201,168,76,0.4)' : `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: resetLoading ? 'not-allowed' : 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, boxShadow: resetLoading ? 'none' : `0 4px 20px rgba(201,168,76,0.3)` }}>
+                    {resetLoading ? '⏳ جاري الإرسال...' : '📨 إرسال رابط الاستعادة'}
+                  </button>
+                </>
+              )}
+            </>
+          )}
 
-          {/* Login Button */}
-          <button
-            onClick={handleLogin}
-            disabled={loading}
-            style={{
-              width: '100%', padding: '14px',
-              borderRadius: 12, border: 'none',
-              background: loading ? 'rgba(201,168,76,0.4)' : `linear-gradient(135deg, ${S.gold}, ${S.gold2})`,
-              color: S.navy, cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800,
-              transition: 'all .2s', letterSpacing: 0.5,
-              boxShadow: loading ? 'none' : `0 4px 20px rgba(201,168,76,0.3)`,
-            }}
-          >
-            {loading ? '⏳ جاري تسجيل الدخول...' : '🔓 دخول'}
-          </button>
-
-          {/* Footer note */}
           <p style={{ textAlign: 'center', fontSize: 11, color: S.muted, marginTop: 20 }}>
-            نظام داخلي خاص بموظفي Orchid House فقط
+            نظام داخلي خاص بموظفي Orchid Group فقط
           </p>
         </div>
 

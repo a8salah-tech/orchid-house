@@ -241,7 +241,7 @@ export default function MonthlyReportPage() {
     </tbody></table></div>` : ''}
 
     <div style="text-align:center;color:#999;font-size:10px;margin-top:20px">
-      🌸 Orchid House Restaurant Management System — ${new Date().toLocaleDateString('ar-SA')}
+      🌸 Orchid Group Restaurant Management System — ${new Date().toLocaleDateString('ar-SA')}
     </div></body></html>`
 
     const win = window.open('', '_blank')

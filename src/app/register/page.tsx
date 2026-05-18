@@ -341,12 +341,14 @@ export default function RegisterPage() {
                   <div style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.3)', borderRight: 'none', borderRadius: '12px 0 0 12px', padding: '12px 14px', fontSize: 14, fontWeight: 800, color: S.gold, whiteSpace: 'nowrap', letterSpacing: 1 }}>
                     {form.branch === 'Orchid House' ? 'ORH' : 'ORK'}
                   </div>
-                  <input
-                    style={{ ...inp, direction: 'ltr', textAlign: 'left', borderRadius: '0 12px 12px 0', flex: 1 }}
-                    value={form.employee_number}
-                    onChange={e => setForm(p => ({ ...p, employee_number: e.target.value }))}
-                    placeholder="e.g. 001"
-                  />
+                 <input
+                 style={{ ...inp, direction: 'ltr', textAlign: 'left', borderRadius: '0 12px 12px 0', flex: 1 }}
+                 value={form.employee_number}
+                  type="number"
+                  min="1"
+                  onChange={e => setForm(p => ({ ...p, employee_number: e.target.value.replace(/\D/g, '') }))}
+                  placeholder="e.g. 001"
+                />
                 </div>
                 <div style={{ fontSize: 11, color: S.muted, marginTop: 5 }}>
                   Full number: <span style={{ color: S.gold, fontWeight: 700 }}>{form.branch === 'Orchid House' ? 'ORH' : 'ORK'}-{form.employee_number || '???'}</span>
@@ -443,7 +445,7 @@ export default function RegisterPage() {
         </div>
 
         <p style={{ textAlign: 'center', fontSize: 11, color: S.muted, marginTop: 16 }}>
-          🌸 Orchid House Restaurant Management System
+          🌸 Orchid Group Restaurant Management System
         </p>
       </div>
     </div>

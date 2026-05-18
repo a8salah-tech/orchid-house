@@ -198,7 +198,7 @@ export default function CostAnalysisPage() {
       </tbody>
     </table>`).join('')}
 
-    <div style="text-align:center;color:#999;font-size:10px;margin-top:20px">🌸 Orchid House Restaurant Management System</div>
+    <div style="text-align:center;color:#999;font-size:10px;margin-top:20px">🌸 Orchid Group Restaurant Management System</div>
     </body></html>`
 
     const win = window.open('', '_blank')

@@ -174,7 +174,7 @@ async function printInventoryReport(supabase: any) {
     <table><thead><tr>
       <th style="text-align:right">الصنف</th><th>Item Name</th><th>الوحدة</th><th>المخزون</th><th>الحد الأدنى</th><th>سعر الشراء</th>
     </tr></thead><tbody>${rows}</tbody></table>
-    <div class="footer">🌸 Orchid House Restaurant Management System — ${now}</div>
+    <div class="footer">🌸 Orchid Group Restaurant Management System — ${now}</div>
     </body></html>`
 
   const win = window.open('','_blank')

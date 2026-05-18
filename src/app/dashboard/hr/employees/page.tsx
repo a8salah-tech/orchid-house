@@ -32,13 +32,22 @@ const inp: React.CSSProperties = {
 }
 
 const ROLES: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  admin:              { label: 'مدير النظام',   color: S.gold,   bg: S.gold3,   icon: '👑' },
-  branch_manager:     { label: 'مدير الفرع',    color: S.purple, bg: S.purpleB, icon: '🏪' },
-  kitchen_supervisor: { label: 'مشرف المطبخ',   color: S.red,    bg: S.redB,    icon: '👨‍🍳' },
-  hall_supervisor:    { label: 'مشرف الصالة',   color: S.blue,   bg: S.blueB,   icon: '🍽️' },
-  bar_supervisor:     { label: 'مشرف البار',    color: S.teal,   bg: S.tealB,   icon: '☕' },
-  cashier:            { label: 'كاشير',          color: S.green,  bg: S.greenB,  icon: '💰' },
-  employee:           { label: 'موظف',           color: S.muted,  bg: S.card2,   icon: '👤' },
+  admin:                { label: 'مدير النظام',   color: S.gold,    bg: 'rgba(201,168,76,0.12)',   icon: '👑' },
+  branch_manager:       { label: 'مدير الفرع',    color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)',   icon: '🏪' },
+  kitchen_manager:      { label: 'مدير المطبخ',   color: '#F97316', bg: 'rgba(249,115,22,0.12)',   icon: '🍳' },
+  hall_manager:         { label: 'مدير الصالة',   color: '#06B6D4', bg: 'rgba(6,182,212,0.12)',    icon: '🏛️' },
+  kitchen_supervisor:   { label: 'مشرف المطبخ',   color: S.red,     bg: S.redB,                   icon: '👨‍🍳' },
+  hall_supervisor:      { label: 'مشرف الصالة',   color: S.blue,    bg: S.blueB,                  icon: '🍽️' },
+  bar_supervisor:       { label: 'مشرف البار',    color: S.teal,    bg: S.tealB,                  icon: '☕' },
+  assistant_supervisor: { label: 'مساعد مشرف',    color: '#A78BFA', bg: 'rgba(167,139,250,0.12)',  icon: '🤝' },
+  cashier:              { label: 'كاشير',          color: S.green,   bg: S.greenB,                 icon: '💰' },
+  assistant_cashier:    { label: 'مساعد كاشير',   color: '#34D399', bg: 'rgba(52,211,153,0.12)',   icon: '💳' },
+  chef:                 { label: 'طباخ',           color: '#FB923C', bg: 'rgba(251,146,60,0.12)',   icon: '🧑‍🍳' },
+  assistant_chef:       { label: 'مساعد طباخ',    color: '#FCA5A5', bg: 'rgba(252,165,165,0.12)',  icon: '🥘' },
+  kitchen_worker:       { label: 'عامل مطبخ',     color: '#FCD34D', bg: 'rgba(252,211,77,0.12)',   icon: '🔪' },
+  bar_assistant:        { label: 'مساعد بار',     color: '#5EEAD4', bg: 'rgba(94,234,212,0.12)',   icon: '🧃' },
+  hall_worker:          { label: 'عامل صالة',     color: '#93C5FD', bg: 'rgba(147,197,253,0.12)',  icon: '🪑' },
+  employee:             { label: 'موظف',           color: S.muted,   bg: S.card2,                  icon: '👤' },
 }
 
 const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'الكاشير', 'الإدارة', 'التوصيل', 'النظافة']

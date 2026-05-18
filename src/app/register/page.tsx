@@ -229,7 +229,7 @@ export default function RegisterPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20, marginBottom: 18 }}>
             <div style={{ position: 'relative' }}>
               <div style={{ width: 90, height: 90, borderRadius: 22, overflow: 'hidden', border: `2px solid ${S.gold}40`, boxShadow: `0 0 30px rgba(201,168,76,0.25), 0 8px 24px rgba(0,0,0,0.4)` }}>
-                <img src="https://i.ibb.co/NcC46CQ/Whats-App-Image-2026-05-15-at-8-59-09-AM.jpg" alt="Orchid House" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src="https://i.ibb.co/hRM7zRdZ/Whats-App-Image-2026-05-15-at-8-59.png" alt="Orchid House" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
             </div>
             <div style={{ width: 1, height: 60, background: `linear-gradient(to bottom, transparent, ${S.gold}60, transparent)` }} />
@@ -326,7 +326,7 @@ export default function RegisterPage() {
             {/* Employee Number */}
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Employee Number</label>
-              <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.employee_number} onChange={e => setForm(p => ({ ...p, employee_number: e.target.value }))} placeholder="EMP-001" />
+              <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.employee_number} onChange={e => setForm(p => ({ ...p, employee_number: e.target.value }))} placeholder="A-001" />
             </div>
 
             {/* Job Role */}

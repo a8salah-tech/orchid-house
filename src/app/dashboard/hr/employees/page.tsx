@@ -1074,9 +1074,10 @@ async function deleteEmployee(emp: Employee) {
                   {role.label}
                 </span>
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {emp.department && <div style={{ fontSize: 12, color: S.muted }}>🏷️ {emp.department}</div>}
-                  {emp.branches?.name && <div style={{ fontSize: 12, color: S.muted }}>🏪 {emp.branches.name}</div>}
-                  {emp.phone && <div style={{ fontSize: 12, color: S.muted }}>📞 {emp.phone}</div>}
+                 // بعد ✅
+                 <div style={{ fontSize: 12, color: S.muted }}>🏷️ {emp.department || '—'}</div>
+                 <div style={{ fontSize: 12, color: S.muted }}>🏪 {emp.branches?.name || '—'}</div>
+                 <div style={{ fontSize: 12, color: S.muted }}>📞 {emp.phone || '—'}</div>
                 </div>
                 <div style={{ marginTop: 14, display: 'flex', gap: 8 }} onClick={e => e.stopPropagation()}>
                   <button onClick={() => { setEditEmp(emp); setDetailEmp(null) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✏️ تعديل</button>

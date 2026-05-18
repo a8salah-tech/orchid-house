@@ -16,13 +16,22 @@ const S = {
 }
 
 const ROLE_LABELS: Record<string, { label: string; icon: string; color: string }> = {
-  admin:               { label: 'مدير النظام',   icon: '👑', color: S.gold },
-  branch_manager:      { label: 'مدير الفرع',    icon: '🏪', color: '#8B5CF6' },
-  kitchen_supervisor:  { label: 'مشرف المطبخ',   icon: '👨‍🍳', color: S.red },
-  hall_supervisor:     { label: 'مشرف الصالة',   icon: '🍽️', color: S.blue },
-  bar_supervisor:      { label: 'مشرف البار',    icon: '☕', color: '#14B8A6' },
-  cashier:             { label: 'كاشير',           icon: '💰', color: S.green },
-  employee:            { label: 'موظف',            icon: '👤', color: S.muted },
+admin:               { label: 'مدير النظام',      icon: '👑', color: S.gold },
+branch_manager:      { label: 'مدير الفرع',       icon: '🏪', color: '#8B5CF6' },
+kitchen_manager:     { label: 'مدير المطبخ',      icon: '🍳', color: '#F97316' },
+hall_manager:        { label: 'مدير الصالة',      icon: '🏛️', color: '#06B6D4' },
+kitchen_supervisor:  { label: 'مشرف المطبخ',      icon: '👨‍🍳', color: S.red },
+hall_supervisor:     { label: 'مشرف الصالة',      icon: '🍽️', color: S.blue },
+bar_supervisor:      { label: 'مشرف البار',       icon: '☕', color: '#14B8A6' },
+assistant_supervisor:{ label: 'مساعد مشرف',       icon: '🤝', color: '#A78BFA' },
+cashier:             { label: 'كاشير',            icon: '💰', color: S.green },
+assistant_cashier:   { label: 'مساعد كاشير',      icon: '💳', color: '#34D399' },
+chef:                { label: 'طباخ',             icon: '🧑‍🍳', color: '#FB923C' },
+assistant_chef:      { label: 'مساعد طباخ',       icon: '🥘', color: '#FCA5A5' },
+kitchen_worker:      { label: 'عامل مطبخ',        icon: '🔪', color: '#FCD34D' },
+bar_assistant:       { label: 'مساعد بار',        icon: '🧃', color: '#5EEAD4' },
+hall_worker:         { label: 'عامل صالة',        icon: '🪑', color: '#93C5FD' },
+employee:            { label: 'موظف',             icon: '👤', color: S.muted },
 }
 
 interface MenuItem {
@@ -54,6 +63,8 @@ const ALL_MENU: MenuGroup[] = [
       { label: 'الحلويات', icon: '🍰', path: '/dashboard/desserts', permission: 'desserts' },
       { label: 'البار',    icon: '☕', path: '/dashboard/bar',      permission: 'bar' },
       { label: 'الصالة',   icon: '🍽️', path: '/dashboard/hall',     permission: 'hall' },
+      { label: 'الكاشير',  icon: '🏧', path: '/dashboard/cashier', permission: 'cashier' },
+      { label: 'الطاولات', icon: '🪑', path: '/dashboard/tables',  permission: 'tables' },
     ]
   },
   {

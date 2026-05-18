@@ -745,11 +745,12 @@ async function deleteEmployee(emp: Employee) {
   const confirmed = window.confirm(`هل أنت متأكد من حذف الموظف "${emp.name}" نهائياً؟\nلا يمكن التراجع عن هذا الإجراء.`)
   if (!confirmed) return
 
-  // حذف كل السجلات المرتبطة أولاً
+  // حذف كل السجلات المرتبطة
   await supabase.from('employee_requests').delete().eq('employee_id', emp.id)
   await supabase.from('shift_schedules').delete().eq('employee_id', emp.id)
+  await supabase.from('shift_requests').delete().eq('employee_id', emp.id)
 
-  // ثم حذف الموظف
+  // حذف الموظف
   const { error } = await supabase.from('employees').delete().eq('id', emp.id)
 
   if (error) {

@@ -157,7 +157,7 @@ export default function RegisterPage() {
       password_hint: form.password || null,
       department: form.department || null,
       role: form.role,
-      notes: form.notes ? `Employee #: ${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date} | ${form.notes}` : `Employee #: ${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date}`,
+      notes: form.notes ? `Employee #: ${form.branch === 'Orchid House' ? 'ORH' : form.branch === 'Orchid House KLCC' ? 'ORK' : ''}-${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date} | ${form.notes}` : `Employee #: ${form.branch === 'Orchid House' ? 'ORH' : form.branch === 'Orchid House KLCC' ? 'ORK' : ''}-${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date}`,
       photo_url,
       national_id_url,
       status: 'pending',
@@ -323,11 +323,36 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Employee Number */}
+            {/* Branch */}
             <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Employee Number</label>
-              <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.employee_number} onChange={e => setForm(p => ({ ...p, employee_number: e.target.value }))} placeholder="A-001" />
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Branch *</label>
+              <select style={inp} value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value, employee_number: '' }))}>
+                <option value="">Select Branch</option>
+                <option value="Orchid House">Orchid House</option>
+                <option value="Orchid House KLCC">Orchid House KLCC</option>
+              </select>
             </div>
+
+            {/* Employee Number — shown after branch selection */}
+            {form.branch && (
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Employee Number</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <div style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.3)', borderRight: 'none', borderRadius: '12px 0 0 12px', padding: '12px 14px', fontSize: 14, fontWeight: 800, color: S.gold, whiteSpace: 'nowrap', letterSpacing: 1 }}>
+                    {form.branch === 'Orchid House' ? 'ORH' : 'ORK'}
+                  </div>
+                  <input
+                    style={{ ...inp, direction: 'ltr', textAlign: 'left', borderRadius: '0 12px 12px 0', flex: 1 }}
+                    value={form.employee_number}
+                    onChange={e => setForm(p => ({ ...p, employee_number: e.target.value }))}
+                    placeholder="e.g. 001"
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: S.muted, marginTop: 5 }}>
+                  Full number: <span style={{ color: S.gold, fontWeight: 700 }}>{form.branch === 'Orchid House' ? 'ORH' : 'ORK'}-{form.employee_number || '???'}</span>
+                </div>
+              </div>
+            )}
 
             {/* Job Role */}
             <div>

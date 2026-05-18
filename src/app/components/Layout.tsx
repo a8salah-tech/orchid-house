@@ -62,7 +62,6 @@ const ALL_MENU: MenuGroup[] = [
       { label: 'المطبخ',   icon: '👨‍🍳', path: '/dashboard/kitchen',  permission: 'kitchen' },
       { label: 'الحلويات', icon: '🍰', path: '/dashboard/desserts', permission: 'desserts' },
       { label: 'البار',    icon: '☕', path: '/dashboard/bar',      permission: 'bar' },
-      { label: 'الصالة',   icon: '🍽️', path: '/dashboard/hall',     permission: 'hall' },
       { label: 'الكاشير',  icon: '🏧', path: '/dashboard/cashier', permission: 'cashier' },
       { label: 'الطاولات', icon: '🪑', path: '/dashboard/tables',  permission: 'tables' },
     ]

@@ -26,7 +26,7 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'rtl', transition: 'border-color .2s',
 }
 
-const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'الكاشير', 'الإدارة', 'التوصيل', 'النظافة']
+const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'الكاشير', 'الإدارة', 'التوصيل', 'نظافة مطبخ', 'نظافة صالة']
 const ROLES = [
   { value: 'admin',                label: 'مدير النظام',      icon: '👑' },
   { value: 'branch_manager',       label: 'مدير الفرع',       icon: '🏪' },
@@ -36,16 +36,8 @@ const ROLES = [
   { value: 'kitchen_supervisor',   label: 'مشرف المطبخ',      icon: '👨‍🍳' },
   { value: 'hall_supervisor',      label: 'مشرف الصالة',      icon: '🍽️' },
   { value: 'bar_supervisor',       label: 'مشرف البار',       icon: '☕' },
-  { value: 'assistant_supervisor', label: 'مساعد مشرف',       icon: '🤝' },
   { value: 'cashier',              label: 'كاشير',             icon: '💰' },
   { value: 'assistant_cashier',    label: 'مساعد كاشير',      icon: '💳' },
-  { value: 'chef',                 label: 'طباخ',              icon: '🧑‍🍳' },
-  { value: 'assistant_chef',       label: 'مساعد طباخ',       icon: '🥘' },
-  { value: 'kitchen_worker',       label: 'عامل مطبخ',        icon: '🔪' },
-  { value: 'bar_assistant',        label: 'مساعد بار',        icon: '🧃' },
-  { value: 'hall_worker',          label: 'عامل صالة',        icon: '🪑' },
-  { value: 'kitchen_cleaner',      label: 'عامل نظافة مطبخ',  icon: '🧹' },
-  { value: 'hall_cleaner',         label: 'عامل نظافة صالة',  icon: '🧽' },
   { value: 'employee',             label: 'موظف',              icon: '👤' },
 ]
 // تحويل الصورة لـ base64 ثم رفعها

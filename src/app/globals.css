@@ -1,1 +1,9 @@
 ﻿* { box-sizing: border-box; }
+.stats-scroll { 
+  scrollbar-width: thin; 
+  scrollbar-color: rgba(201,168,76,0.5) transparent; 
+}
+.stats-scroll::-webkit-scrollbar { height: 6px; }
+.stats-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 3px; }
+.stats-scroll::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #C9A84C, #8B6914); border-radius: 3px; }
+.stats-scroll::-webkit-scrollbar-thumb:hover { background: linear-gradient(90deg, #E8C97A, #C9A84C); }

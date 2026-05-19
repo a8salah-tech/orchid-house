@@ -137,7 +137,11 @@ export default function TablesPage() {
       .inst { font-size: 12px; color: #C9A84C; font-weight: 700; letter-spacing: 1px; margin-top: 16px; }
       .url { font-size: 9px; color: #ccc; margin-top: 10px; word-break: break-all; }
       .footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; font-size: 10px; color: #999; }
-      @media print { @page { margin: 0; size: 10cm 14cm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+     @media print { 
+     @page { margin: 0; size: A6 portrait; } 
+     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .card { page-break-after: avoid; page-break-inside: avoid; }
+     }
     </style></head><body>
     <div class="card">
       <div class="logo">ORCHID</div>

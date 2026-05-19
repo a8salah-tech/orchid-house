@@ -522,11 +522,11 @@ async function loadMonthRecords(month: PayrollMonth) {
             {/* Summary Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
-                { label: 'Total Employees', value: records.length, color: S.white, icon: '👥' },
-                { label: 'Total Earnings', value: 'MYR ' + totals.earnings.toFixed(2), color: S.green, icon: '📈' },
-                { label: 'Total Deductions', value: 'MYR ' + totals.deductions.toFixed(2), color: S.red, icon: '📉' },
-                { label: 'Net Payroll', value: 'MYR ' + totals.net.toFixed(2), color: S.teal, icon: '💰' },
-                { label: 'Balance', value: 'MYR ' + totals.balance.toFixed(2), color: totals.balance > 0 ? S.amber : S.green, icon: '⚖️' },
+               { label: 'Total Employees',  value: records.length, color: S.white, icon: '👥' },
+               { label: 'Total Earnings',   value: 'MYR ' + totals.earnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.green, icon: '📈' },
+               { label: 'Total Deductions', value: 'MYR ' + totals.deductions.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.red, icon: '📉' },
+               { label: 'Net Payroll',      value: 'MYR ' + totals.net.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.teal, icon: '💰' },
+               { label: 'Balance',          value: 'MYR ' + totals.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: totals.balance > 0 ? S.amber : S.green, icon: '⚖️' },
               ].map((s, i) => (
                 <div key={i} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: '14px 16px' }}>
                   <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{s.icon} {s.label}</div>

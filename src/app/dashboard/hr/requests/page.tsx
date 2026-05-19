@@ -43,8 +43,6 @@ const REQUEST_TYPES: Record<string, { label: string; icon: string; color: string
   training:      { label: 'طلب تدريب',        icon: '📚', color: S.blue,   bg: S.blueB },
   equipment:     { label: 'طلب معدات/أدوات', icon: '🔧', color: S.purple, bg: S.purpleB, hasAmount: true },
   uniform:         { label: 'طلب زي رسمي',         icon: '👔', color: S.muted,  bg: S.card2 },
-  salary_increase: { label: 'Salary Increase',       icon: '📈', color: S.green,  bg: S.greenB, hasAmount: true },
-  salary_advance:  { label: 'Salary Advance',        icon: '💸', color: S.gold,   bg: S.gold3,  hasAmount: true },
   other:           { label: 'طلب آخر',               icon: '📋', color: S.muted,  bg: S.card2 },
 }
 
@@ -459,14 +457,20 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId }: {
 }
 
 // ══ Request Detail Modal ══
-function RequestDetailModal({ request, onClose, onUpdate }: {
-  request: EmployeeRequest; onClose: () => void; onUpdate: () => void
+function RequestDetailModal({ request, onClose, onUpdate, onDelete }: {
+  request: EmployeeRequest; onClose: () => void; onUpdate: () => void; onDelete: () => void
 }) {
   const supabase = createClient()
   const [updating, setUpdating] = useState(false)
   const [approvedBy, setApprovedBy] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
   const [showReject, setShowReject] = useState(false)
+
+  async function deleteRequest() {
+    if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return
+    await supabase.from('employee_requests').delete().eq('id', request.id)
+    onDelete()
+  }
 
   const reqType = REQUEST_TYPES[request.request_type] || REQUEST_TYPES.other
   const status = STATUS_CONFIG[request.status] || STATUS_CONFIG.pending
@@ -484,7 +488,56 @@ function RequestDetailModal({ request, onClose, onUpdate }: {
     setUpdating(false)
     onUpdate()
   }
-
+function printRequest() {
+  const win = window.open('', '_blank')
+  if (!win) return
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Request #${request.request_number}</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 30px; font-size: 13px; color: #1a1a1a; }
+  .header { text-align: center; border-bottom: 3px solid #C9A84C; padding-bottom: 16px; margin-bottom: 24px; }
+  .logo { font-size: 22px; font-weight: 900; color: #1a1a1a; margin-bottom: 4px; }
+  .subtitle { font-size: 14px; color: #C9A84C; font-weight: 700; }
+  .req-number { font-size: 12px; color: #666; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  td { padding: 10px 14px; border-bottom: 1px solid #e5e5e5; font-size: 13px; vertical-align: top; }
+  td:first-child { font-weight: 700; color: #444; width: 200px; background: #fafafa; }
+  .section-title { background: #f0f0f0; font-weight: 700; color: #333; padding: 8px 14px; margin-top: 20px; margin-bottom: 0; border-right: 4px solid #C9A84C; }
+  .description { white-space: pre-line; line-height: 1.8; }
+  .footer { text-align: center; margin-top: 40px; font-size: 11px; color: #999; border-top: 1px solid #e5e5e5; padding-top: 12px; }
+  @media print { @page { margin: 15mm; } }
+</style>
+</head><body>
+<div class="header">
+  <div class="logo">Orchid Group</div>
+  <div class="subtitle">${request.title || 'Employee Request'}</div>
+  <div class="req-number">Request #${request.request_number} · ${new Date(request.created_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+</div>
+<p class="section-title">Employee Information</p>
+<table>
+  <tr><td>Employee Name</td><td>${request.employees?.name || '—'}</td></tr>
+  <tr><td>Department</td><td>${request.employees?.department || '—'}</td></tr>
+  <tr><td>Status</td><td>${request.status.toUpperCase()}</td></tr>
+  <tr><td>Date Submitted</td><td>${new Date(request.created_at).toLocaleDateString('en-GB')}</td></tr>
+  ${request.amount ? '<tr><td>Amount Requested</td><td>MYR ' + request.amount.toFixed(2) + '</td></tr>' : ''}
+  ${request.start_date ? '<tr><td>From Date</td><td>' + request.start_date + '</td></tr>' : ''}
+  ${request.end_date ? '<tr><td>To Date</td><td>' + request.end_date + '</td></tr>' : ''}
+  ${request.days_count ? '<tr><td>Number of Days</td><td>' + request.days_count + '</td></tr>' : ''}
+</table>
+<p class="section-title">Request Details</p>
+<table><tr><td colspan="2"><div class="description">${request.description}</div></td></tr></table>
+${request.approved_by ? '<p class="section-title">Approval</p><table><tr><td>Approved By</td><td>' + request.approved_by + '</td></tr></table>' : ''}
+${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><table><tr><td colspan="2">' + request.rejection_reason + '</td></tr></table>' : ''}
+<div style="margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:40px;">
+  <div style="border-top:1px solid #ccc;padding-top:8px;text-align:center;font-size:12px;color:#666;">Employee Signature</div>
+  <div style="border-top:1px solid #ccc;padding-top:8px;text-align:center;font-size:12px;color:#666;">Manager Signature</div>
+</div>
+<div class="footer">Orchid House Restaurant Management System</div>
+<script>window.onload=function(){window.print()}<\/script>
+</body></html>`
+  win.document.write(html)
+  win.document.close()
+}
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, padding: 28, margin: 'auto' }}>
@@ -530,7 +583,7 @@ function RequestDetailModal({ request, onClose, onUpdate }: {
         {/* Description */}
         <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>📝 تفاصيل الطلب</div>
-          <div style={{ fontSize: 13, color: S.white, lineHeight: 1.6 }}>{request.description}</div>
+          <div style={{ fontSize: 13, color: S.white, lineHeight: 1.8, whiteSpace: 'pre-line' }}>{request.description}</div>
         </div>
 
         {/* Rejection reason */}
@@ -540,7 +593,18 @@ function RequestDetailModal({ request, onClose, onUpdate }: {
             <div style={{ fontSize: 13, color: S.white }}>{request.rejection_reason}</div>
           </div>
         )}
-
+<div style={{ display: 'flex', justifyContent: 'space-between' }}>
+  <button onClick={deleteRequest}
+    style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+    🗑️ حذف الطلب
+  </button>
+  <div style={{ display: 'flex', gap: 8 }}>
+<button onClick={printRequest} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+  🖨️ طباعة
+</button>
+    <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+  </div>
+</div>
         {/* Actions */}
         {request.status === 'pending' && (
           <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
@@ -589,7 +653,11 @@ function RequestDetailModal({ request, onClose, onUpdate }: {
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <button onClick={deleteRequest}
+            style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            🗑️ حذف الطلب
+          </button>
           <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
         </div>
       </div>
@@ -675,15 +743,11 @@ export default function EmployeeRequestsPage() {
             {isEmployee ? 'طلباتك الشخصية — إجازات، سلف، ومقترحات' : 'إدارة طلبات الإجازات والسلف والمقترحات'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => setShowNew(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Request</button>
-          {isEmployee && (
-            <>
-              <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📈 Salary Increase</button>
-              <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💸 Salary Advance</button>
-            </>
-          )}
-        </div>
+<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+  <button onClick={() => setShowNew(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Request</button>
+  <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📈 Salary Increase</button>
+  <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💸 Salary Advance</button>
+</div>
       </div>
 
       {/* Stats */}
@@ -823,7 +887,7 @@ export default function EmployeeRequestsPage() {
 {showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
   <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />
 )}
-      {selected && <RequestDetailModal request={selected} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} />}
+      {selected && <RequestDetailModal request={selected} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
 }

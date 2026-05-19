@@ -891,16 +891,14 @@ export default function EmployeesPage() {
                   </div>
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>
-  {emp.name}{emp.name_en ? ` ${emp.name_en}` : ''}
+                     {emp.name}{emp.name_en ? ` ${emp.name_en}` : ''}
 </div>                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, letterSpacing: 1, marginBottom: 6 }}>{emp.employee_number || '—'}</div>
                 <span style={{ background: role.bg, color: role.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{role.label}</span>
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ fontSize: 12, color: S.muted }}>🏷️ {emp.department || '—'}</div>
                   <div style={{ fontSize: 12, color: S.muted }}>🏪 {emp.branches?.name || '—'}</div>
                   <div style={{ fontSize: 12, color: S.muted }}>📞 {emp.phone || '—'}</div>
-                  {/* ③ عرض نوع الإيميل */}
-                  {emp.email_account && <div style={{ fontSize: 11, color: S.blue }}>🔑 {emp.email_account}</div>}
-                  {emp.email && !emp.email_account && <div style={{ fontSize: 11, color: S.muted }}>📧 {emp.email}</div>}
+                 <div style={{ fontSize: 11, color: S.muted }}>📧 {emp.email || emp.email_account || '—'}</div>
                 </div>
                 <div style={{ marginTop: 14, display: 'flex', gap: 8 }} onClick={e => e.stopPropagation()}>
                   <button onClick={() => { setEditEmp(emp); setDetailEmp(null) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✏️ تعديل</button>

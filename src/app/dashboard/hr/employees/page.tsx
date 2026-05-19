@@ -873,8 +873,10 @@ export default function EmployeesPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
           {filtered.map(emp => {
             const role = ROLES[emp.role] || ROLES.employee
-            const yearsService = emp.join_date ? Math.floor((Date.now() - new Date(emp.join_date).getTime()) / (365.25*24*60*60*1000)) : 0
-            return (
+            const yearsService = emp.join_date && emp.join_date !== '—'
+  ? Math.floor((Date.now() - new Date(emp.join_date).getTime()) / (365.25*24*60*60*1000))
+  : -1            
+  return (
               <div key={emp.id} className="emp-card" onClick={() => setDetailEmp(emp)}
                 style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${emp.is_active ? S.border : S.redB}`, padding: 20, cursor: 'pointer', opacity: emp.is_active ? 1 : 0.7 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
@@ -885,11 +887,12 @@ export default function EmployeesPage() {
                     <span style={{ background: emp.is_active ? S.greenB : S.redB, color: emp.is_active ? S.green : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{emp.is_active ? '✅ نشط' : '⏸ موقف'}</span>
                     {emp.auth_user_id && <span style={{ fontSize: 10, color: S.blue }}>🔑 حساب نشط</span>}
                     {/* ⑫ شارة مدة الخدمة */}
-                    {yearsService >= 1 && <span style={{ fontSize: 10, color: S.gold }}>⭐ {yearsService} سنة</span>}
+                    {yearsService >= 1 && emp.join_date && <span style={{ fontSize: 10, color: S.gold }}>⭐ {yearsService} سنة</span>}
                   </div>
                 </div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>{emp.name} {emp.name_en}</div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, letterSpacing: 1, marginBottom: 6 }}>{emp.employee_number || '—'}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>
+  {emp.name}{emp.name_en ? ` ${emp.name_en}` : ''}
+</div>                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, letterSpacing: 1, marginBottom: 6 }}>{emp.employee_number || '—'}</div>
                 <span style={{ background: role.bg, color: role.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{role.label}</span>
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ fontSize: 12, color: S.muted }}>🏷️ {emp.department || '—'}</div>

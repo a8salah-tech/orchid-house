@@ -35,14 +35,10 @@ const REQUEST_TYPES: Record<string, { label: string; icon: string; color: string
   leave_annual:  { label: 'إجازة سنوية',     icon: '🏖️', color: S.blue,   bg: S.blueB,   hasDates: true },
   leave_sick:    { label: 'إجازة مرضية',     icon: '🏥', color: S.red,    bg: S.redB,    hasDates: true },
   leave_emergency:{ label: 'إجازة طارئة',    icon: '🚨', color: S.amber,  bg: S.amberB,  hasDates: true },
-  advance:       { label: 'سلفة راتب',        icon: '💰', color: S.gold,   bg: S.gold3,   hasAmount: true },
   overtime:      { label: 'طلب أوفر تايم',   icon: '⏰', color: S.purple, bg: S.purpleB, hasDates: true },
   extra_meal:    { label: 'وجبة إضافية',     icon: '🍽️', color: S.teal,  bg: S.tealB },
   complaint:     { label: 'شكوى / مشكلة',    icon: '⚠️', color: S.red,   bg: S.redB },
   suggestion:    { label: 'اقتراح',           icon: '💡', color: S.green,  bg: S.greenB },
-  training:      { label: 'طلب تدريب',        icon: '📚', color: S.blue,   bg: S.blueB },
-  equipment:     { label: 'طلب معدات/أدوات', icon: '🔧', color: S.purple, bg: S.purpleB, hasAmount: true },
-  uniform:         { label: 'طلب زي رسمي',         icon: '👔', color: S.muted,  bg: S.card2 },
   other:           { label: 'طلب آخر',               icon: '📋', color: S.muted,  bg: S.card2 },
 }
 

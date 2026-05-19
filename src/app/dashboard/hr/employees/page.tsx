@@ -246,7 +246,7 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
     let national_id_url = employee?.national_id_url || null
     if (photoFile) { const url = await uploadImage(supabase, photoFile, `photos/${employee?.id || Date.now()}_${Date.now()}.jpg`); if (url) photo_url = url }
     if (idFile) { const url = await uploadImage(supabase, idFile, `ids/${employee?.id || Date.now()}_${Date.now()}.jpg`); if (url) national_id_url = url }
-    const payload = { ...form, salary: parseFloat(form.salary) || 0, photo_url, national_id_url }
+    const payload = { ...form, salary: parseFloat(form.salary) || 0, photo_url, national_id_url, branch_id: form.branch_id || null, }    
     const { error } = employee ? await supabase.from('employees').update(payload).eq('id', employee.id) : await supabase.from('employees').insert([payload])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }

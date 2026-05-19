@@ -87,50 +87,89 @@ export default function TablesPage() {
     fetchTables()
   }
 
- function printQR(table: Table) {
-    const url = `${MENU_BASE_URL}/menu/${table.id}`
+  function printQR(table: Table) {
     const img = qrUrls[table.id]
+    if (!img) return
     const win = window.open('', '_blank')
-    if (!win || !img) return
+    if (!win) return
     win.document.write(`<!DOCTYPE html><html>
-    <head><meta charset="UTF-8"><title>QR - ${table.name}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #fff; font-family: 'Tajawal', sans-serif; }
-      .card { text-align: center; padding: 36px 32px; border: 2px solid #C9A84C; border-radius: 24px; width: 340px; background: #fff; }
-      .orchid-logo { width: 60px; height: 60px; margin: 0 auto 10px; }
-      .logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 900; color: #0A1628; letter-spacing: 2px; margin-bottom: 2px; }
-      .tagline { font-size: 11px; color: #8A9BB5; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 20px; }
-      .divider { width: 60px; height: 2px; background: linear-gradient(90deg, transparent, #C9A84C, transparent); margin: 0 auto 20px; }
-      .qr-wrap { position: relative; display: inline-block; }
-      .qr-wrap img { width: 240px; height: 240px; border-radius: 16px; display: block; border: 3px solid #0A1628; }
-      .table-badge { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #C9A84C, #E8C97A); color: #0A1628; border-radius: 30px; padding: 6px 24px; font-size: 18px; font-weight: 900; white-space: nowrap; box-shadow: 0 4px 16px rgba(201,168,76,0.5); font-family: 'Playfair Display', serif; }
-      .spacer { height: 28px; }
-      .inst { font-size: 12px; color: #C9A84C; font-weight: 700; letter-spacing: 1px; margin-top: 16px; }
-      .url { font-size: 9px; color: #ccc; margin-top: 10px; word-break: break-all; }
-      .footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; font-size: 10px; color: #999; }
-     @media print { 
-     @page { margin: 0; size: A6 portrait; } 
-     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .card { page-break-after: avoid; page-break-inside: avoid; }
-     }
-    </style></head><body>
-    <div class="card">
-      <div class="logo">Orchid Group</div>
-      <div class="tagline">House Restaurant</div>
-      <div class="divider"></div>
-      <div class="qr-wrap">
-        <img src="${img}" alt="QR Code" />
-        <div class="table-badge">${table.name || `Table ${table.number}`}</div>
-      </div>
-      <div class="spacer"></div>
-      <div class="inst">📱 Scan to view our menu & order</div>
-      <div class="url">${url}</div>
-      <div class="footer">All prices subject to 6% SST & 10% service charge</div>
-    </div>
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`)
+<head><meta charset="UTF-8"><title>${table.name}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width:9cm; height:13cm;
+    display:flex; align-items:center; justify-content:center;
+    background:#fff; font-family:'Montserrat',sans-serif;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .card {
+    width:8cm; height:12cm;
+    border:1.5px solid #C9A84C;
+    border-radius:16px;
+    display:flex; flex-direction:column; align-items:center;
+    justify-content:space-between;
+    padding:20px 16px 16px;
+    background:#fff;
+    position:relative; overflow:hidden;
+  }
+  .card::before {
+    content:''; position:absolute; top:0; left:0; right:0; height:3px;
+    background:linear-gradient(90deg,#C9A84C,#E8C97A,#C9A84C);
+  }
+  .brand { text-align:center; }
+  .brand-name {
+    font-family:'Cormorant Garamond',serif;
+    font-size:22px; font-weight:700; color:#0A1628;
+    letter-spacing:4px; text-transform:uppercase;
+    line-height:1;
+  }
+  .brand-sub {
+    font-size:8px; color:#8A9BB5; letter-spacing:3px;
+    text-transform:uppercase; margin-top:3px;
+  }
+  .divider {
+    width:40px; height:1px;
+    background:linear-gradient(90deg,transparent,#C9A84C,transparent);
+    margin:8px auto;
+  }
+  .qr-section { display:flex; flex-direction:column; align-items:center; }
+  .qr-border {
+    padding:8px; border:1.5px solid #0A1628; border-radius:10px;
+    background:#fff; margin-bottom:10px;
+  }
+  .qr-border img { width:140px; height:140px; display:block; }
+  .table-pill {
+    background:linear-gradient(135deg,#C9A84C,#E8C97A);
+    color:#0A1628; border-radius:30px;
+    padding:5px 20px; font-size:13px; font-weight:700;
+    letter-spacing:1px; font-family:'Cormorant Garamond',serif;
+    font-size:15px;
+  }
+  .scan-text { font-size:8px; color:#8A9BB5; letter-spacing:2px; text-transform:uppercase; margin-top:10px; }
+  .footer { text-align:center; }
+  .footer-text { font-size:7px; color:#ccc; letter-spacing:1px; }
+  @media print { @page { size:9cm 13cm; margin:0; } body { width:9cm; height:13cm; } }
+</style></head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="brand-name">Orchid House</div>
+    <div class="brand-sub">Restaurant · Est. 2023</div>
+    <div class="divider"></div>
+  </div>
+  <div class="qr-section">
+    <div class="qr-border"><img src="${img}" /></div>
+    <div class="table-pill">${table.name || 'Table ' + table.number}</div>
+    <div class="scan-text">📱 Scan to order</div>
+  </div>
+  <div class="footer">
+    <div class="divider"></div>
+    <div class="footer-text">Prices subject to 6% SST &amp; 10% service charge</div>
+  </div>
+</div>
+<script>window.onload=()=>window.print()<\/script>
+</body></html>`)
     win.document.close()
   }
 

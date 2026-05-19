@@ -1,7 +1,4 @@
 'use client'
-// صفحة إدارة الطاولات وطباعة QR Codes
-// ضعها في: app/(dashboard)/tables/page.tsx
-
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -19,13 +16,24 @@ const S = {
   white: '#FAFAF8', muted: '#8A9BB5', border: 'rgba(255,255,255,0.08)',
   green: '#22C55E', greenB: 'rgba(34,197,94,0.12)',
   red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
+  amber: '#F59E0B', amberB: 'rgba(245,158,11,0.12)',
+  blue: '#3B82F6', blueB: 'rgba(59,130,246,0.12)',
   card: 'rgba(255,255,255,0.04)', card2: 'rgba(255,255,255,0.08)',
 }
 
-type Table = { id: string; number: number; name: string; is_active: boolean }
+type TableStatus = 'available' | 'reserved' | 'occupied'
+type Table = {
+  id: string; number: number; name: string; is_active: boolean
+  status: TableStatus; reserved_by?: string; reserved_at?: string
+}
 
-// رابط المنيو — غيّر الدومين حسب بيئتك
-const MENU_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://your-domain.com'
+const STATUS_CONFIG: Record<TableStatus, { label: string; color: string; bg: string; border: string; icon: string }> = {
+  available: { label: 'فاضية',   color: S.green, bg: S.greenB, border: S.green + '60', icon: '🟢' },
+  reserved:  { label: 'محجوزة',  color: S.amber, bg: S.amberB, border: S.amber + '60', icon: '🟡' },
+  occupied:  { label: 'مشغولة',  color: S.red,   bg: S.redB,   border: S.red + '60',   icon: '🔴' },
+}
+
+const MENU_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://orchid.bidlx.com'
 
 export default function TablesPage() {
   const sbRef = useRef(createClient())
@@ -38,7 +46,7 @@ export default function TablesPage() {
   const [newNum, setNewNum]   = useState('')
   const [newName, setNewName] = useState('')
   const [saving, setSaving]   = useState(false)
-  const [printId, setPrintId] = useState<string | null>(null)
+  const [filterStatus, setFilterStatus] = useState<TableStatus | 'all'>('all')
 
   const fetchTables = useCallback(async () => {
     const { data } = await sb.from('tables').select('*').order('number')
@@ -48,7 +56,15 @@ export default function TablesPage() {
 
   useEffect(() => { fetchTables() }, [fetchTables])
 
-  // توليد QR لكل طاولة
+  // Real-time subscription
+  useEffect(() => {
+    const channel = sb.channel('tables-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchTables())
+      .subscribe()
+    return () => { sb.removeChannel(channel) }
+  }, [sb, fetchTables])
+
+  // توليد QR
   useEffect(() => {
     async function genQRs() {
       const urls: Record<string, string> = {}
@@ -56,9 +72,8 @@ export default function TablesPage() {
         const url = `${MENU_BASE_URL}/menu/${t.id}`
         try {
           urls[t.id] = await QRCode.toDataURL(url, {
-            width: 300,
-            margin: 2,
-            color: { dark: '#0A1628', light: '#FAFAF8' },
+            width: 300, margin: 2,
+            color: { dark: '#0A1628', light: '#FFFFFF' },
           })
         } catch { urls[t.id] = '' }
       }
@@ -74,11 +89,17 @@ export default function TablesPage() {
       number: parseInt(newNum),
       name: newName || `طاولة ${newNum}`,
       is_active: true,
+      status: 'available',
     }])
-    setNewNum('')
-    setNewName('')
-    setShowAdd(false)
-    setSaving(false)
+    setNewNum(''); setNewName(''); setShowAdd(false); setSaving(false)
+    fetchTables()
+  }
+
+  async function changeStatus(id: string, status: TableStatus) {
+    await sb.from('tables').update({
+      status,
+      reserved_at: status !== 'available' ? new Date().toISOString() : null,
+    }).eq('id', id)
     fetchTables()
   }
 
@@ -87,41 +108,52 @@ export default function TablesPage() {
     fetchTables()
   }
 
+  async function deleteTable(id: string, name: string) {
+    if (!confirm(`هل أنت متأكد من حذف ${name}؟`)) return
+    await sb.from('tables').delete().eq('id', id)
+    fetchTables()
+  }
+
   function printQR(table: Table) {
-    const url  = `${MENU_BASE_URL}/menu/${table.id}`
-    const img  = qrUrls[table.id]
-    const win  = window.open('', '_blank')
+    const url = `${MENU_BASE_URL}/menu/${table.id}`
+    const img = qrUrls[table.id]
+    const win = window.open('', '_blank')
     if (!win || !img) return
-    win.document.write(`
-      <!DOCTYPE html><html dir="rtl">
-      <head>
-        <meta charset="UTF-8">
-        <title>QR - ${table.name}</title>
-        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
-        <style>
-          body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #fff; font-family: Tajawal, sans-serif; }
-          .card { text-align: center; padding: 40px; border: 3px solid #C9A84C; border-radius: 24px; width: 320px; }
-          .logo { font-size: 28px; font-weight: 900; color: #0A1628; margin-bottom: 6px; }
-          .sub  { font-size: 14px; color: #666; margin-bottom: 20px; }
-          img   { width: 260px; height: 260px; border-radius: 12px; }
-          .table-name { font-size: 22px; font-weight: 900; color: #0A1628; margin-top: 16px; }
-          .url  { font-size: 10px; color: #999; margin-top: 8px; word-break: break-all; }
-          .inst { font-size: 13px; color: #C9A84C; margin-top: 12px; font-weight: 700; }
-          @media print { @page { margin: 0; } body { -webkit-print-color-adjust: exact; } }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <div class="logo">🍽️ قائمة الطعام</div>
-          <div class="sub">امسح الكود لعرض المنيو وتقديم طلبك</div>
-          <img src="${img}" alt="QR Code" />
-          <div class="table-name">${table.name || `طاولة ${table.number}`}</div>
-          <div class="inst">📱 وجّه كاميرا هاتفك نحو الكود</div>
-          <div class="url">${url}</div>
-        </div>
-        <script>window.onload = () => { window.print(); }<\/script>
-      </body></html>
-    `)
+    win.document.write(`<!DOCTYPE html><html>
+    <head><meta charset="UTF-8"><title>QR - ${table.name}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #fff; font-family: 'Tajawal', sans-serif; }
+      .card { text-align: center; padding: 36px 32px; border: 2px solid #C9A84C; border-radius: 24px; width: 340px; background: #fff; }
+      .orchid-logo { width: 60px; height: 60px; margin: 0 auto 10px; }
+      .logo { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 900; color: #0A1628; letter-spacing: 2px; margin-bottom: 2px; }
+      .tagline { font-size: 11px; color: #8A9BB5; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 20px; }
+      .divider { width: 60px; height: 2px; background: linear-gradient(90deg, transparent, #C9A84C, transparent); margin: 0 auto 20px; }
+      .qr-wrap { position: relative; display: inline-block; }
+      .qr-wrap img { width: 240px; height: 240px; border-radius: 16px; display: block; border: 3px solid #0A1628; }
+      .table-badge { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #C9A84C, #E8C97A); color: #0A1628; border-radius: 30px; padding: 6px 24px; font-size: 18px; font-weight: 900; white-space: nowrap; box-shadow: 0 4px 16px rgba(201,168,76,0.5); font-family: 'Playfair Display', serif; }
+      .spacer { height: 28px; }
+      .inst { font-size: 12px; color: #C9A84C; font-weight: 700; letter-spacing: 1px; margin-top: 16px; }
+      .url { font-size: 9px; color: #ccc; margin-top: 10px; word-break: break-all; }
+      .footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; font-size: 10px; color: #999; }
+      @media print { @page { margin: 0; size: 10cm 14cm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style></head><body>
+    <div class="card">
+      <div class="logo">ORCHID</div>
+      <div class="tagline">House Restaurant</div>
+      <div class="divider"></div>
+      <div class="qr-wrap">
+        <img src="${img}" alt="QR Code" />
+        <div class="table-badge">${table.name || `Table ${table.number}`}</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="inst">📱 Scan to view our menu & order</div>
+      <div class="url">${url}</div>
+      <div class="footer">All prices subject to 6% SST & 10% service charge</div>
+    </div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`)
     win.document.close()
   }
 
@@ -132,21 +164,45 @@ export default function TablesPage() {
     boxSizing: 'border-box', direction: 'rtl', width: '100%',
   }
 
+  const filtered = filterStatus === 'all' ? tables : tables.filter(t => t.status === filterStatus)
+  const counts = {
+    available: tables.filter(t => t.status === 'available').length,
+    reserved:  tables.filter(t => t.status === 'reserved').length,
+    occupied:  tables.filter(t => t.status === 'occupied').length,
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: 'rtl' }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800;900&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; }`}</style>
 
       {/* Header */}
       <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 24px', display: 'flex', alignItems: 'center', height: 60, gap: 16, position: 'sticky', top: 0, zIndex: 100 }}>
-        <h1 style={{ color: S.gold, fontSize: 18, fontWeight: 900 }}>🪑 إدارة الطاولات وQR Codes</h1>
+        <h1 style={{ color: S.gold, fontSize: 18, fontWeight: 900 }}>🪑 إدارة الطاولات</h1>
         <button onClick={() => setShowAdd(true)}
           style={{ marginRight: 'auto', padding: '8px 18px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
           ➕ إضافة طاولة
         </button>
       </div>
 
-      <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
+      <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
 
-        {/* Modal إضافة طاولة */}
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          {[
+            { label: 'إجمالي الطاولات', value: tables.length, color: S.white, bg: S.card2, icon: '🪑', st: 'all' as const },
+            { label: 'فاضية', value: counts.available, color: S.green, bg: S.greenB, icon: '🟢', st: 'available' as const },
+            { label: 'محجوزة', value: counts.reserved, color: S.amber, bg: S.amberB, icon: '🟡', st: 'reserved' as const },
+            { label: 'مشغولة', value: counts.occupied, color: S.red, bg: S.redB, icon: '🔴', st: 'occupied' as const },
+          ].map((s, i) => (
+            <div key={i} onClick={() => setFilterStatus(filterStatus === s.st ? 'all' : s.st)}
+              style={{ background: filterStatus === s.st ? s.bg : S.navy2, borderRadius: 14, border: `1px solid ${filterStatus === s.st ? s.color + '60' : S.border}`, padding: '16px 18px', cursor: 'pointer', transition: 'all .2s' }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{s.icon} {s.label}</div>
+              <div style={{ fontSize: 26, fontWeight: 900, color: s.color }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Modal إضافة */}
         {showAdd && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 28, width: 360 }}>
@@ -178,40 +234,66 @@ export default function TablesPage() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
-            {tables.map(table => (
-              <div key={table.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${table.is_active ? S.border : S.red + '40'}`, overflow: 'hidden', opacity: table.is_active ? 1 : 0.6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 }}>
+            {filtered.map(table => {
+              const st = STATUS_CONFIG[table.status || 'available']
+              return (
+                <div key={table.id} style={{ background: S.navy2, borderRadius: 18, border: `2px solid ${st.border}`, overflow: 'hidden', opacity: table.is_active ? 1 : 0.5, transition: 'all .2s', position: 'relative' }}>
 
-                {/* QR Image */}
-                <div style={{ background: '#FAFAF8', padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {qrUrls[table.id] ? (
-                    <img src={qrUrls[table.id]} alt="QR" style={{ width: 160, height: 160, borderRadius: 8 }} />
-                  ) : (
-                    <div style={{ width: 160, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 13 }}>⏳ جاري التوليد...</div>
-                  )}
+                  {/* Status Badge */}
+                  <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, background: st.bg, border: `1px solid ${st.color}40`, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, color: st.color }}>
+                    {st.icon} {st.label}
+                  </div>
+
+                  {/* QR Section */}
+                  <div style={{ background: `linear-gradient(135deg, #0A1628, #0F2040)`, padding: '24px 20px 30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ fontSize: 11, color: S.gold, fontWeight: 700, marginBottom: 12, letterSpacing: 2 }}>🌸 ORCHID HOUSE</div>
+                    <div style={{ position: 'relative' }}>
+                      {qrUrls[table.id] ? (
+                        <img src={qrUrls[table.id]} alt="QR" style={{ width: 160, height: 160, borderRadius: 12, display: 'block', border: `3px solid ${S.gold}` }} />
+                      ) : (
+                        <div style={{ width: 160, height: 160, background: 'rgba(255,255,255,0.05)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: S.muted }}>⏳</div>
+                      )}
+                      {/* Table Name Badge */}
+                      <div style={{ position: 'absolute', bottom: -16, left: '50%', transform: 'translateX(-50%)', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, borderRadius: 20, padding: '5px 20px', fontSize: 14, fontWeight: 900, whiteSpace: 'nowrap', boxShadow: `0 4px 16px rgba(201,168,76,0.5)` }}>
+                        {table.name || `طاولة ${table.number}`}
+                      </div>
+                    </div>
+                    <div style={{ height: 24 }} />
+                    <div style={{ fontSize: 10, color: S.muted }}>📱 امسح لعرض المنيو</div>
+                  </div>
+
+                  {/* Controls */}
+                  <div style={{ padding: '14px' }}>
+                    {/* Status Buttons */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
+                      {(Object.entries(STATUS_CONFIG) as [TableStatus, typeof STATUS_CONFIG[TableStatus]][]).map(([key, cfg]) => (
+                        <button key={key} onClick={() => changeStatus(table.id, key)}
+                          style={{ padding: '6px 4px', borderRadius: 8, border: `1px solid ${table.status === key ? cfg.color : S.border}`, background: table.status === key ? cfg.bg : 'transparent', color: table.status === key ? cfg.color : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: table.status === key ? 700 : 400 }}>
+                          {cfg.icon} {cfg.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => printQR(table)}
+                        style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        🖨️ طباعة
+                      </button>
+                      <button onClick={() => toggleActive(table.id, table.is_active)}
+                        style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${table.is_active ? S.red : S.green}`, background: table.is_active ? S.redB : S.greenB, color: table.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12 }}>
+                        {table.is_active ? '⏸' : '▶'}
+                      </button>
+                      <button onClick={() => deleteTable(table.id, table.name || `طاولة ${table.number}`)}
+                        style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
                 </div>
-
-                <div style={{ padding: '12px 14px' }}>
-                  <div style={{ color: S.white, fontWeight: 800, fontSize: 16, marginBottom: 2 }}>
-                    {table.name || `طاولة ${table.number}`}
-                  </div>
-                  <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>
-                    /menu/{table.id.slice(-8)}...
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => printQR(table)}
-                      style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                      🖨️ طباعة
-                    </button>
-                    <button onClick={() => toggleActive(table.id, table.is_active)}
-                      style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${table.is_active ? S.red : S.green}`, background: table.is_active ? S.redB : S.greenB, color: table.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-                      {table.is_active ? 'إيقاف' : 'تفعيل'}
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

@@ -104,6 +104,7 @@ function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]
   const [month, setMonth] = useState(now.getMonth())
   const [year, setYear] = useState(now.getFullYear())
   const [days, setDays] = useState([0,1,2,3,4,5,6])
+  const [monthsCount, setMonthsCount] = useState(1)
 
   const daysInMonth = new Date(year, month+1, 0).getDate()
   const previewDays = useMemo(() => Array.from({length:daysInMonth},(_,i)=>{
@@ -114,21 +115,37 @@ function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]
   async function save() {
     if (!empId||!shiftId||previewDays.length===0) { alert('يرجى إكمال البيانات'); return }
     setSaving(true)
-    const ms = `${year}-${String(month+1).padStart(2,'0')}-01`
-    const me = `${year}-${String(month+1).padStart(2,'0')}-${String(daysInMonth).padStart(2,'0')}`
-    setProgress('حذف الجدول القديم...')
-    await supabase.from('shift_schedules').delete().eq('employee_id',empId).gte('date',ms).lte('date',me)
-    setProgress(`إضافة ${previewDays.length} يوم...`)
-    const rows = previewDays.map(d=>({employee_id:empId,shift_id:shiftId,date:d.date,status:'confirmed'}))
-    for (let i=0;i<rows.length;i+=50) {
-      const {error} = await supabase.from('shift_schedules').insert(rows.slice(i,i+50))
-      if (error) { alert('خطأ: '+error.message); setSaving(false); return }
-    }
     const sh = shifts.find(s=>s.id===shiftId)
+    let totalDays = 0
+
+    for (let m = 0; m < monthsCount; m++) {
+      const targetMonth = (month + m) % 12
+      const targetYear = year + Math.floor((month + m) / 12)
+      const daysInTargetMonth = new Date(targetYear, targetMonth+1, 0).getDate()
+      const targetDays = Array.from({length:daysInTargetMonth},(_,i)=>{
+        const d = new Date(targetYear,targetMonth,i+1)
+        return {date:ld(d), dow:d.getDay()}
+      }).filter(d=>days.includes(d.dow))
+
+      const ms = `${targetYear}-${String(targetMonth+1).padStart(2,'0')}-01`
+      const me = `${targetYear}-${String(targetMonth+1).padStart(2,'0')}-${String(daysInTargetMonth).padStart(2,'0')}`
+      setProgress(`حذف جدول ${MONTHS_AR[targetMonth]} ${targetYear}...`)
+      await supabase.from('shift_schedules').delete().eq('employee_id',empId).gte('date',ms).lte('date',me)
+      setProgress(`إضافة أيام ${MONTHS_AR[targetMonth]} ${targetYear}...`)
+      const rows = targetDays.map(d=>({employee_id:empId,shift_id:shiftId,date:d.date,status:'confirmed'}))
+      for (let i=0;i<rows.length;i+=50) {
+        const {error} = await supabase.from('shift_schedules').insert(rows.slice(i,i+50))
+        if (error) { alert('خطأ: '+error.message); setSaving(false); return }
+      }
+      totalDays += targetDays.length
+    }
+
+    const endMonth = (month + monthsCount - 1) % 12
+    const endYear = year + Math.floor((month + monthsCount - 1) / 12)
     await supabase.from('employee_requests').insert([{
       employee_id:empId, request_type:'shift_assigned',
-      title:`جدول ${MONTHS_AR[month]} ${year}`,
-      description:`تم تعيينك في ${sh?.name} لـ ${previewDays.length} يوم`,
+      title:`جدول ${MONTHS_AR[month]} ${year}${monthsCount > 1 ? ' — ' + MONTHS_AR[endMonth] + ' ' + endYear : ''}`,
+      description:`تم تعيينك في ${sh?.name} لـ ${totalDays} يوم (${monthsCount} شهر)`,
       status:'approved'
     }])
     setSaving(false)
@@ -180,6 +197,17 @@ function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]
               <select style={inp} value={year} onChange={e=>setYear(parseInt(e.target.value))}>
                 {[2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
               </select>
+            </div>
+            <div>
+              <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:8}}>عدد الشهور</label>
+              <div style={{display:'flex',gap:8}}>
+                {[{label:'شهر',v:1},{label:'3 شهور',v:3},{label:'6 شهور',v:6},{label:'سنة',v:12}].map(opt=>(
+                  <button key={opt.v} onClick={()=>setMonthsCount(opt.v)}
+                    style={{flex:1,padding:'8px 4px',borderRadius:8,border:`1px solid ${monthsCount===opt.v?S.gold:S.border}`,background:monthsCount===opt.v?S.gold3:'transparent',color:monthsCount===opt.v?S.gold:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:monthsCount===opt.v?700:400}}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <div>
@@ -304,7 +332,7 @@ export default function ShiftsPage() {
       const {data: shData} = await supabase.from('shifts').select('*').eq('is_active',true).order('start_time')
       setShifts(shData||[])
 
-      const {data: empData} = await supabase.from('employees').select('id,name,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
+      const {data: empData} = await supabase.from('employees').select('id,name,name_en,role,department,branch_id').eq('is_active',true).order('name')
       setEmployees(empData||[])
 const {data: schData} = await supabase.from('shift_schedules')
   .select('*')
@@ -316,7 +344,7 @@ const {data: schData} = await supabase.from('shift_schedules')
       setMySchedules(sch.filter((s:any)=>s.employee_id===employee?.id))
 
       const {data: reqData} = await supabase.from('shift_requests')
-        .select('*,employees(name,department),shifts(name,start_time,end_time,color)')
+        .select('*,employees(name,name_en,department),shifts(name,start_time,end_time,color)')
         .eq('status','pending').order('created_at',{ascending:false})
 
       const reqs = reqData||[]
@@ -396,7 +424,7 @@ const {data: schData} = await supabase.from('shift_schedules')
     <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}</h2>
     <table><thead><tr><th>الموظف</th><th>القسم</th>
     ${monthDays.map(d=>`<th>${d.day}<br/><small>${DAYS_SHORT[d.dow]}</small></th>`).join('')}</tr></thead>
-    <tbody>${employees.map(emp=>`<tr><td style="text-align:right">${emp.name}</td><td>${emp.department||''}</td>
+    <tbody>${employees.map(emp=>`<tr><td style="text-align:right">${emp.name}${emp.name_en?' '+emp.name_en:''}</td><td>${emp.department||''}</td>
     ${monthDays.map(d=>{const s=getShift(emp.id,d.date);return s?`<td><span class="s" style="background:${s.shifts?.color||'#gold'}30;color:${s.shifts?.color||'#C9A84C'}">${s.shifts?.name||''}</span></td>`:'<td>—</td>'}).join('')}</tr>`).join('')}
     </tbody></table></body></html>`
     const win=window.open('','_blank'); if(win){win.document.write(html);win.document.close();win.print()}
@@ -527,7 +555,7 @@ const {data: schData} = await supabase.from('shift_schedules')
                                 <div style={{display:'flex',alignItems:'center',gap:8}}>
                                   <div style={{width:26,height:26,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
                                   <div>
-                                    <div style={{fontSize:12,fontWeight:700,color:S.white}}>{emp.name}</div>
+                                    <div style={{fontSize:12,fontWeight:700,color:S.white}}>{emp.name}{emp.name_en ? ' '+emp.name_en : ''}</div>
                                     <div style={{fontSize:10,color:S.muted}}>{emp.department}</div>
                                   </div>
                                 </div>

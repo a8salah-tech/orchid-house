@@ -106,6 +106,7 @@ const ALL_MENU: MenuGroup[] = [
       { label: 'طلبات الموظفين', icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
       { label: 'إدارة الشيفتات', icon: '🕐', path: '/dashboard/hr/shifts', permission: 'my_requests' },
       { label: 'الرواتب والحضور',icon: '📅', path: '/dashboard/hr/payroll',   permission: 'hr' },
+{ label: 'الحضور والانصراف', icon: '⏰', path: '/dashboard/hr/attendance', permission: 'hr' },
     ]
   },
   {

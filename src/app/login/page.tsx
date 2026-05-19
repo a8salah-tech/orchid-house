@@ -66,7 +66,7 @@ export default function LoginPage() {
     }
 
     // توجيه حسب الدور
-    router.push('/dashboard/warehouse')
+    router.push('/dashboard')
     router.refresh()
   }
 

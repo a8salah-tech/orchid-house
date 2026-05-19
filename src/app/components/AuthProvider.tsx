@@ -29,7 +29,7 @@ const AuthContext = createContext<AuthContextType>({
 
 export function useAuth() { return useContext(AuthContext) }
 
-const PUBLIC_PATHS = ['/login', '/unauthorized', '/register']
+const PUBLIC_PATHS = ['/login', '/unauthorized', '/register', '/menu']
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!user) {
         setEmployee(null)
         setPermissions({})
-        if (!PUBLIC_PATHS.includes(pathname)) router.push('/login')
+        if (!PUBLIC_PATHS.some(p => pathname.startsWith(p))) router.push('/login')
         setLoading(false)
         return
       }

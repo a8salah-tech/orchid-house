@@ -167,7 +167,7 @@ function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]
             <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>الموظف *</label>
             <select style={inp} value={empId} onChange={e=>setEmpId(e.target.value)}>
               <option value="">اختر الموظف</option>
-              {employees.map(e=><option key={e.id} value={e.id}>{e.name} — {e.department}</option>)}
+              {employees.map(e=><option key={e.id} value={e.id}>{e.name}{e.name_en ? ' ' + e.name_en : ''} — {e.department}</option>)}
             </select>
           </div>
           <div>

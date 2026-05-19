@@ -332,7 +332,8 @@ export default function ShiftsPage() {
       const {data: shData} = await supabase.from('shifts').select('*').eq('is_active',true).order('start_time')
       setShifts(shData||[])
 
-      const {data: empData} = await supabase.from('employees').select('id,name,name_en,role,department,branch_id').eq('is_active',true).order('name')
+      // بعد ✅
+const {data: empData} = await supabase.from('employees').select('id,name,name_en,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
       setEmployees(empData||[])
 const {data: schData} = await supabase.from('shift_schedules')
   .select('*')

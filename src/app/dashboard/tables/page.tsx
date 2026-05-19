@@ -144,7 +144,7 @@ export default function TablesPage() {
      }
     </style></head><body>
     <div class="card">
-      <div class="logo">ORCHID</div>
+      <div class="logo">Orchid Group</div>
       <div class="tagline">House Restaurant</div>
       <div class="divider"></div>
       <div class="qr-wrap">

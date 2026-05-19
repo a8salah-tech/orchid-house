@@ -393,7 +393,7 @@ const {data: schData} = await supabase.from('shift_schedules')
     <style>body{font-family:Arial;font-size:11px;margin:20px}h2{text-align:center}
     table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px;text-align:center}
     th{background:#0A1628;color:white}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}</style></head>
-    <body><h2>🌸 Orchid House — ${MONTHS_AR[viewMonth]} ${viewYear}</h2>
+    <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}</h2>
     <table><thead><tr><th>الموظف</th><th>القسم</th>
     ${monthDays.map(d=>`<th>${d.day}<br/><small>${DAYS_SHORT[d.dow]}</small></th>`).join('')}</tr></thead>
     <tbody>${employees.map(emp=>`<tr><td style="text-align:right">${emp.name}</td><td>${emp.department||''}</td>

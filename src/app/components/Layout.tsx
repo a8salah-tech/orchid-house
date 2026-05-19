@@ -192,7 +192,7 @@ const visibleMenu = useMemo(() =>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: `0 0 12px ${S.goldB}` }}>🌸</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid House</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
               <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>
             </div>
           </div>

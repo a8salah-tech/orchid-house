@@ -42,8 +42,10 @@ const REQUEST_TYPES: Record<string, { label: string; icon: string; color: string
   suggestion:    { label: 'اقتراح',           icon: '💡', color: S.green,  bg: S.greenB },
   training:      { label: 'طلب تدريب',        icon: '📚', color: S.blue,   bg: S.blueB },
   equipment:     { label: 'طلب معدات/أدوات', icon: '🔧', color: S.purple, bg: S.purpleB, hasAmount: true },
-  uniform:       { label: 'طلب زي رسمي',     icon: '👔', color: S.muted,  bg: S.card2 },
-  other:         { label: 'طلب آخر',          icon: '📋', color: S.muted,  bg: S.card2 },
+  uniform:         { label: 'طلب زي رسمي',         icon: '👔', color: S.muted,  bg: S.card2 },
+  salary_increase: { label: 'Salary Increase',       icon: '📈', color: S.green,  bg: S.greenB, hasAmount: true },
+  salary_advance:  { label: 'Salary Advance',        icon: '💸', color: S.gold,   bg: S.gold3,  hasAmount: true },
+  other:           { label: 'طلب آخر',               icon: '📋', color: S.muted,  bg: S.card2 },
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
@@ -53,7 +55,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   completed:{ label: 'مكتمل',        color: S.teal,   bg: S.tealB,   icon: '🏁' },
 }
 
-interface Employee { id: string; name: string; role: string; department: string }
+interface Employee { id: string; name: string; name_en?: string; employee_number?: string; role: string; department: string; salary?: number; join_date?: string }
 interface EmployeeRequest {
   id: string; created_at: string; request_number: number
   employee_id: string; request_type: string; status: string
@@ -61,6 +63,266 @@ interface EmployeeRequest {
   start_date: string; end_date: string; days_count: number
   approved_by: string; approved_at: string; rejection_reason: string
   employees?: { name: string; role: string; department: string }
+}
+
+// ══ Salary Increase Request Modal ══
+function SalaryIncreaseModal({ employee, onClose, onSaved }: {
+  employee: Employee; onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    current_salary: employee.salary?.toString() || '',
+    requested_salary: '',
+    reason: '',
+    achievements: '',
+    date_of_request: new Date().toISOString().split('T')[0],
+  })
+
+  const inp2: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 10, padding: '10px 14px', fontSize: 13,
+    color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
+    boxSizing: 'border-box', direction: 'ltr',
+  }
+
+  async function save() {
+    if (!form.requested_salary || !form.reason) { alert('Please fill in all required fields'); return }
+    setSaving(true)
+    const description = `SALARY INCREASE REQUEST
+
+Employee: ${employee.name} ${employee.name_en || ''}
+Employee ID: ${employee.employee_number || '—'}
+Position: ${employee.role}
+Department: ${employee.department || '—'}
+Years of Service: ${employee.join_date ? Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (365.25*24*60*60*1000)) : '—'}
+Date of Request: ${form.date_of_request}
+
+Current Salary: MYR ${form.current_salary || '—'}
+Requested Salary: MYR ${form.requested_salary}
+Increase Amount: MYR ${form.current_salary && form.requested_salary ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toFixed(2) : '—'}
+
+Reason: ${form.reason}
+
+Key Achievements: ${form.achievements || '—'}`
+
+    const { error } = await supabase.from('employee_requests').insert([{
+      employee_id: employee.id,
+      request_type: 'salary_increase',
+      title: 'Salary Increase Request',
+      description,
+      amount: parseFloat(form.requested_salary) || null,
+      status: 'pending',
+    }])
+    setSaving(false)
+    if (error) { alert('Error: ' + error.message); return }
+    onSaved()
+  }
+
+  const increase = form.current_salary && form.requested_salary
+    ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toFixed(2)
+    : null
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 620, padding: 32, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📈 Salary Increase Request</h2>
+            <p style={{ fontSize: 12, color: S.muted }}>Fill in your details and submit to management</p>
+          </div>
+          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        </div>
+
+        {/* Employee Info — read only */}
+        <div style={{ background: S.card, borderRadius: 12, padding: '16px 18px', marginBottom: 20 }}>
+          <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 10 }}>👤 Employee Information</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {[
+              { label: 'Employee Name', value: `${employee.name}${employee.name_en ? ' ' + employee.name_en : ''}` },
+              { label: 'Employee ID', value: employee.employee_number || '—' },
+              { label: 'Position / Job Title', value: employee.role },
+              { label: 'Department', value: employee.department || '—' },
+              { label: 'Years of Service', value: employee.join_date ? `${Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (365.25*24*60*60*1000))} year(s)` : '—' },
+              { label: 'Date of Request', value: form.date_of_request },
+            ].map((r, i) => (
+              <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{r.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{r.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Salary Details */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Current Salary (MYR)</label>
+              <input style={inp2} type="number" value={form.current_salary} onChange={e => setForm(p => ({ ...p, current_salary: e.target.value }))} placeholder="0.00" />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Requested Salary (MYR) *</label>
+              <input style={inp2} type="number" value={form.requested_salary} onChange={e => setForm(p => ({ ...p, requested_salary: e.target.value }))} placeholder="0.00" />
+            </div>
+          </div>
+
+          {increase && (
+            <div style={{ background: parseFloat(increase) > 0 ? S.greenB : S.redB, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: S.muted }}>Requested Increase</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: parseFloat(increase) > 0 ? S.green : S.red }}>MYR {increase}</span>
+            </div>
+          )}
+
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Reason for Salary Increase Request *</label>
+            <textarea style={{ ...inp2, minHeight: 90, resize: 'vertical', direction: 'ltr' } as React.CSSProperties}
+              value={form.reason} onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
+              placeholder="Explain why you are requesting a salary increase..." />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Key Achievements / Contributions (Optional)</label>
+            <textarea style={{ ...inp2, minHeight: 70, resize: 'vertical', direction: 'ltr' } as React.CSSProperties}
+              value={form.achievements} onChange={e => setForm(p => ({ ...p, achievements: e.target.value }))}
+              placeholder="List your key achievements..." />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳ Submitting...' : '📤 Submit Request'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══ Salary Advance Request Modal ══
+function SalaryAdvanceModal({ employee, onClose, onSaved }: {
+  employee: Employee; onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    amount_requested: '',
+    repayment_months: '1',
+    reason: '',
+    date_of_request: new Date().toISOString().split('T')[0],
+  })
+
+  const inp2: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 10, padding: '10px 14px', fontSize: 13,
+    color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
+    boxSizing: 'border-box', direction: 'ltr',
+  }
+
+  const monthlyDeduction = form.amount_requested && form.repayment_months
+    ? (parseFloat(form.amount_requested) / parseInt(form.repayment_months)).toFixed(2)
+    : null
+
+  async function save() {
+    if (!form.amount_requested || !form.reason) { alert('Please fill in all required fields'); return }
+    setSaving(true)
+    const description = `SALARY ADVANCE REQUEST
+
+Employee: ${employee.name} ${employee.name_en || ''}
+Employee ID: ${employee.employee_number || '—'}
+Position: ${employee.role}
+Department: ${employee.department || '—'}
+Date of Request: ${form.date_of_request}
+
+Amount Requested: MYR ${form.amount_requested}
+Repayment Period: ${form.repayment_months} month(s)
+Monthly Deduction: MYR ${monthlyDeduction || '—'}
+
+Reason: ${form.reason}`
+
+    const { error } = await supabase.from('employee_requests').insert([{
+      employee_id: employee.id,
+      request_type: 'salary_advance',
+      title: 'Salary Advance Request',
+      description,
+      amount: parseFloat(form.amount_requested) || null,
+      status: 'pending',
+    }])
+    setSaving(false)
+    if (error) { alert('Error: ' + error.message); return }
+    onSaved()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 580, padding: 32, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>💸 Salary Advance Request</h2>
+            <p style={{ fontSize: 12, color: S.muted }}>Submit a request for salary advance</p>
+          </div>
+          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        </div>
+
+        {/* Employee Info — read only */}
+        <div style={{ background: S.card, borderRadius: 12, padding: '16px 18px', marginBottom: 20 }}>
+          <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 10 }}>👤 Employee Information</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {[
+              { label: 'Employee Name', value: `${employee.name}${employee.name_en ? ' ' + employee.name_en : ''}` },
+              { label: 'Employee ID', value: employee.employee_number || '—' },
+              { label: 'Position', value: employee.role },
+              { label: 'Department', value: employee.department || '—' },
+            ].map((r, i) => (
+              <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{r.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{r.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Amount Requested (MYR) *</label>
+              <input style={inp2} type="number" value={form.amount_requested} onChange={e => setForm(p => ({ ...p, amount_requested: e.target.value }))} placeholder="0.00" />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Repayment Period (Months)</label>
+              <select style={{ ...inp2, cursor: 'pointer' }} value={form.repayment_months} onChange={e => setForm(p => ({ ...p, repayment_months: e.target.value }))}>
+                {[1,2,3,4,5,6].map(m => <option key={m} value={m}>{m} month{m > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {monthlyDeduction && (
+            <div style={{ background: S.gold3, border: `1px solid rgba(201,168,76,0.3)`, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: S.muted }}>Monthly Deduction</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>MYR {monthlyDeduction} / month</span>
+            </div>
+          )}
+
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Reason for Request *</label>
+            <textarea style={{ ...inp2, minHeight: 90, resize: 'vertical', direction: 'ltr' } as React.CSSProperties}
+              value={form.reason} onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
+              placeholder="Explain why you need a salary advance..." />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳ Submitting...' : '📤 Submit Request'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ══ New Request Modal ══
@@ -130,16 +392,16 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId }: {
           {/* الموظف */}
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الموظف *</label>
-            {currentEmployeeId ? (
-              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8' }}>
-                👤 {employees.find(e => e.id === currentEmployeeId)?.name || 'أنت'}
-              </div>
-            ) : (
-              <select style={{ ...inp }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
-                <option value="">اختر الموظف</option>
-                {employees.map(e => <option key={e.id} value={e.id}>{e.name} — {e.department || e.role}</option>)}
-              </select>
-            )}
+{currentEmployeeId ? (
+  <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8' }}>
+    👤 {employees.find(e => e.id === currentEmployeeId)?.name || 'أنت'} — {employees.find(e => e.id === currentEmployeeId)?.employee_number || ''}
+  </div>
+) : (
+  <select style={{ ...inp }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
+    <option value="">اختر الموظف</option>
+    {employees.map(e => <option key={e.id} value={e.id}>{e.name} — {e.department || e.role}</option>)}
+  </select>
+)}
           </div>
 
           {/* العنوان */}
@@ -347,6 +609,8 @@ export default function EmployeeRequestsPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
+  const [showSalaryIncrease, setShowSalaryIncrease] = useState(false)
+  const [showSalaryAdvance, setShowSalaryAdvance] = useState(false)
   const [selected, setSelected] = useState<EmployeeRequest | null>(null)
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
@@ -366,7 +630,7 @@ export default function EmployeeRequestsPage() {
 
     const [req, emp] = await Promise.all([
       reqQuery,
-      supabase.from('employees').select('id,name,role,department').eq('is_active', true).order('name'),
+      supabase.from('employees').select('id,name,name_en,employee_number,role,department,salary,join_date').eq('is_active', true).order('name'),
     ])
     setRequests(req.data || [])
     setEmployees(emp.data || [])
@@ -411,9 +675,15 @@ export default function EmployeeRequestsPage() {
             {isEmployee ? 'طلباتك الشخصية — إجازات، سلف، ومقترحات' : 'إدارة طلبات الإجازات والسلف والمقترحات'}
           </p>
         </div>
-        <button onClick={() => setShowNew(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-          ➕ طلب جديد
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowNew(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Request</button>
+          {isEmployee && (
+            <>
+              <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📈 Salary Increase</button>
+              <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💸 Salary Advance</button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
@@ -546,7 +816,13 @@ export default function EmployeeRequestsPage() {
         </div>
       )}
 
-      {showNew && <NewRequestModal employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployeeId={isEmployee ? currentUser?.id : undefined} />}
+     {showNew && <NewRequestModal employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployeeId={currentUser?.id} />}
+      {showSalaryIncrease && employees.find(e => e.id === currentUser?.id) && (
+  <SalaryIncreaseModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryIncrease(false)} onSaved={() => { setShowSalaryIncrease(false); fetchAll() }} />
+)}
+{showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
+  <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />
+)}
       {selected && <RequestDetailModal request={selected} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} />}
     </div>
   )

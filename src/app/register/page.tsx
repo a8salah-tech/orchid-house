@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 
 const createClient = () => createBrowserClient(
@@ -61,8 +61,25 @@ async function uploadImageFile(
   }
 }
 
+type Branch = { id: string; name: string }
+
+// prefix map — يمكن تعديله
+const BRANCH_PREFIX: Record<string, string> = {
+  'اوركيد هاوس': 'ORH',
+  'اوركيد فرع KLCC': 'ORK',
+}
+function getPrefix(branchName: string) {
+  return BRANCH_PREFIX[branchName] || branchName.slice(0,3).toUpperCase()
+}
+
 export default function RegisterPage() {
   const supabase = createClient()
+  const [branches, setBranches] = useState<Branch[]>([])
+
+  useEffect(() => {
+    supabase.from('branches').select('id,name').eq('is_active', true).order('name')
+      .then(({ data }) => setBranches(data || []))
+  }, [])
   const photoRef = useRef<HTMLInputElement>(null)
   const idRef = useRef<HTMLInputElement>(null)
   const [step, setStep] = useState<'form' | 'uploading' | 'success'>('form')
@@ -182,7 +199,7 @@ async function handleSubmit() {
       password_hint: form.password || null,
       department: form.department || null,
       role: form.role,
-      notes: form.notes ? `Employee #: ${form.branch === 'Orchid House' ? 'ORH' : form.branch === 'Orchid House KLCC' ? 'ORK' : ''}-${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date} | ${form.notes}` : `Employee #: ${form.branch === 'Orchid House' ? 'ORH' : form.branch === 'Orchid House KLCC' ? 'ORK' : ''}-${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date}`,
+      notes: form.notes ? `Employee #: ${getPrefix(form.branch)}-${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date} | ${form.notes}` : `Employee #: ${getPrefix(form.branch)}-${form.employee_number || '—'} | Branch: ${form.branch || '—'} | Salary: ${form.salary || '—'} | Joining Date: ${form.join_date}`,
       photo_url,
       national_id_url,
       status: 'pending',
@@ -353,8 +370,7 @@ async function handleSubmit() {
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Branch *</label>
               <select style={inp} value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value, employee_number: '' }))}>
                 <option value="">Select Branch</option>
-                <option value="Orchid House">Orchid House</option>
-                <option value="Orchid House KLCC">Orchid House KLCC</option>
+                {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>
 
@@ -364,7 +380,7 @@ async function handleSubmit() {
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Employee Number</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                   <div style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.3)', borderRight: 'none', borderRadius: '12px 0 0 12px', padding: '12px 14px', fontSize: 14, fontWeight: 800, color: S.gold, whiteSpace: 'nowrap', letterSpacing: 1 }}>
-                    {form.branch === 'Orchid House' ? 'ORH' : 'ORK'}
+                    {getPrefix(form.branch)}
                   </div>
                  <input
                  style={{ ...inp, direction: 'ltr', textAlign: 'left', borderRadius: '0 12px 12px 0', flex: 1 }}
@@ -376,7 +392,7 @@ async function handleSubmit() {
                 />
                 </div>
                 <div style={{ fontSize: 11, color: S.muted, marginTop: 5 }}>
-                  Full number: <span style={{ color: S.gold, fontWeight: 700 }}>{form.branch === 'Orchid House' ? 'ORH' : 'ORK'}-{form.employee_number || '???'}</span>
+                  Full number: <span style={{ color: S.gold, fontWeight: 700 }}>{getPrefix(form.branch)}-{form.employee_number || '???'}</span>
                 </div>
               </div>
             )}

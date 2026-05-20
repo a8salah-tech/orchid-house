@@ -541,8 +541,14 @@ export default function EmployeesPage() {
   async function activateRegistration(reg: Registration) {
     const parsed = parseRegNotes(reg.notes)
     // ⑧ البحث عن الفرع بالاسم
-    const matchedBranch = branches.find(b => b.name === parsed.branch_name)
-    const { data: newEmp, error } = await supabase.from('employees').insert([{
+const branchMap: Record<string, string> = {
+  'Orchid House KLCC': 'اوركيد فرع KLCC',
+  'Orchid House':      'اوركيد هاوس',
+}
+const mappedName = branchMap[parsed.branch_name || ''] || parsed.branch_name
+const matchedBranch = branches.find(b => b.name === mappedName)
+ 
+const { data: newEmp, error } = await supabase.from('employees').insert([{
       name: reg.name, name_en: reg.name_en || null, phone: reg.phone || null,
       email: reg.email || null,           // البريد الشخصي
       email_account: reg.email_account || null, // بريد النظام

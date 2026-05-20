@@ -26,7 +26,7 @@ const S = {
 const SERVICE_CHARGE_RATE = 0.10
 const SST_RATE = 0.06
 
-type TableRow = { id: string; number: number; name: string; status: string; occupied_since?: string; current_order_id?: string }
+type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; occupied_since?: string; current_order_id?: string }
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; destination: string; status: string; menu_items: { name: string; name_en: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
@@ -36,7 +36,7 @@ type Order = {
   tables: { number: number; name: string }
   order_items: OrderItem[]
 }
-type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; menu_categories?: { name: string } }
+type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; menu_categories?: { name: string } | { name: string }[] }
 type Category = { id: string; name: string; name_en: string }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; emoji: string }> = {

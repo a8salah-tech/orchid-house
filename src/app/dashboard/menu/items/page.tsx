@@ -940,8 +940,8 @@ export default function MenuItemsPage() {
 
               {/* Content */}
               <div style={{ padding: '14px 14px 12px' }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{item.name}</div>
-                <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', marginBottom: 6 }}>{item.name_en}</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 2 }}>{item.name_en}</div>
+                <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', marginBottom: 6 }}>{item.name}</div>
                 {item.description && <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.description}</div>}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1000,8 +1000,8 @@ export default function MenuItemsPage() {
                             </div>
                           )}
                           <div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{item.name}</div>
-                            <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{item.name_en}</div>
+                           <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{item.name_en}</div>
+                           <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{item.name}</div>
                           </div>
                         </div>
                       </td>

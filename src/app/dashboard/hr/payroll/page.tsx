@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { useAuth } from '../../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -138,9 +139,9 @@ function PayrollRow({ record, empMap, onChange }: {
       {/* التأمين */}
       <Cell value={record.insurance} onChange={v => set('insurance', v)} />
       {/* م.أجر اليوم */}
-      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{calc.dailyRate.toFixed(2)}</td>
+      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{calc.dailyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       {/* م.أجر الساعة */}
-      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{calc.hourlyRate.toFixed(2)}</td>
+      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{calc.hourlyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       {/* أيام الإضافي */}
       <Cell value={record.overtime_days} onChange={v => set('overtime_days', v)} />
       {/* ساعات الإضافي */}
@@ -152,7 +153,7 @@ function PayrollRow({ record, empMap, onChange }: {
       {/* استحقاق 3 */}
       <Cell value={record.allowance_3} onChange={v => set('allowance_3', v)} />
       {/* إجمالي الاستحقاقات */}
-      <td style={{ ...thStyle, color: S.green, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{calc.totalEarnings.toFixed(2)}</td>
+      <td style={{ ...thStyle, color: S.green, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{calc.totalEarnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       {/* الغياب */}
       <Cell value={record.absence_days} onChange={v => set('absence_days', v)} />
       {/* التأخير (ساعات) */}
@@ -160,7 +161,7 @@ function PayrollRow({ record, empMap, onChange }: {
       {/* خروج مبكر (ساعات) */}
       <Cell value={record.early_exit_hours} onChange={v => set('early_exit_hours', v)} />
       {/* التأمينات */}
-      <td style={{ ...thStyle, color: S.muted, textAlign: 'center' }}>{record.insurance.toFixed(2)}</td>
+      <td style={{ ...thStyle, color: S.muted, textAlign: 'center' }}>{record.insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       {/* الضرائب */}
       <Cell value={record.tax} onChange={v => set('tax', v)} />
       {/* استقطاع 1 */}
@@ -170,7 +171,7 @@ function PayrollRow({ record, empMap, onChange }: {
       {/* استقطاع 3 */}
       <Cell value={record.deduction_3} onChange={v => set('deduction_3', v)} />
       {/* إجمالي الاستقطاعات */}
-      <td style={{ ...thStyle, color: S.red, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{calc.totalDeductions.toFixed(2)}</td>
+      <td style={{ ...thStyle, color: S.red, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{calc.totalDeductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       {/* السلفة */}
       <Cell value={record.advance} onChange={v => set('advance', v)} />
       {/* رصيد السلف */}
@@ -179,7 +180,7 @@ function PayrollRow({ record, empMap, onChange }: {
       <Cell value={record.carried_forward} onChange={v => set('carried_forward', v)} />
       {/* صافي الراتب */}
       <td style={{ ...thStyle, color: calc.netSalary >= 0 ? S.teal : S.red, fontWeight: 800, textAlign: 'center', minWidth: 90, fontSize: 13 }}>
-        {calc.netSalary.toFixed(2)}
+        {calc.netSalary.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </td>
       {/* المبلغ المستحق */}
       <Cell value={record.amount_due} onChange={v => set('amount_due', v)} />
@@ -187,7 +188,7 @@ function PayrollRow({ record, empMap, onChange }: {
       <Cell value={record.amount_paid} onChange={v => set('amount_paid', v)} />
       {/* الرصيد الباقي */}
       <td style={{ ...thStyle, color: (record.amount_due - record.amount_paid) > 0 ? S.amber : S.green, fontWeight: 700, textAlign: 'center' }}>
-        {(record.amount_due - record.amount_paid).toFixed(2)}
+        {(record.amount_due - record.amount_paid).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </td>
       {/* تأمينات صندوق العمل */}
       <Cell value={record.work_insurance} onChange={v => set('work_insurance', v)} />
@@ -198,6 +199,8 @@ function PayrollRow({ record, empMap, onChange }: {
 export default function PayrollPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  const { employee: currentUser, permissions, hasPermission } = useAuth()
+  const isAdmin = permissions?.all === true || hasPermission('payroll')
 
   const [months, setMonths] = useState<PayrollMonth[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -306,27 +309,27 @@ async function loadMonthRecords(month: PayrollMonth) {
         return `<tr>
           <td>${e?.employee_number || '—'}</td>
           <td>${e?.name || '—'}</td>
-          <td>${r.basic_salary.toFixed(2)}</td>
-          <td>${r.insurance.toFixed(2)}</td>
-          <td>${c.dailyRate.toFixed(2)}</td>
-          <td>${c.hourlyRate.toFixed(2)}</td>
+          <td>${r.basic_salary.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${c.dailyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${c.hourlyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td>${r.overtime_days}</td>
           <td>${r.overtime_hours}</td>
-          <td>${r.allowance_1.toFixed(2)}</td>
-          <td>${r.allowance_2.toFixed(2)}</td>
-          <td>${r.allowance_3.toFixed(2)}</td>
-          <td style="font-weight:bold;color:#2e7d32">${c.totalEarnings.toFixed(2)}</td>
+          <td>${r.allowance_1.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.allowance_2.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.allowance_3.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td style="font-weight:bold;color:#2e7d32">${c.totalEarnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td>${r.absence_days}</td>
           <td>${r.late_hours}</td>
           <td>${r.early_exit_hours}</td>
-          <td>${r.insurance.toFixed(2)}</td>
-          <td>${r.tax.toFixed(2)}</td>
-          <td>${r.deduction_1.toFixed(2)}</td>
-          <td>${r.deduction_2.toFixed(2)}</td>
-          <td>${r.deduction_3.toFixed(2)}</td>
-          <td style="font-weight:bold;color:#c62828">${c.totalDeductions.toFixed(2)}</td>
-          <td style="font-weight:bold;color:#0277bd">${c.netSalary.toFixed(2)}</td>
-          <td>${r.work_insurance.toFixed(2)}</td>
+          <td>${r.insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.tax.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.deduction_1.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.deduction_2.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.deduction_3.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td style="font-weight:bold;color:#c62828">${c.totalDeductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td style="font-weight:bold;color:#0277bd">${c.netSalary.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${r.work_insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>`
       }).join('')
 
@@ -365,10 +368,10 @@ async function loadMonthRecords(month: PayrollMonth) {
       <tbody>${rows}
         <tr class="total-row">
           <td colspan="11" style="text-align:right;padding-right:8px">TOTAL</td>
-          <td>${totals.earnings.toFixed(2)}</td>
+          <td>${totals.earnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td colspan="8"></td>
-          <td>${totals.deductions.toFixed(2)}</td>
-          <td>${totals.net.toFixed(2)}</td>
+          <td>${totals.deductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>${totals.net.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td></td>
         </tr>
       </tbody>
@@ -383,8 +386,21 @@ async function loadMonthRecords(month: PayrollMonth) {
     win.document.close()
   }
 
+  const filteredRecords = useMemo(() => {
+    if (!search) return records
+    return records.filter(r => {
+      const e = empMap[r.employee_id]
+      return e?.name.includes(search) || (e?.employee_number || '').includes(search)
+    })
+  }, [records, search, empMap])
+
+  const visibleRecords = useMemo(() => {
+    if (isAdmin) return filteredRecords
+    return filteredRecords.filter(r => r.employee_id === currentUser?.id)
+  }, [filteredRecords, isAdmin, currentUser?.id])
+
   // Totals
-  const totals = useMemo(() => records.reduce((acc, r) => {
+  const totals = useMemo(() => visibleRecords.reduce((acc, r) => {
     const c = calcRecord(r)
     return {
       earnings: acc.earnings + c.totalEarnings,
@@ -393,15 +409,7 @@ async function loadMonthRecords(month: PayrollMonth) {
       paid: acc.paid + r.amount_paid,
       balance: acc.balance + (r.amount_due - r.amount_paid),
     }
-  }, { earnings: 0, deductions: 0, net: 0, paid: 0, balance: 0 }), [records])
-
-  const filteredRecords = useMemo(() => {
-    if (!search) return records
-    return records.filter(r => {
-      const e = empMap[r.employee_id]
-      return e?.name.includes(search) || (e?.employee_number || '').includes(search)
-    })
-  }, [records, search, empMap])
+  }, { earnings: 0, deductions: 0, net: 0, paid: 0, balance: 0 }), [visibleRecords])
 
   const thStyle: React.CSSProperties = {
     padding: '8px 6px', fontSize: 10, color: S.white, background: S.navy3,
@@ -435,7 +443,7 @@ async function loadMonthRecords(month: PayrollMonth) {
             </span>
             <input style={{ ...inp, width: 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
             <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
-            {selectedMonth.status !== 'finalized' && (
+            {isAdmin && selectedMonth.status !== 'finalized' && (
               <>
                 <button onClick={saveAll} disabled={saving} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                   {saving ? '⏳...' : saved ? '✅ Saved!' : '💾 Save'}
@@ -458,7 +466,7 @@ async function loadMonthRecords(month: PayrollMonth) {
                 <h2 style={{ fontSize: 17, fontWeight: 800, color: S.white, marginBottom: 4 }}>📅 Payroll Months</h2>
                 <p style={{ fontSize: 12, color: S.muted }}>Select a month to view or edit payroll</p>
               </div>
-              <button onClick={() => setShowNewMonth(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Month</button>
+              {isAdmin && <button onClick={() => setShowNewMonth(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Month</button>}
             </div>
 
             {/* New Month Modal */}
@@ -522,11 +530,11 @@ async function loadMonthRecords(month: PayrollMonth) {
             {/* Summary Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
-               { label: 'Total Employees',  value: records.length, color: S.white, icon: '👥' },
-               { label: 'Total Earnings',   value: 'MYR ' + totals.earnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.green, icon: '📈' },
-               { label: 'Total Deductions', value: 'MYR ' + totals.deductions.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.red, icon: '📉' },
-               { label: 'Net Payroll',      value: 'MYR ' + totals.net.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.teal, icon: '💰' },
-               { label: 'Balance',          value: 'MYR ' + totals.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: totals.balance > 0 ? S.amber : S.green, icon: '⚖️' },
+               { label: isAdmin ? 'Total Employees' : 'My Payroll', value: visibleRecords.length, color: S.white, icon: '👥' },
+               { label: 'Total Earnings',   value: 'MYR ' + totals.earnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.green, icon: '📈' },
+               { label: 'Total Deductions', value: 'MYR ' + totals.deductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.red, icon: '📉' },
+               { label: 'Net Payroll',      value: 'MYR ' + totals.net.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.teal, icon: '💰' },
+               { label: 'Balance',          value: 'MYR ' + totals.balance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: totals.balance > 0 ? S.amber : S.green, icon: '⚖️' },
               ].map((s, i) => (
                 <div key={i} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: '14px 16px' }}>
                   <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{s.icon} {s.label}</div>
@@ -585,7 +593,7 @@ async function loadMonthRecords(month: PayrollMonth) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredRecords.map((r, i) => (
+                    {visibleRecords.map((r, i) => (
                       <PayrollRow
                         key={r.employee_id}
                         record={r}
@@ -596,13 +604,13 @@ async function loadMonthRecords(month: PayrollMonth) {
                     {/* Totals Row */}
                     <tr style={{ background: 'rgba(201,168,76,0.1)', fontWeight: 800 }}>
                       <td colSpan={11} style={{ padding: '10px 14px', border: `1px solid ${S.border}`, color: S.gold, fontSize: 13, textAlign: 'right' }}>TOTAL</td>
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.green, textAlign: 'center', fontSize: 13 }}>{totals.earnings.toFixed(2)}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.green, textAlign: 'center', fontSize: 13 }}>{totals.earnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td colSpan={8} style={{ border: `1px solid ${S.border}` }} />
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.red, textAlign: 'center', fontSize: 13 }}>{totals.deductions.toFixed(2)}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.red, textAlign: 'center', fontSize: 13 }}>{totals.deductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td colSpan={3} style={{ border: `1px solid ${S.border}` }} />
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.teal, textAlign: 'center', fontSize: 14 }}>{totals.net.toFixed(2)}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.teal, textAlign: 'center', fontSize: 14 }}>{totals.net.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td colSpan={2} style={{ border: `1px solid ${S.border}` }} />
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: totals.balance > 0 ? S.amber : S.green, textAlign: 'center', fontSize: 13 }}>{totals.balance.toFixed(2)}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: totals.balance > 0 ? S.amber : S.green, textAlign: 'center', fontSize: 13 }}>{totals.balance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ border: `1px solid ${S.border}` }} />
                     </tr>
                   </tbody>

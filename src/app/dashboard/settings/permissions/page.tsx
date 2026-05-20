@@ -55,6 +55,8 @@ const ALL_PERMISSIONS = [
   { key: 'settings',         label: 'الإعدادات',            group: 'الإعدادات',     icon: '⚙️' },
   { key: 'permissions',      label: 'إدارة الصلاحيات',      group: 'الإعدادات',     icon: '🔐' },
   { key: 'suppliers',        label: 'الموردون',             group: 'الإعدادات',     icon: '🤝' },
+  { key: 'payroll',          label: 'الرواتب والأجور',       group: 'المالية', icon: '💰' },
+
 ]
 
 const GROUPS = [...new Set(ALL_PERMISSIONS.map(p => p.group))]

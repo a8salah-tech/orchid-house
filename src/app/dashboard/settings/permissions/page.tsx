@@ -56,6 +56,8 @@ const ALL_PERMISSIONS = [
   { key: 'permissions',      label: 'إدارة الصلاحيات',      group: 'الإعدادات',     icon: '🔐' },
   { key: 'suppliers',        label: 'الموردون',             group: 'الإعدادات',     icon: '🤝' },
   { key: 'payroll',          label: 'الرواتب والأجور',       group: 'المالية', icon: '💰' },
+  { key: 'attendance',       label: 'الحضور والانصراف',      group: 'الموارد', icon: '⏰' },
+  { key: 'my_payroll',       label: 'راتبي',                 group: 'الموارد', icon: '💰' },
 
 ]
 

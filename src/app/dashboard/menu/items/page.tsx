@@ -823,8 +823,7 @@ export default function MenuItemsPage() {
                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>{item.menu_categories?.icon || '🍽️'}</div>}
                 </div>
                 <div style={{ padding: '10px 12px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name}</div>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name_en || item.name}</div>                  <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
                 </div>
               </div>
             ))}

@@ -157,7 +157,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
           <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{order.tables?.name || `Table ${order.tables?.number}`} · #{order.id.slice(-6).toUpperCase()}</div>
           {order.order_items.map(i => (
             <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
-              <span style={{ color: S.white }}>{i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+              <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
               <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
             </div>
           ))}

@@ -71,8 +71,15 @@ export default function TablesPage() {
   async function addTable() {
     if (!newNum) return
     setSaving(true)
-    await sb.from('tables').insert([{ number: parseInt(newNum), name: newName || `Table ${newNum}`, is_active: true, status: 'available' }])
-    setNewNum(''); setNewName(''); setShowAdd(false); setSaving(false)
+    const { error } = await sb.from('tables').insert([{
+      number: parseInt(newNum),
+      name: newName || `Table ${newNum}`,
+      is_active: true,
+      status: 'available',
+    }])
+    setSaving(false)
+    if (error) { alert('Error adding table: ' + error.message); return }
+    setNewNum(''); setNewName(''); setShowAdd(false)
     fetchTables()
   }
 
@@ -89,83 +96,113 @@ export default function TablesPage() {
 
   function printQR(table: Table) {
     const img = qrUrls[table.id]
-    if (!img) return
+    if (!img) { alert('QR not ready yet, please wait...'); return }
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html>
-<head><meta charset="UTF-8"><title>${table.name}</title>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<head><meta charset="UTF-8"><title>${table.name || 'Table ' + table.number}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700;900&family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    width:9cm; height:13cm;
+    width:10cm; height:15cm;
     display:flex; align-items:center; justify-content:center;
     background:#fff; font-family:'Montserrat',sans-serif;
     -webkit-print-color-adjust:exact; print-color-adjust:exact;
   }
   .card {
-    width:8cm; height:12cm;
-    border:1.5px solid #C9A84C;
-    border-radius:16px;
+    width:9cm; height:14cm;
+    border:2px solid #C9A84C;
+    border-radius:20px;
     display:flex; flex-direction:column; align-items:center;
     justify-content:space-between;
-    padding:20px 16px 16px;
+    padding:24px 20px 18px;
     background:#fff;
     position:relative; overflow:hidden;
+    box-shadow: 0 4px 24px rgba(201,168,76,0.15);
   }
   .card::before {
-    content:''; position:absolute; top:0; left:0; right:0; height:3px;
-    background:linear-gradient(90deg,#C9A84C,#E8C97A,#C9A84C);
+    content:''; position:absolute; top:0; left:0; right:0; height:5px;
+    background:linear-gradient(90deg,#0A1628,#C9A84C,#E8C97A,#C9A84C,#0A1628);
   }
-  .brand { text-align:center; }
+  .card::after {
+    content:''; position:absolute; bottom:0; left:0; right:0; height:5px;
+    background:linear-gradient(90deg,#0A1628,#C9A84C,#E8C97A,#C9A84C,#0A1628);
+  }
+  .top { text-align:center; width:100%; }
+  .group-name {
+    font-family:'Montserrat',sans-serif;
+    font-size:9px; font-weight:600; color:#8A9BB5;
+    letter-spacing:5px; text-transform:uppercase; margin-bottom:2px;
+  }
   .brand-name {
     font-family:'Cormorant Garamond',serif;
-    font-size:22px; font-weight:700; color:#0A1628;
-    letter-spacing:4px; text-transform:uppercase;
-    line-height:1;
+    font-size:30px; font-weight:700; color:#0A1628;
+    letter-spacing:3px; text-transform:uppercase; line-height:1;
   }
   .brand-sub {
-    font-size:8px; color:#8A9BB5; letter-spacing:3px;
-    text-transform:uppercase; margin-top:3px;
+    font-size:9px; color:#8A9BB5; letter-spacing:3px;
+    text-transform:uppercase; margin-top:4px; font-weight:500;
   }
-  .divider {
-    width:40px; height:1px;
+  .gold-line {
+    width:50px; height:1.5px;
     background:linear-gradient(90deg,transparent,#C9A84C,transparent);
-    margin:8px auto;
+    margin:10px auto;
   }
   .qr-section { display:flex; flex-direction:column; align-items:center; }
-  .qr-border {
-    padding:8px; border:1.5px solid #0A1628; border-radius:10px;
-    background:#fff; margin-bottom:10px;
+  .qr-frame {
+    padding:10px; border:2px solid #0A1628; border-radius:14px;
+    background:#fff; margin-bottom:14px;
+    box-shadow: inset 0 0 0 3px #C9A84C, inset 0 0 0 5px #fff, inset 0 0 0 6px #0A1628;
   }
-  .qr-border img { width:140px; height:140px; display:block; }
+  .qr-frame img { width:160px; height:160px; display:block; }
   .table-pill {
-    background:linear-gradient(135deg,#C9A84C,#E8C97A);
-    color:#0A1628; border-radius:30px;
-    padding:5px 20px; font-size:13px; font-weight:700;
-    letter-spacing:1px; font-family:'Cormorant Garamond',serif;
-    font-size:15px;
+    background:linear-gradient(135deg,#0A1628,#0F2040);
+    color:#C9A84C; border-radius:40px;
+    padding:8px 28px; font-size:16px; font-weight:700;
+    letter-spacing:2px; font-family:'Cormorant Garamond',serif;
+    border: 1.5px solid #C9A84C;
+    box-shadow: 0 4px 16px rgba(201,168,76,0.25);
   }
-  .scan-text { font-size:8px; color:#8A9BB5; letter-spacing:2px; text-transform:uppercase; margin-top:10px; }
-  .footer { text-align:center; }
-  .footer-text { font-size:7px; color:#ccc; letter-spacing:1px; }
-  @media print { @page { size:9cm 13cm; margin:0; } body { width:9cm; height:13cm; } }
+  .scan-row { display:flex; align-items:center; gap:6px; margin-top:10px; }
+  .scan-text { font-size:8px; color:#8A9BB5; letter-spacing:2px; text-transform:uppercase; font-weight:500; }
+  .bottom { text-align:center; width:100%; }
+  .wifi-row { font-size:8px; color:#bbb; letter-spacing:1px; margin-bottom:6px; }
+  .footer-text { font-size:7px; color:#ccc; letter-spacing:0.5px; }
+  .corner { position:absolute; width:16px; height:16px; border-color:#C9A84C; border-style:solid; }
+  .corner-tl { top:10px; left:10px; border-width:2px 0 0 2px; border-radius:3px 0 0 0; }
+  .corner-tr { top:10px; right:10px; border-width:2px 2px 0 0; border-radius:0 3px 0 0; }
+  .corner-bl { bottom:10px; left:10px; border-width:0 0 2px 2px; border-radius:0 0 0 3px; }
+  .corner-br { bottom:10px; right:10px; border-width:0 2px 2px 0; border-radius:0 0 3px 0; }
+  @media print {
+    @page { size:10cm 15cm; margin:0; }
+    body { width:10cm; height:15cm; }
+  }
 </style></head>
 <body>
 <div class="card">
-  <div class="brand">
+  <div class="corner corner-tl"></div>
+  <div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div>
+  <div class="corner corner-br"></div>
+  <div class="top">
+    <div class="group-name">Orchid Group</div>
     <div class="brand-name">Orchid House</div>
-    <div class="brand-sub">Restaurant · Est. 2023</div>
-    <div class="divider"></div>
+    <div class="brand-sub">Fine Dining Restaurant</div>
+    <div class="gold-line"></div>
   </div>
   <div class="qr-section">
-    <div class="qr-border"><img src="${img}" /></div>
+    <div class="qr-frame"><img src="${img}" /></div>
     <div class="table-pill">${table.name || 'Table ' + table.number}</div>
-    <div class="scan-text">📱 Scan to order</div>
+    <div class="scan-row">
+      <span style="font-size:12px;">📱</span>
+      <div class="scan-text">Scan to view menu &amp; order</div>
+    </div>
   </div>
-  <div class="footer">
-    <div class="divider"></div>
-    <div class="footer-text">Prices subject to 6% SST &amp; 10% service charge</div>
+  <div class="bottom">
+    <div class="gold-line"></div>
+    <div class="wifi-row">🌐 orchid.bidlx.com</div>
+    <div class="footer-text">All prices subject to 6% SST &amp; 10% service charge</div>
   </div>
 </div>
 <script>window.onload=()=>window.print()<\/script>
@@ -183,26 +220,27 @@ export default function TablesPage() {
   const counts = { available: tables.filter(t => t.status === 'available').length, reserved: tables.filter(t => t.status === 'reserved').length, occupied: tables.filter(t => t.status === 'occupied').length }
 
   return (
-    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, minHeight: '100vh', background: S.navy }}>
+    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800;900&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * { box-sizing: border-box; }
         .table-card { transition: transform .2s, box-shadow .2s; }
         .table-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.3); }
         select option { background: #0F2040; color: #FAFAF8; }
       `}</style>
 
       {/* Header */}
-      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 24px', display: 'flex', alignItems: 'center', height: 60, gap: 16, position: 'sticky', top: 0, zIndex: 100 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>🪑 Table Management</h1>
-        <div style={{ marginRight: 'auto', display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowAdd(true)} style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            ➕ Add Table
-          </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 900, color: S.white, marginBottom: 4 }}>🪑 Table Management</h1>
+          <p style={{ fontSize: 13, color: S.muted }}>Manage tables and print QR codes</p>
         </div>
+        <button onClick={() => setShowAdd(true)} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          ➕ Add Table
+        </button>
       </div>
 
-      <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
+      <div>
 
         {/* Stats Bar */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>

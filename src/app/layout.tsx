@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Orchid Group" }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ar">
+    <html lang="en">
       <body>
         <AuthProvider>{children}</AuthProvider>
       </body>

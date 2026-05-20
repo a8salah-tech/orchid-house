@@ -99,15 +99,19 @@ function calcRecord(r: PayrollRecord) {
 }
 
 // ══ Cell input ══
-function Cell({ value, onChange, type = 'number', label }: { value: any; onChange: (v: any) => void; type?: string; label?: string }) {
+function Cell({ value, onChange, type = 'number', label, readOnly = false }: { value: any; onChange: (v: any) => void; type?: string; label?: string; readOnly?: boolean }) {
   return (
     <td style={{ padding: '4px 6px', border: `1px solid ${S.border}`, minWidth: type === 'text' ? 100 : 80 }}>
       {label && <div style={{ fontSize: 9, color: S.muted, marginBottom: 2 }}>{label}</div>}
       <input
         style={{ ...inp, fontSize: 11, padding: '4px 6px' }}
-        type={type}
+        type="text"
+        inputMode="decimal"
         value={value}
-        onChange={e => onChange(type === 'number' ? (parseFloat(e.target.value) || 0) : e.target.value)}
+        onChange={e => {
+          const v = e.target.value.replace(/[^\d.]/g, '')
+          onChange(type === 'number' ? (parseFloat(v) || 0) : v)
+        }}
       />
     </td>
   )

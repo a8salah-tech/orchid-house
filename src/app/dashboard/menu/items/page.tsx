@@ -95,13 +95,13 @@ interface MenuItem {
   menu_categories?: { name: string; name_en: string; icon: string } | any}
 
 // ══ Image Upload Helper ══
-function toBase64(file: File): Promise<string> {
-  return new Promise((res, rej) => {
-    const reader = new FileReader()
-    reader.onload = () => res(reader.result as string)
-    reader.onerror = rej
-    reader.readAsDataURL(file)
-  })
+async function uploadToStorage(supabase: ReturnType<typeof createClient>, file: File, itemId: string): Promise<string | null> {
+  const ext = file.name.split('.').pop() || 'jpg'
+  const path = `${itemId}_${Date.now()}.${ext}`  
+  const { data, error } = await supabase.storage.from('menu-images').upload(path, file, { upsert: true, contentType: file.type })
+  if (error) { console.error('Upload error:', error); return null }
+  const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(data.path)
+  return urlData.publicUrl
 }
 
 // ══ Add/Edit Item Modal ══
@@ -126,21 +126,41 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     is_available: item?.is_available !== false,
   })
 
+  const [imageFile, setImageFile] = useState<File | null>(null)
+
   async function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
-    const b64 = await toBase64(file)
-    setImagePreview(b64)
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
   }
 
   async function save() {
     if (!form.name || !form.category_id) { alert('يرجى إدخال الاسم والقسم'); return }
     setSaving(true)
+
+    let finalImageUrl: string | null = item?.image_url || null
+
+    if (imageFile) {
+      const tempId = item?.id || `new_${Date.now()}`
+      const uploadedUrl = await uploadToStorage(supabase, imageFile, tempId)
+      if (uploadedUrl) {
+        finalImageUrl = uploadedUrl
+      } else {
+        alert('فشل رفع الصورة — تأكد من إعداد bucket menu-images في Supabase')
+        setSaving(false)
+        return
+      }
+    } else if (imagePreview === '') {
+      finalImageUrl = null
+    }
+
     const payload = {
       ...form,
       price: parseFloat(form.price) || 0,
       cost_price: parseFloat(form.cost_price) || 0,
-      image_url: imagePreview || null,
+      image_url: finalImageUrl,
     }
+
     let error
     if (item) {
       ({ error } = await supabase.from('menu_items').update(payload).eq('id', item.id))
@@ -697,7 +717,7 @@ export default function MenuItemsPage() {
     setLoading(true)
     const [cats, itms] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, is_active, is_available, sort_order, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,
@@ -900,7 +920,7 @@ export default function MenuItemsPage() {
               {/* صورة */}
               <div style={{ aspectRatio: '4/3', background: S.navy3, position: 'relative', overflow: 'hidden' }}>
                 {item.image_url ? (
-                  <img src={item.image_url} alt={item.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img src={item.image_url} alt={item.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }} />
                 ) : (
                   <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>
                     {item.menu_categories?.icon || '🍽️'}

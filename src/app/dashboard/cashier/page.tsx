@@ -40,12 +40,12 @@ type MenuItem = { id: string; name: string; name_en: string; price: number; cate
 type Category = { id: string; name: string; name_en: string }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; emoji: string }> = {
-  confirmed:  { label: 'جديد',        color: S.blue,   bg: S.blueB,   emoji: '🆕' },
-  preparing:  { label: 'قيد التحضير', color: S.amber,  bg: S.amberB,  emoji: '👨‍🍳' },
-  ready:      { label: 'جاهز',        color: S.green,  bg: S.greenB,  emoji: '✅' },
-  done:       { label: 'مُسلَّم',      color: S.muted,  bg: S.card,    emoji: '📦' },
-  paid:       { label: 'مدفوع',       color: S.teal,   bg: S.tealB,   emoji: '💰' },
-  cancelled:  { label: 'ملغي',        color: S.red,    bg: S.redB,    emoji: '❌' },
+  confirmed:  { label: 'New',        color: S.blue,   bg: S.blueB,   emoji: '🆕' },
+  preparing:  { label: 'Preparing', color: S.amber,  bg: S.amberB,  emoji: '👨‍🍳' },
+  ready:      { label: 'Ready',        color: S.green,  bg: S.greenB,  emoji: '✅' },
+  done:       { label: 'Delivered',      color: S.muted,  bg: S.card,    emoji: '📦' },
+  paid:       { label: 'Paid',       color: S.teal,   bg: S.tealB,   emoji: '💰' },
+  cancelled:  { label: 'Cancelled',        color: S.red,    bg: S.redB,    emoji: '❌' },
 }
 
 function timeAgo(iso: string) {
@@ -148,13 +148,13 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 480, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>💰 تسوية الفاتورة</h2>
+          <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>💰 Settle Bill</h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
         {/* Order Summary */}
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{order.tables?.name || `طاولة ${order.tables?.number}`} · #{order.id.slice(-6).toUpperCase()}</div>
+          <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{order.tables?.name || `Table ${order.tables?.number}`} · #{order.id.slice(-6).toUpperCase()}</div>
           {order.order_items.map(i => (
             <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
               <span style={{ color: S.white }}>{i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
@@ -165,13 +165,13 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
 
         {/* Discount */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>الخصم</div>
+          <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Discount</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
             {[
-              { k: 'none', label: 'بدون' },
-              { k: 'amount', label: 'مبلغ' },
+              { k: 'none', label: 'None' },
+              { k: 'amount', label: 'Amount' },
               { k: 'percent', label: '%' },
-              { k: 'free', label: '🎁 مجاني' },
+              { k: 'free', label: '🎁 Free' },
             ].map(d => (
               <button key={d.k} onClick={() => setDiscountType(d.k as any)}
                 style={{ padding: '8px', borderRadius: 8, border: `1px solid ${discountType === d.k ? S.amber : S.border}`, background: discountType === d.k ? S.amberB : 'transparent', color: discountType === d.k ? S.amber : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: discountType === d.k ? 700 : 400 }}>
@@ -181,19 +181,19 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
           </div>
           {(discountType === 'amount' || discountType === 'percent') && (
             <input style={inp} type="number" value={discountValue} onChange={e => setDiscountValue(e.target.value)}
-              placeholder={discountType === 'percent' ? 'نسبة الخصم %' : 'مبلغ الخصم MYR'} />
+              placeholder={discountType === 'percent' ? 'Discount %' : 'Amount Discount MYR'} />
           )}
         </div>
 
         {/* Payment Method */}
         {discountType !== 'free' && (
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>طريقة الدفع</div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Payment Method</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
               {[
-                { k: 'cash', label: '💵 كاش', color: S.green },
-                { k: 'visa', label: '💳 فيزا', color: S.blue },
-                { k: 'online', label: '📱 أونلاين', color: S.purple },
+                { k: 'cash', label: '💵 Cash', color: S.green },
+                { k: 'visa', label: '💳 Visa', color: S.blue },
+                { k: 'online', label: '📱 Online', color: S.purple },
               ].map(m => (
                 <button key={m.k} onClick={() => setMethod(m.k as any)}
                   style={{ padding: '10px', borderRadius: 10, border: `1px solid ${method === m.k ? m.color : S.border}`, background: method === m.k ? m.color + '20' : 'transparent', color: method === m.k ? m.color : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: method === m.k ? 700 : 400 }}>
@@ -207,9 +207,9 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
         {/* Totals */}
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 20 }}>
           {[
-            { label: 'الإجمالي الفرعي', value: subtotal, color: S.white },
-            discountAmt > 0 ? { label: 'الخصم', value: -discountAmt, color: S.red } : null,
-            discountType !== 'free' ? { label: 'رسوم الخدمة 10%', value: serviceCharge, color: S.muted } : null,
+            { label: 'Subtotal', value: subtotal, color: S.white },
+            discountAmt > 0 ? { label: 'Discount', value: -discountAmt, color: S.red } : null,
+            discountType !== 'free' ? { label: 'Service Charge (10%)', value: serviceCharge, color: S.muted } : null,
             discountType !== 'free' ? { label: 'SST 6%', value: sst, color: S.muted } : null,
           ].filter(Boolean).map((row, i) => row && (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13 }}>
@@ -218,15 +218,15 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
             </div>
           ))}
           <div style={{ borderTop: `1px solid ${S.border}`, marginTop: 10, paddingTop: 10, display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 900 }}>
-            <span style={{ color: S.white }}>الإجمالي</span>
+            <span style={{ color: S.white }}>Total</span>
             <span style={{ color: S.gold }}>MYR {total.toFixed(2)}</span>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={printReceipt} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة</button>
+          <button onClick={printReceipt} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
           <button onClick={pay} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
-            {saving ? '⏳...' : discountType === 'free' ? '🎁 وجبة مجانية' : '✅ تأكيد الدفع'}
+            {saving ? '⏳...' : discountType === 'free' ? '🎁 Complimentaryة' : '✅ Confirm Payment'}
           </button>
         </div>
       </div>
@@ -304,12 +304,12 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 700, padding: 24, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>➕ إضافة طلب — {tableName}</h2>
+          <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>➕ Add Order — {tableName}</h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
-        <input style={inp} placeholder="🔍 بحث..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input style={inp} placeholder="🔍 Search..." value={search} onChange={e => setSearch(e.target.value)} />
         <div style={{ display: 'flex', gap: 6, marginTop: 10, marginBottom: 12, overflowX: 'auto' }}>
-          <button onClick={() => setSelectedCat('all')} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === 'all' ? S.gold : S.border}`, background: selectedCat === 'all' ? S.gold3 : 'transparent', color: selectedCat === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>الكل</button>
+          <button onClick={() => setSelectedCat('all')} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === 'all' ? S.gold : S.border}`, background: selectedCat === 'all' ? S.gold3 : 'transparent', color: selectedCat === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>All</button>
           {categories.map(c => (
             <button key={c.id} onClick={() => setSelectedCat(c.id)} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === c.id ? S.gold : S.border}`, background: selectedCat === c.id ? S.gold3 : 'transparent', color: selectedCat === c.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>{c.name}</button>
           ))}
@@ -341,19 +341,19 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
                   <span style={{ color: S.white }}>{c.item.name} ×{c.qty}</span>
                   <span style={{ color: S.gold }}>MYR {(c.item.price * c.qty).toFixed(2)}</span>
                 </div>
-                <input style={{ ...inp, fontSize: 11 }} placeholder="ملاحظة..." value={c.notes} onChange={e => setCart(p => p.map(ci => ci.item.id === c.item.id ? { ...ci, notes: e.target.value } : ci))} />
+                <input style={{ ...inp, fontSize: 11 }} placeholder="Note..." value={c.notes} onChange={e => setCart(p => p.map(ci => ci.item.id === c.item.id ? { ...ci, notes: e.target.value } : ci))} />
               </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 15, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
-              <span style={{ color: S.white }}>الإجمالي</span>
+              <span style={{ color: S.white }}>Total</span>
               <span style={{ color: S.gold }}>MYR {total.toFixed(2)}</span>
             </div>
           </div>
         )}
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onClose} style={{ padding: '11px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={onClose} style={{ padding: '11px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
           <button onClick={placeOrder} disabled={saving || cart.length === 0} style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: cart.length === 0 ? S.card : `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: cart.length === 0 ? 'not-allowed' : 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 800, fontSize: 14 }}>
-            {saving ? '⏳...' : `✅ إرسال الطلب (${cart.reduce((s, c) => s + c.qty, 0)} صنف)`}
+            {saving ? '⏳...' : `✅ Place Order (${cart.reduce((s, c) => s + c.qty, 0)} items)`}
           </button>
         </div>
       </div>
@@ -397,7 +397,7 @@ export default function CashierPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
         fetchAll()
         if (payload.eventType === 'INSERT') {
-          setNotif('🆕 طلب جديد وصل!')
+          setNotif('🆕 New order received!')
           setTimeout(() => setNotif(null), 5000)
         }
       })
@@ -424,7 +424,7 @@ export default function CashierPage() {
   }
 
   async function cancelOrder(order: Order) {
-    if (!confirm('هل تريد إلغاء هذا الطلب؟')) return
+    if (!confirm('Are you sure you want to cancel this order?')) return
     await sb.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
     await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', order.table_id)
     fetchAll()
@@ -442,7 +442,7 @@ export default function CashierPage() {
   const shiftElapsed = shiftStart ? elapsed(shiftStart.toISOString()) : null
 
   return (
-    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, minHeight: '100vh', background: S.navy }}>
+    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'ltr', color: S.white, minHeight: '100vh', background: S.navy }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800;900&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -457,43 +457,42 @@ export default function CashierPage() {
       )}
 
       {/* Header */}
-      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 20px', display: 'flex', alignItems: 'center', height: 60, gap: 12, position: 'sticky', top: 0, zIndex: 100, flexWrap: 'wrap' }}>
-        <h1 style={{ color: S.gold, fontSize: 17, fontWeight: 900 }}>🏧 الكاشير</h1>
-
-        {/* Shift Control */}
+      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '10px 16px', zIndex: 10 }}>
+        {/* Row 1 */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <h1 style={{ color: S.gold, fontSize: 17, fontWeight: 900 }}>🏧 Cashier</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {activeCount > 0 && (
+              <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 12, color: S.red, fontWeight: 700 }}>{activeCount} active</div>
+            )}
+            <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 Tables</button>
+            <button onClick={() => setView('orders')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : 'transparent', color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 Orders</button>
+          </div>
+        </div>
+        {/* Row 2: Shift */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <select value={shift} onChange={e => setShift(e.target.value as any)} style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 10px', color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
-            <option value="shift1">شيفت 1</option>
-            <option value="shift2">شيفت 2</option>
+            <option value="shift1">Shift 1</option>
+            <option value="shift2">Shift 2</option>
           </select>
           {!shiftStarted ? (
-            <button onClick={() => { setShiftStarted(true); setShiftStart(new Date()) }} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>▶ بدء الشيفت</button>
+            <button onClick={() => { setShiftStarted(true); setShiftStart(new Date()) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>▶ Start Shift</button>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, color: S.green, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>⏱ {shiftElapsed}</span>
-              <button onClick={() => { setShiftStarted(false); setShiftStart(null) }} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⏹ إنهاء الشيفت</button>
-            </div>
+            <>
+              <span style={{ fontSize: 13, color: S.green, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>⏱ {shiftElapsed}</span>
+              <button onClick={() => { setShiftStarted(false); setShiftStart(null) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⏹ End Shift</button>
+            </>
           )}
-        </div>
-
-        {activeCount > 0 && (
-          <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 12, color: S.red, fontWeight: 700 }}>{activeCount} طلب نشط</div>
-        )}
-
-        <div style={{ marginRight: 'auto', display: 'flex', gap: 6 }}>
-          {/* View Toggle */}
-          <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 الطاولات</button>
-          <button onClick={() => setView('orders')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : 'transparent', color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 الطلبات</button>
         </div>
       </div>
 
       <div style={{ padding: 16, maxWidth: 1200, margin: '0 auto' }}>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
+          <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
         ) : view === 'tables' ? (
           /* ══ TABLES VIEW ══ */
           <div>
-            <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>اضغط على الطاولة لإضافة طلب أو عرض الطلب الحالي</div>
+            <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>Tap a table to add order or view current order</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 12 }}>
               {tables.filter(t => t.is_active).map(table => {
                 const activeOrder = orders.find(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
@@ -512,9 +511,9 @@ export default function CashierPage() {
                     <div style={{ width: 52, height: 52, borderRadius: '50%', background: S.navy2, border: `2px solid ${sc.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px', fontSize: 20, fontWeight: 900, color: sc.color }}>
                       {table.number}
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{table.name || `طاولة ${table.number}`}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{table.name || `Table ${table.number}`}</div>
                     <div style={{ fontSize: 10, fontWeight: 700, color: sc.color }}>
-                      {status === 'available' ? '🟢 فاضية' : status === 'reserved' ? '🟡 محجوزة' : '🔴 مشغولة'}
+                      {status === 'available' ? '🟢 Available' : status === 'reserved' ? '🟡 Reserved' : '🔴 Occupied'}
                     </div>
                     {activeOrder && table.occupied_since && (
                       <div style={{ fontSize: 10, color: S.amber, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(table.occupied_since)}</div>
@@ -532,9 +531,9 @@ export default function CashierPage() {
           <div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
               {[
-                { key: 'active', label: 'النشطة' },
-                { key: 'all',    label: 'الكل' },
-                { key: 'done',   label: 'المنتهية' },
+                { key: 'active', label: 'Active' },
+                { key: 'all',    label: 'All' },
+                { key: 'done',   label: 'Closed' },
               ].map(f => (
                 <button key={f.key} onClick={() => setFilter(f.key as any)}
                   style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filter === f.key ? S.gold : S.border}`, background: filter === f.key ? S.gold3 : 'transparent', color: filter === f.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: filter === f.key ? 700 : 400 }}>
@@ -546,7 +545,7 @@ export default function CashierPage() {
             {filtered.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
-                <div>لا توجد طلبات</div>
+                <div>No orders found</div>
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
@@ -558,10 +557,10 @@ export default function CashierPage() {
                       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <span style={{ color: S.white, fontWeight: 800, fontSize: 15 }}>{order.tables?.name || `طاولة ${order.tables?.number}`}</span>
+                            <span style={{ color: S.white, fontWeight: 800, fontSize: 15 }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
                             <span style={{ background: st.bg, color: st.color, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{st.emoji} {st.label}</span>
                           </div>
-                          <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()} · منذ {timeAgo(order.created_at)}</div>
+                          <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()} · ago {timeAgo(order.created_at)}</div>
                           {table?.occupied_since && ['confirmed','preparing','ready'].includes(order.status) && (
                             <div style={{ fontSize: 11, color: S.amber, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(table.occupied_since)}</div>
                           )}
@@ -585,13 +584,13 @@ export default function CashierPage() {
 
                       <div style={{ padding: '10px 16px', borderTop: `1px solid ${S.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {order.status === 'confirmed' && (
-                          <button onClick={() => sendToStation(order.id)} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>👨‍🍳 أرسل للمحطة</button>
+                          <button onClick={() => sendToStation(order.id)} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>👨‍🍳 Send to Kitchen</button>
                         )}
                         {order.status === 'preparing' && (
-                          <button onClick={() => updateStatus(order.id, 'ready')} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ جاهز</button>
+                          <button onClick={() => updateStatus(order.id, 'ready')} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Ready</button>
                         )}
                         {['confirmed','preparing','ready'].includes(order.status) && (
-                          <button onClick={() => setPayOrder(order)} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 دفع</button>
+                          <button onClick={() => setPayOrder(order)} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 Pay</button>
                         )}
                         {['confirmed','preparing'].includes(order.status) && (
                           <button onClick={() => cancelOrder(order)} style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
@@ -608,7 +607,7 @@ export default function CashierPage() {
 
       {/* Modals */}
       {payOrder && <PaymentModal order={payOrder} onClose={() => setPayOrder(null)} onPaid={() => { setPayOrder(null); fetchAll() }} />}
-      {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `طاولة ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
+      {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
     </div>
   )
 }

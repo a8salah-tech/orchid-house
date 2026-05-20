@@ -361,6 +361,163 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
   )
 }
 
+
+// ══ Shift Report Modal ══
+function ShiftReportModal({ orders, shift, shiftStart, onClose }: { orders: Order[]; shift: string; shiftStart: Date | null; onClose: () => void }) {
+  const shiftOrders = orders.filter(o => o.status === 'paid')
+  const totalCash   = shiftOrders.filter(o => o.payment_method === 'cash').reduce((s, o) => s + (o.total_amount || 0), 0)
+  const totalVisa   = shiftOrders.filter(o => o.payment_method === 'visa').reduce((s, o) => s + (o.total_amount || 0), 0)
+  const totalOnline = shiftOrders.filter(o => o.payment_method === 'online').reduce((s, o) => s + (o.total_amount || 0), 0)
+  const totalFree   = shiftOrders.filter(o => o.payment_method === 'free').length
+  const grandTotal  = shiftOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
+  const totalService = shiftOrders.reduce((s, o) => s + (o.service_charge || 0), 0)
+  const totalSST    = shiftOrders.reduce((s, o) => s + (o.sst_amount || 0), 0)
+  const totalDiscount = shiftOrders.reduce((s, o) => s + (o.discount_amount || 0), 0)
+  const now = new Date()
+
+  function printShiftReport() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const rows = shiftOrders.map((o, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
+        <td>#${o.id.slice(-6).toUpperCase()}</td>
+        <td>${o.order_items?.map(i => i.menu_items?.name + ' ×' + i.quantity).join(', ')}</td>
+        <td>${o.payment_method?.toUpperCase() || '—'}</td>
+        <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : '—'}</td>
+        <td>${o.service_charge > 0 ? 'MYR ' + o.service_charge.toFixed(2) : '—'}</td>
+        <td>${o.sst_amount > 0 ? 'MYR ' + o.sst_amount.toFixed(2) : '—'}</td>
+        <td><b>MYR ${(o.total_amount || 0).toFixed(2)}</b></td>
+        <td>${o.paid_at ? new Date(o.paid_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+      </tr>`).join('')
+
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Shift Report — ${shift} — ${now.toLocaleDateString('en-GB')}</title>
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 11px; margin: 15px; color: #000; }
+      h2 { text-align: center; font-size: 16px; margin-bottom: 4px; }
+      h3 { text-align: center; font-size: 12px; color: #555; margin-bottom: 14px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+      th { background: #0A1628; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; }
+      td { padding: 5px 8px; border-bottom: 1px solid #ddd; font-size: 10px; }
+      tr:nth-child(even) { background: #f9f9f9; }
+      .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px; }
+      .summary-box { border: 1px solid #ddd; border-radius: 8px; padding: 10px; text-align: center; }
+      .summary-box .label { font-size: 10px; color: #666; margin-bottom: 4px; }
+      .summary-box .value { font-size: 16px; font-weight: bold; color: #000; }
+      .total-row { background: #C9A84C !important; font-weight: bold; color: #000; }
+      @media print { @page { size: A4 landscape; margin: 10mm; } }
+    </style></head><body>
+    <h2>🌸 Orchid House — Shift Report</h2>
+    <h3>${shift === 'shift1' ? 'Shift 1' : 'Shift 2'} · ${now.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+    ${shiftStart ? ' · Started: ' + shiftStart.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}
+    · Closed: ${now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</h3>
+    <table>
+      <thead><tr>
+        <th>#</th><th>Table</th><th>Order #</th><th>Items</th>
+        <th>Payment</th><th>Discount</th><th>Service</th><th>SST</th>
+        <th>Total</th><th>Time</th>
+      </tr></thead>
+      <tbody>${rows}
+        <tr class="total-row">
+          <td colspan="5">TOTAL — ${shiftOrders.length} orders</td>
+          <td>MYR ${totalDiscount.toFixed(2)}</td>
+          <td>MYR ${totalService.toFixed(2)}</td>
+          <td>MYR ${totalSST.toFixed(2)}</td>
+          <td>MYR ${grandTotal.toFixed(2)}</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="summary">
+      <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totalCash.toFixed(2)}</div></div>
+      <div class="summary-box"><div class="label">💳 Visa</div><div class="value">MYR ${totalVisa.toFixed(2)}</div></div>
+      <div class="summary-box"><div class="label">📱 Online</div><div class="value">MYR ${totalOnline.toFixed(2)}</div></div>
+      <div class="summary-box"><div class="label">🎁 Complimentary</div><div class="value">${totalFree} orders</div></div>
+    </div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`)
+    win.document.close()
+  }
+
+  const thStyle: React.CSSProperties = { padding: '8px 12px', fontSize: 11, color: '#fff', background: S.navy3, border: `1px solid ${S.border}`, textAlign: 'left' as const }
+  const tdStyle: React.CSSProperties = { padding: '8px 12px', fontSize: 12, color: S.white, borderBottom: `1px solid ${S.border}` }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 500, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 900, padding: 28, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📊 Shift Report</h2>
+            <p style={{ fontSize: 12, color: S.muted }}>{shift === 'shift1' ? 'Shift 1' : 'Shift 2'} · {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={printShiftReport} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
+            <button onClick={onClose} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⏹ End Shift</button>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 20 }}>
+          {[
+            { label: 'Total Orders', value: shiftOrders.length, color: S.white, icon: '📋' },
+            { label: 'Grand Total', value: `MYR ${grandTotal.toFixed(2)}`, color: S.gold, icon: '💰' },
+            { label: 'Cash', value: `MYR ${totalCash.toFixed(2)}`, color: S.green, icon: '💵' },
+            { label: 'Visa', value: `MYR ${totalVisa.toFixed(2)}`, color: S.blue, icon: '💳' },
+            { label: 'Online', value: `MYR ${totalOnline.toFixed(2)}`, color: S.purple, icon: '📱' },
+            { label: 'Discount', value: `MYR ${totalDiscount.toFixed(2)}`, color: S.red, icon: '🏷️' },
+            { label: 'Service 10%', value: `MYR ${totalService.toFixed(2)}`, color: S.amber, icon: '⚡' },
+            { label: 'SST 6%', value: `MYR ${totalSST.toFixed(2)}`, color: S.teal, icon: '🧾' },
+          ].map((s, i) => (
+            <div key={i} style={{ background: S.card, borderRadius: 12, padding: '12px 14px', border: `1px solid ${S.border}` }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{s.icon} {s.label}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: s.color }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Orders Table */}
+        <div style={{ background: S.navy3, borderRadius: 12, overflow: 'hidden', border: `1px solid ${S.border}` }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+              <thead>
+                <tr>
+                  {['#', 'Table', 'Order #', 'Payment', 'Discount', 'Service', 'SST', 'Total', 'Time'].map(h => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shiftOrders.map((o, i) => (
+                  <tr key={o.id} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                    <td style={tdStyle}>{i + 1}</td>
+                    <td style={tdStyle}>{o.tables?.name || 'Table ' + o.tables?.number}</td>
+                    <td style={{ ...tdStyle, color: S.gold }}>#{o.id.slice(-6).toUpperCase()}</td>
+                    <td style={tdStyle}>
+                      <span style={{ background: o.payment_method === 'cash' ? S.greenB : o.payment_method === 'visa' ? S.blueB : o.payment_method === 'free' ? S.amberB : S.purpleB, color: o.payment_method === 'cash' ? S.green : o.payment_method === 'visa' ? S.blue : o.payment_method === 'free' ? S.amber : S.purple, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                        {o.payment_method?.toUpperCase() || '—'}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, color: S.red }}>{o.discount_amount > 0 ? `MYR ${o.discount_amount.toFixed(2)}` : '—'}</td>
+                    <td style={{ ...tdStyle, color: S.amber }}>{o.service_charge > 0 ? `MYR ${o.service_charge.toFixed(2)}` : '—'}</td>
+                    <td style={{ ...tdStyle, color: S.teal }}>{o.sst_amount > 0 ? `MYR ${o.sst_amount.toFixed(2)}` : '—'}</td>
+                    <td style={{ ...tdStyle, color: S.gold, fontWeight: 800 }}>MYR {(o.total_amount || 0).toFixed(2)}</td>
+                    <td style={{ ...tdStyle, color: S.muted }}>{o.paid_at ? new Date(o.paid_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                  </tr>
+                ))}
+                {shiftOrders.length === 0 && (
+                  <tr><td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: S.muted, padding: 30 }}>No paid orders in this shift</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ══ Main ══
 export default function CashierPage() {
   const sbRef = useRef(createClient())
@@ -374,6 +531,20 @@ export default function CashierPage() {
   const [shift, setShift] = useState<'shift1' | 'shift2'>('shift1')
   const [shiftStarted, setShiftStarted] = useState(false)
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
+  const [shiftOrders, setShiftOrders] = useState<Order[]>([])
+  const [showShiftReport, setShowShiftReport] = useState(false)
+
+  // Restore shift from localStorage
+  useEffect(() => {
+    const active = localStorage.getItem('cashier_shift_active')
+    const start  = localStorage.getItem('cashier_shift_start')
+    const sv     = localStorage.getItem('cashier_shift_value')
+    if (active === 'true' && start) {
+      setShiftStarted(true)
+      setShiftStart(new Date(start))
+    }
+    if (sv) setShift(sv as 'shift1' | 'shift2')
+  }, [])
   const [tick, setTick] = useState(0)
   const [notif, setNotif] = useState<string | null>(null)
   const [payOrder, setPayOrder] = useState<Order | null>(null)
@@ -431,10 +602,9 @@ export default function CashierPage() {
   }
 
   const filtered = orders.filter(o => {
-    const matchShift = o.shift === shift || !o.shift
     const matchFilter = filter === 'active' ? ['confirmed','preparing','ready'].includes(o.status)
       : filter === 'done' ? ['done','paid','cancelled'].includes(o.status)
-      : true
+      : !['paid'].includes(o.status)
     return matchFilter
   })
 
@@ -467,6 +637,7 @@ export default function CashierPage() {
             )}
             <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 Tables</button>
             <button onClick={() => setView('orders')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : 'transparent', color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 Orders</button>
+            <button onClick={() => setView('shift' as any)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'shift' ? S.teal : S.border}`, background: (view as string) === 'shift' ? S.tealB : 'transparent', color: (view as string) === 'shift' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 Shift</button>
           </div>
         </div>
         {/* Row 2: Shift */}
@@ -476,11 +647,11 @@ export default function CashierPage() {
             <option value="shift2">Shift 2</option>
           </select>
           {!shiftStarted ? (
-            <button onClick={() => { setShiftStarted(true); setShiftStart(new Date()) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>▶ Start Shift</button>
+            <button onClick={() => { const now = new Date(); setShiftStarted(true); setShiftStart(now); localStorage.setItem('cashier_shift_active','true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>▶ Start Shift</button>
           ) : (
             <>
               <span style={{ fontSize: 13, color: S.green, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>⏱ {shiftElapsed}</span>
-              <button onClick={() => { setShiftStarted(false); setShiftStart(null) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⏹ End Shift</button>
+              <button onClick={() => { setShowShiftReport(true) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⏹ End Shift</button>
             </>
           )}
         </div>
@@ -608,6 +779,7 @@ export default function CashierPage() {
       {/* Modals */}
       {payOrder && <PaymentModal order={payOrder} onClose={() => setPayOrder(null)} onPaid={() => { setPayOrder(null); fetchAll() }} />}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
+      {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} onClose={() => { setShowShiftReport(false); setShiftStarted(false); setShiftStart(null); localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start') }} />}
     </div>
   )
 }

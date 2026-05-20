@@ -319,7 +319,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
             const qty = cart.find(c => c.item.id === item.id)?.qty || 0
             return (
               <div key={item.id} style={{ background: qty > 0 ? S.gold3 : S.card, border: `1px solid ${qty > 0 ? S.gold : S.border}`, borderRadius: 10, padding: 10, cursor: 'pointer' }} onClick={() => addItem(item)}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name_en || item.name}</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>MYR {item.price.toFixed(2)}</span>
                   {qty > 0 && (

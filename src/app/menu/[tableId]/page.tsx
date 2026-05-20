@@ -320,8 +320,8 @@ export default function CustomerMenuPage() {
 
               <div style={{ padding: '12px 16px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: S.white, fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{item.name}</div>
-                  <div style={{ color: S.muted, fontSize: 11, marginBottom: 4 }}>{item.name_en}</div>
+                  <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 2 }}>{item.name_en}</div>
+                  <div style={{ color: S.muted, fontSize: 11, marginBottom: 4 }}>{item.name}</div>
                   {item.description && <div style={{ color: S.muted, fontSize: 11, lineHeight: 1.5 }}>{item.description}</div>}
                   <div style={{ color: S.gold, fontWeight: 800, fontSize: 16, marginTop: 6 }}>MYR {item.price.toFixed(2)}</div>
                 </div>

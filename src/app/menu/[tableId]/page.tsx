@@ -1,7 +1,7 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useParams } from 'next/navigation'
 
@@ -9,6 +9,24 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
+// ══ Orchid House Brand Colors ══
+const C = {
+  bg:        '#0A0F1A',   // خلفية داكنة تبرز الأزرق
+  bg2:       '#0F1825',   // كارت
+  bg3:       '#141F30',   // header
+  blue1:     '#3B9FE5',   // أزرق فاتح (primary)
+  blue2:     '#1A6BB5',   // أزرق داكن
+  blue3:     '#2280CC',   // أزرق وسط
+  silver:    '#B8C5D6',   // فضي فاتح
+  silver2:   '#8A9BB5',   // فضي داكن
+  white:     '#FFFFFF',
+  white2:    '#E8EDF5',
+  border:    'rgba(59,159,229,0.15)',
+  border2:   'rgba(59,159,229,0.3)',
+  glow:      'rgba(59,159,229,0.2)',
+  glow2:     'rgba(59,159,229,0.4)',
+}
 
 type Category = { id: string; name: string; name_en: string; destination: string }
 type MenuItem  = { id: string; name: string; name_en: string; price: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string }
@@ -52,10 +70,9 @@ export default function CustomerMenuPage() {
   }, [tableId, sb])
 
   const filteredItems = items.filter(i => {
-    const matchCat    = activeCat === 'all' || i.category_id === activeCat
-    const q           = search.trim()
-    const matchSearch = !q || i.name.includes(q) || i.name_en.toLowerCase().includes(q.toLowerCase())
-    return matchCat && matchSearch
+    const matchCat = activeCat === 'all' || i.category_id === activeCat
+    const q = search.trim()
+    return matchCat && (!q || i.name.includes(q) || i.name_en.toLowerCase().includes(q.toLowerCase()))
   })
 
   function addToCart(item: MenuItem) {
@@ -101,92 +118,98 @@ export default function CustomerMenuPage() {
     setSubmitting(false)
   }
 
+  const globalStyles = `
+    *{box-sizing:border-box;margin:0;padding:0}
+    ::-webkit-scrollbar{display:none}
+    body{background:${C.bg};color:${C.white};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes chefBounce{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-16px) rotate(6deg)}}
+    @keyframes blueGlow{0%,100%{box-shadow:0 0 20px ${C.glow}}50%{box-shadow:0 0 40px ${C.glow2}}}
+    @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+    @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+    .item-card{transition:transform .15s,box-shadow .15s}
+    .item-card:active{transform:scale(.97)}
+  `
+
   // ══ Loading ══
   if (loading) return (
-    <div style={{ minHeight:'100dvh', background:'linear-gradient(135deg,#0a0a0a,#1a1208)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'system-ui' }}>
-      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}`}</style>
+    <div style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <style>{globalStyles}</style>
       <div style={{ textAlign:'center' }}>
-        <div style={{ fontSize:64, animation:'spin 3s linear infinite', marginBottom:20 }}>🌸</div>
-        <div style={{ color:'#C9A84C', fontSize:16, fontWeight:700, animation:'pulse 1.5s ease infinite' }}>Loading menu...</div>
+        <div style={{ width:80, height:80, borderRadius:'50%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', animation:'spin 2s linear infinite', boxShadow:`0 0 30px ${C.glow2}` }}>
+          <span style={{ fontSize:40 }}>🌸</span>
+        </div>
+        <div style={{ color:C.blue1, fontSize:16, fontWeight:700 }}>Loading menu...</div>
       </div>
     </div>
   )
 
   if (notFound) return (
-    <div style={{ minHeight:'100dvh', background:'#0a0a0a', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12, fontFamily:'system-ui' }}>
+    <div style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12 }}>
+      <style>{globalStyles}</style>
       <div style={{ fontSize:48 }}>❌</div>
-      <div style={{ color:'#fff', fontSize:18, fontWeight:700 }}>Table not found</div>
+      <div style={{ color:C.white, fontSize:18, fontWeight:700 }}>Table not found</div>
     </div>
   )
 
-  // ══ Done Screen ══
+  // ══ Done ══
   if (phase === 'done') return (
-    <div style={{ minHeight:'100dvh', background:'linear-gradient(135deg,#0a0a0a,#1a1208)', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'system-ui', padding:20 }}>
-      <style>{`
-        @keyframes fadeUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes chefBounce{0%,100%{transform:translateY(0) rotate(-8deg)}50%{transform:translateY(-18px) rotate(8deg)}}
-        @keyframes glow{0%,100%{box-shadow:0 0 20px rgba(201,168,76,.3)}50%{box-shadow:0 0 40px rgba(201,168,76,.6)}}
-        @keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
-      `}</style>
-      <div style={{ maxWidth:400, width:'100%', textAlign:'center' }}>
-        <div style={{ fontSize:96, display:'inline-block', animation:'chefBounce 2s ease-in-out infinite', marginBottom:28, filter:'drop-shadow(0 8px 24px rgba(0,0,0,.5))' }}>👨‍🍳</div>
-        <div style={{ background:'linear-gradient(135deg,#1a1208,#0f0f0f)', borderRadius:28, border:'1px solid rgba(201,168,76,.25)', padding:'36px 28px', animation:'fadeUp .6s ease' }}>
-          <div style={{ color:'#C9A84C', fontSize:11, fontWeight:700, letterSpacing:4, textTransform:'uppercase', marginBottom:10 }}>✨ Order Confirmed</div>
-          <h2 style={{ color:'#fff', fontSize:22, fontWeight:900, marginBottom:10, lineHeight:1.3 }}>Your order is being<br/>prepared with love 💫</h2>
-          <p style={{ color:'#666', fontSize:13, marginBottom:28, lineHeight:1.7 }}>Our talented kitchen team is crafting your meal. Sit back, relax and enjoy your time! 🍽️</p>
-          <div style={{ background:'linear-gradient(135deg,rgba(201,168,76,.12),rgba(201,168,76,.06))', border:'1px solid rgba(201,168,76,.3)', borderRadius:20, padding:'24px 20px', marginBottom:24, animation:'glow 2s ease infinite' }}>
-            <div style={{ color:'#888', fontSize:10, letterSpacing:3, marginBottom:8 }}>YOUR ORDER NUMBER</div>
-            <div style={{ background:'linear-gradient(135deg,#C9A84C,#E8C97A)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontSize:56, fontWeight:900, letterSpacing:8, lineHeight:1 }}>#{orderNumber}</div>
-            <div style={{ color:'#888', fontSize:12, marginTop:10 }}>{table?.name || `Table ${table?.number}`}</div>
+    <div style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <style>{globalStyles}</style>
+      <div style={{ maxWidth:400, width:'100%', textAlign:'center', animation:'fadeUp .6s ease' }}>
+        <div style={{ fontSize:90, display:'inline-block', animation:'chefBounce 2s ease-in-out infinite', marginBottom:24, filter:`drop-shadow(0 8px 20px ${C.glow2})` }}>👨‍🍳</div>
+        <div style={{ background:C.bg2, borderRadius:28, border:`1px solid ${C.border2}`, padding:'36px 24px', boxShadow:`0 0 40px ${C.glow}` }}>
+          <div style={{ color:C.blue1, fontSize:11, fontWeight:700, letterSpacing:4, textTransform:'uppercase', marginBottom:10 }}>✨ Order Confirmed</div>
+          <h2 style={{ color:C.white, fontSize:22, fontWeight:900, marginBottom:10 }}>Your order is being prepared!</h2>
+          <p style={{ color:C.silver2, fontSize:13, marginBottom:28, lineHeight:1.7 }}>Our kitchen team is working on your delicious meal. Sit back and relax! 🍽️</p>
+          <div style={{ background:`linear-gradient(135deg,rgba(59,159,229,.12),rgba(26,107,181,.12))`, border:`1px solid ${C.border2}`, borderRadius:20, padding:'24px 20px', marginBottom:24, animation:'blueGlow 2s ease infinite' }}>
+            <div style={{ color:C.silver2, fontSize:10, letterSpacing:3, marginBottom:8 }}>YOUR ORDER NUMBER</div>
+            <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.silver})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontSize:52, fontWeight:900, letterSpacing:8 }}>#{orderNumber}</div>
+            <div style={{ color:C.silver2, fontSize:12, marginTop:8 }}>{table?.name || `Table ${table?.number}`}</div>
           </div>
-          <div style={{ background:'rgba(255,255,255,.03)', borderRadius:16, padding:16 }}>
-            <div style={{ color:'#555', fontSize:10, marginBottom:12, letterSpacing:2 }}>ORDER SUMMARY</div>
+          <div style={{ background:`rgba(255,255,255,.03)`, borderRadius:16, padding:16 }}>
+            <div style={{ color:C.silver2, fontSize:10, marginBottom:12, letterSpacing:2 }}>ORDER SUMMARY</div>
             {cart.map(c => (
-              <div key={c.item.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid rgba(255,255,255,.05)', fontSize:13 }}>
-                <span style={{ color:'#ccc' }}>{c.item.name_en || c.item.name} <span style={{ color:'#555' }}>×{c.quantity}</span></span>
-                <span style={{ color:'#C9A84C', fontWeight:700 }}>MYR {(c.item.price * c.quantity).toFixed(2)}</span>
+              <div key={c.item.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:`1px solid ${C.border}`, fontSize:13 }}>
+                <span style={{ color:C.white2 }}>{c.item.name_en || c.item.name} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
+                <span style={{ color:C.blue1, fontWeight:700 }}>MYR {(c.item.price * c.quantity).toFixed(2)}</span>
               </div>
             ))}
           </div>
-          <p style={{ color:'#444', fontSize:12, marginTop:20 }}>A team member will serve you shortly 🙏</p>
+          <p style={{ color:C.silver2, fontSize:12, marginTop:20 }}>A team member will serve you shortly 🙏</p>
         </div>
       </div>
     </div>
   )
 
-  // ══ Item Detail Bottom Sheet ══
+  // ══ Item Bottom Sheet ══
   const ItemSheet = selectedItem && (
     <div style={{ position:'fixed', inset:0, zIndex:200 }} onClick={() => setSelectedItem(null)}>
-      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.7)', backdropFilter:'blur(8px)' }} />
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:'linear-gradient(135deg,#1a1208,#111)', borderRadius:'28px 28px 0 0', maxWidth:500, margin:'0 auto', overflow:'hidden', border:'1px solid rgba(201,168,76,.15)', borderBottom:'none' }}
+      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} />
+      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:C.bg2, borderRadius:'28px 28px 0 0', maxWidth:520, margin:'0 auto', overflow:'hidden', border:`1px solid ${C.border2}`, borderBottom:'none', animation:'slideUp .3s cubic-bezier(.34,1.56,.64,1)' }}
         onClick={e => e.stopPropagation()}>
-        <style>{`@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-        <div style={{ animation:'slideUp .3s cubic-bezier(.34,1.56,.64,1)' }}>
-          {selectedItem.image_url && (
-            <div style={{ width:'100%', height:220, overflow:'hidden', position:'relative' }}>
-              <img src={selectedItem.image_url} alt={selectedItem.name_en} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-              <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top,#1a1208,transparent)' }} />
-            </div>
+        {selectedItem.image_url && (
+          <div style={{ width:'100%', height:220, overflow:'hidden', position:'relative' }}>
+            <img src={selectedItem.image_url} alt={selectedItem.name_en} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+            <div style={{ position:'absolute', inset:0, background:`linear-gradient(to top,${C.bg2},transparent)` }} />
+          </div>
+        )}
+        <div style={{ padding:'24px 24px 40px' }}>
+          <div style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{selectedItem.name_en || selectedItem.name}</div>
+          <div style={{ fontSize:13, color:C.blue1, marginBottom:12, fontWeight:600 }}>{selectedItem.name}</div>
+          {(selectedItem.description_en || selectedItem.description) && (
+            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{selectedItem.description_en || selectedItem.description}</div>
           )}
-          <div style={{ padding:'24px 24px 36px' }}>
-            <div style={{ fontSize:22, fontWeight:900, color:'#fff', marginBottom:4 }}>{selectedItem.name_en || selectedItem.name}</div>
-            <div style={{ fontSize:13, color:'#C9A84C', marginBottom:12, fontWeight:600 }}>{selectedItem.name}</div>
-            {(selectedItem.description_en || selectedItem.description) && (
-              <div style={{ fontSize:14, color:'#888', lineHeight:1.7, marginBottom:20 }}>{selectedItem.description_en || selectedItem.description}</div>
-            )}
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <div style={{ fontSize:26, fontWeight:900, color:'#C9A84C' }}>MYR {selectedItem.price.toFixed(2)}</div>
-              <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-                {getQty(selectedItem.id) > 0 && (
-                  <>
-                    <button onClick={() => removeFromCart(selectedItem.id)}
-                      style={{ width:44, height:44, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.2)', color:'#ef4444', fontSize:24, fontWeight:700, cursor:'pointer' }}>−</button>
-                    <span style={{ color:'#fff', fontWeight:900, fontSize:20, minWidth:24, textAlign:'center' }}>{getQty(selectedItem.id)}</span>
-                  </>
-                )}
-                <button onClick={() => addToCart(selectedItem)}
-                  style={{ width:44, height:44, borderRadius:'50%', border:'none', background:'linear-gradient(135deg,#C9A84C,#E8C97A)', color:'#1a1208', fontSize:24, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 16px rgba(201,168,76,.4)' }}>+</button>
-              </div>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ fontSize:26, fontWeight:900, color:C.blue1 }}>MYR {selectedItem.price.toFixed(2)}</div>
+            <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+              {getQty(selectedItem.id) > 0 && (
+                <>
+                  <button onClick={() => removeFromCart(selectedItem.id)} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:24, fontWeight:700, cursor:'pointer' }}>−</button>
+                  <span style={{ color:C.white, fontWeight:900, fontSize:20, minWidth:24, textAlign:'center' }}>{getQty(selectedItem.id)}</span>
+                </>
+              )}
+              <button onClick={() => addToCart(selectedItem)} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:24, fontWeight:700, cursor:'pointer', boxShadow:`0 4px 16px ${C.glow2}` }}>+</button>
             </div>
           </div>
         </div>
@@ -194,103 +217,101 @@ export default function CustomerMenuPage() {
     </div>
   )
 
-  // ══ Cart Screen ══
+  // ══ Cart ══
   if (phase === 'cart') return (
-    <div style={{ minHeight:'100dvh', background:'linear-gradient(135deg,#0a0a0a,#1a1208)', fontFamily:'system-ui', color:'#fff' }}>
-      <div style={{ background:'rgba(0,0,0,.6)', backdropFilter:'blur(20px)', padding:'16px 20px', display:'flex', alignItems:'center', gap:12, borderBottom:'1px solid rgba(201,168,76,.1)', position:'sticky', top:0, zIndex:50 }}>
-        <button onClick={() => setPhase('menu')} style={{ background:'rgba(255,255,255,.08)', border:'none', color:'#fff', width:38, height:38, borderRadius:'50%', cursor:'pointer', fontSize:18 }}>←</button>
-        <h1 style={{ color:'#fff', fontSize:17, fontWeight:900, margin:0 }}>🛒 Your Order</h1>
-        <div style={{ marginLeft:'auto', fontSize:13, color:'#C9A84C', fontWeight:600 }}>{table?.name || `Table ${table?.number}`}</div>
+    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white }}>
+      <style>{globalStyles}</style>
+      <div style={{ background:C.bg3, padding:'16px 20px', display:'flex', alignItems:'center', gap:12, borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>
+        <button onClick={() => setPhase('menu')} style={{ background:`rgba(59,159,229,.1)`, border:`1px solid ${C.border}`, color:C.blue1, width:38, height:38, borderRadius:'50%', cursor:'pointer', fontSize:18 }}>←</button>
+        <h1 style={{ color:C.white, fontSize:17, fontWeight:900, margin:0 }}>🛒 Your Order</h1>
+        <div style={{ marginLeft:'auto', color:C.blue1, fontWeight:600, fontSize:13 }}>{table?.name || `Table ${table?.number}`}</div>
       </div>
-      <div style={{ padding:20, maxWidth:500, margin:'0 auto' }}>
+      <div style={{ padding:20, maxWidth:520, margin:'0 auto' }}>
         {cart.map(c => (
-          <div key={c.item.id} style={{ background:'rgba(255,255,255,.04)', backdropFilter:'blur(10px)', borderRadius:20, padding:16, marginBottom:12, border:'1px solid rgba(201,168,76,.1)' }}>
+          <div key={c.item.id} style={{ background:C.bg2, borderRadius:20, padding:16, marginBottom:12, border:`1px solid ${C.border}` }}>
             <div style={{ display:'flex', gap:12, alignItems:'center' }}>
-              {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0 }} />}
+              {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0, border:`1px solid ${C.border}` }} />}
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:800, fontSize:14, color:'#fff', marginBottom:2 }}>{c.item.name_en || c.item.name}</div>
-                <div style={{ fontSize:11, color:'#C9A84C', marginBottom:8 }}>MYR {c.item.price.toFixed(2)} each</div>
+                <div style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{c.item.name_en || c.item.name}</div>
+                <div style={{ fontSize:11, color:C.blue1, marginBottom:8 }}>MYR {c.item.price.toFixed(2)} each</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                    <button onClick={() => removeFromCart(c.item.id)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.2)', color:'#ef4444', fontSize:20, cursor:'pointer', fontWeight:700 }}>−</button>
-                    <span style={{ color:'#fff', fontWeight:900, fontSize:16 }}>{c.quantity}</span>
-                    <button onClick={() => addToCart(c.item)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'linear-gradient(135deg,#C9A84C,#E8C97A)', color:'#1a1208', fontSize:20, cursor:'pointer', fontWeight:700 }}>+</button>
+                    <button onClick={() => removeFromCart(c.item.id)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:20, cursor:'pointer', fontWeight:700 }}>−</button>
+                    <span style={{ color:C.white, fontWeight:900, fontSize:16 }}>{c.quantity}</span>
+                    <button onClick={() => addToCart(c.item)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:20, cursor:'pointer', fontWeight:700 }}>+</button>
                   </div>
-                  <span style={{ color:'#C9A84C', fontWeight:900, fontSize:16 }}>MYR {(c.item.price * c.quantity).toFixed(2)}</span>
+                  <span style={{ color:C.blue1, fontWeight:900, fontSize:16 }}>MYR {(c.item.price * c.quantity).toFixed(2)}</span>
                 </div>
               </div>
             </div>
-            <input style={{ width:'100%', background:'rgba(255,255,255,.05)', border:'1px solid rgba(255,255,255,.08)', borderRadius:12, padding:'8px 14px', fontSize:12, color:'#fff', outline:'none', marginTop:12, boxSizing:'border-box' as const, fontFamily:'system-ui' }}
+            <input style={{ width:'100%', background:'rgba(255,255,255,.04)', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 14px', fontSize:12, color:C.white, outline:'none', marginTop:12, boxSizing:'border-box' as const }}
               placeholder="Special request... e.g. no onion"
               value={c.notes} onChange={e => setCart(p => p.map(ci => ci.item.id === c.item.id ? { ...ci, notes: e.target.value } : ci))} />
           </div>
         ))}
-        <div style={{ background:'rgba(201,168,76,.08)', border:'1px solid rgba(201,168,76,.2)', borderRadius:20, padding:'16px 20px', marginBottom:16 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#888', marginBottom:6 }}>
-            <span>Subtotal</span><span style={{ color:'#fff' }}>MYR {cartTotal.toFixed(2)}</span>
+        <div style={{ background:`rgba(59,159,229,.06)`, border:`1px solid ${C.border}`, borderRadius:20, padding:'16px 20px', marginBottom:16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:C.silver2, marginBottom:6 }}>
+            <span>Subtotal</span><span style={{ color:C.white }}> MYR {cartTotal.toFixed(2)}</span>
           </div>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#666', marginBottom:4 }}>
-            <span>Service Charge (10%)</span><span>MYR {(cartTotal * 0.1).toFixed(2)}</span>
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:C.silver2, marginBottom:4 }}>
+            <span>Service Charge (10%)</span><span>MYR {(cartTotal * .1).toFixed(2)}</span>
           </div>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#666' }}>
-            <span>SST (6%)</span><span>MYR {(cartTotal * 0.06).toFixed(2)}</span>
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:C.silver2 }}>
+            <span>SST (6%)</span><span>MYR {(cartTotal * .06).toFixed(2)}</span>
           </div>
         </div>
         <button onClick={confirmOrder} disabled={submitting}
-          style={{ width:'100%', background: submitting ? '#333' : 'linear-gradient(135deg,#C9A84C,#E8C97A)', border:'none', borderRadius:18, padding:'17px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight:900, fontSize:16, color:'#1a1208', boxShadow: submitting ? 'none' : '0 8px 32px rgba(201,168,76,.4)', letterSpacing:.5 }}>
+          style={{ width:'100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'17px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight:900, fontSize:16, color:C.white, boxShadow: submitting ? 'none' : `0 8px 32px ${C.glow2}` }}>
           {submitting ? '⏳ Placing order...' : `✅ Confirm Order — ${cartCount} items`}
         </button>
       </div>
     </div>
   )
 
-  // ══ Menu Screen ══
+  // ══ Menu ══
   return (
-    <div style={{ minHeight:'100dvh', background:'linear-gradient(135deg,#0a0a0a,#1a1208)', fontFamily:'system-ui', color:'#fff', paddingBottom: cartCount > 0 ? 100 : 24 }}>
-      <style>{`
-        *{box-sizing:border-box;margin:0;padding:0}
-        ::-webkit-scrollbar{display:none}
-        .item-card{transition:transform .2s,box-shadow .2s}
-        .item-card:active{transform:scale(.96)}
-        .cat-btn{transition:all .2s}
-      `}</style>
+    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 100 : 24 }}>
+      <style>{globalStyles}</style>
 
-      {/* Header */}
-      <div style={{ background:'rgba(0,0,0,.5)', backdropFilter:'blur(20px)', padding:'20px 20px 0', borderBottom:'1px solid rgba(201,168,76,.08)', position:'sticky', top:0, zIndex:50 }}>
-        {/* Top row */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-          <div>
-            <div style={{ fontSize:20, fontWeight:900, background:'linear-gradient(135deg,#C9A84C,#E8C97A)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', letterSpacing:1 }}>🌸 Orchid House</div>
-            <div style={{ fontSize:11, color:'#666', marginTop:2 }}>{table?.name || `Table ${table?.number}`}</div>
+      {/* ── Header ── */}
+      <div style={{ background:C.bg3, padding:'18px 18px 0', borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+          {/* Logo area */}
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:40, height:40, borderRadius:'50%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, boxShadow:`0 4px 12px ${C.glow}`, flexShrink:0 }}>🌸</div>
+            <div>
+              <div style={{ fontSize:16, fontWeight:900, color:C.white, lineHeight:1 }}>ORCHID <span style={{ color:C.blue1 }}>HOUSE</span></div>
+              <div style={{ fontSize:10, color:C.silver2, marginTop:2 }}>{table?.name || `Table ${table?.number}`}</div>
+            </div>
           </div>
           <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
-            style={{ background: waiterCalled ? 'linear-gradient(135deg,#22C55E,#16A34A)' : 'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', borderRadius:14, padding:'9px 16px', cursor:'pointer', fontSize:12, color: waiterCalled ? '#fff' : '#aaa', fontWeight:700, transition:'all .3s', fontFamily:'system-ui', backdropFilter:'blur(10px)' }}>
+            style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(59,159,229,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 16px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s' }}>
             {waiterCalled ? '✅ On the way!' : '🔔 Call Waiter'}
           </button>
         </div>
 
         {/* Search */}
         <div style={{ position:'relative', marginBottom:14 }}>
-          <input style={{ width:'100%', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.08)', borderRadius:14, padding:'12px 18px 12px 44px', fontSize:14, color:'#fff', outline:'none', fontFamily:'system-ui', backdropFilter:'blur(10px)' }}
+          <input style={{ width:'100%', background:'rgba(255,255,255,.05)', border:`1px solid ${C.border}`, borderRadius:14, padding:'11px 18px 11px 44px', fontSize:14, color:C.white, outline:'none', caretColor:C.blue1 }}
             placeholder="Search dishes..." value={search} onChange={e => setSearch(e.target.value)} />
-          <span style={{ position:'absolute', left:16, top:'50%', transform:'translateY(-50%)', fontSize:16, color:'#555' }}>🔍</span>
+          <span style={{ position:'absolute', left:16, top:'50%', transform:'translateY(-50%)', fontSize:16, color:C.silver2 }}>🔍</span>
         </div>
 
         {/* Categories */}
-        <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:16 }}>
+        <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:14 }}>
           {[{ id:'all', name_en:'All', name:'All' }, ...categories].map(c => (
-            <button key={c.id} className="cat-btn" onClick={() => setActiveCat(c.id)}
-              style={{ padding:'9px 20px', borderRadius:30, border:'none', background: activeCat === c.id ? 'linear-gradient(135deg,#C9A84C,#E8C97A)' : 'rgba(255,255,255,.06)', color: activeCat === c.id ? '#1a1208' : '#aaa', cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', fontFamily:'system-ui', backdropFilter:'blur(10px)', boxShadow: activeCat === c.id ? '0 4px 16px rgba(201,168,76,.3)' : 'none' }}>
+            <button key={c.id} onClick={() => setActiveCat(c.id)}
+              style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s' }}>
               {c.name_en || c.name}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Items Grid */}
-      <div style={{ padding:'24px 14px', display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:20, maxWidth:600, margin:'0 auto' }}>
+      {/* ── Items Grid ── */}
+      <div style={{ padding:'28px 14px 14px', display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'56px 14px', maxWidth:560, margin:'0 auto' }}>
         {filteredItems.length === 0 ? (
-          <div style={{ gridColumn:'1/-1', textAlign:'center', padding:60, color:'#555' }}>
+          <div style={{ gridColumn:'1/-1', textAlign:'center', padding:60, color:C.silver2 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
             <div>No items found</div>
           </div>
@@ -298,31 +319,37 @@ export default function CustomerMenuPage() {
           const qty = getQty(item.id)
           return (
             <div key={item.id} className="item-card"
-              style={{ background:'rgba(255,255,255,.04)', backdropFilter:'blur(10px)', borderRadius:24, overflow:'visible', border: qty > 0 ? '1.5px solid rgba(201,168,76,.6)' : '1px solid rgba(255,255,255,.06)', cursor:'pointer', position:'relative', marginTop:52, boxShadow: qty > 0 ? '0 8px 32px rgba(201,168,76,.15)' : '0 4px 20px rgba(0,0,0,.3)' }}
+              style={{ background:C.bg2, borderRadius:22, overflow:'visible', border:`1px solid ${qty > 0 ? C.blue1 : C.border}`, cursor:'pointer', position:'relative', marginTop:52, boxShadow: qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`, transition:'all .2s' }}
               onClick={() => setSelectedItem(item)}>
 
-              {/* Circular image */}
-              <div style={{ position:'absolute', top:-52, left:'50%', transform:'translateX(-50%)', width:96, height:96, borderRadius:'50%', overflow:'hidden', border: qty > 0 ? '3px solid #C9A84C' : '2px solid rgba(201,168,76,.3)', boxShadow: qty > 0 ? '0 0 24px rgba(201,168,76,.5), 0 8px 24px rgba(0,0,0,.6)' : '0 8px 24px rgba(0,0,0,.6)', background:'linear-gradient(135deg,#1a1208,#0a0a0a)', zIndex:10, flexShrink:0 }}>
+              {/* ── Circular Image ── */}
+              <div style={{ position:'absolute', top:-52, left:'50%', transform:'translateX(-50%)', width:96, height:96, borderRadius:'50%', overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 0 4px ${C.bg2}, 0 0 20px ${C.glow2}` : `0 0 0 4px ${C.bg2}, 0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
                 {item.image_url
                   ? <img src={item.image_url} alt={item.name_en} loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36 }}>🍽️</div>
                 }
               </div>
 
+              {/* qty badge */}
+              {qty > 0 && (
+                <div style={{ position:'absolute', top:-10, right:-6, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:26, height:26, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, zIndex:11, boxShadow:`0 2px 8px ${C.glow2}` }}>{qty}</div>
+              )}
+
               {/* Content */}
-              <div style={{ padding:'52px 14px 16px', textAlign:'center' }}>
-                <div style={{ fontSize:14, fontWeight:800, color:'#fff', marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
-                <div style={{ fontSize:10, color:'#C9A84C', marginBottom:6, fontWeight:600 }}>{item.name}</div>
+              <div style={{ padding:'52px 12px 14px', textAlign:'center' }}>
+                <div style={{ fontSize:13, fontWeight:800, color:C.white, marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
+                <div style={{ fontSize:10, color:C.blue1, marginBottom:6, fontWeight:600 }}>{item.name}</div>
                 {item.description_en && (
-                  <div style={{ fontSize:11, color:'#666', lineHeight:1.5, marginBottom:10, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
+                  <div style={{ fontSize:10, color:C.silver2, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
                 )}
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:10 }}>
-                  <div style={{ background:'linear-gradient(135deg,#C9A84C,#E8C97A)', borderRadius:20, padding:'5px 12px', fontSize:13, fontWeight:900, color:'#1a1208', boxShadow:'0 2px 8px rgba(201,168,76,.3)' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:10, gap:6 }}>
+                  <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
                     MYR {item.price.toFixed(2)}
                   </div>
-                  <div onClick={e => { e.stopPropagation(); qty === 0 ? addToCart(item) : setSelectedItem(item) }}
-                    style={{ background: qty > 0 ? 'linear-gradient(135deg,#C9A84C,#E8C97A)' : 'rgba(201,168,76,.12)', border: qty > 0 ? 'none' : '1px solid rgba(201,168,76,.3)', borderRadius:20, padding:'6px 14px', cursor:'pointer', fontSize:13, fontWeight:800, color: qty > 0 ? '#1a1208' : '#C9A84C', display:'flex', alignItems:'center', gap:4, boxShadow: qty > 0 ? '0 4px 12px rgba(201,168,76,.3)' : 'none' }}>
-                    {qty > 0 ? <><span>+</span><span>{qty}</span></> : <><span style={{ fontSize:16 }}>+</span><span>Add</span></>}
+                  <div onClick={e => { e.stopPropagation(); addToCart(item) }}
+                    style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : `rgba(59,159,229,.1)`, border: qty > 0 ? 'none' : `1px solid ${C.border}`, borderRadius:20, padding:'6px 12px', cursor:'pointer', fontSize:12, fontWeight:800, color: qty > 0 ? C.white : C.blue1, display:'flex', alignItems:'center', gap:4, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : 'none' }}>
+                    <span style={{ fontSize:15 }}>+</span>
+                    <span>{qty > 0 ? qty : 'Add'}</span>
                   </div>
                 </div>
               </div>
@@ -331,17 +358,17 @@ export default function CustomerMenuPage() {
         })}
       </div>
 
-      {/* Item Detail Sheet */}
+      {/* Item Sheet */}
       {ItemSheet}
 
-      {/* Cart Bar */}
+      {/* ── Cart Bar ── */}
       {cartCount > 0 && (
-        <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'14px 16px', background:'rgba(0,0,0,.85)', backdropFilter:'blur(20px)', borderTop:'1px solid rgba(201,168,76,.1)' }}>
-          <div style={{ maxWidth:500, margin:'0 auto' }}>
+        <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(10,15,26,.92)`, borderTop:`1px solid ${C.border}` }}>
+          <div style={{ maxWidth:520, margin:'0 auto' }}>
             <button onClick={() => setPhase('cart')}
-              style={{ width:'100%', background:'linear-gradient(135deg,#C9A84C,#E8C97A)', border:'none', borderRadius:18, padding:'15px 20px', cursor:'pointer', fontWeight:900, fontSize:15, color:'#1a1208', display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 8px 32px rgba(201,168,76,.4)' }}>
+              style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'15px 20px', cursor:'pointer', fontWeight:900, fontSize:15, color:C.white, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:`0 8px 28px ${C.glow2}` }}>
               <span>🛒 View Order ({cartCount} items)</span>
-              <span style={{ background:'rgba(26,18,8,.2)', borderRadius:12, padding:'4px 12px', fontSize:14 }}>MYR {cartTotal.toFixed(2)}</span>
+              <span style={{ background:'rgba(255,255,255,.15)', borderRadius:12, padding:'4px 12px', fontSize:14 }}>MYR {cartTotal.toFixed(2)}</span>
             </button>
           </div>
         </div>

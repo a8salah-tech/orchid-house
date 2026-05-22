@@ -56,7 +56,7 @@ const S = {
 const SERVICE_CHARGE_RATE = 0.10
 const SST_RATE = 0.06
 
-type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; occupied_since?: string; current_order_id?: string }
+type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; occupied_since?: string | null; current_order_id?: string | null }
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; destination: string; status: string; menu_items: { name: string; name_en: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
@@ -402,8 +402,10 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
 
 
 // ══ Shift Report Modal ══
-function ShiftReportModal({ orders, shift, shiftStart, onClose }: { orders: Order[]; shift: string; shiftStart: Date | null; onClose: () => void }) {
-  const shiftOrders = orders.filter(o => o.status === 'paid')
+function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { orders: Order[]; shift: string; shiftStart: Date | null; fetchPaid: () => Promise<Order[]>; onClose: () => void }) {
+  const [paidOrders, setPaidOrders] = useState<Order[]>([])
+  useEffect(() => { fetchPaid().then(setPaidOrders) }, [])
+  const shiftOrders = paidOrders
   const totalCash   = shiftOrders.filter(o => o.payment_method === 'cash').reduce((s, o) => s + (o.total_amount || 0), 0)
   const totalVisa   = shiftOrders.filter(o => o.payment_method === 'visa').reduce((s, o) => s + (o.total_amount || 0), 0)
   const totalOnline = shiftOrders.filter(o => o.payment_method === 'online').reduce((s, o) => s + (o.total_amount || 0), 0)
@@ -638,30 +640,40 @@ export default function CashierPage() {
   const [view, setView] = useState<'orders' | 'tables'>('tables')
 
   const fetchAll = useCallback(async () => {
-    const [ordersRes, tablesRes] = await Promise.all([
-      sb.from('orders').select(`id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`).not('status', 'in', '("pending")').order('created_at', { ascending: false }).limit(100),
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
+    const [activeRes, tablesRes] = await Promise.all([
+      sb.from('orders').select(SEL).in('status', ['confirmed','preparing','ready']).order('created_at', { ascending: false }).limit(100),
       sb.from('tables').select('*').order('number'),
     ])
-    setOrders((ordersRes.data as any) || [])
+    setOrders((activeRes.data as any) || [])
     setTables(tablesRes.data || [])
     setLoading(false)
+  }, [sb])
+
+  // Separate fetch for shift report (paid orders)
+  const fetchPaidOrders = useCallback(async () => {
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
+    const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
+    return (data as any) || []
   }, [sb])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
   useEffect(() => {
     const channel = sb.channel('cashier-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
         fetchAll()
-        if (payload.eventType === 'INSERT') {
-          setNotif('🆕 New order received!')
-          setTimeout(() => setNotif(null), 5000)
-          playSound('order')
-          sendNotification('🆕 New Order!', 'A new order has been placed')
-        }
+        setNotif('🆕 New order received!')
+        setTimeout(() => setNotif(null), 5000)
+        playSound('order')
+        sendNotification('🆕 New Order!', 'A new order has been placed')
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchAll())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchAll())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+        const newStatus = (payload.new as any)?.status
+        // لو الطلب اتدفع مش نعمل fetchAll عشان متبقاش حمرا
+        if (newStatus !== 'paid') fetchAll()
+      })
+
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, async (payload: any) => {
         const { data: tblData } = await sb.from('tables').select('name,number').eq('id', payload.new?.table_id).single()
         const tblName = tblData?.name || `Table ${tblData?.number}` || 'Table'
@@ -901,9 +913,18 @@ export default function CashierPage() {
       </div>
 
       {/* Modals */}
-      {payOrder && <PaymentModal order={payOrder} onClose={() => setPayOrder(null)} onPaid={() => { setPayOrder(null); fetchAll() }} />}
+      {payOrder && <PaymentModal order={payOrder} onClose={() => setPayOrder(null)} onPaid={() => {
+        const paidTableId = payOrder.table_id
+        setPayOrder(null)
+        // فوراً امسح الطلبات المدفوعة من الـ state
+        setOrders(prev => prev.filter(o => !(o.table_id === paidTableId && ['confirmed','preparing','ready'].includes(o.status))))
+        // وحدّث الطاولة في الـ state مباشرة
+        setTables(prev => prev.map(t => t.id === paidTableId ? { ...t, status: 'available', current_order_id: null, occupied_since: null } : t))
+        // بعدين fetch من DB
+        setTimeout(() => fetchAll(), 1000)
+      }} />}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
-      {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} onClose={() => { setShowShiftReport(false); setShiftStarted(false); setShiftStart(null); localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start') }} />}
+      {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => { setShowShiftReport(false); setShiftStarted(false); setShiftStart(null); localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start') }} />}
     </div>
   )
 }

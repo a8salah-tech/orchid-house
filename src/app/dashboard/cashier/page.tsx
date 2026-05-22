@@ -5,32 +5,34 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 
-function playSound(type: 'order' | 'waiter') {
+// ══ Sound System ══
+const ORDER_SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'
+const WAITER_SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/1362/1362-preview.mp3'
+
+// Global AudioContext - shared across calls
+let _audioCtx: AudioContext | null = null
+function getCtx() {
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
+  }
+  return _audioCtx
+}
+
+function beep(freqs: number[], duration = 0.18) {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    if (type === 'order') {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.15)
-      gain.gain.setValueAtTime(0.3, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
-      osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.5)
-    } else {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(660, ctx.currentTime)
-      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2)
-      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.4)
-      gain.gain.setValueAtTime(0.4, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8)
-      osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.8)
-    }
-  } catch(e) { console.log('Sound error:', e) }
+    const ctx = getCtx()
+    if (ctx.state === 'suspended') ctx.resume()
+    freqs.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sine'; osc.frequency.value = freq
+      const t = ctx.currentTime + i * (duration + 0.04)
+      gain.gain.setValueAtTime(0.4, t)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration)
+      osc.start(t); osc.stop(t + duration)
+    })
+  } catch(e) {}
 }
 
 const createClient = () => createBrowserClient(
@@ -112,18 +114,34 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
 
   async function pay() {
     setSaving(true)
-    // تحديث كل الطلبات النشطة للطاولة
-    await sb.from('orders').update({
-      status: 'paid',
-      payment_method: discountType === 'free' ? 'free' : method,
-      discount_amount: discountAmt,
-      discount_type: discountType === 'free' ? 'free' : discountType,
-      service_charge: serviceCharge,
-      sst_amount: sst,
-      total_amount: total,
-      paid_at: new Date().toISOString(),
-    }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
-    await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', order.table_id)
+    // 1. Mark all active orders for this table as paid
+    await sb.from('orders')
+      .update({
+        status: 'paid',
+        payment_method: discountType === 'free' ? 'free' : method,
+        discount_amount: discountAmt,
+        discount_type: discountType === 'free' ? 'free' : discountType,
+        service_charge: serviceCharge,
+        sst_amount: sst,
+        total_amount: total,
+        paid_at: new Date().toISOString(),
+      })
+      .eq('table_id', order.table_id)
+      .in('status', ['confirmed', 'preparing', 'ready'])
+
+    // 2. Force table back to available using raw update
+    await sb.from('tables')
+      .update({ status: 'available', current_order_id: null, occupied_since: null })
+      .eq('id', order.table_id)
+
+    // 3. Double-check: fetch table and force update if still occupied
+    const { data: tbl } = await sb.from('tables').select('status').eq('id', order.table_id).single()
+    if (tbl?.status === 'occupied') {
+      await sb.from('tables')
+        .update({ status: 'available', current_order_id: null, occupied_since: null })
+        .eq('id', order.table_id)
+    }
+
     setSaving(false)
     onPaid()
   }
@@ -412,7 +430,7 @@ function ShiftReportModal({ orders, shift, shiftStart, onClose }: { orders: Orde
         <td>${i + 1}</td>
         <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
         <td>#${o.id.slice(-6).toUpperCase()}</td>
-        <td>${o.order_items?.map(i => i.menu_items?.name + ' ×' + i.quantity).join(', ')}</td>
+        <td>${o.order_items?.map(i => (i.menu_items?.name_en || i.menu_items?.name) + ' ×' + i.quantity).join(', ')}</td>
         <td>${o.payment_method?.toUpperCase() || '—'}</td>
         <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : '—'}</td>
         <td>${o.service_charge > 0 ? 'MYR ' + o.service_charge.toFixed(2) : '—'}</td>
@@ -562,6 +580,29 @@ export default function CashierPage() {
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(false)
+
+
+  // Init notifications + restore sound state
+  useEffect(() => {
+    if (localStorage.getItem('cashier_sound') === '1') setSoundEnabled(true)
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
+
+  function sendNotification(title: string, body: string) {
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body, icon: '/favicon.ico' })
+      }
+    } catch(e) {}
+  }
+
+  function playSound(type: 'order' | 'waiter') {
+    if (type === 'order') beep([880, 1100])
+    else beep([660, 880, 1100])
+  }
 
   // Restore shift from localStorage
   useEffect(() => {
@@ -600,18 +641,19 @@ export default function CashierPage() {
           setNotif('🆕 New order received!')
           setTimeout(() => setNotif(null), 5000)
           playSound('order')
+          sendNotification('🆕 New Order!', 'A new order has been placed')
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchAll())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchAll())
-      
-.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, async (payload: any) => {
-  const { data: tblData } = await sb.from('tables').select('name,number').eq('id', payload.new?.table_id).single()
-  const tblName = tblData?.name || `Table ${tblData?.number}` || 'Table'
-  setNotif(`🔔 Waiter called — ${tblName}!`)
-  setTimeout(() => setNotif(null), 6000)
-  playSound('waiter')
-})
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, async (payload: any) => {
+        const { data: tblData } = await sb.from('tables').select('name,number').eq('id', payload.new?.table_id).single()
+        const tblName = tblData?.name || `Table ${tblData?.number}` || 'Table'
+        setNotif(`🔔 Waiter called — ${tblName}!`)
+        setTimeout(() => setNotif(null), 6000)
+        playSound('waiter')
+        sendNotification('🔔 Waiter Call!', `${tblName} is calling for a waiter`)
+      })
       .subscribe()
     return () => { sb.removeChannel(channel) }
   }, [sb, fetchAll])
@@ -634,8 +676,9 @@ export default function CashierPage() {
 
   async function cancelOrder(order: Order) {
     if (!confirm('Are you sure you want to cancel this order?')) return
-    await sb.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
-    await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', order.table_id)
+    // إلغاء كل الطلبات النشطة للطاولة
+    await sb.from('orders').update({ status: 'cancelled' }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
+    await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null, reserved_at: null }).eq('id', order.table_id)
     fetchAll()
   }
 
@@ -670,6 +713,19 @@ export default function CashierPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <h1 style={{ color: S.gold, fontSize: 17, fontWeight: 900 }}>🏧 Cashier</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => {
+              try {
+                const ctx = getCtx()
+                ctx.resume().then(() => {
+                  beep([880, 1100])
+                  setSoundEnabled(true)
+                  localStorage.setItem('cashier_sound','1')
+                })
+              } catch(e) {}
+            }}
+              style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${soundEnabled ? S.green : S.amber}`, background: soundEnabled ? S.greenB : S.amberB, color: soundEnabled ? S.green : S.amber, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {soundEnabled ? '🔊 Sound On' : '🔔 Enable Sound'}
+            </button>
             {activeCount > 0 && (
               <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 12, color: S.red, fontWeight: 700 }}>{activeCount} active</div>
             )}
@@ -799,7 +855,7 @@ export default function CashierPage() {
                       <div style={{ padding: '10px 16px' }}>
                         {order.order_items.map(i => (
                           <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
-                            <span style={{ color: S.white }}>{i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                            <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                             {i.notes && <span style={{ color: S.muted, fontSize: 10 }}>({i.notes})</span>}
                           </div>
                         ))}

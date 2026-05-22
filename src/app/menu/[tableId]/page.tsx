@@ -313,7 +313,7 @@ export default function CustomerMenuPage() {
               <div style={{ fontSize:10, color:C.silver2, marginTop:2 }}>{table?.name || `Table ${table?.number}`}</div>
             </div>
           </div>
-          <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
+          <button onClick={async () => { setWaiterCalled(true); try { await sb.from('waiter_calls').insert([{ table_id: table?.id }]) } catch(e) {}; setTimeout(() => setWaiterCalled(false), 5000) }}
             style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(59,159,229,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 16px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s' }}>
             {waiterCalled ? '✅ On the way!' : '🔔 Call Waiter'}
           </button>

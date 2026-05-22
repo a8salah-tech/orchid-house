@@ -5,6 +5,34 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 
+function playSound(type: 'order' | 'waiter') {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    if (type === 'order') {
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(880, ctx.currentTime)
+      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.15)
+      gain.gain.setValueAtTime(0.3, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.5)
+    } else {
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(660, ctx.currentTime)
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2)
+      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.4)
+      gain.gain.setValueAtTime(0.4, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.8)
+    }
+  } catch(e) { console.log('Sound error:', e) }
+}
+
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -571,10 +599,17 @@ export default function CashierPage() {
         if (payload.eventType === 'INSERT') {
           setNotif('🆕 New order received!')
           setTimeout(() => setNotif(null), 5000)
+          playSound('order')
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchAll())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchAll())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, (payload: any) => {
+        const tblName = tables.find(t => t.id === payload.new?.table_id)?.name || 'Table'
+        setNotif(`🔔 Waiter called — ${tblName}!`)
+        setTimeout(() => setNotif(null), 6000)
+        playSound('waiter')
+      })
       .subscribe()
     return () => { sb.removeChannel(channel) }
   }, [sb, fetchAll])

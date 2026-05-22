@@ -55,7 +55,8 @@ function urgencyColor(iso: string) {
 function ItemActionModal({ item, orderId, onClose, onDone }: {
   item: OrderItem; orderId: string; onClose: () => void; onDone: (waste?: WasteItem) => void
 }) {
-  const sb = createClient()
+  const sbRef = useRef(createClient())
+  const sb = sbRef.current
   const [action, setAction] = useState<'return' | 'cancel' | 'replace' | null>(null)
   const [qty, setQty] = useState(item.quantity)
   const [reason, setReason] = useState('')
@@ -64,17 +65,16 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
   async function confirm() {
     if (!action) return
     setSaving(true)
+    const waste: WasteItem = { name: item.menu_items?.name_en || item.menu_items?.name, qty, reason: reason || action }
     if (action === 'cancel') {
       await sb.from('order_items').update({ status: 'cancelled' }).eq('id', item.id)
-      onDone({ name: item.menu_items?.name_en || item.menu_items?.name, qty, reason: reason || 'Cancelled' })
     } else if (action === 'return') {
       await sb.from('order_items').update({ status: 'returned' }).eq('id', item.id)
-      onDone({ name: item.menu_items?.name_en || item.menu_items?.name, qty, reason: reason || 'Returned' })
     } else if (action === 'replace') {
       await sb.from('order_items').update({ status: 'replaced' }).eq('id', item.id)
-      onDone({ name: item.menu_items?.name_en || item.menu_items?.name, qty, reason: reason || 'Replaced' })
     }
     setSaving(false)
+    onDone(waste)
     onClose()
   }
 

@@ -99,21 +99,50 @@ export default function CustomerMenuPage() {
   async function confirmOrder() {
     if (!table || cart.length === 0) return
     setSubmitting(true)
-    const { data: order, error } = await sb.from('orders').insert([{
-      table_id: table.id, status: 'confirmed',
-      total_amount: cartTotal, confirmed_at: new Date().toISOString(),
-    }]).select('id').single()
-    if (error || !order) { setSubmitting(false); alert('Error, please try again'); return }
     const catMap = Object.fromEntries(categories.map(c => [c.id, c.destination]))
+
+    // تحقق لو في طلب موجود للطاولة
+    const { data: existingOrders } = await sb.from('orders')
+      .select('id,total_amount')
+      .eq('table_id', table.id)
+      .in('status', ['confirmed', 'preparing', 'ready'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    const existingOrder = existingOrders?.[0] || null
+    let orderId: string
+
+    if (existingOrder) {
+      // أضف على الطلب الموجود وحدّث الإجمالي
+      orderId = existingOrder.id
+      await sb.from('orders').update({
+        total_amount: (existingOrder.total_amount || 0) + cartTotal
+      }).eq('id', orderId)
+    } else {
+      // أنشئ طلب جديد
+      const { data: order, error } = await sb.from('orders').insert([{
+        table_id: table.id, status: 'confirmed',
+        total_amount: cartTotal, confirmed_at: new Date().toISOString(),
+      }]).select('id').single()
+      if (error || !order) { setSubmitting(false); alert('Error, please try again'); return }
+      orderId = order.id
+    }
+
     await sb.from('order_items').insert(cart.map(c => ({
-      order_id: order.id, menu_item_id: c.item.id,
+      order_id: orderId, menu_item_id: c.item.id,
       quantity: c.quantity, unit_price: c.item.price,
       notes: c.notes || null,
       destination: catMap[c.item.category_id] || 'kitchen',
       status: 'pending',
     })))
-    await sb.from('tables').update({ status: 'occupied', occupied_since: new Date().toISOString() }).eq('id', table.id)
-    setOrderNumber(order.id.slice(-6).toUpperCase())
+
+    await sb.from('tables').update({
+      status: 'occupied',
+      occupied_since: new Date().toISOString(),
+      current_order_id: orderId,
+    }).eq('id', table.id)
+
+    setOrderNumber(orderId.slice(-6).toUpperCase())
     setPhase('done')
     setSubmitting(false)
   }
@@ -270,7 +299,7 @@ export default function CustomerMenuPage() {
 
   // ══ Menu ══
   return (
-    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 130 : 24}}>
+    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 100 : 24 }}>
       <style>{globalStyles}</style>
 
       {/* ── Header ── */}

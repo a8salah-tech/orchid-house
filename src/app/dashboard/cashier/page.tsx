@@ -84,6 +84,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
 
   async function pay() {
     setSaving(true)
+    // تحديث كل الطلبات النشطة للطاولة
     await sb.from('orders').update({
       status: 'paid',
       payment_method: discountType === 'free' ? 'free' : method,
@@ -93,7 +94,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
       sst_amount: sst,
       total_amount: total,
       paid_at: new Date().toISOString(),
-    }).eq('id', order.id)
+    }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
     await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', order.table_id)
     setSaving(false)
     onPaid()
@@ -667,7 +668,7 @@ export default function CashierPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 12 }}>
               {tables.filter(t => t.is_active).map(table => {
                 const activeOrder = orders.find(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
-                const status = table.status || 'available'
+                const status = activeOrder ? 'occupied' : (table.status || 'available')
                 const statusColors: Record<string, { color: string; bg: string; border: string }> = {
                   available: { color: S.green, bg: S.greenB, border: S.green + '60' },
                   reserved:  { color: S.amber, bg: S.amberB, border: S.amber + '60' },
@@ -676,7 +677,21 @@ export default function CashierPage() {
                 const sc = statusColors[status] || statusColors.available
                 return (
                   <div key={table.id}
-                    onClick={() => activeOrder ? setPayOrder(activeOrder) : setAddOrderTable(table)}
+                    onClick={() => {
+                      if (activeOrder) {
+                        // جيب كل الطلبات النشطة للطاولة
+                        const tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
+                        if (tableOrders.length > 1) {
+                          // دمج الطلبات في طلب واحد للعرض
+                          const merged = { ...tableOrders[0], order_items: tableOrders.flatMap(o => o.order_items), total_amount: tableOrders.reduce((s,o) => s + (o.total_amount||0), 0) }
+                          setPayOrder(merged as any)
+                        } else {
+                          setPayOrder(activeOrder)
+                        }
+                      } else {
+                        setAddOrderTable(table)
+                      }
+                    }}
                     style={{ background: sc.bg, border: `2px solid ${sc.border}`, borderRadius: 16, padding: '16px 12px', cursor: 'pointer', textAlign: 'center', transition: 'all .2s', position: 'relative' }}>
                     {/* Table number in circle */}
                     <div style={{ width: 52, height: 52, borderRadius: '50%', background: S.navy2, border: `2px solid ${sc.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px', fontSize: 20, fontWeight: 900, color: sc.color }}>

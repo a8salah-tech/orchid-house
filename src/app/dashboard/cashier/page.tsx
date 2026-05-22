@@ -604,12 +604,14 @@ export default function CashierPage() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchAll())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchAll())
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, (payload: any) => {
-        const tblName = tables.find(t => t.id === payload.new?.table_id)?.name || 'Table'
-        setNotif(`🔔 Waiter called — ${tblName}!`)
-        setTimeout(() => setNotif(null), 6000)
-        playSound('waiter')
-      })
+      
+.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, async (payload: any) => {
+  const { data: tblData } = await sb.from('tables').select('name,number').eq('id', payload.new?.table_id).single()
+  const tblName = tblData?.name || `Table ${tblData?.number}` || 'Table'
+  setNotif(`🔔 Waiter called — ${tblName}!`)
+  setTimeout(() => setNotif(null), 6000)
+  playSound('waiter')
+})
       .subscribe()
     return () => { sb.removeChannel(channel) }
   }, [sb, fetchAll])

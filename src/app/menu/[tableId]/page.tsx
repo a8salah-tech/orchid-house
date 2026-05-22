@@ -270,7 +270,7 @@ export default function CustomerMenuPage() {
 
   // ══ Menu ══
   return (
-    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 100 : 24 }}>
+    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 130 : 24}}>
       <style>{globalStyles}</style>
 
       {/* ── Header ── */}

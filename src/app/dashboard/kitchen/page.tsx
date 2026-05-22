@@ -286,7 +286,7 @@ export default function KitchenPage() {
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
 
   const fetchOrders = useCallback(async () => {
-    const { data } = await sb.from('orders').select(`
+  const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name),
       order_items(id, quantity, notes, status, destination, menu_items(id, name, name_en))
@@ -309,10 +309,12 @@ export default function KitchenPage() {
   useEffect(() => { fetchOrders() }, [fetchOrders])
 
   useEffect(() => {
-    const ch = sb.channel('kitchen-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrders(); setNotif(true); setTimeout(() => setNotif(false), 2000) })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchOrders())
-      .subscribe()
+const ch = sb.channel('kitchen-rt')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => { fetchOrders(); setNotif(true); setTimeout(() => setNotif(false), 2000) })
+  .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => fetchOrders())
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_items' }, () => fetchOrders())
+  .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_items' }, () => fetchOrders())
+  .subscribe()
     return () => { sb.removeChannel(ch) }
   }, [sb, fetchOrders])
 

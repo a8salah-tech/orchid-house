@@ -114,33 +114,25 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
 
   async function pay() {
     setSaving(true)
+
     // 1. Mark all active orders for this table as paid
-    await sb.from('orders')
-      .update({
-        status: 'paid',
-        payment_method: discountType === 'free' ? 'free' : method,
-        discount_amount: discountAmt,
-        discount_type: discountType === 'free' ? 'free' : discountType,
-        service_charge: serviceCharge,
-        sst_amount: sst,
-        total_amount: total,
-        paid_at: new Date().toISOString(),
-      })
-      .eq('table_id', order.table_id)
-      .in('status', ['confirmed', 'preparing', 'ready'])
+    await sb.from('orders').update({
+      status: 'paid',
+      payment_method: discountType === 'free' ? 'free' : method,
+      discount_amount: discountAmt,
+      discount_type: discountType === 'free' ? 'free' : discountType,
+      service_charge: serviceCharge,
+      sst_amount: sst,
+      total_amount: total,
+      paid_at: new Date().toISOString(),
+    }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
 
-    // 2. Force table back to available using raw update
-    await sb.from('tables')
-      .update({ status: 'available', current_order_id: null, occupied_since: null })
-      .eq('id', order.table_id)
-
-    // 3. Double-check: fetch table and force update if still occupied
-    const { data: tbl } = await sb.from('tables').select('status').eq('id', order.table_id).single()
-    if (tbl?.status === 'occupied') {
-      await sb.from('tables')
-        .update({ status: 'available', current_order_id: null, occupied_since: null })
-        .eq('id', order.table_id)
-    }
+    // 2. Reset table to available
+    await sb.from('tables').update({
+      status: 'available',
+      current_order_id: null,
+      occupied_since: null,
+    }).eq('id', order.table_id)
 
     setSaving(false)
     onPaid()
@@ -590,6 +582,30 @@ export default function CashierPage() {
       Notification.requestPermission()
     }
   }, [])
+
+  // Polling for waiter calls every 5s
+  useEffect(() => {
+    let lastId = ''
+    const interval = setInterval(async () => {
+      const { data } = await sb.from('waiter_calls')
+        .select('id,table_id,created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (data?.[0]) {
+        const isNew = new Date(data[0].created_at) > new Date(Date.now() - 8000)
+        if (isNew && lastId !== '' && data[0].id !== lastId) {
+          const { data: tbl } = await sb.from('tables').select('name,number').eq('id', data[0].table_id).single()
+          const name = tbl?.name || `Table ${tbl?.number || ''}`
+          setNotif(`🔔 Waiter called — ${name}!`)
+          setTimeout(() => setNotif(null), 8000)
+          playSound('waiter')
+          sendNotification('🔔 Waiter Call!', `${name} is calling`)
+        }
+        lastId = data[0].id
+      }
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [sb])
 
   function sendNotification(title: string, body: string) {
     try {

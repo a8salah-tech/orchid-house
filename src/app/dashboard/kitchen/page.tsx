@@ -294,8 +294,8 @@ export default function KitchenPage() {
 
     const filtered = ((data as any) || []).map((o: KitchenOrder) => ({
       ...o,
-      order_items: o.order_items.filter(i => i.destination === 'kitchen' && !['cancelled','returned','replaced'].includes(i.status)),
-    })).filter((o: KitchenOrder) => o.order_items.length > 0)
+      order_items: o.order_items.filter(i => i.destination === 'kitchen'),
+    })).filter((o: KitchenOrder) => o.order_items.some(i => !['cancelled','returned','replaced'].includes(i.status)))
 
     setOrders(filtered)
     setAllShiftOrders(prev => {
@@ -331,8 +331,10 @@ export default function KitchenPage() {
     await sb.from('order_items').update({ status: 'ready' }).eq('id', itemId)
     const order = orders.find(o => o.id === orderId)
     if (order) {
-      const remaining = order.order_items.filter(i => i.id !== itemId && i.status !== 'ready')
-      if (remaining.length === 0) await sb.from('orders').update({ status: 'ready' }).eq('id', orderId)
+      const remaining = order.order_items.filter(i => i.id !== itemId && !['ready','cancelled','returned','replaced'].includes(i.status))
+      if (remaining.length === 0) {
+        await sb.from('orders').update({ status: 'ready' }).eq('id', orderId)
+      }
     }
     fetchOrders()
   }
@@ -406,7 +408,9 @@ export default function KitchenPage() {
                       <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>{order.tables?.name || `Table ${order.tables?.number}`}</div>
                       <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()}</div>
                     </div>
-                    <div style={{ color: age, fontWeight: 900, fontSize: 22, fontVariantNumeric: 'tabular-nums' }}>{time}</div>
+                    <div style={{ color: order.status === 'ready' ? S.green : age, fontWeight: 900, fontSize: 22, fontVariantNumeric: 'tabular-nums' }}>
+                      {order.status === 'ready' ? '✅ Done' : time}
+                    </div>
                   </div>
 
                   <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>

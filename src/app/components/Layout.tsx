@@ -70,8 +70,6 @@ const ALL_MENU: MenuGroup[] = [
     group: 'قائمة الطعام',
     items: [
       { label: 'الأصناف (المنيو)', icon: '📖', path: '/dashboard/menu/items',      permission: 'menu' },
-      { label: 'التصنيفات',        icon: '📁', path: '/dashboard/menu/categories', permission: 'menu' },
-      { label: 'إضافات الأصناف',  icon: '➕', path: '/dashboard/menu/modifiers',  permission: 'menu' },
     ]
   },
   {
@@ -94,9 +92,9 @@ const ALL_MENU: MenuGroup[] = [
     group: 'المالية والحسابات',
     items: [
       { label: 'التقارير اليومية', icon: '📊', path: '/dashboard/reports/daily',   permission: 'reports' },
-      { label: 'شجرة الحسابات',   icon: '🧾', path: '/dashboard/accounting/chart',   permission: 'accounting' },
       { label: 'سندات القيد',     icon: '💸', path: '/dashboard/accounting/entries', permission: 'accounting' },
-      { label: 'الخزينة والبنوك', icon: '🏦', path: '/dashboard/accounting/banks',   permission: 'accounting' },
+      { label: 'شجرة الحسابات',   icon: '🧾', path: '/dashboard/accounting/chart',   permission: 'accounting' },
+
     ]
   },
   {

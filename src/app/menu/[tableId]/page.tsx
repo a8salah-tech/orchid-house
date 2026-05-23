@@ -377,9 +377,19 @@ export default function CustomerMenuPage() {
                   <div style={{ fontSize:10, color:C.silver2, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
                 )}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:10, gap:6 }}>
-                  <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
-                    MYR {item.price.toFixed(2)}
-                  </div>
+                  {item.discount_percent && item.discount_percent > 0 ? (
+                    <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2 }}>
+                      <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through' }}>MYR {item.price.toFixed(2)}</div>
+                      <div style={{ background:'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius:20, padding:'4px 10px', fontSize:12, fontWeight:900, color:'#fff', display:'flex', alignItems:'center', gap:4 }}>
+                        MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}
+                        <span style={{ fontSize:9, background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 4px' }}>-{item.discount_percent}%</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
+                      MYR {item.price.toFixed(2)}
+                    </div>
+                  )}
                   <div onClick={e => { e.stopPropagation(); addToCart(item) }}
                     style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : `rgba(59,159,229,.1)`, border: qty > 0 ? 'none' : `1px solid ${C.border}`, borderRadius:20, padding:'6px 12px', cursor:'pointer', fontSize:12, fontWeight:800, color: qty > 0 ? C.white : C.blue1, display:'flex', alignItems:'center', gap:4, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : 'none' }}>
                     <span style={{ fontSize:15 }}>+</span>

@@ -29,7 +29,7 @@ const C = {
 }
 
 type Category = { id: string; name: string; name_en: string; destination: string }
-type MenuItem  = { id: string; name: string; name_en: string; price: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string }
+type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string }
 type CartItem  = { item: MenuItem; quantity: number; notes: string }
 type Phase     = 'menu' | 'cart' | 'done'
 
@@ -60,7 +60,7 @@ export default function CustomerMenuPage() {
       setTable(tbl)
       const [cats, itms] = await Promise.all([
         sb.from('menu_categories').select('id,name,name_en,destination').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items').select('id,name,name_en,price,description,description_en,category_id,is_available,image_url').eq('is_available', true).order('sort_order'),
+        sb.from('menu_items').select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url').eq('is_available', true).order('sort_order'),
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
@@ -94,7 +94,12 @@ export default function CustomerMenuPage() {
 
   function getQty(itemId: string) { return cart.find(c => c.item.id === itemId)?.quantity || 0 }
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
-  const cartTotal = cart.reduce((s, c) => s + c.item.price * c.quantity, 0)
+  const cartTotal = cart.reduce((s, c) => {
+    const discounted = c.item.discount_percent && c.item.discount_percent > 0
+      ? c.item.price * (1 - c.item.discount_percent / 100)
+      : c.item.price
+    return s + discounted * c.quantity
+  }, 0)
 
   async function confirmOrder() {
     if (!table || cart.length === 0) return
@@ -313,10 +318,7 @@ export default function CustomerMenuPage() {
               <div style={{ fontSize:10, color:C.silver2, marginTop:2 }}>{table?.name || `Table ${table?.number}`}</div>
             </div>
           </div>
-          <button onClick={async () => { setWaiterCalled(true); if (table?.id) {
-  const { error } = await sb.from('waiter_calls').insert([{ table_id: table.id }])
-  console.log('Waiter call result:', error || 'success')
-}; setTimeout(() => setWaiterCalled(false), 5000) }}
+          <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
             style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(59,159,229,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 16px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s' }}>
             {waiterCalled ? '✅ On the way!' : '🔔 Call Waiter'}
           </button>

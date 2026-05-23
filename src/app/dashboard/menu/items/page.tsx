@@ -91,6 +91,7 @@ interface MenuItem {
   id: string; category_id: string; name: string; name_en: string
   or_code: string; description: string; description_en: string
   price: number; cost_price: number; image_url?: string
+  discount_percent?: number
   is_active: boolean; is_available: boolean; sort_order: number
   menu_categories?: { name: string; name_en: string; icon: string } | any}
 
@@ -122,6 +123,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     description_en: item?.description_en || '',
     price: item?.price?.toString() || '',
     cost_price: item?.cost_price?.toString() || '',
+    discount_percent: item?.discount_percent?.toString() || '0',
     is_active: item?.is_active !== false,
     is_available: item?.is_available !== false,
   })
@@ -158,6 +160,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
       ...form,
       price: parseFloat(form.price) || 0,
       cost_price: parseFloat(form.cost_price) || 0,
+      discount_percent: parseFloat((form as any).discount_percent) || 0,
       image_url: finalImageUrl,
     }
 
@@ -275,6 +278,21 @@ function ItemModal({ item, categories, onClose, onSaved }: {
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>سعر التكلفة (MYR)</label>
                 <input style={inp} type="number" step="0.01" value={form.cost_price} onChange={e => setForm(p => ({ ...p, cost_price: e.target.value }))} placeholder="0.00" />
               </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>🏷️ نسبة الخصم % (0 = بدون خصم)</label>
+              <div style={{ position: 'relative' }}>
+                <input style={{ ...inp, paddingLeft: 32 }} type="number" step="1" min="0" max="100"
+                  value={(form as any).discount_percent || '0'}
+                  onChange={e => setForm(p => ({ ...p, discount_percent: e.target.value } as any))}
+                  placeholder="0" />
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: S.amber, fontSize: 14 }}>%</span>
+              </div>
+              {parseFloat((form as any).discount_percent) > 0 && parseFloat(form.price) > 0 && (
+                <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>
+                  السعر بعد الخصم: MYR {(parseFloat(form.price) * (1 - parseFloat((form as any).discount_percent) / 100)).toFixed(2)}
+                </div>
+              )}
             </div>
 
             {/* الوصف */}
@@ -733,7 +751,7 @@ export default function MenuItemsPage() {
     setLoading(true)
     const [cats, itms] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,
@@ -960,7 +978,19 @@ export default function MenuItemsPage() {
                 {item.description && <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.description}</div>}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
+                  <div>
+                    {item.discount_percent && item.discount_percent > 0 ? (
+                      <div>
+                        <div style={{ fontSize: 12, color: S.muted, textDecoration: 'line-through' }}>{formatMYR(item.price)}</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: S.amber }}>
+                          {formatMYR(item.price * (1 - item.discount_percent / 100))}
+                          <span style={{ fontSize: 10, background: S.amber, color: S.navy, borderRadius: 8, padding: '1px 6px', marginRight: 6, fontWeight: 700 }}>-{item.discount_percent}%</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
+                    )}
+                  </div>
                   {item.cost_price > 0 && (
                     <div style={{ fontSize: 10, color: S.muted }}>
                       تكلفة: {formatMYR(item.cost_price)}

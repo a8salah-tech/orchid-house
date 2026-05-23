@@ -85,7 +85,7 @@ const ALL_MENU: MenuGroup[] = [
     items: [
       { label: 'الحملات الإعلانية', icon: '📢', path: '/dashboard/marketing/campaigns',     permission: 'marketing' },
       { label: 'كوبونات الخصم',    icon: '🎫', path: '/dashboard/coupons',       permission: 'marketing' },
-      { label: 'إرسال الإشعارات',  icon: '📲', path: '/dashboard/marketing/notifications', permission: 'marketing' },
+      { label: 'إرسال الإشعارات',  icon: '📲', path: '/dashboard/notifications', permission: 'marketing' },
     ]
   },
   {

@@ -60,7 +60,7 @@ export default function CustomerMenuPage() {
       setTable(tbl)
       const [cats, itms] = await Promise.all([
         sb.from('menu_categories').select('id,name,name_en,destination').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items').select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url').eq('is_available', true).order('sort_order'),
+        sb.from('menu_items').select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,menu_categories(sort_order)').eq('is_available', true).order('sort_order'),
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
@@ -69,10 +69,16 @@ export default function CustomerMenuPage() {
     if (tableId) load()
   }, [tableId, sb])
 
-  const filteredItems = items.filter(i => {
+const filteredItems = items
+  .filter(i => {
     const matchCat = activeCat === 'all' || i.category_id === activeCat
     const q = search.trim()
     return matchCat && (!q || i.name.includes(q) || i.name_en.toLowerCase().includes(q.toLowerCase()))
+  })
+  .sort((a, b) => {
+    const aOrder = (a as any).menu_categories?.sort_order ?? 99
+    const bOrder = (b as any).menu_categories?.sort_order ?? 99
+    return aOrder - bOrder
   })
 
   function addToCart(item: MenuItem) {

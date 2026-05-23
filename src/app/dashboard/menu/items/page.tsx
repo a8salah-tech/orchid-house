@@ -435,8 +435,9 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
   const fetchIngredients = useCallback(async () => {
     const { data } = await sb
       .from('menu_item_ingredients')
-      .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
+      .select('id,menu_item_id,warehouse_product_id,quantity,unit_label,unit_conversion,notes,ingredient_name,warehouse_products(id,name,category,last_purchase_price,units(symbol))')
       .eq('menu_item_id', item.id)
+      .order('created_at', { ascending: true })
     const rows = data || []
     setIngredients(rows)
     setQuantities(prev => {
@@ -449,7 +450,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
   useEffect(() => {
     Promise.all([
       sb.from('menu_item_ingredients')
-        .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
+        .select('id,menu_item_id,warehouse_product_id,quantity,unit_label,unit_conversion,notes,ingredient_name,warehouse_products(id,name,category,last_purchase_price,units(symbol))')
         .eq('menu_item_id', item.id),
       sb.from('warehouse_products')
         .select('id, name, category, last_purchase_price, units(symbol)')
@@ -466,7 +467,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
   async function addIngredient() {
     const { data } = await sb.from('menu_item_ingredients')
       .insert([{ menu_item_id: item.id, quantity: 1, unit_label: null, unit_conversion: 1 }])
-      .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
+      .select('id,menu_item_id,warehouse_product_id,quantity,unit_label,unit_conversion,notes,ingredient_name,warehouse_products(id,name,category,last_purchase_price,units(symbol))')
     if (data?.[0]) {
       setIngredients(p => [...p, data[0]])
       setQuantities(p => ({ ...p, [data[0].id]: '1' }))
@@ -475,6 +476,8 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
 
   async function updateField(id: string, field: string, value: any) {
     await sb.from('menu_item_ingredients').update({ [field]: value }).eq('id', id)
+    // Clear search state for this ingredient after linking
+    setSearch(prev => { const n = { ...prev }; delete n[id]; return n })
     await fetchIngredients()
   }
 
@@ -584,12 +587,23 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
                     {ing.warehouse_product_id && !(ing.id in search) ? (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <div style={{ flex: 1, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: S.white }}>
-                          {products.find(p => p.id === ing.warehouse_product_id)?.name || '—'}
+                          {products.find(p => p.id === ing.warehouse_product_id)?.name || (ing as any).ingredient_name || '—'}
                         </div>
                         <button
                           onClick={() => setSearch(p => ({ ...p, [ing.id]: '' }))}
                           style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' }}>
                           تغيير
+                        </button>
+                      </div>
+                    ) : !ing.warehouse_product_id && (ing as any).ingredient_name && !(ing.id in search) ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <div style={{ flex: 1, background: S.navy3, border: `1px solid rgba(245,158,11,0.3)`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: S.amber }}>
+                          ⚠️ {(ing as any).ingredient_name} (غير مربوط)
+                        </div>
+                        <button
+                          onClick={() => setSearch(p => ({ ...p, [ing.id]: (ing as any).ingredient_name || '' }))}
+                          style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' }}>
+                          ربط
                         </button>
                       </div>
                     ) : (
@@ -604,8 +618,10 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
                         <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto', zIndex: 100, marginTop: 2 }}>
                           {(() => {
                             const q = (search[ing.id] || '').trim()
+                            // Don't show list unless user typed something
+                            if (!q) return <div style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>اكتب للبحث...</div>
                             const filtered = products.filter((p: any) =>
-                              !q || p.name.includes(q) || (p.category || '').includes(q)
+                              p.name.includes(q) || (p.category || '').includes(q)
                             ).slice(0, 10)
                             return filtered.length > 0 ? filtered.map((p: any) => (
                               <div key={p.id}

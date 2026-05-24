@@ -29,6 +29,7 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   hall_supervisor:     { label: 'مشرف الصالة',    icon: '🍽️', color: S.blue,   bg: S.blueB,   desc: 'الصالة والحجوزات وخدمة العملاء' },
   bar_supervisor:      { label: 'مشرف البار',     icon: '☕', color: S.teal,   bg: S.tealB,   desc: 'البار والمشروبات والمخزون' },
   cashier:             { label: 'كاشير',           icon: '💰', color: S.green,  bg: S.greenB,  desc: 'المبيعات والفواتير والدفع' },
+  warehouse_keeper: { label: 'أمين المستودع', icon: '🏭', color: '#F97316', bg: 'rgba(249,115,22,0.12)', desc: 'إدارة المخزون والمشتريات وطلبات الفروع' },
   employee:            { label: 'موظف',            icon: '👤', color: S.muted,  bg: S.card2,   desc: 'طلباته الشخصية فقط' },
 }
 

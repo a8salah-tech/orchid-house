@@ -50,6 +50,7 @@ const ROLES: Record<string, { label: string; color: string; bg: string; icon: st
   hall_worker:          { label: 'عامل صالة',     color: '#93C5FD', bg: 'rgba(147,197,253,0.12)',  icon: '🪑' },
   kitchen_cleaner:      { label: 'عامل نظافة مطبخ', color: '#86EFAC', bg: 'rgba(134,239,172,0.12)', icon: '🧹' },
   hall_cleaner:         { label: 'عامل نظافة صالة', color: '#6EE7B7', bg: 'rgba(110,231,183,0.12)', icon: '🧽' },
+  warehouse_keeper: { label: 'أمين المستودع', color: '#F97316', bg: 'rgba(249,115,22,0.12)', icon: '🏭' },
   employee:             { label: 'موظف',           color: S.muted,   bg: S.card2,                  icon: '👤' },
 }
 

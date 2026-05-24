@@ -32,6 +32,7 @@ assistant_chef:      { label: 'مساعد طباخ',       icon: '🥘', color: 
 kitchen_worker:      { label: 'عامل مطبخ',        icon: '🔪', color: '#FCD34D' },
 bar_assistant:       { label: 'مساعد بار',        icon: '🧃', color: '#5EEAD4' },
 hall_worker:         { label: 'عامل صالة',        icon: '🪑', color: '#93C5FD' },
+warehouse_keeper: { label: 'أمين المستودع', icon: '🏭', color: '#F97316' },
 employee:            { label: 'موظف',             icon: '👤', color: S.muted },
 }
 

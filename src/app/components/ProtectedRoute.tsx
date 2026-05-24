@@ -31,7 +31,7 @@ export function ProtectedRoute({ children, permission }: ProtectedRouteProps) {
         minHeight: '60vh', fontFamily: 'Tajawal, sans-serif', direction: 'rtl',
       }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🌸</div>
+          <div style={{ fontSize: 48, marginBottom: 16 }}><img src="/logo.png" alt="Orchid" style={{ width: 36, height: 36, objectFit: 'contain' }} /></div>
           <div style={{ fontSize: 14, color: S.muted }}>جاري التحميل...</div>
         </div>
       </div>

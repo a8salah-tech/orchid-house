@@ -179,7 +179,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <button onClick={() => setSidebarOpen(p => !p)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 20, padding: 4, display: 'flex', alignItems: 'center' }}>☰</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: `0 0 12px ${S.goldB}` }}>🌸</div>
+            <img src="/logo.png" alt="Orchid" style={{ width: 36, height: 36, borderRadius: 10, objectFit: 'contain' }} />
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
               <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>

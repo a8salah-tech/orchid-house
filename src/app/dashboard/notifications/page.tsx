@@ -106,12 +106,12 @@ function SendModal({ employees, onClose, onSent }: {
           {/* Type */}
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>نوع الإشعار</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
               {Object.entries(TYPE_CFG).map(([k, cfg]) => (
                 <button key={k} onClick={() => setForm(p => ({ ...p, type: k }))}
-                  style={{ padding: '8px 4px', borderRadius: 10, border: `1px solid ${form.type===k?cfg.color:S.border}`, background: form.type===k?cfg.bg:'transparent', color: form.type===k?cfg.color:S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: form.type===k?700:400, textAlign: 'center' }}>
-                  <div>{cfg.icon}</div>
-                  <div style={{ fontSize: 9, marginTop: 2 }}>{k}</div>
+                  style={{ padding: '12px 6px', borderRadius: 12, border: `2px solid ${form.type===k?cfg.color:S.border}`, background: form.type===k?cfg.bg:'rgba(255,255,255,0.03)', color: form.type===k?cfg.color:S.white, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: form.type===k?700:500, textAlign: 'center', transition: 'all .2s' }}>
+                  <div style={{ fontSize: 22, marginBottom: 4 }}>{cfg.icon}</div>
+                  <div style={{ fontSize: 11, color: S.white, fontWeight: 600 }}>{k}</div>
                 </button>
               ))}
             </div>

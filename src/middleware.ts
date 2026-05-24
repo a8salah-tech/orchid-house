@@ -7,7 +7,7 @@ export async function middleware(request: NextRequest) {
 
   // الصفحات العامة — مش محتاجة login
   const publicPaths = ['/login', '/unauthorized', '/register']
-  if (publicPaths.includes(pathname) || pathname.startsWith('/menu')) {
+if (publicPaths.includes(pathname) || pathname.startsWith('/menu') || pathname.startsWith('/bookings')) {
     return NextResponse.next()
   }
 

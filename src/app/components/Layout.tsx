@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from './AuthProvider'
+import NotificationBell from './NotificationBell'
 
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
@@ -70,6 +71,7 @@ const ALL_MENU: MenuGroup[] = [
     group: 'قائمة الطعام',
     items: [
       { label: 'الأصناف (المنيو)', icon: '📖', path: '/dashboard/menu/items',      permission: 'menu' },
+      { label: 'التصنيفات',        icon: '📁', path: '/dashboard/menu/categories', permission: 'menu' },
     ]
   },
   {
@@ -83,43 +85,41 @@ const ALL_MENU: MenuGroup[] = [
   {
     group: 'التسويق والنمو',
     items: [
-      { label: 'الحملات الإعلانية', icon: '📢', path: '/dashboard/marketing/campaigns',     permission: 'marketing' },
       { label: 'كوبونات الخصم',    icon: '🎫', path: '/dashboard/coupons',       permission: 'marketing' },
-      { label: 'إرسال الإشعارات',  icon: '📲', path: '/dashboard/notifications', permission: 'marketing' },
+      { label: 'الإشعارات',        icon: '📲', path: '/dashboard/notifications', permission: 'marketing' },
     ]
   },
   {
     group: 'المالية والحسابات',
     items: [
-      { label: 'التقارير اليومية', icon: '📊', path: '/dashboard/reports/daily',   permission: 'reports' },
-      { label: 'سندات القيد',     icon: '💸', path: '/dashboard/accounting/entries', permission: 'accounting' },
-      { label: 'شجرة الحسابات',   icon: '🧾', path: '/dashboard/accounting/chart',   permission: 'accounting' },
-
+      { label: 'التقارير اليومية', icon: '📊', path: '/dashboard/reports/daily',     permission: 'reports' },
+      { label: 'سندات القيد',      icon: '💸', path: '/dashboard/accounting/entries', permission: 'accounting' },
+      { label: 'شجرة الحسابات',    icon: '🧾', path: '/dashboard/accounting/chart',   permission: 'accounting' },
     ]
   },
   {
     group: 'الموارد البشرية',
     items: [
-      { label: 'الموظفون',        icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },
-      { label: 'طلبات الموظفين', icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
-      { label: 'إدارة الشيفتات', icon: '🕐', path: '/dashboard/hr/shifts', permission: 'my_requests' },
-      { label: ' الرواتب و الإجور', icon: '💰', path: '/dashboard/hr/payroll',   permission: 'my_payroll' },
+      { label: 'الموظفون',          icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },
+      { label: 'طلبات الموظفين',   icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
+      { label: 'إدارة الشيفتات',   icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },
+      { label: 'الرواتب والأجور',  icon: '💰', path: '/dashboard/hr/payroll',   permission: 'my_payroll' },
       { label: 'الحضور والانصراف', icon: '⏰', path: '/dashboard/hr/attendance', permission: 'attendance' },
     ]
   },
   {
     group: 'التقارير',
     items: [
-      { label: 'التقارير الشهرية',icon: '📈', path: '/dashboard/reports/monthly', permission: 'reports' },
-      { label: 'تحليل التكاليف', icon: '💰', path: '/dashboard/reports/costs',   permission: 'reports' },
+      { label: 'التقارير الشهرية', icon: '📈', path: '/dashboard/reports/monthly', permission: 'reports' },
+      { label: 'تحليل التكاليف',  icon: '💰', path: '/dashboard/reports/costs',   permission: 'reports' },
     ]
   },
   {
     group: 'الإعدادات',
     items: [
-      { label: 'الموردون',        icon: '🤝', path: '/dashboard/suppliers',            permission: 'suppliers' },
-      { label: 'إدارة الصلاحيات',icon: '🔐', path: '/dashboard/settings/permissions', permission: 'permissions' },
-      { label: 'الإعدادات',      icon: '⚙️', path: '/dashboard/settings',            permission: 'settings' },
+      { label: 'الموردون',         icon: '🤝', path: '/dashboard/suppliers',            permission: 'suppliers' },
+      { label: 'إدارة الصلاحيات', icon: '🔐', path: '/dashboard/settings/permissions', permission: 'permissions' },
+      { label: 'الإعدادات',       icon: '⚙️', path: '/dashboard/settings',            permission: 'settings' },
     ]
   },
 ]
@@ -129,10 +129,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [notifOpen, setNotifOpen] = useState(false)
   const sidebarRef = useRef<HTMLElement>(null)
 
-  // حفظ موضع السايدبار في localStorage واستعادته عند التحديث
   useEffect(() => {
     const saved = sessionStorage.getItem('sidebar-scroll')
     if (saved && sidebarRef.current) {
@@ -156,24 +154,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       🌸 جاري التحميل...
     </div>
   )
-  
-  // فلتر القائمة بناءً على الصلاحيات
-const visibleMenu = useMemo(() => 
-  ALL_MENU.map(group => ({
-    ...group,
-    items: group.items.filter(item =>
-      item.permission === null ||
-      isAdmin ||
-      hasPermission(item.permission)
-    )
-  })).filter(group => group.items.length > 0)
-, [permissions, employee])
 
-  const notifications = [
-    { text: 'مخزون اللحم البقري منخفض', time: 'منذ 10 دقائق' },
-    { text: 'تم استلام فاتورة جديدة',   time: 'منذ 30 دقيقة' },
-    { text: 'تقرير اليوم جاهز',          time: 'منذ ساعة' },
-  ]
+  const visibleMenu = useMemo(() =>
+    ALL_MENU.map(group => ({
+      ...group,
+      items: group.items.filter(item =>
+        item.permission === null || isAdmin || hasPermission(item.permission)
+      )
+    })).filter(group => group.items.length > 0)
+  , [permissions, employee])
 
   const currentPageLabel = ALL_MENU.flatMap(g => g.items).find(i =>
     i.path === pathname || (i.path !== '/dashboard' && pathname.startsWith(i.path))
@@ -200,27 +189,11 @@ const visibleMenu = useMemo(() =>
         {/* Center: Page Title */}
         <div style={{ fontSize: 14, color: S.muted, flex: 1, textAlign: 'center' }}>{currentPageLabel}</div>
 
-        {/* Left: Notifications + User */}
+        {/* Left: Bell + User */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
 
-          {/* Notifications */}
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setNotifOpen(p => !p)} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 16, position: 'relative' }}>
-              🔔
-              <span style={{ position: 'absolute', top: 6, left: 6, width: 8, height: 8, borderRadius: '50%', background: S.red, border: `1px solid ${S.navy2}` }} />
-            </button>
-            {notifOpen && (
-              <div style={{ position: 'absolute', top: 44, left: 0, width: 280, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 14, padding: 8, zIndex: 200, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
-                <div style={{ fontSize: 12, color: S.gold, padding: '6px 10px', fontWeight: 700, marginBottom: 4 }}>التنبيهات</div>
-                {notifications.map((n, i) => (
-                  <div key={i} style={{ padding: '10px 12px', borderRadius: 10, background: i % 2 === 0 ? S.card : 'transparent', marginBottom: 4 }}>
-                    <div style={{ fontSize: 12, color: S.white, marginBottom: 3 }}>{n.text}</div>
-                    <div style={{ fontSize: 10, color: S.muted }}>{n.time}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* 🔔 Notification Bell */}
+          <NotificationBell />
 
           {/* User Info */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: '6px 12px', border: `1px solid ${S.border}` }}>
@@ -246,7 +219,6 @@ const visibleMenu = useMemo(() =>
         <aside ref={sidebarRef} style={{ position: 'fixed', top: 60, right: 0, bottom: 0, width: sidebarOpen ? 230 : 0, background: S.navy3, borderLeft: `1px solid ${S.border}`, overflowY: 'auto', overflowX: 'hidden', transition: 'width 0.25s ease', zIndex: 90 }}>
           <div style={{ width: 230, padding: '12px 0' }}>
 
-            {/* بيانات الموظف في السايدبار */}
             {employee && (
               <div style={{ margin: '0 12px 12px', background: S.card, borderRadius: 12, padding: '12px 14px', border: `1px solid ${S.border}` }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 2 }}>{employee.name}</div>
@@ -257,7 +229,6 @@ const visibleMenu = useMemo(() =>
               </div>
             )}
 
-            {/* القائمة — حسب الصلاحيات فقط */}
             {visibleMenu.map((group, gi) => (
               <div key={gi} style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: 10, color: S.muted, fontWeight: 700, padding: '8px 18px 4px', letterSpacing: 1, textTransform: 'uppercase' }}>
@@ -266,10 +237,7 @@ const visibleMenu = useMemo(() =>
                 {group.items.map((item, ii) => {
                   const active = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path))
                   return (
-                    <button key={ii}
-                     onClick={() => {
-  router.push(item.path)
-}}
+                    <button key={ii} onClick={() => router.push(item.path)}
                       style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', background: active ? S.gold3 : 'transparent', border: 'none', borderRight: active ? `3px solid ${S.gold}` : '3px solid transparent', cursor: 'pointer', textAlign: 'right', transition: 'all 0.15s', color: active ? S.gold : S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: active ? 700 : 400 }}>
                       <span style={{ fontSize: 16 }}>{item.icon}</span>
                       <span>{item.label}</span>
@@ -280,7 +248,6 @@ const visibleMenu = useMemo(() =>
               </div>
             ))}
 
-            {/* تسجيل الخروج */}
             <div style={{ borderTop: `1px solid ${S.border}`, margin: '8px 0', paddingTop: 8 }}>
               <button onClick={signOut} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', background: 'transparent', border: 'none', cursor: 'pointer', color: S.red, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
                 <span>🚪</span>
@@ -300,7 +267,7 @@ const visibleMenu = useMemo(() =>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: ${S.navy}; }
+        body { background: \${S.navy}; }
         aside::-webkit-scrollbar { width: 6px; }
         aside::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
         aside::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #C9A84C, #8B6914); border-radius: 3px; }

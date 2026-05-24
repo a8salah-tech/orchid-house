@@ -61,6 +61,8 @@ function SendModal({ employees, onClose, onSent }: {
     type: 'system', title: '', body: '', link: '',
     target: 'all', target_role: 'all', target_employee_id: '',
   })
+  const [attachment, setAttachment] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [sending, setSending] = useState(false)
 
   const ROLES = [
@@ -76,9 +78,23 @@ function SendModal({ employees, onClose, onSent }: {
   async function send() {
     if (!form.title.trim() || !form.body.trim()) { alert('العنوان والمحتوى مطلوبان'); return }
     setSending(true)
+    let attachmentUrl = form.link || null
+    // Upload attachment if exists
+    if (attachment) {
+      setUploading(true)
+      const ext = attachment.name.split('.').pop()
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { data: uploadData, error: uploadError } = await sb.storage
+        .from('notification-attachments')
+        .upload(path, attachment, { contentType: attachment.type })
+      setUploading(false)
+      if (uploadError) { alert('خطأ في رفع الملف: ' + uploadError.message); setSending(false); return }
+      const { data: urlData } = sb.storage.from('notification-attachments').getPublicUrl(path)
+      attachmentUrl = urlData.publicUrl
+    }
     const payload: any = {
       type: form.type, title: form.title, body: form.body,
-      link: form.link || null,
+      link: attachmentUrl,
     }
     if (form.target === 'employee') {
       payload.target_employee_id = form.target_employee_id
@@ -95,8 +111,8 @@ function SendModal({ employees, onClose, onSent }: {
   const inp: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 500, padding: 28 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 500, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800 }}>📢 إرسال إشعار جديد</h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -111,7 +127,7 @@ function SendModal({ employees, onClose, onSent }: {
                 <button key={k} onClick={() => setForm(p => ({ ...p, type: k }))}
                   style={{ padding: '12px 6px', borderRadius: 12, border: `2px solid ${form.type===k?cfg.color:S.border}`, background: form.type===k?cfg.bg:'rgba(255,255,255,0.03)', color: form.type===k?cfg.color:S.white, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: form.type===k?700:500, textAlign: 'center', transition: 'all .2s' }}>
                   <div style={{ fontSize: 22, marginBottom: 4 }}>{cfg.icon}</div>
-                  <div style={{ fontSize: 11, color: S.white, fontWeight: 600 }}>{k}</div>
+                  <div style={{ fontSize: 10, color: form.type===k?cfg.color:S.white, opacity: form.type===k?1:0.7 }}>{k}</div>
                 </button>
               ))}
             </div>
@@ -152,17 +168,47 @@ function SendModal({ employees, onClose, onSent }: {
             )}
           </div>
 
-          {/* Link */}
+          {/* Attachment */}
           <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>رابط (اختياري)</label>
-            <input style={inp} placeholder="/dashboard/cashier" value={form.link} onChange={e => setForm(p => ({ ...p, link: e.target.value }))} />
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>📎 مرفق (صورة أو PDF)</label>
+            <label style={{ display: 'block', cursor: 'pointer' }}>
+              <div style={{ border: `2px dashed ${attachment ? S.green : S.border}`, borderRadius: 12, padding: '14px 16px', textAlign: 'center', background: attachment ? S.greenB : 'rgba(255,255,255,0.02)', transition: 'all .2s' }}>
+                {attachment ? (
+                  <div>
+                    <div style={{ fontSize: 22, marginBottom: 4 }}>{attachment.type.includes('pdf') ? '📄' : '🖼️'}</div>
+                    <div style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>{attachment.name}</div>
+                    <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{(attachment.size / 1024).toFixed(0)} KB</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 28, marginBottom: 6 }}>📎</div>
+                    <div style={{ fontSize: 12, color: S.muted }}>اضغط لرفع صورة أو PDF</div>
+                    <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>JPG, PNG, PDF — حد أقصى 5MB</div>
+                  </div>
+                )}
+              </div>
+              <input type="file" accept="image/*,.pdf" style={{ display: 'none' }}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (file && file.size > 5 * 1024 * 1024) { alert('الملف أكبر من 5MB'); return }
+                  setAttachment(file || null)
+                }} />
+            </label>
+            {attachment && (
+              <button onClick={() => setAttachment(null)} style={{ marginTop: 6, fontSize: 11, color: S.red, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>✕ إزالة المرفق</button>
+            )}
+          </div>
+          {/* Link fallback */}
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>أو رابط خارجي</label>
+            <input style={inp} placeholder="https://..." value={form.link} onChange={e => setForm(p => ({ ...p, link: e.target.value }))} />
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button onClick={onClose} style={{ padding: '11px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
           <button onClick={send} disabled={sending} style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: `linear-gradient(135deg,${S.gold},${S.gold})`, color: S.navy, cursor: 'pointer', fontWeight: 800, fontSize: 14, fontFamily: 'Tajawal, sans-serif' }}>
-            {sending ? '⏳ جاري الإرسال...' : '📢 إرسال الإشعار'}
+            {uploading ? '📤 جاري رفع المرفق...' : sending ? '⏳ جاري الإرسال...' : '📢 إرسال الإشعار'}
           </button>
         </div>
       </div>
@@ -183,6 +229,7 @@ export default function NotificationsSystemPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [showSend, setShowSend] = useState(false)
+  const [preview, setPreview] = useState<string | null>(null)
 
   const fetchNotifs = useCallback(async () => {
     let q = sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(100)
@@ -335,7 +382,10 @@ export default function NotificationsSystemPage() {
                   <div style={{ fontSize: 13, color: S.muted, marginBottom: 6, lineHeight: 1.5 }}>{notif.body}</div>
                   <div style={{ fontSize: 11, color: S.muted }}>{timeAgo(notif.created_at)}</div>
                   {notif.link && (
-                    <a href={notif.link} style={{ fontSize: 11, color: cfg.color, textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>← عرض التفاصيل</a>
+                    <button onClick={() => setPreview(notif.link!)}
+                      style={{ fontSize: 11, color: cfg.color, background: 'transparent', border: `1px solid ${cfg.color}40`, borderRadius: 8, padding: '4px 10px', cursor: 'pointer', marginTop: 6, fontFamily: 'Tajawal, sans-serif', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      📎 عرض المرفق
+                    </button>
                   )}
                 </div>
 
@@ -356,6 +406,36 @@ export default function NotificationsSystemPage() {
 
       {showSend && (
         <SendModal employees={employees} onClose={() => setShowSend(false)} onSent={() => { setShowSend(false); fetchNotifs() }} />
+      )}
+
+      {/* Preview Modal */}
+      {preview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.9)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setPreview(null)}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, maxWidth: 700, width: '100%', overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: `1px solid ${S.border}` }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: S.white }}>📎 المرفق</span>
+              <button onClick={() => setPreview(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding: 20, textAlign: 'center' }}>
+              {preview.match(/\.(jpg|jpeg|png|webp|gif)$/i) || preview.includes('supabase') ? (
+                <img src={preview} alt="attachment" style={{ maxWidth: '100%', maxHeight: '60vh', borderRadius: 12, objectFit: 'contain' }} />
+              ) : preview.match(/\.pdf$/i) ? (
+                <iframe src={preview} style={{ width: '100%', height: '60vh', border: 'none', borderRadius: 12 }} />
+              ) : (
+                <div style={{ padding: 40, color: S.muted }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
+                  <a href={preview} target="_blank" rel="noreferrer" style={{ color: S.blue, fontSize: 14 }}>فتح الملف في تبويب جديد</a>
+                </div>
+              )}
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <a href={preview} target="_blank" rel="noreferrer" download style={{ fontSize: 12, color: S.gold, textDecoration: 'none', fontFamily: 'Tajawal, sans-serif' }}>⬇️ تحميل</a>
+              <button onClick={() => setPreview(null)} style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>إغلاق</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

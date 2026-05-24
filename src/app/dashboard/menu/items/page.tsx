@@ -91,7 +91,6 @@ interface MenuItem {
   id: string; category_id: string; name: string; name_en: string
   or_code: string; description: string; description_en: string
   price: number; cost_price: number; image_url?: string
-  discount_percent?: number
   is_active: boolean; is_available: boolean; sort_order: number
   menu_categories?: { name: string; name_en: string; icon: string } | any}
 
@@ -123,7 +122,6 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     description_en: item?.description_en || '',
     price: item?.price?.toString() || '',
     cost_price: item?.cost_price?.toString() || '',
-    discount_percent: item?.discount_percent?.toString() || '0',
     is_active: item?.is_active !== false,
     is_available: item?.is_available !== false,
   })
@@ -160,7 +158,6 @@ function ItemModal({ item, categories, onClose, onSaved }: {
       ...form,
       price: parseFloat(form.price) || 0,
       cost_price: parseFloat(form.cost_price) || 0,
-      discount_percent: parseFloat((form as any).discount_percent) || 0,
       image_url: finalImageUrl,
     }
 
@@ -278,21 +275,6 @@ function ItemModal({ item, categories, onClose, onSaved }: {
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>سعر التكلفة (MYR)</label>
                 <input style={inp} type="number" step="0.01" value={form.cost_price} onChange={e => setForm(p => ({ ...p, cost_price: e.target.value }))} placeholder="0.00" />
               </div>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>🏷️ نسبة الخصم % (0 = بدون خصم)</label>
-              <div style={{ position: 'relative' }}>
-                <input style={{ ...inp, paddingLeft: 32 }} type="number" step="1" min="0" max="100"
-                  value={(form as any).discount_percent || '0'}
-                  onChange={e => setForm(p => ({ ...p, discount_percent: e.target.value } as any))}
-                  placeholder="0" />
-                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: S.amber, fontSize: 14 }}>%</span>
-              </div>
-              {parseFloat((form as any).discount_percent) > 0 && parseFloat(form.price) > 0 && (
-                <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>
-                  السعر بعد الخصم: MYR {(parseFloat(form.price) * (1 - parseFloat((form as any).discount_percent) / 100)).toFixed(2)}
-                </div>
-              )}
             </div>
 
             {/* الوصف */}
@@ -453,9 +435,8 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
   const fetchIngredients = useCallback(async () => {
     const { data } = await sb
       .from('menu_item_ingredients')
-      .select('id,menu_item_id,warehouse_product_id,quantity,unit_label,unit_conversion,notes,ingredient_name,warehouse_products(id,name,category,last_purchase_price,units(symbol))')
+      .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
       .eq('menu_item_id', item.id)
-      .order('created_at', { ascending: true })
     const rows = data || []
     setIngredients(rows)
     setQuantities(prev => {
@@ -468,7 +449,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
   useEffect(() => {
     Promise.all([
       sb.from('menu_item_ingredients')
-        .select('id,menu_item_id,warehouse_product_id,quantity,unit_label,unit_conversion,notes,ingredient_name,warehouse_products(id,name,category,last_purchase_price,units(symbol))')
+        .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
         .eq('menu_item_id', item.id),
       sb.from('warehouse_products')
         .select('id, name, category, last_purchase_price, units(symbol)')
@@ -485,7 +466,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
   async function addIngredient() {
     const { data } = await sb.from('menu_item_ingredients')
       .insert([{ menu_item_id: item.id, quantity: 1, unit_label: null, unit_conversion: 1 }])
-      .select('id,menu_item_id,warehouse_product_id,quantity,unit_label,unit_conversion,notes,ingredient_name,warehouse_products(id,name,category,last_purchase_price,units(symbol))')
+      .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
     if (data?.[0]) {
       setIngredients(p => [...p, data[0]])
       setQuantities(p => ({ ...p, [data[0].id]: '1' }))
@@ -494,8 +475,6 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
 
   async function updateField(id: string, field: string, value: any) {
     await sb.from('menu_item_ingredients').update({ [field]: value }).eq('id', id)
-    // Clear search state for this ingredient after linking
-    setSearch(prev => { const n = { ...prev }; delete n[id]; return n })
     await fetchIngredients()
   }
 
@@ -605,23 +584,12 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
                     {ing.warehouse_product_id && !(ing.id in search) ? (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <div style={{ flex: 1, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: S.white }}>
-                          {products.find(p => p.id === ing.warehouse_product_id)?.name || (ing as any).ingredient_name || '—'}
+                          {products.find(p => p.id === ing.warehouse_product_id)?.name || '—'}
                         </div>
                         <button
                           onClick={() => setSearch(p => ({ ...p, [ing.id]: '' }))}
                           style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' }}>
                           تغيير
-                        </button>
-                      </div>
-                    ) : !ing.warehouse_product_id && (ing as any).ingredient_name && !(ing.id in search) ? (
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <div style={{ flex: 1, background: S.navy3, border: `1px solid rgba(245,158,11,0.3)`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: S.amber }}>
-                          ⚠️ {(ing as any).ingredient_name} (غير مربوط)
-                        </div>
-                        <button
-                          onClick={() => setSearch(p => ({ ...p, [ing.id]: (ing as any).ingredient_name || '' }))}
-                          style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap' }}>
-                          ربط
                         </button>
                       </div>
                     ) : (
@@ -636,10 +604,8 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
                         <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 8, maxHeight: 200, overflowY: 'auto', zIndex: 100, marginTop: 2 }}>
                           {(() => {
                             const q = (search[ing.id] || '').trim()
-                            // Don't show list unless user typed something
-                            if (!q) return <div style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>اكتب للبحث...</div>
                             const filtered = products.filter((p: any) =>
-                              p.name.includes(q) || (p.category || '').includes(q)
+                              !q || p.name.includes(q) || (p.category || '').includes(q)
                             ).slice(0, 10)
                             return filtered.length > 0 ? filtered.map((p: any) => (
                               <div key={p.id}
@@ -751,7 +717,7 @@ export default function MenuItemsPage() {
     setLoading(true)
     const [cats, itms] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,
@@ -949,6 +915,7 @@ export default function MenuItemsPage() {
               background: S.navy2, borderRadius: 16,
               border: `1px solid ${item.is_available ? S.border : S.redB}`,
               overflow: 'hidden', position: 'relative',
+              display: 'flex', flexDirection: 'column',
             }}>
               {/* صورة */}
               <div style={{ aspectRatio: '4/3', background: S.navy3, position: 'relative', overflow: 'hidden' }}>
@@ -972,25 +939,15 @@ export default function MenuItemsPage() {
               </div>
 
               {/* Content */}
-              <div style={{ padding: '14px 14px 12px' }}>
+              <div style={{ padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 2 }}>{item.name_en}</div>
                 <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', marginBottom: 6 }}>{item.name}</div>
-                {item.description && <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.description}</div>}
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, lineHeight: 1.5, height: 32, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
+                  {item.description || ' '}
+                </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div>
-                    {item.discount_percent && item.discount_percent > 0 ? (
-                      <div>
-                        <div style={{ fontSize: 12, color: S.muted, textDecoration: 'line-through' }}>{formatMYR(item.price)}</div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: S.amber }}>
-                          {formatMYR(item.price * (1 - item.discount_percent / 100))}
-                          <span style={{ fontSize: 10, background: S.amber, color: S.navy, borderRadius: 8, padding: '1px 6px', marginRight: 6, fontWeight: 700 }}>-{item.discount_percent}%</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
-                    )}
-                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
                   {item.cost_price > 0 && (
                     <div style={{ fontSize: 10, color: S.muted }}>
                       تكلفة: {formatMYR(item.cost_price)}
@@ -1003,6 +960,7 @@ export default function MenuItemsPage() {
                   {item.menu_categories?.icon} {item.menu_categories?.name}
                 </div>
 
+                <div style={{ flex: 1 }} />
                 {/* Actions */}
 <div style={{ display: 'flex', gap: 6 }}>
   <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>✏️ تعديل</button>

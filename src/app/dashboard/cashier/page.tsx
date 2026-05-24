@@ -57,7 +57,7 @@ const SERVICE_CHARGE_RATE = 0.10
 const SST_RATE = 0.06
 
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; occupied_since?: string | null; current_order_id?: string | null }
-type OrderItem = { id: string; menu_item_id?: string; quantity: number; unit_price: number; notes: string; destination: string; status: string; menu_items: { name: string; name_en: string } }
+type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; destination: string; status: string; menu_items: { name: string; name_en: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
   discount_amount: number; discount_type: string; payment_method: string
@@ -101,6 +101,22 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
   const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
   const [discountValue, setDiscountValue] = useState('')
   const [saving, setSaving] = useState(false)
+  const [customers, setCustomers] = useState<any[]>([])
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null)
+  const [showCustomerDrop, setShowCustomerDrop] = useState(false)
+
+  useEffect(() => {
+    sb.from('customers').select('id,name,phone,email,loyalty_points').order('name').limit(200)
+      .then(({ data }) => setCustomers(data || []))
+  }, [])
+
+  const filteredCustomers = customers.filter(c =>
+    !customerSearch ||
+    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    c.phone?.includes(customerSearch) ||
+    c.email?.toLowerCase().includes(customerSearch.toLowerCase())
+  ).slice(0, 8)
 
   const subtotal = order.order_items.reduce((s, i) => s + i.unit_price * i.quantity, 0)
   const discountAmt = discountType === 'none' ? 0
@@ -125,6 +141,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
       sst_amount: sst,
       total_amount: total,
       paid_at: new Date().toISOString(),
+      customer_id: selectedCustomer?.id || null,
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
 
     // 2. Reset table to available
@@ -138,22 +155,16 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
     onPaid()
   }
 
-  async function printReceipt() {
-    // جيب الأسماء الإنجليزية من DB مباشرة
-    const menuItemIds = order.order_items.map(i => i.menu_item_id).filter(Boolean)
-    const { data: menuItems } = await sb.from('menu_items').select('id,name,name_en').in('id', menuItemIds)
-    const nameMap: Record<string, string> = {}
-    ;(menuItems || []).forEach((m: any) => { nameMap[m.id] = m.name_en || m.name })
-
+  function printReceipt() {
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <style>
-      body{font-family:monospace;font-size:12px;width:80mm;margin:0 auto;padding:10px;}
-      .center{text-align:center;} .line{border-top:1px dashed #000;margin:6px 0;}
-      .row{display:flex;justify-content:space-between;margin:3px 0;}
-      .bold{font-weight:bold;} .big{font-size:14px;}
-      @media print{@page{size:80mm auto;margin:0;} body{width:80mm;}}
+      body{font-family:monospace;font-size:12px;width:300px;margin:0 auto;padding:20px;}
+      .center{text-align:center;} .line{border-top:1px dashed #000;margin:8px 0;}
+      .row{display:flex;justify-content:space-between;margin:4px 0;}
+      .bold{font-weight:bold;} .big{font-size:16px;}
+      @media print{@page{margin:0;}}
     </style></head><body>
     <div class="center"><div class="big bold">🌸 ORCHID HOUSE</div>
     <div>Fine Dining Restaurant</div>
@@ -163,8 +174,8 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
     <div class="row"><span>Order #:</span><span>${order.id.slice(-6).toUpperCase()}</span></div>
     <div class="line"></div>
     ${order.order_items.map(i => `
-    <div class="row"><span>${nameMap[i.menu_item_id || ''] || i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
-    ${i.notes ? `<div style="font-size:10px;color:#666;">* ${i.notes}</div>` : ''}
+    <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
+    ${i.notes ? `<div style="font-size:10px;color:#666;padding-right:10px">* ${i.notes}</div>` : ''}
     `).join('')}
     <div class="line"></div>
     <div class="row"><span>Subtotal</span><span>MYR ${subtotal.toFixed(2)}</span></div>
@@ -178,7 +189,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
     <div class="line"></div>
     <div class="row"><span>Payment</span><span>${discountType === 'free' ? 'COMPLIMENTARY' : method.toUpperCase()}</span></div>
     <div class="line"></div>
-    <div class="center" style="font-size:10px;margin-top:8px">
+    <div class="center" style="font-size:10px;margin-top:10px">
       Thank you for dining with us!<br>
       All prices subject to 10% service charge & 6% SST
     </div>
@@ -206,6 +217,51 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
               <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
             </div>
           ))}
+        </div>
+
+        {/* Customer Selector */}
+        <div style={{ marginBottom: 16, position: 'relative' }}>
+          <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>👤 Customer (optional — for loyalty points)</div>
+          {selectedCustomer ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 10, padding: '10px 14px' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{selectedCustomer.name}</div>
+                <div style={{ fontSize: 11, color: S.muted }}>{selectedCustomer.phone || selectedCustomer.email} · 🎁 {selectedCustomer.loyalty_points} pts</div>
+              </div>
+              <button onClick={() => setSelectedCustomer(null)} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 16 }}>✕</button>
+            </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <input style={{ ...inp }}
+                placeholder="🔍 Search customer by name, phone, email..."
+                value={customerSearch}
+                onChange={e => { setCustomerSearch(e.target.value); setShowCustomerDrop(true) }}
+                onFocus={() => setShowCustomerDrop(true)}
+              />
+              {showCustomerDrop && customerSearch && filteredCustomers.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 100, marginTop: 4, maxHeight: 200, overflowY: 'auto' }}>
+                  {filteredCustomers.map(c => (
+                    <div key={c.id}
+                      onClick={() => { setSelectedCustomer(c); setCustomerSearch(''); setShowCustomerDrop(false) }}
+                      style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{c.name}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>{c.phone || c.email}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: S.gold }}>🎁 {c.loyalty_points} pts</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {selectedCustomer && (
+            <div style={{ fontSize: 11, color: S.green, marginTop: 6 }}>
+              ✅ Will earn {Math.floor(total / 100)} points after payment (MYR 100 = 1 point)
+            </div>
+          )}
         </div>
 
         {/* Discount */}
@@ -646,7 +702,7 @@ export default function CashierPage() {
   const [view, setView] = useState<'orders' | 'tables'>('tables')
 
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,menu_item_id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
     const [activeRes, tablesRes] = await Promise.all([
       sb.from('orders').select(SEL).in('status', ['confirmed','preparing','ready']).order('created_at', { ascending: false }).limit(100),
       sb.from('tables').select('*').order('number'),
@@ -658,7 +714,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,menu_item_id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])

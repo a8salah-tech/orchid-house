@@ -71,6 +71,7 @@ interface Registration {
   phone: string; email: string; email_account: string; password_hint: string
   department: string; role: string
   notes: string; photo_url: string; national_id_url: string; status: string
+  rejection_reason?: string
 }
 
 // ══ Upload image ══
@@ -323,6 +324,7 @@ function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onCha
   const role = ROLES[employee.role] || ROLES.employee
   const yearsInService = employee.join_date ? Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 0
   const monthsInService = employee.join_date ? Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (30.44 * 24 * 60 * 60 * 1000)) : 0
+  const [photoModal, setPhotoModal] = useState<string | null>(null)
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
@@ -331,7 +333,7 @@ function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onCha
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
             <div style={{ width: 70, height: 70, borderRadius: '50%', border: `2px solid ${role.color}`, overflow: 'hidden', background: role.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
-              {employee.photo_url ? <img src={employee.photo_url} alt={employee.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : role.icon}
+              {employee.photo_url ? <img src={employee.photo_url} alt={employee.name} onClick={() => setPhotoModal(employee.photo_url!)} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }} /> : role.icon}
             </div>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: S.white, marginBottom: 2 }}>{employee.name} {employee.name_en}</div>
@@ -375,7 +377,7 @@ function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onCha
         {employee.national_id_url && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 8 }}>🪪 صورة الهوية</div>
-            <img src={employee.national_id_url} alt="هوية" style={{ width: '100%', maxHeight: 160, borderRadius: 10, objectFit: 'cover', cursor: 'pointer', border: `1px solid ${S.border}` }} onClick={() => window.open(employee.national_id_url, '_blank')} />
+            <img src={employee.national_id_url} alt="هوية" style={{ width: '100%', maxHeight: 160, borderRadius: 10, objectFit: 'cover', cursor: 'pointer', border: `1px solid ${S.border}` }} onClick={() => setPhotoModal(employee.national_id_url!)} />
           </div>
         )}
 
@@ -403,6 +405,25 @@ function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onCha
           <button onClick={onEdit} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✏️ تعديل</button>
         </div>
       </div>
+
+      {/* Photo Viewer Modal */}
+      {photoModal && (
+        <div onClick={() => setPhotoModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img src={photoModal} alt="صورة" style={{ maxWidth: '85vw', maxHeight: '85vh', borderRadius: 16, objectFit: 'contain', boxShadow: '0 0 60px rgba(0,0,0,0.8)' }} />
+            <button onClick={() => setPhotoModal(null)}
+              style={{ position: 'absolute', top: -14, left: -14, width: 34, height: 34, borderRadius: '50%', background: '#EF4444', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+              ✕
+            </button>
+            <a href={photoModal} download target="_blank" rel="noreferrer"
+              onClick={async e => { e.preventDefault(); const r = await fetch(photoModal); const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = 'photo'; a.click(); URL.revokeObjectURL(u) }}
+              style={{ position: 'absolute', bottom: -14, left: '50%', transform: 'translateX(-50%)', padding: '6px 16px', borderRadius: 20, background: '#C9A84C', color: '#0A1628', fontSize: 12, fontWeight: 700, textDecoration: 'none', cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
+              ⬇️ تحميل
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -579,9 +600,40 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
     fetchAll()
   }
 
+  const [rejectModal, setRejectModal] = useState<Registration | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejecting, setRejecting] = useState(false)
+
   async function rejectRegistration(reg: Registration) {
-    if (!confirm('هل أنت متأكد من رفض طلب ' + reg.name + '؟')) return
-    await supabase.from('employee_registrations').update({ status: 'rejected' }).eq('id', reg.id)
+    setRejectModal(reg)
+    setRejectReason('')
+  }
+
+  async function confirmReject() {
+    if (!rejectModal) return
+    setRejecting(true)
+    await supabase.from('employee_registrations').update({
+      status: 'rejected',
+      rejection_reason: rejectReason || null,
+    }).eq('id', rejectModal.id)
+
+    // Send rejection email via API
+    if (rejectModal.email) {
+      try {
+        await fetch('/api/send-rejection-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: rejectModal.name,
+            email: rejectModal.email,
+            reason: rejectReason,
+          })
+        })
+      } catch (e) { console.error('Email send failed:', e) }
+    }
+
+    setRejecting(false)
+    setRejectModal(null)
     fetchAll()
   }
 
@@ -1017,6 +1069,41 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
       {detailEmp && <EmployeeDetailModal employee={detailEmp} onClose={() => setDetailEmp(null)} onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }} onCreateAccount={() => { setCreateAccountEmp(detailEmp); setDetailEmp(null) }} onChangePassword={() => { setChangePassEmp(detailEmp); setDetailEmp(null) }} />}
       {createAccountEmp && <CreateAccountModal employee={createAccountEmp} onClose={() => setCreateAccountEmp(null)} onSaved={() => { setCreateAccountEmp(null); fetchAll() }} />}
       {changePassEmp && <ChangePasswordModal employee={changePassEmp} onClose={() => setChangePassEmp(null)} onSaved={() => { setChangePassEmp(null); fetchAll() }} />}
+
+      {/* Reject Modal */}
+      {rejectModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 440, padding: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h3 style={{ color: S.red, fontSize: 16, fontWeight: 700 }}>❌ رفض طلب التسجيل</h3>
+                <p style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>{rejectModal.name}</p>
+              </div>
+              <button onClick={() => setRejectModal(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>سبب الرفض (اختياري)</label>
+              <textarea
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                placeholder="مثال: البيانات غير مكتملة، يرجى إعادة التسجيل مع صورة الهوية..."
+                style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid rgba(255,255,255,0.10)`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', minHeight: 100, resize: 'vertical', direction: 'rtl' }}
+              />
+              {rejectModal.email && (
+                <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>
+                  📧 سيتم إرسال إيميل للموظف على: <strong style={{ color: S.white }}>{rejectModal.email}</strong>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setRejectModal(null)} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+              <button onClick={confirmReject} disabled={rejecting} style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                {rejecting ? '⏳...' : '❌ رفض وإرسال إيميل'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {photoModal && (
         <div onClick={() => setPhotoModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
           <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>

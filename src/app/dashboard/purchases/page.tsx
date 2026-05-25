@@ -49,6 +49,7 @@ interface Invoice {
 interface InvoiceItem {
   product_id: string; product_name: string
   quantity: string; unit_price: string; unit_id: string; matched: boolean
+  contents_per_unit?: number; contents_unit_name?: string
 }
 
 // ══ AI Invoice Scanner ══
@@ -130,9 +131,9 @@ function ImageViewerModal({ imageUrl, onClose }: { imageUrl: string; onClose: ()
 }
 
 // ══ New Invoice Modal ══
-function NewInvoiceModal({ products, suppliers, units, warehouses, onClose, onSaved }: {
+function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversions, onClose, onSaved }: {
   products: Product[]; suppliers: Supplier[]; units: Unit[]
-  warehouses: { id: string; name: string }[]; onClose: () => void; onSaved: () => void
+  warehouses: { id: string; name: string }[]; unitConversions: any[]; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -249,9 +250,17 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, onClose, onSa
           quantity: parseFloat(item.quantity), unit_price: parseFloat(item.unit_price),
           unit_id: item.unit_id || null,
         }])
+        // لو في تحويل وحدة — احسب الكمية الفعلية
+        const conv = unitConversions.find(c =>
+          c.product_id === item.product_id && c.from_unit_id === item.unit_id
+        )
+        const actualQty = conv
+          ? parseFloat(item.quantity) * conv.factor
+          : parseFloat(item.quantity)
+        
         await supabase.from('stock_movements').insert([{
           movement_type: 'in', product_id: item.product_id,
-          warehouse_id: form.warehouse_id, quantity: parseFloat(item.quantity),
+          warehouse_id: form.warehouse_id, quantity: actualQty,
           unit_price: parseFloat(item.unit_price), invoice_id: inv.id,
           movement_date: form.invoice_date,
         }])
@@ -432,10 +441,39 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, onClose, onSa
                   </div>
                   <div>
                     <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الوحدة</label>
-                    <select style={{ ...inp }} value={item.unit_id} onChange={e => setItem(i, 'unit_id', e.target.value)}>
+                    <select style={{ ...inp }} value={item.unit_id} onChange={e => {
+                      setItem(i, 'unit_id', e.target.value)
+                      // Check for unit conversion
+                      if (item.product_id && e.target.value) {
+                        const conv = unitConversions.find(c =>
+                          c.product_id === item.product_id && c.from_unit_id === e.target.value
+                        )
+                        if (conv) {
+                          setItems(p => p.map((it, idx) => idx === i ? {
+                            ...it,
+                            unit_id: e.target.value,
+                            contents_per_unit: conv.factor,
+                            contents_unit_name: conv.to_unit?.name,
+                          } : it))
+                        } else {
+                          setItems(p => p.map((it, idx) => idx === i ? {
+                            ...it,
+                            unit_id: e.target.value,
+                            contents_per_unit: undefined,
+                            contents_unit_name: undefined,
+                          } : it))
+                        }
+                      }
+                    }}>
                       <option value="">—</option>
                       {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
                     </select>
+                    {item.contents_per_unit && item.contents_unit_name && (
+                      <div style={{ fontSize: 10, color: '#8B5CF6', marginTop: 3, fontWeight: 600 }}>
+                        📦 1 وحدة = {item.contents_per_unit} {item.contents_unit_name}
+                        {item.quantity && <span style={{ color: '#C9A84C' }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)} {item.contents_unit_name}</span>}
+                      </div>
+                    )}
                   </div>
                   <button onClick={() => setItems(p => p.filter((_, idx) => idx !== i))} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '10px', fontSize: 14, alignSelf: 'flex-end' }}>✕</button>
                 </div>
@@ -519,21 +557,44 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
   }
 
   useEffect(() => {
-    supabase.from('purchase_invoice_items')
-      .select('*, products(name), units(name_ar)')
-      .eq('invoice_id', invoice.id)
-      .then(({ data }) => {
-        const loaded = data || []
-        setItems(loaded)
-        setEditItems(loaded.map((i: any) => ({
-          id: i.id,
-          product_id: i.product_id,
-          quantity: String(i.quantity),
-          unit_price: String(i.unit_price),
-          unit_id: i.unit_id || '',
-        })))
+    async function loadItems() {
+      const { data: rawItems } = await supabase
+        .from('purchase_invoice_items')
+        .select('*, units(name_ar)')
+        .eq('invoice_id', invoice.id)
+      
+      if (!rawItems || rawItems.length === 0) {
+        setItems([])
+        setEditItems([])
         setLoadingItems(false)
-      })
+        return
+      }
+
+      // جيب أسماء المنتجات بشكل منفصل
+      const productIds = [...new Set(rawItems.map((i: any) => i.product_id))]
+      const { data: prods } = await supabase
+        .from('warehouse_products')
+        .select('id, name')
+        .in('id', productIds)
+      
+      const prodMap = Object.fromEntries((prods || []).map((p: any) => [p.id, p.name]))
+      
+      const loaded = rawItems.map((i: any) => ({
+        ...i,
+        product_name: prodMap[i.product_id] || '—',
+      }))
+      
+      setItems(loaded)
+      setEditItems(loaded.map((i: any) => ({
+        id: i.id,
+        product_id: i.product_id,
+        quantity: String(i.quantity),
+        unit_price: String(i.unit_price),
+        unit_id: i.unit_id || '',
+      })))
+      setLoadingItems(false)
+    }
+    loadItems()
   }, [invoice.id])
 
   function addEditItem() {
@@ -671,7 +732,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                     const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0)
                     return (
                       <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
-                        <div style={{ fontSize: 12, color: S2.white, fontWeight: 600 }}>{item.products?.name || '—'}</div>
+                        <div style={{ fontSize: 12, color: S2.white, fontWeight: 600 }}>{item.product_name || '—'}</div>
                         <div style={{ fontSize: 12, color: S2.muted }}>{item.quantity} {item.units?.name_ar || ''}</div>
                         <div style={{ fontSize: 12, color: S2.muted }}>{parseFloat(item.unit_price).toFixed(2)}</div>
                         <div style={{ fontSize: 12, color: S2.gold, fontWeight: 600 }}>{total.toFixed(2)}</div>
@@ -815,6 +876,7 @@ export default function PurchasesPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [units, setUnits] = useState<Unit[]>([])
+  const [unitConversions, setUnitConversions] = useState<any[]>([])
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
@@ -826,18 +888,20 @@ export default function PurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [inv, prod, sup, un, wh] = await Promise.all([
+    const [inv, prod, sup, un, wh, uc] = await Promise.all([
       supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name)').order('created_at', { ascending: false }),
       supabase.from('warehouse_products').select('*, units(symbol)').eq('is_active', true).order('name'),
       supabase.from('warehouse_suppliers').select('*').order('name'),
       supabase.from('units').select('*').order('name'),
       supabase.from('warehouses').select('id,name').eq('is_active', true),
+      supabase.from('unit_conversions').select('*, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)'),
     ])
     setInvoices(inv.data || [])
     setProducts(prod.data || [])
     setSuppliers(sup.data || [])
     setUnits(un.data || [])
     setWarehouses(wh.data || [])
+    setUnitConversions(uc.data || [])
     setLoading(false)
   }, [])
 
@@ -998,6 +1062,7 @@ export default function PurchasesPage() {
       {showNew && (
         <NewInvoiceModal
           products={products} suppliers={suppliers} units={units} warehouses={warehouses}
+          unitConversions={unitConversions}
           onClose={() => setShowNew(false)}
           onSaved={() => { setShowNew(false); fetchAll() }}
         />

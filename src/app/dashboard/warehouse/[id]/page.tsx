@@ -360,6 +360,167 @@ function StockOutModal({ warehouseId, warehouseName, products, onClose, onSaved 
 }
 
 // ══ الصفحة الرئيسية ══
+// ══ Unit Conversion Modal ══
+function UnitConversionModal({ product, units, onClose }: { product: any; units: any[]; onClose: () => void }) {
+  const supabase = createClient()
+  const [conversions, setConversions] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ from_unit_id: '', to_unit_id: '', factor: '', notes: '' })
+
+  const S2 = {
+    navy2: '#0F2040', navy3: '#0C1A32', gold: '#C9A84C', gold3: 'rgba(201,168,76,0.12)',
+    white: '#FAFAF8', muted: '#8A9BB5', border: 'rgba(255,255,255,0.08)',
+    green: '#22C55E', greenB: 'rgba(34,197,94,0.12)',
+    red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
+    blue: '#3B82F6', blueB: 'rgba(59,130,246,0.12)',
+    purple: '#8B5CF6', purpleB: 'rgba(139,92,246,0.12)',
+    card: 'rgba(255,255,255,0.04)',
+  }
+
+  const inp: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 10, padding: '9px 12px', fontSize: 13,
+    color: S2.white, outline: 'none', fontFamily: 'Tajawal, sans-serif',
+    boxSizing: 'border-box', direction: 'rtl',
+  }
+
+  async function fetchConversions() {
+    const { data } = await supabase.from('unit_conversions')
+      .select('*, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)')
+      .eq('product_id', product.id)
+      .order('created_at')
+    setConversions(data || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchConversions() }, [product.id])
+
+  async function addConversion() {
+    if (!form.from_unit_id || !form.to_unit_id || !form.factor) {
+      alert('يرجى إكمال جميع الحقول'); return
+    }
+    if (form.from_unit_id === form.to_unit_id) {
+      alert('الوحدتان يجب أن تكونا مختلفتان'); return
+    }
+    setSaving(true)
+    await supabase.from('unit_conversions').insert([{
+      product_id: product.id,
+      from_unit_id: form.from_unit_id,
+      to_unit_id: form.to_unit_id,
+      factor: parseFloat(form.factor),
+      notes: form.notes || null,
+    }])
+    setForm({ from_unit_id: '', to_unit_id: '', factor: '', notes: '' })
+    await fetchConversions()
+    setSaving(false)
+  }
+
+  async function deleteConversion(id: string) {
+    await supabase.from('unit_conversions').delete().eq('id', id)
+    fetchConversions()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+      <div style={{ background: S2.navy2, borderRadius: 18, border: `1px solid ${S2.border}`, width: '100%', maxWidth: 520, padding: '24px 20px', margin: 'auto' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div>
+            <h3 style={{ color: S2.purple, fontSize: 16, fontWeight: 700, marginBottom: 4 }}>⚖️ تحويلات الوحدات</h3>
+            <div style={{ fontSize: 13, fontWeight: 600, color: S2.white }}>{product.name}</div>
+            <div style={{ fontSize: 11, color: S2.muted }}>وحدة المخزون الأساسية: <strong style={{ color: S2.gold }}>{product.units?.name || '—'} ({product.units?.symbol})</strong></div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S2.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* Explanation */}
+        <div style={{ background: S2.purpleB, border: `1px solid #8B5CF640`, borderRadius: 12, padding: '12px 14px', marginBottom: 20, fontSize: 12, color: S2.muted, lineHeight: 1.7 }}>
+          💡 مثال: إذا المخزون بالكيس — تقدر تضيف: <strong style={{ color: S2.white }}>1 كرتون = 24 كيس</strong><br/>
+          هيساعدك تسجّل دخول كرتون والنظام يحسب الكيسات تلقائياً.
+        </div>
+
+        {/* Add Form */}
+        <div style={{ background: S2.card, borderRadius: 12, padding: '14px', marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: S2.white, marginBottom: 12 }}>➕ إضافة تحويل جديد</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>من وحدة</label>
+              <select style={inp} value={form.from_unit_id} onChange={e => setForm(p => ({ ...p, from_unit_id: e.target.value }))}>
+                <option value="">اختر</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>)}
+              </select>
+            </div>
+            <div style={{ textAlign: 'center', color: S2.muted, fontSize: 18, paddingTop: 20 }}>=</div>
+            <div>
+              <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>إلى وحدة</label>
+              <select style={inp} value={form.to_unit_id} onChange={e => setForm(p => ({ ...p, to_unit_id: e.target.value }))}>
+                <option value="">اختر</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>المعامل (العدد)</label>
+              <input style={inp} type="number" min="0.001" step="0.001" placeholder="مثال: 24" value={form.factor} onChange={e => setForm(p => ({ ...p, factor: e.target.value }))} />
+              {form.from_unit_id && form.to_unit_id && form.factor && (
+                <div style={{ fontSize: 10, color: S2.gold, marginTop: 4 }}>
+                  1 {units.find(u => u.id === form.from_unit_id)?.name} = {form.factor} {units.find(u => u.id === form.to_unit_id)?.name}
+                </div>
+              )}
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>ملاحظة (اختياري)</label>
+              <input style={inp} placeholder="مثال: كرتون مياه" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
+            </div>
+          </div>
+          <button onClick={addConversion} disabled={saving}
+            style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S2.purple}`, background: S2.purpleB, color: S2.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '💾 حفظ التحويل'}
+          </button>
+        </div>
+
+        {/* Existing Conversions */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: S2.white, marginBottom: 10 }}>📋 التحويلات المسجلة</div>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 20, color: S2.muted }}>⏳</div>
+          ) : conversions.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 20, color: S2.muted, fontSize: 12, background: S2.card, borderRadius: 10 }}>
+              لا توجد تحويلات — أضف أول تحويل أعلاه
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {conversions.map((c, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: S2.card, borderRadius: 10, padding: '10px 14px' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: S2.white }}>
+                      1 {c.from_unit?.name} = <span style={{ color: S2.gold }}>{c.factor}</span> {c.to_unit?.name}
+                    </div>
+                    {c.notes && <div style={{ fontSize: 11, color: S2.muted }}>{c.notes}</div>}
+                  </div>
+                  <button onClick={() => deleteConversion(c.id)}
+                    style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${S2.red}`, background: S2.redB, color: S2.red, cursor: 'pointer', fontSize: 12 }}>
+                    🗑️
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button onClick={onClose}
+          style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 10, border: `1px solid ${S2.border}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          إغلاق
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function WarehouseDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -384,6 +545,7 @@ export default function WarehouseDetailPage() {
   const [showStockOut, setShowStockOut] = useState(false)
   const [showAddCategory, setShowAddCategory] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [showUnitConversion, setShowUnitConversion] = useState<Product | null>(null)
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7))
 
   const fetchAll = useCallback(async () => {
@@ -659,6 +821,12 @@ export default function WarehouseDetailPage() {
                             }}
                           >
                             {isInactive ? '▶ تفعيل' : '⏸ إيقاف'}
+                          </button>
+                          <button
+                            onClick={() => setShowUnitConversion(p)}
+                            style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid #8B5CF6`, background: 'rgba(139,92,246,0.12)', color: '#8B5CF6', marginTop: 4 }}
+                          >
+                            ⚖️ تحويل
                           </button>
                         </td>
                       </tr>
@@ -959,6 +1127,13 @@ export default function WarehouseDetailPage() {
       {showStockOut && warehouse && (
         <StockOutModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products}
           onClose={() => setShowStockOut(false)} onSaved={() => { setShowStockOut(false); fetchAll() }} />
+      )}
+      {showUnitConversion && (
+        <UnitConversionModal
+          product={showUnitConversion}
+          units={units}
+          onClose={() => setShowUnitConversion(null)}
+        />
       )}
     </div>
   )

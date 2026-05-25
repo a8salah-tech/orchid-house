@@ -431,7 +431,15 @@ export default function NotificationsSystemPage() {
               )}
             </div>
             <div style={{ padding: '12px 20px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <a href={preview} target="_blank" rel="noreferrer" download style={{ fontSize: 12, color: S.gold, textDecoration: 'none', fontFamily: 'Tajawal, sans-serif' }}>⬇️ تحميل</a>
+              <a href={preview} download onClick={async e => {
+               e.preventDefault()
+               const res = await fetch(preview)
+               const blob = await res.blob()
+               const url = URL.createObjectURL(blob)
+               const a = document.createElement('a')
+               a.href = url; a.download = preview.split('/').pop() || 'attachment'
+               a.click(); URL.revokeObjectURL(url)
+               }} style={{ fontSize: 12, color: S.gold, textDecoration: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>⬇️ تحميل</a>
               <button onClick={() => setPreview(null)} style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>إغلاق</button>
             </div>
           </div>

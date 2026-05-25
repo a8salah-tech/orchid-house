@@ -44,10 +44,12 @@ export default function NotificationBell() {
 
   const fetchNotifs = useCallback(async () => {
     if (!employee?.id) return
-    let q = sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(20)
-    if (employee.role !== 'admin' && employee.role !== 'branch_manager') {
-      q = q.or(`target_employee_id.eq.${employee.id},target_role.eq.all,target_role.eq.${employee.role}`)
-    }
+let q = sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(20)
+if (employee.role === 'admin' || employee.role === 'branch_manager') {
+  q = q.or(`target_role.eq.all,target_role.eq.admin,target_employee_id.eq.${employee.id}`)
+} else {
+  q = q.or(`target_employee_id.eq.${employee.id},target_role.eq.all,target_role.eq.${employee.role}`)
+}
     const { data } = await q
     setNotifs(data || [])
   }, [sb, employee])

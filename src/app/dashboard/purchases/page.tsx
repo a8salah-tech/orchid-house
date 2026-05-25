@@ -477,6 +477,144 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, onClose, onSa
 }
 
 // ══ الصفحة الرئيسية ══
+
+// ══ Invoice Detail Modal ══
+function InvoiceDetailModal({ invoice, onClose, onViewImage, onDeleted }: {
+  invoice: any; onClose: () => void; onViewImage: (url: string) => void; onDeleted: () => void
+}) {
+  const supabase = createClient()
+  const [items, setItems] = useState<any[]>([])
+  const [loadingItems, setLoadingItems] = useState(true)
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    supabase.from('purchase_invoice_items')
+      .select('*, products(name), units(name_ar)')
+      .eq('invoice_id', invoice.id)
+      .then(({ data }) => { setItems(data || []); setLoadingItems(false) })
+  }, [invoice.id])
+
+  async function handleDelete() {
+    if (!confirm('حذف هذه الفاتورة نهائياً؟')) return
+    setDeleting(true)
+    await supabase.from('purchase_invoice_items').delete().eq('invoice_id', invoice.id)
+    await supabase.from('stock_movements').delete().eq('invoice_id', invoice.id)
+    await supabase.from('purchase_invoices').delete().eq('id', invoice.id)
+    setDeleting(false)
+    onDeleted()
+  }
+
+  const S2 = {
+    navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
+    gold: '#C9A84C', gold3: 'rgba(201,168,76,0.12)',
+    white: '#FAFAF8', muted: '#8A9BB5', border: 'rgba(255,255,255,0.08)',
+    green: '#22C55E', greenB: 'rgba(34,197,94,0.12)',
+    red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
+    blue: '#3B82F6', blueB: 'rgba(59,130,246,0.12)',
+    card: 'rgba(255,255,255,0.04)',
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
+      <div style={{ background: S2.navy2, borderRadius: 18, border: `1px solid ${S2.border}`, width: '100%', maxWidth: 560, padding: '24px 20px', margin: 'auto' }}>
+        
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h3 style={{ color: S2.gold, fontSize: 17, fontWeight: 700, marginBottom: 2 }}>🧾 تفاصيل الفاتورة</h3>
+            {invoice.invoice_number && <div style={{ fontSize: 12, color: S2.muted }}>رقم المورد: {invoice.invoice_number}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S2.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* Info Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+          {[
+            { label: 'المورد', value: invoice.warehouse_suppliers?.name || '—', icon: '🤝' },
+            { label: 'المستودع', value: invoice.warehouses?.name || '—', icon: '🏭' },
+            { label: 'التاريخ', value: invoice.invoice_date, icon: '📅' },
+            { label: 'الإجمالي', value: `MYR ${Number(invoice.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2 })}`, icon: '💰', green: true },
+          ].map((r, i) => (
+            <div key={i} style={{ background: S2.card, borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ fontSize: 10, color: S2.muted, marginBottom: 3 }}>{r.icon} {r.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: r.green ? S2.green : S2.white }}>{r.value}</div>
+            </div>
+          ))}
+        </div>
+        {invoice.notes && (
+          <div style={{ background: S2.card, borderRadius: 10, padding: '10px 12px', marginBottom: 16 }}>
+            <div style={{ fontSize: 10, color: S2.muted, marginBottom: 3 }}>📝 ملاحظات</div>
+            <div style={{ fontSize: 13, color: S2.white }}>{invoice.notes}</div>
+          </div>
+        )}
+
+        {/* Invoice Items */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: S2.white, marginBottom: 10 }}>📦 أصناف الفاتورة</div>
+          {loadingItems ? (
+            <div style={{ textAlign: 'center', padding: 20, color: S2.muted, fontSize: 12 }}>⏳ جاري التحميل...</div>
+          ) : items.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 20, color: S2.muted, fontSize: 12 }}>لا توجد أصناف مسجلة</div>
+          ) : (
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: `1px solid ${S2.border}` }}>
+              {/* Header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', background: S2.navy3, padding: '8px 12px', gap: 8 }}>
+                {['الصنف', 'الكمية', 'سعر الوحدة', 'الإجمالي'].map(h => (
+                  <div key={h} style={{ fontSize: 10, color: S2.muted, fontWeight: 700 }}>{h}</div>
+                ))}
+              </div>
+              {items.map((item, i) => {
+                const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0)
+                return (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ fontSize: 12, color: S2.white, fontWeight: 600 }}>{item.products?.name || '—'}</div>
+                    <div style={{ fontSize: 12, color: S2.muted }}>{item.quantity} {item.units?.name_ar || ''}</div>
+                    <div style={{ fontSize: 12, color: S2.muted }}>{parseFloat(item.unit_price).toFixed(2)}</div>
+                    <div style={{ fontSize: 12, color: S2.gold, fontWeight: 600 }}>{total.toFixed(2)}</div>
+                  </div>
+                )
+              })}
+              {/* Total Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: S2.greenB }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: S2.green, gridColumn: '1/4' }}>الإجمالي</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: S2.green }}>
+                  {items.reduce((s, item) => s + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0).toFixed(2)}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Image */}
+        {invoice.image_url && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: S2.gold, fontWeight: 700, marginBottom: 8 }}>📸 صورة الفاتورة</div>
+            <img src={invoice.image_url} alt="فاتورة"
+              style={{ width: '100%', maxHeight: 180, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S2.border}`, objectFit: 'contain', background: S2.navy3 }}
+              onClick={() => onViewImage(invoice.image_url)} />
+            <button onClick={() => onViewImage(invoice.image_url)}
+              style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S2.blue}`, background: S2.blueB, color: S2.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+              🔍 عرض بالحجم الكامل
+            </button>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={handleDelete} disabled={deleting}
+            style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S2.red}`, background: S2.redB, color: S2.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>
+            {deleting ? '⏳...' : '🗑️ حذف'}
+          </button>
+          <button onClick={onClose}
+            style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${S2.muted}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            إغلاق
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function PurchasesPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -649,49 +787,12 @@ export default function PurchasesPage() {
 
       {/* ══ Invoice Detail Modal ══ */}
       {selectedInvoice && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 520, padding: 28, maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h3 style={{ color: S.gold, fontSize: 17, fontWeight: 700 }}>🧾 تفاصيل الفاتورة</h3>
-              <button onClick={() => setSelectedInvoice(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[
-                { label: 'رقم فاتورة المورد', value: selectedInvoice.invoice_number || '—', color: S.gold },
-                { label: 'المورد', value: selectedInvoice.warehouse_suppliers?.name || '—' },
-                { label: 'المستودع', value: (selectedInvoice as any).warehouses?.name || '—' },
-                { label: 'التاريخ', value: selectedInvoice.invoice_date },
-                // ✅ FIX 3: فواصل الأرقام
-                { label: 'إجمالي الفاتورة', value: formatMYR(selectedInvoice.total_amount), color: S.green },
-                { label: 'ملاحظات', value: selectedInvoice.notes || '—' },
-              ].map((row, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: S.card, borderRadius: 10 }}>
-                  <span style={{ fontSize: 13, color: S.muted }}>{row.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: row.color || S.white }}>{row.value}</span>
-                </div>
-              ))}
-              {/* ✅ FIX 2: الصورة بحجم مناسب مع زر عرض */}
-              {selectedInvoice.image_url && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 8 }}>صورة الفاتورة</div>
-                  <img
-                    src={selectedInvoice.image_url} alt="فاتورة"
-                    style={{ width: '100%', maxHeight: 200, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S.border}`, objectFit: 'contain', background: S.navy3 }}
-                    onClick={() => setViewerImage(selectedInvoice.image_url)}
-                  />
-                  <button
-                    onClick={() => setViewerImage(selectedInvoice.image_url)}
-                    style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}
-                  >🔍 عرض الصورة بالحجم الكامل</button>
-                </div>
-              )}
-            </div>
-            {/* ✅ FIX 2: تعديل وإلغاء بدل حذف */}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-              <button onClick={() => setSelectedInvoice(null)} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
-            </div>
-          </div>
-        </div>
+        <InvoiceDetailModal
+          invoice={selectedInvoice}
+          onClose={() => setSelectedInvoice(null)}
+          onViewImage={(url) => setViewerImage(url)}
+          onDeleted={() => { setSelectedInvoice(null); fetchAll() }}
+        />
       )}
 
       {/* ✅ FIX 2: Image Viewer منفصل */}

@@ -560,7 +560,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
     async function loadItems() {
       const { data: rawItems } = await supabase
         .from('purchase_invoice_items')
-        .select('*, units(name_ar)')
+        .select('id, invoice_id, product_id, quantity, unit_price, unit_id, notes')
         .eq('invoice_id', invoice.id)
       
       if (!rawItems || rawItems.length === 0) {
@@ -733,7 +733,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                     return (
                       <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
                         <div style={{ fontSize: 12, color: S2.white, fontWeight: 600 }}>{item.product_name || '—'}</div>
-                        <div style={{ fontSize: 12, color: S2.muted }}>{item.quantity} {item.units?.name_ar || ''}</div>
+                        <div style={{ fontSize: 12, color: S2.muted }}>{item.quantity} {units.find(u => u.id === item.unit_id)?.name_ar || units.find(u => u.id === item.unit_id)?.symbol || '' || ''}</div>
                         <div style={{ fontSize: 12, color: S2.muted }}>{parseFloat(item.unit_price).toFixed(2)}</div>
                         <div style={{ fontSize: 12, color: S2.gold, fontWeight: 600 }}>{total.toFixed(2)}</div>
                       </div>

@@ -95,7 +95,6 @@ const ALL_MENU: MenuGroup[] = [
   ]},
   { group: 'قائمة الطعام', items: [
     { label: 'الأصناف (المنيو)', label_en: 'Menu Items',  icon: '📖', path: '/dashboard/menu/items',      permission: 'menu' },
-    { label: 'التصنيفات',        label_en: 'Categories',  icon: '📁', path: '/dashboard/menu/categories', permission: 'menu' },
   ]},
   { group: 'العملاء والبيع', items: [
     { label: 'حجوزات العملاء',       label_en: 'Reservations',     icon: '📅', path: '/dashboard/bookings',  permission: 'bookings' },

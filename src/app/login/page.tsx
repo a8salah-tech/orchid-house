@@ -35,7 +35,6 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    // تسجيل الدخول عبر Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
     if (authError || !authData.user) {
@@ -44,7 +43,6 @@ export default function LoginPage() {
       return
     }
 
-    // التحقق من وجود الموظف وأنه نشط
     const { data: emp, error: empError } = await supabase
       .from('employees')
       .select('id, name, role, is_active')
@@ -59,13 +57,12 @@ export default function LoginPage() {
     }
 
     if (!emp.is_active) {
-      setError('حسابك موقف. تواصل مع مدير النظام')
+      setError('حسابك موقوف. تواصل مع مدير النظام')
       await supabase.auth.signOut()
       setLoading(false)
       return
     }
 
-    // توجيه حسب الدور
     router.push('/dashboard')
     router.refresh()
   }
@@ -74,7 +71,27 @@ export default function LoginPage() {
     if (!resetEmail) { setError('يرجى إدخال البريد الإلكتروني'); return }
     setResetLoading(true)
     setError('')
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+
+    // تحقق من وجود الإيميل في جدول الموظفين أولاً
+    const { data: emp } = await supabase
+      .from('employees')
+      .select('id, is_active')
+      .eq('email', resetEmail.trim().toLowerCase())
+      .single()
+
+    if (!emp) {
+      setResetLoading(false)
+      setError('هذا البريد الإلكتروني غير مسجل في النظام')
+      return
+    }
+
+    if (!emp.is_active) {
+      setResetLoading(false)
+      setError('هذا الحساب موقوف. تواصل مع مدير النظام')
+      return
+    }
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
       redirectTo: `${window.location.origin}/reset-password`,
     })
     setResetLoading(false)
@@ -95,7 +112,6 @@ export default function LoginPage() {
         input:-webkit-autofill { -webkit-box-shadow: 0 0 0 100px #0F2040 inset !important; -webkit-text-fill-color: #FAFAF8 !important; }
       `}</style>
 
-      {/* Background decoration */}
       <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <div style={{ position: 'absolute', top: -100, right: -100, width: 400, height: 400, borderRadius: '50%', background: 'rgba(201,168,76,0.04)', filter: 'blur(60px)' }} />
         <div style={{ position: 'absolute', bottom: -100, left: -100, width: 400, height: 400, borderRadius: '50%', background: 'rgba(59,130,246,0.04)', filter: 'blur(60px)' }} />
@@ -105,13 +121,9 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{
-            width: 72, height: 72, borderRadius: 20,
-            background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 36, margin: '0 auto 16px',
-            boxShadow: `0 0 40px rgba(201,168,76,0.3)`,
-          }}>🌸</div>
+          <div style={{ width: 72, height: 72, borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', overflow: 'hidden' }}>
+            <img src="/logo.png" alt="Orchid" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
           <h1 style={{ fontSize: 26, fontWeight: 800, color: S.white, marginBottom: 6 }}>Orchid Group</h1>
           <p style={{ fontSize: 13, color: S.muted }}>نظام إدارة المطعم</p>
         </div>
@@ -138,15 +150,13 @@ export default function LoginPage() {
 
           {tab === 'login' ? (
             <>
-              {/* Email */}
               <div style={{ marginBottom: 16 }}>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>البريد الإلكتروني</label>
                 <div style={{ position: 'relative' }}>
-                  <input
-                    type="email" value={email} onChange={e => setEmail(e.target.value)}
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleLogin()}
                     placeholder="email@orchid.com"
-                    style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? S.red + '50' : 'rgba(255,255,255,0.10)'}`, borderRadius: 12, padding: '12px 14px 12px 44px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'ltr', textAlign: 'left', transition: 'border-color .2s' }}
+                    style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid rgba(255,255,255,0.10)`, borderRadius: 12, padding: '12px 14px 12px 44px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'ltr', textAlign: 'left' }}
                     onFocus={e => e.target.style.borderColor = S.gold}
                     onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
                   />
@@ -154,16 +164,14 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Password */}
               <div style={{ marginBottom: 28 }}>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>كلمة المرور</label>
                 <div style={{ position: 'relative' }}>
-                  <input
-                    type={showPass ? 'text' : 'password'} value={password}
+                  <input type={showPass ? 'text' : 'password'} value={password}
                     onChange={e => setPassword(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleLogin()}
                     placeholder="••••••••"
-                    style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? S.red + '50' : 'rgba(255,255,255,0.10)'}`, borderRadius: 12, padding: '12px 44px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'ltr', textAlign: 'left', transition: 'border-color .2s' }}
+                    style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid rgba(255,255,255,0.10)`, borderRadius: 12, padding: '12px 44px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'ltr', textAlign: 'left' }}
                     onFocus={e => e.target.style.borderColor = S.gold}
                     onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
                   />
@@ -176,7 +184,7 @@ export default function LoginPage() {
               </div>
 
               <button onClick={handleLogin} disabled={loading}
-                style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: loading ? 'rgba(201,168,76,0.4)' : `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: loading ? 'not-allowed' : 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, transition: 'all .2s', boxShadow: loading ? 'none' : `0 4px 20px rgba(201,168,76,0.3)` }}>
+                style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: loading ? 'rgba(201,168,76,0.4)' : `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: loading ? 'not-allowed' : 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, boxShadow: loading ? 'none' : `0 4px 20px rgba(201,168,76,0.3)` }}>
                 {loading ? '⏳ جاري تسجيل الدخول...' : '🔓 دخول'}
               </button>
             </>
@@ -199,13 +207,12 @@ export default function LoginPage() {
               ) : (
                 <>
                   <p style={{ fontSize: 13, color: S.muted, marginBottom: 20, lineHeight: 1.7 }}>
-                    أدخل بريدك الإلكتروني وسنرسل لك رابطاً لإعادة تعيين كلمة المرور
+                    أدخل بريدك الإلكتروني المسجل في النظام وسنرسل لك رابطاً لإعادة تعيين كلمة المرور
                   </p>
                   <div style={{ marginBottom: 24 }}>
                     <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>البريد الإلكتروني</label>
                     <div style={{ position: 'relative' }}>
-                      <input
-                        type="email" value={resetEmail}
+                      <input type="email" value={resetEmail}
                         onChange={e => setResetEmail(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && handleResetPassword()}
                         placeholder="email@orchid.com"
@@ -218,7 +225,7 @@ export default function LoginPage() {
                   </div>
                   <button onClick={handleResetPassword} disabled={resetLoading}
                     style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: resetLoading ? 'rgba(201,168,76,0.4)' : `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: resetLoading ? 'not-allowed' : 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, boxShadow: resetLoading ? 'none' : `0 4px 20px rgba(201,168,76,0.3)` }}>
-                    {resetLoading ? '⏳ جاري الإرسال...' : '📨 إرسال رابط الاستعادة'}
+                    {resetLoading ? '⏳ جاري التحقق...' : '📨 إرسال رابط الاستعادة'}
                   </button>
                 </>
               )}
@@ -230,7 +237,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Bottom */}
         <p style={{ textAlign: 'center', fontSize: 11, color: S.muted, marginTop: 20 }}>
           مشكلة في الدخول؟ تواصل مع مدير النظام
         </p>

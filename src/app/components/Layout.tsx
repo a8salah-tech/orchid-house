@@ -16,62 +16,45 @@ const S = {
   card: 'rgba(255,255,255,0.04)', card2: 'rgba(255,255,255,0.08)',
 }
 
-// ══ Translations ══
 const T = {
   ar: {
-    loading: 'جاري التحميل...',
-    signOut: 'تسجيل الخروج',
-    dashboard: 'لوحة التحكم',
+    loading: 'جاري التحميل...', signOut: 'تسجيل الخروج', dashboard: 'لوحة التحكم',
     groups: {
-      'الرئيسية': 'الرئيسية',
-      'إدارة المخزون': 'إدارة المخزون',
-      'العمليات': 'العمليات',
-      'قائمة الطعام': 'قائمة الطعام',
-      'العملاء والبيع': 'العملاء والبيع',
-      'التسويق والنمو': 'التسويق والنمو',
-      'المالية والحسابات': 'المالية والحسابات',
-      'الموارد البشرية': 'الموارد البشرية',
-      'التقارير': 'التقارير',
-      'الإعدادات': 'الإعدادات',
+      'الرئيسية': 'الرئيسية', 'إدارة المخزون': 'إدارة المخزون', 'العمليات': 'العمليات',
+      'قائمة الطعام': 'قائمة الطعام', 'العملاء والبيع': 'العملاء والبيع',
+      'التسويق والنمو': 'التسويق والنمو', 'المالية والحسابات': 'المالية والحسابات',
+      'الموارد البشرية': 'الموارد البشرية', 'التقارير': 'التقارير', 'الإعدادات': 'الإعدادات',
     },
   },
   en: {
-    loading: 'Loading...',
-    signOut: 'Sign Out',
-    dashboard: 'Dashboard',
+    loading: 'Loading...', signOut: 'Sign Out', dashboard: 'Dashboard',
     groups: {
-      'الرئيسية': 'Main',
-      'إدارة المخزون': 'Inventory',
-      'العمليات': 'Operations',
-      'قائمة الطعام': 'Menu',
-      'العملاء والبيع': 'Customers & Sales',
-      'التسويق والنمو': 'Marketing',
-      'المالية والحسابات': 'Finance',
-      'الموارد البشرية': 'HR',
-      'التقارير': 'Reports',
-      'الإعدادات': 'Settings',
+      'الرئيسية': 'Main', 'إدارة المخزون': 'Inventory', 'العمليات': 'Operations',
+      'قائمة الطعام': 'Menu', 'العملاء والبيع': 'Customers & Sales',
+      'التسويق والنمو': 'Marketing', 'المالية والحسابات': 'Finance',
+      'الموارد البشرية': 'HR', 'التقارير': 'Reports', 'الإعدادات': 'Settings',
     },
   },
 }
 
 const ROLE_LABELS: Record<string, { ar: string; en: string; icon: string; color: string }> = {
-  admin:               { ar: 'مدير النظام',     en: 'System Admin',       icon: '👑', color: S.gold },
-  branch_manager:      { ar: 'مدير الفرع',      en: 'Branch Manager',     icon: '🏪', color: '#8B5CF6' },
-  kitchen_manager:     { ar: 'مدير المطبخ',     en: 'Kitchen Manager',    icon: '🍳', color: '#F97316' },
-  hall_manager:        { ar: 'مدير الصالة',     en: 'Hall Manager',       icon: '🏛️', color: '#06B6D4' },
-  kitchen_supervisor:  { ar: 'مشرف المطبخ',     en: 'Kitchen Supervisor', icon: '👨‍🍳', color: S.red },
-  hall_supervisor:     { ar: 'مشرف الصالة',     en: 'Hall Supervisor',    icon: '🍽️', color: S.blue },
-  bar_supervisor:      { ar: 'مشرف البار',      en: 'Bar Supervisor',     icon: '☕', color: '#14B8A6' },
-  assistant_supervisor:{ ar: 'مساعد مشرف',      en: 'Asst. Supervisor',   icon: '🤝', color: '#A78BFA' },
-  cashier:             { ar: 'كاشير',           en: 'Cashier',            icon: '💰', color: S.green },
-  assistant_cashier:   { ar: 'مساعد كاشير',     en: 'Asst. Cashier',      icon: '💳', color: '#34D399' },
-  chef:                { ar: 'طباخ',            en: 'Chef',               icon: '🧑‍🍳', color: '#FB923C' },
-  assistant_chef:      { ar: 'مساعد طباخ',      en: 'Asst. Chef',         icon: '🥘', color: '#FCA5A5' },
-  kitchen_worker:      { ar: 'عامل مطبخ',       en: 'Kitchen Worker',     icon: '🔪', color: '#FCD34D' },
-  bar_assistant:       { ar: 'مساعد بار',       en: 'Bar Assistant',      icon: '🧃', color: '#5EEAD4' },
-  hall_worker:         { ar: 'عامل صالة',       en: 'Hall Worker',        icon: '🪑', color: '#93C5FD' },
-  warehouse_keeper:    { ar: 'أمين المستودع',   en: 'Warehouse Keeper',   icon: '🏭', color: '#F97316' },
-  employee:            { ar: 'موظف',            en: 'Employee',           icon: '👤', color: S.muted },
+  admin:               { ar: 'مدير النظام',   en: 'System Admin',       icon: '👑', color: S.gold },
+  branch_manager:      { ar: 'مدير الفرع',    en: 'Branch Manager',     icon: '🏪', color: '#8B5CF6' },
+  kitchen_manager:     { ar: 'مدير المطبخ',   en: 'Kitchen Manager',    icon: '🍳', color: '#F97316' },
+  hall_manager:        { ar: 'مدير الصالة',   en: 'Hall Manager',       icon: '🏛️', color: '#06B6D4' },
+  kitchen_supervisor:  { ar: 'مشرف المطبخ',   en: 'Kitchen Supervisor', icon: '👨‍🍳', color: S.red },
+  hall_supervisor:     { ar: 'مشرف الصالة',   en: 'Hall Supervisor',    icon: '🍽️', color: S.blue },
+  bar_supervisor:      { ar: 'مشرف البار',    en: 'Bar Supervisor',     icon: '☕', color: '#14B8A6' },
+  assistant_supervisor:{ ar: 'مساعد مشرف',    en: 'Asst. Supervisor',   icon: '🤝', color: '#A78BFA' },
+  cashier:             { ar: 'كاشير',         en: 'Cashier',            icon: '💰', color: S.green },
+  assistant_cashier:   { ar: 'مساعد كاشير',   en: 'Asst. Cashier',      icon: '💳', color: '#34D399' },
+  chef:                { ar: 'طباخ',          en: 'Chef',               icon: '🧑‍🍳', color: '#FB923C' },
+  assistant_chef:      { ar: 'مساعد طباخ',    en: 'Asst. Chef',         icon: '🥘', color: '#FCA5A5' },
+  kitchen_worker:      { ar: 'عامل مطبخ',     en: 'Kitchen Worker',     icon: '🔪', color: '#FCD34D' },
+  bar_assistant:       { ar: 'مساعد بار',     en: 'Bar Assistant',      icon: '🧃', color: '#5EEAD4' },
+  hall_worker:         { ar: 'عامل صالة',     en: 'Hall Worker',        icon: '🪑', color: '#93C5FD' },
+  warehouse_keeper:    { ar: 'أمين المستودع', en: 'Warehouse Keeper',   icon: '🏭', color: '#F97316' },
+  employee:            { ar: 'موظف',          en: 'Employee',           icon: '👤', color: S.muted },
 }
 
 interface MenuItemType { label: string; label_en: string; icon: string; path: string; permission: string | null }
@@ -82,19 +65,19 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'لوحة التحكم', label_en: 'Dashboard', icon: '◉', path: '/dashboard', permission: null },
   ]},
   { group: 'إدارة المخزون', items: [
-    { label: 'المستودعات',    label_en: 'Warehouses',       icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },
-    { label: 'المشتريات',     label_en: 'Purchases',        icon: '🛒', path: '/dashboard/purchases',       permission: 'purchases' },
-    { label: 'طلبات الفروع', label_en: 'Branch Requests',  icon: '📦', path: '/dashboard/branch-requests', permission: 'branch_requests' },
+    { label: 'المستودعات',   label_en: 'Warehouses',      icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },
+    { label: 'المشتريات',    label_en: 'Purchases',       icon: '🛒', path: '/dashboard/purchases',       permission: 'purchases' },
+    { label: 'طلبات الفروع', label_en: 'Branch Requests', icon: '📦', path: '/dashboard/branch-requests', permission: 'branch_requests' },
   ]},
   { group: 'العمليات', items: [
-    { label: 'المطبخ',   label_en: 'Kitchen',   icon: '👨‍🍳', path: '/dashboard/kitchen',  permission: 'kitchen' },
-    { label: 'الحلويات', label_en: 'Desserts',  icon: '🍰', path: '/dashboard/desserts', permission: 'desserts' },
-    { label: 'البار',    label_en: 'Bar',       icon: '☕', path: '/dashboard/bar',      permission: 'bar' },
-    { label: 'الكاشير',  label_en: 'Cashier',   icon: '🏧', path: '/dashboard/cashier', permission: 'cashier' },
-    { label: 'الطاولات', label_en: 'Tables',    icon: '🪑', path: '/dashboard/tables',  permission: 'tables' },
+    { label: 'المطبخ',   label_en: 'Kitchen',  icon: '👨‍🍳', path: '/dashboard/kitchen',  permission: 'kitchen' },
+    { label: 'الحلويات', label_en: 'Desserts', icon: '🍰',  path: '/dashboard/desserts', permission: 'desserts' },
+    { label: 'البار',    label_en: 'Bar',      icon: '☕',  path: '/dashboard/bar',      permission: 'bar' },
+    { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'cashier' },
+    { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'tables' },
   ]},
   { group: 'قائمة الطعام', items: [
-    { label: 'الأصناف (المنيو)', label_en: 'Menu Items',  icon: '📖', path: '/dashboard/menu/items',      permission: 'menu' },
+    { label: 'الأصناف (المنيو)', label_en: 'Menu Items', icon: '📖', path: '/dashboard/menu/items', permission: 'menu' },
   ]},
   { group: 'العملاء والبيع', items: [
     { label: 'حجوزات العملاء',       label_en: 'Reservations',     icon: '📅', path: '/dashboard/bookings',  permission: 'bookings' },
@@ -102,31 +85,31 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'نقاط الولاء',          label_en: 'Loyalty Points',    icon: '🎁', path: '/dashboard/loyalty',   permission: 'loyalty' },
   ]},
   { group: 'التسويق والنمو', items: [
-    { label: 'كوبونات الخصم',    label_en: 'Coupons',       icon: '🎫', path: '/dashboard/coupons',       permission: 'marketing' },
-    { label: 'الإشعارات',        label_en: 'Notifications', icon: '📲', path: '/dashboard/notifications', permission: 'marketing' },
+    { label: 'كوبونات الخصم', label_en: 'Coupons',       icon: '🎫', path: '/dashboard/coupons',       permission: 'marketing' },
+    { label: 'الإشعارات',     label_en: 'Notifications', icon: '📲', path: '/dashboard/notifications', permission: 'marketing' },
   ]},
   { group: 'المالية والحسابات', items: [
-    { label: 'التقارير اليومية', label_en: 'Daily Reports',   icon: '📊', path: '/dashboard/reports/daily',     permission: 'reports' },
-    { label: 'سندات القيد',      label_en: 'Journal Entries', icon: '💸', path: '/dashboard/accounting/entries', permission: 'accounting' },
-    { label: 'شجرة الحسابات',    label_en: 'Chart of Accounts', icon: '🧾', path: '/dashboard/accounting/chart', permission: 'accounting' },
-   { label: 'تقرير الأرباح والخسائر', label_en: 'P&L Report', icon: '📉', path: '/dashboard/reports/pl', permission: 'reports' },
+    { label: 'التقارير اليومية',      label_en: 'Daily Reports',    icon: '📊', path: '/dashboard/reports/daily',       permission: 'reports' },
+    { label: 'سندات القيد',           label_en: 'Journal Entries',  icon: '💸', path: '/dashboard/accounting/entries',  permission: 'accounting' },
+    { label: 'شجرة الحسابات',         label_en: 'Chart of Accounts',icon: '🧾', path: '/dashboard/accounting/chart',   permission: 'accounting' },
+    { label: 'تقرير الأرباح والخسائر',label_en: 'P&L Report',       icon: '📉', path: '/dashboard/reports/pl',         permission: 'reports' },
   ]},
   { group: 'الموارد البشرية', items: [
-    { label: 'سياسات العمل', label_en: 'Work Policies', icon: '📜', path: '/dashboard/hr/policies', permission: 'my_requests' },
-    { label: 'الموظفون',          label_en: 'Employees',        icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },
-    { label: 'طلبات الموظفين',   label_en: 'Staff Requests',   icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
-    { label: 'إدارة الشيفتات',   label_en: 'Shifts',           icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },
-    { label: 'الرواتب والأجور',  label_en: 'Payroll',          icon: '💰', path: '/dashboard/hr/payroll',   permission: 'my_payroll' },
-    { label: 'الحضور والانصراف', label_en: 'Attendance',       icon: '⏰', path: '/dashboard/hr/attendance', permission: 'attendance' },
+    { label: 'سياسات العمل',    label_en: 'Work Policies', icon: '📜', path: '/dashboard/hr/policies',  permission: 'my_requests' },
+    { label: 'الموظفون',        label_en: 'Employees',     icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },
+    { label: 'طلبات الموظفين',  label_en: 'Staff Requests',icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
+    { label: 'إدارة الشيفتات',  label_en: 'Shifts',        icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },
+    { label: 'الرواتب والأجور', label_en: 'Payroll',       icon: '💰', path: '/dashboard/hr/payroll',   permission: 'my_payroll' },
+    { label: 'الحضور والانصراف',label_en: 'Attendance',    icon: '⏰', path: '/dashboard/hr/attendance', permission: 'attendance' },
   ]},
   { group: 'التقارير', items: [
     { label: 'التقارير الشهرية', label_en: 'Monthly Reports', icon: '📈', path: '/dashboard/reports/monthly', permission: 'reports' },
     { label: 'تحليل التكاليف',  label_en: 'Cost Analysis',   icon: '💰', path: '/dashboard/reports/costs',   permission: 'reports' },
   ]},
   { group: 'الإعدادات', items: [
-    { label: 'الموردون',         label_en: 'Suppliers',    icon: '🤝', path: '/dashboard/suppliers',            permission: 'suppliers' },
-    { label: 'إدارة الصلاحيات', label_en: 'Permissions',  icon: '🔐', path: '/dashboard/settings/permissions', permission: 'permissions' },
-    { label: 'الإعدادات',       label_en: 'Settings',     icon: '⚙️', path: '/dashboard/settings',            permission: 'settings' },
+    { label: 'الموردون',         label_en: 'Suppliers',   icon: '🤝', path: '/dashboard/suppliers',            permission: 'suppliers' },
+    { label: 'إدارة الصلاحيات', label_en: 'Permissions', icon: '🔐', path: '/dashboard/settings/permissions', permission: 'permissions' },
+    { label: 'الإعدادات',       label_en: 'Settings',    icon: '⚙️', path: '/dashboard/settings',            permission: 'settings' },
   ]},
 ]
 
@@ -136,9 +119,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [lang, setLang] = useState<'ar' | 'en'>('ar')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const saved = sessionStorage.getItem('sidebar-collapsed')
+      return saved ? new Set(JSON.parse(saved)) : new Set()
+    } catch { return new Set() }
+  })
   const sidebarRef = useRef<HTMLElement>(null)
 
-  // Restore lang + sidebar scroll
   useEffect(() => {
     const saved = sessionStorage.getItem('sidebar-scroll')
     if (saved && sidebarRef.current) sidebarRef.current.scrollTop = parseInt(saved)
@@ -158,6 +147,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const next = lang === 'ar' ? 'en' : 'ar'
     setLang(next)
     localStorage.setItem('dashboard-lang', next)
+  }
+
+  function toggleGroup(group: string) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      next.has(group) ? next.delete(group) : next.add(group)
+      sessionStorage.setItem('sidebar-collapsed', JSON.stringify([...next]))
+      return next
+    })
   }
 
   const t = T[lang]
@@ -189,8 +187,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* ══ HEADER ══ */}
       <header style={{ position: 'fixed', top: 0, right: 0, left: 0, zIndex: 100, height: 60, background: S.navy2, borderBottom: `1px solid ${S.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', gap: 16 }}>
-
-        {/* Logo + Toggle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <button onClick={() => setSidebarOpen(p => !p)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 20, padding: 4 }}>☰</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -202,31 +198,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Center: Page Title */}
         <div style={{ fontSize: 14, color: S.muted, flex: 1, textAlign: 'center' }}>
           {currentPageLabel ? (isAr ? currentPageLabel.label : currentPageLabel.label_en) : t.dashboard}
         </div>
 
-        {/* Right: Lang + Bell + User */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-
-          {/* Language Toggle */}
-          <button onClick={toggleLang}
-            style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', letterSpacing: 1 }}>
+          <button onClick={toggleLang} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', letterSpacing: 1 }}>
             {lang === 'ar' ? 'EN' : 'عر'}
           </button>
-
           <NotificationBell />
-
-          {/* User Info */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: '6px 12px', border: `1px solid ${S.border}` }}>
             <div style={{ textAlign: isAr ? 'right' : 'left' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>
-                {employee?.name || 'User'}
-              </div>
-              <div style={{ fontSize: 10, color: roleInfo.color }}>
-                {roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>{employee?.name || 'User'}</div>
+              <div style={{ fontSize: 10, color: roleInfo.color }}>{roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}</div>
             </div>
             <div style={{ width: 32, height: 32, borderRadius: 8, background: S.goldB, border: `1px solid ${S.gold3}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: S.gold }}>
               {employee?.name?.charAt(0)?.toUpperCase() || '?'}
@@ -245,32 +229,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {employee && (
               <div style={{ margin: '0 12px 12px', background: S.card, borderRadius: 12, padding: '12px 14px', border: `1px solid ${S.border}` }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 2 }}>{employee.name}</div>
-                <div style={{ fontSize: 11, color: roleInfo.color }}>
-                  {roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}
-                </div>
+                <div style={{ fontSize: 11, color: roleInfo.color }}>{roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}</div>
                 {employee.department && <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>🏷️ {employee.department}</div>}
               </div>
             )}
 
-            {visibleMenu.map((group, gi) => (
-              <div key={gi} style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 10, color: S.muted, fontWeight: 700, padding: '8px 18px 4px', letterSpacing: 1, textTransform: 'uppercase' }}>
-                  {isAr ? group.group : (t.groups[group.group as keyof typeof t.groups] || group.group)}
+            {visibleMenu.map((group, gi) => {
+              const isCollapsed = collapsedGroups.has(group.group)
+              const hasActive = group.items.some(item =>
+                pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path))
+              )
+              return (
+                <div key={gi} style={{ marginBottom: 4 }}>
+                  {/* Group Header — clickable */}
+                  <button onClick={() => toggleGroup(group.group)}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 18px 6px', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                    <span style={{ fontSize: 13, color: hasActive ? S.gold : S.white, fontWeight: 700 }}>
+                      {isAr ? group.group : (t.groups[group.group as keyof typeof t.groups] || group.group)}
+                    </span>
+                    <span style={{ fontSize: 16, color: hasActive ? S.gold : S.white, display: 'inline-block', transition: 'transform .2s', transform: isCollapsed ? (isAr ? 'rotate(90deg)' : 'rotate(-90deg)') : 'rotate(0deg)' }}>
+                      ▾
+                    </span>
+                  </button>
+
+                  {/* Items */}
+                  {!isCollapsed && group.items.map((item, ii) => {
+                    const active = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path))
+                    return (
+                      <button key={ii} onClick={() => router.push(item.path)}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: active ? S.gold3 : 'transparent', border: 'none',
+                        borderRight: isAr && active ? `3px solid ${S.gold}` : 'none',
+                        borderLeft: !isAr && active ? `3px solid ${S.gold}` : 'none',
+                        cursor: 'pointer', textAlign: isAr ? 'right' : 'left', transition: 'all 0.15s', color: active ? S.gold : S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: active ? 700 : 400 }}>
+                        <span style={{ fontSize: 16 }}>{item.icon}</span>
+                        <span>{isAr ? item.label : item.label_en}</span>
+                        {active && <span style={{ [isAr ? 'marginRight' : 'marginLeft']: 'auto', width: 6, height: 6, borderRadius: '50%', background: S.gold }} />}
+                      </button>
+                    )
+                  })}
                 </div>
-                {group.items.map((item, ii) => {
-                  const active = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path))
-                  return (
-                    <button key={ii} onClick={() => router.push(item.path)}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', background: active ? S.gold3 : 'transparent', border: 'none', borderRight: isAr && active ? `3px solid ${S.gold}` : 'none',
-                      borderLeft: !isAr && active ? `3px solid ${S.gold}` : 'none', cursor: 'pointer', textAlign: isAr ? 'right' : 'left', transition: 'all 0.15s', color: active ? S.gold : S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: active ? 700 : 400 }}>
-                      <span style={{ fontSize: 16 }}>{item.icon}</span>
-                      <span>{isAr ? item.label : item.label_en}</span>
-                      {active && <span style={{ [isAr ? 'marginRight' : 'marginLeft']: 'auto', width: 6, height: 6, borderRadius: '50%', background: S.gold }} />}
-                    </button>
-                  )
-                })}
-              </div>
-            ))}
+              )
+            })}
 
             <div style={{ borderTop: `1px solid ${S.border}`, margin: '8px 0', paddingTop: 8 }}>
               <button onClick={signOut} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', background: 'transparent', border: 'none', cursor: 'pointer', color: S.red, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>

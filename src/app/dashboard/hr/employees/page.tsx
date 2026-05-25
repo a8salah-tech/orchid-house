@@ -507,6 +507,7 @@ export default function EmployeesPage() {
   const [detailEmp, setDetailEmp] = useState<Employee | null>(null)
   const [createAccountEmp, setCreateAccountEmp] = useState<Employee | null>(null)
   const [changePassEmp, setChangePassEmp] = useState<Employee | null>(null)
+  const [photoModal, setPhotoModal] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filterRole, setFilterRole] = useState('all')
   const [filterDept, setFilterDept] = useState('all')
@@ -518,6 +519,8 @@ export default function EmployeesPage() {
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [showRegistrations, setShowRegistrations] = useState(false)
   const [showBirthdays, setShowBirthdays] = useState(false)   // ⑦ تنبيهات
+  const [page, setPage] = useState(1)
+  const PER_PAGE = 20
   const statsRef = useRef<HTMLDivElement>(null)
 
   const fetchAll = useCallback(async () => {
@@ -538,6 +541,7 @@ export default function EmployeesPage() {
   }, [currentUser?.id])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => { setPage(1) }, [search, filterRole, filterDept, filterBranch, filterStatus, filterHasAccount, sortBy])
 
   async function activateRegistration(reg: Registration) {
     const parsed = parseRegNotes(reg.notes)
@@ -620,6 +624,9 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
     else list = list.sort((a, b) => a.name.localeCompare(b.name, 'ar'))
     return list
   }, [employees, search, filterRole, filterDept, filterBranch, filterStatus, filterHasAccount, sortBy])
+
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  const totalPages = Math.ceil(filtered.length / PER_PAGE)
 
   // ══ شاشة الموظف العادي ══
   if (isEmployee && currentUser) {
@@ -741,7 +748,7 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
                   <div key={reg.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${isDuplicateEmail ? S.red + '60' : S.amber + '30'}`, padding: '16px 20px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
                       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                        {reg.photo_url ? <img src={reg.photo_url} alt={reg.name} style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${S.gold}` }} /> : <div style={{ width: 48, height: 48, borderRadius: '50%', background: S.gold3, border: `2px solid ${S.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👤</div>}
+                        {reg.photo_url ? <img src={reg.photo_url} alt={reg.name} onClick={() => setPhotoModal(reg.photo_url)} style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${S.gold}`, cursor: 'pointer' }} /> : <div style={{ width: 48, height: 48, borderRadius: '50%', background: S.gold3, border: `2px solid ${S.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👤</div>}
                         <div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: S.white, marginBottom: 2 }}>
                             {reg.name} {reg.name_en && <span style={{ fontSize: 12, color: S.muted, fontStyle: 'italic' }}>{reg.name_en}</span>}
@@ -878,7 +885,7 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
         </div>
       ) : view === 'grid' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
-          {filtered.map(emp => {
+          {paginated.map(emp => {
             const role = ROLES[emp.role] || ROLES.employee
             const yearsService = emp.join_date && emp.join_date !== '—'
   ? Math.floor((Date.now() - new Date(emp.join_date).getTime()) / (365.25*24*60*60*1000))
@@ -928,7 +935,7 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(emp => {
+                {paginated.map(emp => {
                   const role = ROLES[emp.role] || ROLES.employee
                   return (
                     <tr key={emp.id} onClick={() => setDetailEmp(emp)} style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer', opacity: emp.is_active ? 1 : 0.6 }}>
@@ -969,11 +976,55 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
         </div>
       )}
 
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 24, marginBottom: 8 }}>
+          <button onClick={() => setPage(1)} disabled={page === 1}
+            style={{ padding: '7px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: page === 1 ? S.muted : S.white, cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+            ««
+          </button>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: page === 1 ? S.muted : S.white, cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            ← السابق
+          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1).map((p, idx, arr) => (
+              <span key={p}>
+                {idx > 0 && arr[idx - 1] !== p - 1 && <span style={{ color: S.muted, fontSize: 12 }}>...</span>}
+                <button onClick={() => setPage(p)}
+                  style={{ width: 36, height: 36, borderRadius: 10, border: `1px solid ${p === page ? S.gold : S.border}`, background: p === page ? S.gold3 : S.card, color: p === page ? S.gold : S.white, cursor: 'pointer', fontSize: 13, fontWeight: p === page ? 700 : 400, fontFamily: 'Tajawal, sans-serif' }}>
+                  {p}
+                </button>
+              </span>
+            ))}
+          </div>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+            style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: page >= totalPages ? S.muted : S.white, cursor: page >= totalPages ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            التالي →
+          </button>
+          <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
+            style={{ padding: '7px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: page === totalPages ? S.muted : S.white, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+            »»
+          </button>
+          <span style={{ fontSize: 12, color: S.muted, marginRight: 8 }}>
+            {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} من {filtered.length}
+          </span>
+        </div>
+      )}
+
       {/* Modals */}
       {(showAdd || editEmp) && <EmployeeModal employee={editEmp} branches={branches} onClose={() => { setShowAdd(false); setEditEmp(null) }} onSaved={() => { setShowAdd(false); setEditEmp(null); fetchAll() }} />}
       {detailEmp && <EmployeeDetailModal employee={detailEmp} onClose={() => setDetailEmp(null)} onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }} onCreateAccount={() => { setCreateAccountEmp(detailEmp); setDetailEmp(null) }} onChangePassword={() => { setChangePassEmp(detailEmp); setDetailEmp(null) }} />}
       {createAccountEmp && <CreateAccountModal employee={createAccountEmp} onClose={() => setCreateAccountEmp(null)} onSaved={() => { setCreateAccountEmp(null); fetchAll() }} />}
       {changePassEmp && <ChangePasswordModal employee={changePassEmp} onClose={() => setChangePassEmp(null)} onSaved={() => { setChangePassEmp(null); fetchAll() }} />}
+      {photoModal && (
+        <div onClick={() => setPhotoModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img src={photoModal} alt="صورة الموظف" style={{ maxWidth: '80vw', maxHeight: '80vh', borderRadius: 20, objectFit: 'contain', boxShadow: '0 0 60px rgba(0,0,0,0.8)' }} />
+            <button onClick={() => setPhotoModal(null)} style={{ position: 'absolute', top: -16, left: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

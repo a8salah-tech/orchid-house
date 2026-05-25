@@ -109,6 +109,8 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'التقارير اليومية', label_en: 'Daily Reports',   icon: '📊', path: '/dashboard/reports/daily',     permission: 'reports' },
     { label: 'سندات القيد',      label_en: 'Journal Entries', icon: '💸', path: '/dashboard/accounting/entries', permission: 'accounting' },
     { label: 'شجرة الحسابات',    label_en: 'Chart of Accounts', icon: '🧾', path: '/dashboard/accounting/chart', permission: 'accounting' },
+    { label: 'تقرير الأرباح والخسائر', label_en: 'P&L Report', icon: '📉', path: '/dashboard/reports/pl', permission: 'reports' },
+
   ]},
   { group: 'الموارد البشرية', items: [
     { label: 'الموظفون',          label_en: 'Employees',        icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },

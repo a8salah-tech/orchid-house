@@ -112,6 +112,7 @@ const ALL_MENU: MenuGroup[] = [
    { label: 'تقرير الأرباح والخسائر', label_en: 'P&L Report', icon: '📉', path: '/dashboard/reports/pl', permission: 'reports' },
   ]},
   { group: 'الموارد البشرية', items: [
+    { label: 'سياسات العمل', label_en: 'Work Policies', icon: '📜', path: '/dashboard/hr/policies', permission: 'my_requests' },
     { label: 'الموظفون',          label_en: 'Employees',        icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },
     { label: 'طلبات الموظفين',   label_en: 'Staff Requests',   icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
     { label: 'إدارة الشيفتات',   label_en: 'Shifts',           icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },

@@ -291,28 +291,35 @@ const filteredItems = items
         <div style={{ marginLeft:'auto', color:C.blue1, fontWeight:600, fontSize:13 }}>{table?.name || `Table ${table?.number}`}</div>
       </div>
       <div style={{ padding:20, maxWidth:520, margin:'0 auto' }}>
-        {cart.map(c => (
-          <div key={c.item.id} style={{ background:C.bg2, borderRadius:20, padding:16, marginBottom:12, border:`1px solid ${C.border}` }}>
+        {cart.map((c, idx) => {
+          const unitPrice = c.selectedSize ? c.selectedSize.price : c.item.price
+          return (
+          <div key={`${c.item.id}_${c.selectedSize?.id || 'no-size'}_${idx}`} style={{ background:C.bg2, borderRadius:20, padding:16, marginBottom:12, border:`1px solid ${C.border}`, position:'relative' }}>
+            {/* زر إلغاء الطلب */}
+            <button onClick={() => setCart(p => p.filter((_, i) => i !== idx))}
+              style={{ position:'absolute', top:10, left:10, width:28, height:28, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.2)', color:'#ef4444', fontSize:16, cursor:'pointer', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
             <div style={{ display:'flex', gap:12, alignItems:'center' }}>
               {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0, border:`1px solid ${C.border}` }} />}
               <div style={{ flex:1 }}>
                 <div style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{c.item.name_en || c.item.name}</div>
-                <div style={{ fontSize:11, color:C.blue1, marginBottom:8 }}>MYR {c.item.price.toFixed(2)} each</div>
+                {c.selectedSize && <div style={{ fontSize:11, color:C.blue1, marginBottom:2, fontWeight:600 }}>{c.selectedSize.name_en || c.selectedSize.name}</div>}
+                <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>MYR {unitPrice.toFixed(2)} each</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                    <button onClick={() => removeFromCart(c.item.id)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:20, cursor:'pointer', fontWeight:700 }}>−</button>
+                    <button onClick={() => removeFromCart(c.item.id, c.selectedSize?.id || null)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:20, cursor:'pointer', fontWeight:700 }}>−</button>
                     <span style={{ color:C.white, fontWeight:900, fontSize:16 }}>{c.quantity}</span>
-                    <button onClick={() => addToCart(c.item)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:20, cursor:'pointer', fontWeight:700 }}>+</button>
+                    <button onClick={() => addToCart(c.item, c.selectedSize || null)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:20, cursor:'pointer', fontWeight:700 }}>+</button>
                   </div>
-                  <span style={{ color:C.blue1, fontWeight:900, fontSize:16 }}>MYR {(c.item.price * c.quantity).toFixed(2)}</span>
+                  <span style={{ color:C.blue1, fontWeight:900, fontSize:16 }}>MYR {(unitPrice * c.quantity).toFixed(2)}</span>
                 </div>
               </div>
             </div>
             <input style={{ width:'100%', background:'rgba(255,255,255,.04)', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 14px', fontSize:12, color:C.white, outline:'none', marginTop:12, boxSizing:'border-box' as const }}
               placeholder="Special request... e.g. no onion"
-              value={c.notes} onChange={e => setCart(p => p.map(ci => ci.item.id === c.item.id ? { ...ci, notes: e.target.value } : ci))} />
+              value={c.notes} onChange={e => setCart(p => p.map((ci, i) => i === idx ? { ...ci, notes: e.target.value } : ci))} />
           </div>
-        ))}
+          )
+        })}
         <div style={{ background:`rgba(59,159,229,.06)`, border:`1px solid ${C.border}`, borderRadius:20, padding:'16px 20px', marginBottom:16 }}>
           <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:C.silver2, marginBottom:6 }}>
             <span>Subtotal</span><span style={{ color:C.white }}> MYR {cartTotal.toFixed(2)}</span>

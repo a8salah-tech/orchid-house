@@ -92,7 +92,10 @@ interface MenuItem {
   or_code: string; description: string; description_en: string
   price: number; cost_price: number; image_url?: string
   is_active: boolean; is_available: boolean; sort_order: number
-  menu_categories?: { name: string; name_en: string; icon: string } | any}
+  discount_percent?: number
+  sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[]
+  menu_categories?: { name: string; name_en: string; icon: string } | any
+}
 
 // ══ Image Upload Helper ══
 async function uploadToStorage(supabase: ReturnType<typeof createClient>, file: File, itemId: string): Promise<string | null> {
@@ -122,11 +125,20 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     description_en: item?.description_en || '',
     price: item?.price?.toString() || '',
     cost_price: item?.cost_price?.toString() || '',
+    discount_percent: String(item?.discount_percent ?? 0),
     is_active: item?.is_active !== false,
     is_available: item?.is_available !== false,
   })
 
   const [imageFile, setImageFile] = useState<File | null>(null)
+  const [sizes, setSizes] = useState<{id?:string;name:string;name_en:string;price:string;is_active:boolean}[]>([])
+  const [modalTab, setModalTab] = useState<'info'|'sizes'>('info')
+  useEffect(() => {
+    if (!item?.id) return
+    supabase.from('menu_item_sizes').select('*').eq('menu_item_id', item.id).order('sort_order').then(({ data }) => {
+      setSizes((data || []).map((s: any) => ({ ...s, price: String(s.price) })))
+    })
+  }, [item?.id])
 
   async function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
@@ -158,6 +170,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
       ...form,
       price: parseFloat(form.price) || 0,
       cost_price: parseFloat(form.cost_price) || 0,
+      discount_percent: parseFloat(form.discount_percent) || 0,
       image_url: finalImageUrl,
     }
 
@@ -169,6 +182,12 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     }
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
+    const savedId = item?.id
+    if (savedId) {
+      await supabase.from('menu_item_sizes').delete().eq('menu_item_id', savedId)
+      const valid = sizes.filter((s) => s.name && s.price)
+      if (valid.length > 0) await supabase.from('menu_item_sizes').insert(valid.map((s, i) => ({ menu_item_id: savedId, name: s.name, name_en: s.name_en || null, price: parseFloat(s.price), is_active: s.is_active !== false, sort_order: i })))
+    }
     onSaved()
   }
 
@@ -180,7 +199,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 780, padding: 32, margin: 'auto' }}>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>
               {item ? '✏️ تعديل الصنف' : '➕ إضافة صنف جديد'}
@@ -189,8 +208,15 @@ function ItemModal({ item, categories, onClose, onSaved }: {
           </div>
           <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
+        <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
+          {(['info','sizes'] as const).map(t => (
+            <button key={t} onClick={() => setModalTab(t)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: modalTab === t ? 700 : 400, background: modalTab === t ? S.gold3 : 'transparent', color: modalTab === t ? S.gold : S.muted }}>
+              {t === 'info' ? '📋 بيانات الصنف' : '📏 الأحجام'}
+            </button>
+          ))}
+        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 24 }}>
+        {modalTab === 'info' && (<div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 24 }}>
 
           {/* LEFT: الصورة */}
           <div>
@@ -277,6 +303,12 @@ function ItemModal({ item, categories, onClose, onSaved }: {
               </div>
             </div>
 
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الخصم %</label>
+              <input style={inp} type="number" min="0" max="100" value={form.discount_percent} onChange={e => setForm(p => ({ ...p, discount_percent: e.target.value }))} placeholder="0" />
+              {parseFloat(form.discount_percent) > 0 && form.price && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>السعر بعد الخصم: MYR {(parseFloat(form.price) * (1 - parseFloat(form.discount_percent)/100)).toFixed(2)}</div>}
+            </div>
+
             {/* الوصف */}
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الوصف (عربي)</label>
@@ -306,6 +338,34 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             </div>
           </div>
         </div>
+
+        )}
+
+        {modalTab === 'sizes' && (
+          <div>
+            <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: S.muted }}>
+              💡 أضف أحجام للصنف (كاملة، نص، ربع) بأسعار مختلفة. إذا لم تضف — يستخدم السعر الأساسي.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>📏 الأحجام</div>
+              <button onClick={() => setSizes(p => [...p, { name: '', name_en: '', price: '', is_active: true }])} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>➕ إضافة حجم</button>
+            </div>
+            {sizes.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 24, color: S.muted, fontSize: 12, background: S.card, borderRadius: 10 }}>لا توجد أحجام</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {sizes.map((size, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px auto', gap: 8, alignItems: 'center', background: S.card, borderRadius: 10, padding: '8px 10px' }}>
+                    <input style={{ ...inp, padding: '7px 10px' }} placeholder="الاسم عربي" value={size.name} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name: e.target.value } : s))} />
+                    <input style={{ ...inp, padding: '7px 10px', direction: 'ltr' as const }} placeholder="English name" value={size.name_en} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name_en: e.target.value } : s))} />
+                    <input style={{ ...inp, padding: '7px 10px' }} type="number" step="0.01" placeholder="السعر" value={size.price} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, price: e.target.value } : s))} />
+                    <button onClick={() => setSizes(p => p.filter((_, si) => si !== i))} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13 }}>🗑️</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
@@ -700,6 +760,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
 
 export default function MenuItemsPage() {
   const supabase = createClient()
+  const [lang] = useState<'ar'|'en'>(() => typeof window !== 'undefined' ? (localStorage.getItem('dashboard-lang') as 'ar'|'en' || 'ar') : 'ar')
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -940,19 +1001,25 @@ export default function MenuItemsPage() {
 
               {/* Content */}
               <div style={{ padding: '14px 14px 12px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 2 }}>{item.name_en}</div>
-                <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', marginBottom: 6 }}>{item.name}</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 2 }}>{lang === 'en' ? (item.name_en || item.name) : item.name}</div>
+                <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', marginBottom: 6 }}>{lang === 'en' ? item.name : (item.name_en || '')}</div>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, lineHeight: 1.5, height: 32, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>
-                  {item.description || ' '}
+                  {(lang === 'en' ? item.description_en : item.description) || ' '}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
-                  {item.cost_price > 0 && (
-                    <div style={{ fontSize: 10, color: S.muted }}>
-                      تكلفة: {formatMYR(item.cost_price)}
-                    </div>
-                  )}
+                  <div>
+                    {item.discount_percent && item.discount_percent > 0 ? (
+                      <>
+                        <div style={{ fontSize: 11, color: S.muted, textDecoration: 'line-through' }}>{formatMYR(item.price)}</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: S.green }}>{formatMYR(item.price * (1 - item.discount_percent / 100))} <span style={{ fontSize: 10, background: S.redB, color: S.red, borderRadius: 20, padding: '2px 6px' }}>-{item.discount_percent}%</span></div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
+                    )}
+                    {item.sizes && item.sizes.length > 0 && <div style={{ fontSize: 10, color: S.blue, marginTop: 2 }}>📏 {item.sizes.length} {lang === 'en' ? 'sizes' : 'أحجام'}</div>}
+                  </div>
+                  {item.cost_price > 0 && <div style={{ fontSize: 10, color: S.muted }}>{lang === 'en' ? 'Cost:' : 'تكلفة:'} {formatMYR(item.cost_price)}</div>}
                 </div>
 
                 {/* Category Tag */}

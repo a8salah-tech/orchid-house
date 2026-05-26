@@ -102,10 +102,12 @@ const filteredItems = items
   function getQty(itemId: string, sizeId?: string) { return cart.filter(c => c.item.id === itemId && (sizeId ? c.selectedSize?.id === sizeId : !c.selectedSize)).reduce((s, c) => s + c.quantity, 0) }
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
   const cartTotal = cart.reduce((s, c) => {
-    const discounted = c.item.discount_percent && c.item.discount_percent > 0
-      ? c.item.price * (1 - c.item.discount_percent / 100)
-      : c.item.price
-    return s + discounted * c.quantity
+    const unitPrice = c.selectedSize
+      ? c.selectedSize.price
+      : c.item.discount_percent && c.item.discount_percent > 0
+        ? c.item.price * (1 - c.item.discount_percent / 100)
+        : c.item.price
+    return s + unitPrice * c.quantity
   }, 0)
 
   async function confirmOrder() {

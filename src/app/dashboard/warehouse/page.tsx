@@ -181,12 +181,83 @@ async function printInventoryReport(supabase: any) {
   if (win) { win.document.write(html); win.document.close(); setTimeout(()=>win.print(),500) }
 }
 
+// ══ Add Unit Modal ══
+function AddUnitModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [units, setUnits] = useState<{id:string;name:string;symbol:string}[]>([])
+  const [form, setForm] = useState({ name: '', symbol: '' })
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    supabase.from('units').select('id,name,symbol').order('name').then(({ data }) => setUnits(data || []))
+  }, [])
+
+  async function save() {
+    if (!form.name || !form.symbol) { setErr('يرجى إدخال الاسم والرمز'); return }
+    if (units.find(u => u.name === form.name.trim())) { setErr('هذه الوحدة موجودة بالفعل'); return }
+    setSaving(true); setErr('')
+    const { error } = await supabase.from('units').insert([{ name: form.name.trim(), symbol: form.symbol.trim() }])
+    setSaving(false)
+    if (error) { setErr('خطأ: ' + error.message); return }
+    setForm({ name: '', symbol: '' })
+    supabase.from('units').select('id,name,symbol').order('name').then(({ data }) => setUnits(data || []))
+  }
+
+  async function del(id: string) {
+    if (!confirm('حذف هذه الوحدة؟')) return
+    await supabase.from('units').delete().eq('id', id)
+    supabase.from('units').select('id,name,symbol').order('name').then(({ data }) => setUnits(data || []))
+  }
+
+  const inp2: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'rtl' }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: '#0F2040', borderRadius: 18, border: '1px solid rgba(255,255,255,0.08)', width: '100%', maxWidth: 460, padding: 28, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: '#14B8A6', fontSize: 16, fontWeight: 700 }}>📦 إدارة الوحدات</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#8A9BB5', fontSize: 22, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#FAFAF8', marginBottom: 12 }}>➕ إضافة وحدة جديدة</div>
+          {err && <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid #EF4444', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#EF4444' }}>{err}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, alignItems: 'flex-end' }}>
+            <div>
+              <label style={{ fontSize: 11, color: '#8A9BB5', display: 'block', marginBottom: 4 }}>اسم الوحدة *</label>
+              <input style={inp2} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: كرتون" />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: '#8A9BB5', display: 'block', marginBottom: 4 }}>الرمز *</label>
+              <input style={inp2} value={form.symbol} onChange={e => setForm(p => ({ ...p, symbol: e.target.value }))} placeholder="كرتون" />
+            </div>
+            <button onClick={save} disabled={saving} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #14B8A6', background: 'rgba(20,184,166,0.12)', color: '#14B8A6', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {saving ? '⏳' : '💾'}
+            </button>
+          </div>
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#FAFAF8', marginBottom: 10 }}>📋 الوحدات ({units.length})</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+          {units.map(u => (
+            <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: '8px 14px' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#FAFAF8' }}>{u.name} <span style={{ fontSize: 11, color: '#8A9BB5' }}>({u.symbol})</span></span>
+              <button onClick={() => del(u.id)} style={{ padding: '4px 10px', borderRadius: 8, border: '1px solid #EF4444', background: 'rgba(239,68,68,0.12)', color: '#EF4444', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+            </div>
+          ))}
+        </div>
+        <button onClick={onClose} style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#8A9BB5', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+      </div>
+    </div>
+  )
+}
+
 export default function WarehousesPage() {
   const router = useRouter()
   const supabase = createClient()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  const [showAddUnit, setShowAddUnit] = useState(false)
 
   async function fetchWarehouses() {
     setLoading(true)
@@ -239,6 +310,12 @@ export default function WarehousesPage() {
             style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid #3B82F6`, background: 'rgba(59,130,246,0.12)', color: '#3B82F6', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
           >
             🖨️ طباعة تقرير المخزون
+          </button>
+          <button
+            onClick={() => setShowAddUnit(true)}
+            style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #14B8A6', background: 'rgba(20,184,166,0.12)', color: '#14B8A6', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            📦 وحدات
           </button>
           <button
             onClick={() => setShowAdd(true)}
@@ -374,7 +451,8 @@ export default function WarehousesPage() {
         </>
       )}
 
-      {showAdd && <AddWarehouseModal onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); fetchWarehouses() }} />}
+      {showAddUnit && <AddUnitModal onClose={() => setShowAddUnit(false)} onSaved={() => setShowAddUnit(false)} />
+      }{showAdd && <AddWarehouseModal onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); fetchWarehouses() }} />}
     </div>
   )
 }

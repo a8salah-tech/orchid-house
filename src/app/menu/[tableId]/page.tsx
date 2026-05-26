@@ -29,8 +29,8 @@ const C = {
 }
 
 type Category = { id: string; name: string; name_en: string; destination: string }
-type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string }
-type CartItem  = { item: MenuItem; quantity: number; notes: string }
+type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[] }
+type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; price: number } | null }
 type Phase     = 'menu' | 'cart' | 'done'
 
 export default function CustomerMenuPage() {
@@ -52,6 +52,7 @@ export default function CustomerMenuPage() {
   const [orderNumber, setOrderNumber] = useState('')
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
+  const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -60,7 +61,7 @@ export default function CustomerMenuPage() {
       setTable(tbl)
       const [cats, itms] = await Promise.all([
         sb.from('menu_categories').select('id,name,name_en,destination').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items').select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,menu_categories(sort_order)').eq('is_available', true).order('sort_order'),
+        sb.from('menu_items').select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('sort_order'),
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
@@ -81,24 +82,24 @@ const filteredItems = items
     return aOrder - bOrder
   })
 
-  function addToCart(item: MenuItem) {
+  function addToCart(item: MenuItem, size?: { id: string; name: string; name_en: string; price: number } | null) {
     setCart(p => {
-      const ex = p.find(c => c.item.id === item.id)
-      if (ex) return p.map(c => c.item.id === item.id ? { ...c, quantity: c.quantity + 1 } : c)
-      return [...p, { item, quantity: 1, notes: '' }]
+      const ex = p.find(c => c.item.id === item.id && (size ? c.selectedSize?.id === size.id : !c.selectedSize))
+      if (ex) return p.map(c => c.item.id === item.id && (size ? c.selectedSize?.id === size.id : !c.selectedSize) ? { ...c, quantity: c.quantity + 1 } : c)
+      return [...p, { item, quantity: 1, notes: '', selectedSize: size || null }]
     })
   }
 
-  function removeFromCart(itemId: string) {
+  function removeFromCart(itemId: string, sizeId?: string | null) {
     setCart(p => {
-      const ex = p.find(c => c.item.id === itemId)
+      const ex = p.find(c => c.item.id === itemId && (sizeId ? c.selectedSize?.id === sizeId : !c.selectedSize))
       if (!ex) return p
-      if (ex.quantity === 1) return p.filter(c => c.item.id !== itemId)
-      return p.map(c => c.item.id === itemId ? { ...c, quantity: c.quantity - 1 } : c)
+      if (ex.quantity === 1) return p.filter(c => !(c.item.id === itemId && (sizeId ? c.selectedSize?.id === sizeId : !c.selectedSize)))
+      return p.map(c => c.item.id === itemId && (sizeId ? c.selectedSize?.id === sizeId : !c.selectedSize) ? { ...c, quantity: c.quantity - 1 } : c)
     })
   }
 
-  function getQty(itemId: string) { return cart.find(c => c.item.id === itemId)?.quantity || 0 }
+  function getQty(itemId: string, sizeId?: string) { return cart.filter(c => c.item.id === itemId && (sizeId ? c.selectedSize?.id === sizeId : !c.selectedSize)).reduce((s, c) => s + c.quantity, 0) }
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
   const cartTotal = cart.reduce((s, c) => {
     const discounted = c.item.discount_percent && c.item.discount_percent > 0
@@ -211,8 +212,8 @@ const filteredItems = items
             <div style={{ color:C.silver2, fontSize:10, marginBottom:12, letterSpacing:2 }}>ORDER SUMMARY</div>
             {cart.map(c => (
               <div key={c.item.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:`1px solid ${C.border}`, fontSize:13 }}>
-                <span style={{ color:C.white2 }}>{c.item.name_en || c.item.name} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
-                <span style={{ color:C.blue1, fontWeight:700 }}>MYR {(c.item.price * c.quantity).toFixed(2)}</span>
+                <span style={{ color:C.white2 }}>{c.item.name_en || c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
+                <span style={{ color:C.blue1, fontWeight:700 }}>MYR {((c.selectedSize ? c.selectedSize.price : c.item.price) * c.quantity).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -240,16 +241,39 @@ const filteredItems = items
           {(selectedItem.description_en || selectedItem.description) && (
             <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{selectedItem.description_en || selectedItem.description}</div>
           )}
+          {/* Sizes */}
+          {selectedItem.sizes && selectedItem.sizes.filter((s: any) => s.is_active).length > 0 && (
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>اختر الحجم:</div>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                {selectedItem.sizes.filter((s: any) => s.is_active).map((size: any) => (
+                  <button key={size.id} onClick={() => setSelectedSize(selectedSize?.id === size.id ? null : size)}
+                    style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(59,159,229,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
+                    {size.name_en || size.name} — MYR {size.price.toFixed(2)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <div style={{ fontSize:26, fontWeight:900, color:C.blue1 }}>MYR {selectedItem.price.toFixed(2)}</div>
+            <div>
+              <div style={{ fontSize:26, fontWeight:900, color:C.blue1 }}>
+                MYR {selectedSize ? selectedSize.price.toFixed(2) : selectedItem.price.toFixed(2)}
+              </div>
+              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{selectedSize.name_en || selectedSize.name}</div>}
+            </div>
             <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-              {getQty(selectedItem.id) > 0 && (
+              {getQty(selectedItem.id, selectedSize?.id) > 0 && (
                 <>
-                  <button onClick={() => removeFromCart(selectedItem.id)} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:24, fontWeight:700, cursor:'pointer' }}>−</button>
-                  <span style={{ color:C.white, fontWeight:900, fontSize:20, minWidth:24, textAlign:'center' }}>{getQty(selectedItem.id)}</span>
+                  <button onClick={() => removeFromCart(selectedItem.id, selectedSize?.id || null)} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:24, fontWeight:700, cursor:'pointer' }}>−</button>
+                  <span style={{ color:C.white, fontWeight:900, fontSize:20, minWidth:24, textAlign:'center' }}>{getQty(selectedItem.id, selectedSize?.id)}</span>
                 </>
               )}
-              <button onClick={() => addToCart(selectedItem)} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:24, fontWeight:700, cursor:'pointer', boxShadow:`0 4px 16px ${C.glow2}` }}>+</button>
+              <button onClick={() => {
+                const activeSizes = selectedItem.sizes?.filter((s: any) => s.is_active) || []
+                if (activeSizes.length > 0 && !selectedSize) { alert('يرجى اختيار الحجم أولاً'); return }
+                addToCart(selectedItem, selectedSize)
+              }} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:24, fontWeight:700, cursor:'pointer', boxShadow:`0 4px 16px ${C.glow2}` }}>+</button>
             </div>
           </div>
         </div>
@@ -360,7 +384,7 @@ const filteredItems = items
           return (
             <div key={item.id} className="item-card"
               style={{ background:C.bg2, borderRadius:22, overflow:'visible', border:`1px solid ${qty > 0 ? C.blue1 : C.border}`, cursor:'pointer', position:'relative', marginTop:52, boxShadow: qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`, transition:'all .2s' }}
-              onClick={() => setSelectedItem(item)}>
+              onClick={() => { setSelectedItem(item); setSelectedSize(null) }}>
 
               {/* ── Circular Image ── */}
               <div style={{ position:'absolute', top:-52, left:'50%', transform:'translateX(-50%)', width:96, height:96, borderRadius:'50%', overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 0 4px ${C.bg2}, 0 0 20px ${C.glow2}` : `0 0 0 4px ${C.bg2}, 0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>

@@ -28,6 +28,7 @@ type Supplier = {
   payment_type: 'cash' | 'credit' | 'mixed'; credit_days: number
   total_purchases: number; outstanding_balance: number
   notes?: string; is_active: boolean; created_at: string
+  invoice_count?: number; source?: 'main' | 'warehouse'
 }
 
 const PAYMENT_CFG = {
@@ -196,9 +197,36 @@ function SupplierDetail({ supplier, onClose, onEdit }: { supplier: Supplier; onC
   const [invoices, setInvoices] = useState<any[]>([])
 
   useEffect(() => {
-    sb.from('purchase_invoices').select('id,invoice_number,invoice_date,total_amount,status').eq('supplier_id', supplier.id).order('invoice_date', { ascending: false }).limit(10)
+    sb.from('purchase_invoices').select('id,invoice_number,invoice_date,total_amount,status').eq('supplier_id', supplier.id).order('invoice_date', { ascending: false })
       .then(({ data }) => setInvoices(data || []))
   }, [supplier.id])
+
+  function printReport() {
+    const totalAmount = invoices.filter(i => i.status !== 'cancelled').reduce((s, i) => s + parseFloat(i.total_amount || 0), 0)
+    const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>تقرير المورد - ${supplier.name}</title>
+    <style>body{font-family:Arial,sans-serif;padding:30px;color:#000;direction:rtl}h1{color:#C9A84C;border-bottom:2px solid #C9A84C;padding-bottom:10px}table{width:100%;border-collapse:collapse;margin-top:20px}th{background:#0A1628;color:#fff;padding:10px;text-align:right}td{padding:8px 10px;border-bottom:1px solid #ddd}tr:nth-child(even){background:#f9f9f9}.total{font-weight:bold;background:#f0f0f0}.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.info-box{background:#f5f5f5;padding:12px;border-radius:8px}.info-label{font-size:11px;color:#666;margin-bottom:4px}.info-value{font-weight:bold;font-size:14px}@media print{button{display:none}}</style></head>
+    <body>
+    <h1>🤝 تقرير المورد</h1>
+    <div class="info-grid">
+      <div class="info-box"><div class="info-label">اسم المورد</div><div class="info-value">${supplier.name}</div></div>
+      ${supplier.company ? `<div class="info-box"><div class="info-label">الشركة</div><div class="info-value">${supplier.company}</div></div>` : ''}
+      ${supplier.phone ? `<div class="info-box"><div class="info-label">الهاتف</div><div class="info-value">${supplier.phone}</div></div>` : ''}
+      <div class="info-box"><div class="info-label">إجمالي المشتريات</div><div class="info-value" style="color:#22C55E">MYR ${totalAmount.toLocaleString('en-MY', {minimumFractionDigits:2})}</div></div>
+      <div class="info-box"><div class="info-label">عدد الفواتير</div><div class="info-value">${invoices.length}</div></div>
+    </div>
+    <h2>الفواتير</h2>
+    <table>
+      <thead><tr><th>#</th><th>رقم الفاتورة</th><th>التاريخ</th><th>المبلغ</th><th>الحالة</th></tr></thead>
+      <tbody>
+        ${invoices.map((inv, i) => `<tr><td>${i+1}</td><td>${inv.invoice_number || '-'}</td><td>${inv.invoice_date}</td><td>MYR ${parseFloat(inv.total_amount).toFixed(2)}</td><td>${inv.status === 'cancelled' ? 'ملغي' : 'مكتمل'}</td></tr>`).join('')}
+        <tr class="total"><td colspan="3">الإجمالي</td><td>MYR ${totalAmount.toFixed(2)}</td><td></td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:30px;font-size:12px;color:#666">تاريخ التقرير: ${new Date().toLocaleDateString('ar-SA')}</p>
+    </body></html>`
+    const w = window.open('', '_blank')
+    if (w) { w.document.write(html); w.document.close(); w.print() }
+  }
 
   const cfg = PAYMENT_CFG[supplier.payment_type]
 
@@ -211,6 +239,7 @@ function SupplierDetail({ supplier, onClose, onEdit }: { supplier: Supplier; onC
             {supplier.company && <div style={{ fontSize: 13, color: S.muted }}>{supplier.company}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={printReport} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة</button>
             <button onClick={onEdit} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✏️ Edit</button>
             <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
           </div>
@@ -290,6 +319,7 @@ function SupplierDetail({ supplier, onClose, onEdit }: { supplier: Supplier; onC
 export default function SuppliersPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  const [lang, setLang] = useState<'ar'|'en'>(() => typeof window !== 'undefined' ? (localStorage.getItem('dashboard-lang') as 'ar'|'en' || 'ar') : 'ar')
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
@@ -301,8 +331,49 @@ export default function SuppliersPage() {
   const [viewSupplier, setViewSupplier] = useState<Supplier | null>(null)
 
   const fetchSuppliers = useCallback(async () => {
-    const { data } = await sb.from('suppliers').select('*').order('name')
-    setSuppliers(data || [])
+    // Fetch from both suppliers tables
+    const [{ data: mainSuppliers }, { data: warehouseSuppliers }, { data: invoices }] = await Promise.all([
+      sb.from('suppliers').select('*').order('name'),
+      sb.from('warehouse_suppliers').select('*').order('name'),
+      sb.from('purchase_invoices').select('supplier_id,total_amount,status').neq('status', 'cancelled'),
+    ])
+
+    // Calculate totals per warehouse supplier
+    const invMap: Record<string, { total: number; count: number }> = {}
+    ;(invoices || []).forEach((inv: any) => {
+      if (inv.supplier_id) {
+        if (!invMap[inv.supplier_id]) invMap[inv.supplier_id] = { total: 0, count: 0 }
+        invMap[inv.supplier_id].total += parseFloat(inv.total_amount) || 0
+        invMap[inv.supplier_id].count += 1
+      }
+    })
+
+    // Convert warehouse suppliers to same shape as Supplier type
+    const wSuppliers: Supplier[] = (warehouseSuppliers || []).map((ws: any) => ({
+      id: ws.id, name: ws.name, company: undefined, category: 'مورد مستودع',
+      email: undefined, phone: ws.phone || undefined, whatsapp: undefined, address: undefined,
+      payment_type: 'cash' as const, credit_days: 0,
+      total_purchases: invMap[ws.id]?.total || 0,
+      outstanding_balance: 0,
+      notes: undefined, is_active: ws.is_active !== false, created_at: ws.created_at,
+      invoice_count: invMap[ws.id]?.count || 0,
+      source: 'warehouse' as const,
+    }))
+
+    // Merge - avoid duplicates by name
+    const mainNames = new Set((mainSuppliers || []).map((s: any) => s.name.toLowerCase()))
+    const uniqueWarehouse = wSuppliers.filter(ws => !mainNames.has(ws.name.toLowerCase()))
+
+    const combined = [
+      ...(mainSuppliers || []).map((s: any) => ({
+        ...s,
+        invoice_count: invMap[s.id]?.count || 0,
+        source: 'main' as const,
+      })),
+      ...uniqueWarehouse,
+    ].sort((a, b) => a.name.localeCompare(b.name))
+
+    setSuppliers(combined)
     setLoading(false)
   }, [sb])
 
@@ -404,9 +475,11 @@ export default function SuppliersPage() {
                     <div>
                       <div style={{ fontSize: 16, fontWeight: 800, color: S.white, marginBottom: 2 }}>{s.name}</div>
                       {s.company && <div style={{ fontSize: 12, color: S.muted }}>{s.company}</div>}
-                      {s.category && (
-                        <div style={{ marginTop: 4, display: 'inline-block', background: S.navy3, borderRadius: 20, padding: '2px 10px', fontSize: 11, color: S.muted }}>{s.category}</div>
-                      )}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                        {s.category && <div style={{ display: 'inline-block', background: S.navy3, borderRadius: 20, padding: '2px 10px', fontSize: 11, color: S.muted }}>{s.category}</div>}
+                        {s.source === 'warehouse' && <div style={{ display: 'inline-block', background: S.tealB, border: `1px solid ${S.teal}30`, borderRadius: 20, padding: '2px 10px', fontSize: 11, color: S.teal }}>🏭 {lang === 'en' ? 'Warehouse' : 'مستودع'}</div>}
+                        {(s.invoice_count || 0) > 0 && <div style={{ display: 'inline-block', background: S.blueB, borderRadius: 20, padding: '2px 10px', fontSize: 11, color: S.blue }}>{s.invoice_count} {lang === 'en' ? 'invoices' : 'فاتورة'}</div>}
+                      </div>
                     </div>
                     <span style={{ background: cfg.bg, color: cfg.color, borderRadius: 20, padding: '4px 10px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{cfg.label}</span>
                   </div>

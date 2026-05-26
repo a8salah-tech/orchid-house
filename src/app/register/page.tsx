@@ -137,7 +137,7 @@ export default function RegisterPage() {
     }
 
     // Check duplicate
-    const { data: existingReg } = await supabase.from('employee_registrations').select('id').eq('email_account', emailAccount).maybeSingle()
+    const { data: existingReg } = await supabase.from('employee_registrations').select('id').eq('email_account', emailAccount).eq('status', 'pending').maybeSingle()
     if (existingReg) { setErrors(p => ({ ...p, email_account: 'This email is already registered.' })); setError('This login email is already registered.'); return }
 
     const { data: existingEmp } = await supabase.from('employees').select('id').eq('email_account', emailAccount).maybeSingle()

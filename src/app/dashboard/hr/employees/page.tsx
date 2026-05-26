@@ -618,17 +618,21 @@ const { data: newEmp, error } = await supabase.from('employees').insert([{
     }).eq('id', rejectModal.id)
 
     // Send rejection email via API
-    if (rejectModal.email) {
+    const emailTo = rejectModal.email || rejectModal.email_account
+    if (emailTo) {
       try {
-        await fetch('/api/send-rejection-email', {
+        const emailRes = await fetch('/api/send-rejection-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: rejectModal.name,
-            email: rejectModal.email,
+            email: emailTo,
             reason: rejectReason,
           })
         })
+        const emailData = await emailRes.json()
+        if (!emailRes.ok) console.error('Email error:', emailData)
+        else console.log('Email sent to:', emailTo)
       } catch (e) { console.error('Email send failed:', e) }
     }
 

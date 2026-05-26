@@ -521,6 +521,92 @@ function UnitConversionModal({ product, units, onClose }: { product: any; units:
   )
 }
 
+// ══ Edit Product Modal ══
+function EditProductModal({ product, categories, units, onClose, onSaved }: {
+  product: Product; categories: string[]; units: Unit[]
+  onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    name: product.name || '',
+    name_en: product.name_en || '',
+    category: product.category || '',
+    min_stock: String(product.min_stock || 0),
+  })
+
+  const S2 = {
+    navy2: '#0F2040', white: '#FAFAF8', muted: '#8A9BB5', border: 'rgba(255,255,255,0.08)',
+    gold: '#C9A84C', gold3: 'rgba(201,168,76,0.12)',
+    green: '#22C55E', greenB: 'rgba(34,197,94,0.12)',
+    red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
+    card: 'rgba(255,255,255,0.04)',
+  }
+
+  const inp: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 10, padding: '10px 14px', fontSize: 13,
+    color: S2.white, outline: 'none', fontFamily: 'Tajawal, sans-serif',
+    boxSizing: 'border-box', direction: 'rtl',
+  }
+
+  async function save() {
+    if (!form.name) { alert('يرجى إدخال اسم الصنف'); return }
+    setSaving(true)
+    const { error } = await supabase.from('warehouse_products').update({
+      name: form.name,
+      name_en: form.name_en || null,
+      category: form.category || null,
+      min_stock: parseFloat(form.min_stock) || 0,
+    }).eq('id', product.id)
+    setSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
+    onSaved()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S2.navy2, borderRadius: 18, border: `1px solid ${S2.border}`, width: '100%', maxWidth: 440, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <h3 style={{ color: S2.gold, fontSize: 16, fontWeight: 700 }}>✏️ تعديل الصنف</h3>
+            <p style={{ fontSize: 12, color: S2.muted, marginTop: 2 }}>{product.name}</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S2.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S2.muted, display: 'block', marginBottom: 5 }}>الاسم (عربي) *</label>
+            <input style={inp} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="اسم الصنف" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S2.muted, display: 'block', marginBottom: 5 }}>الاسم (English)</label>
+            <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Product name" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S2.muted, display: 'block', marginBottom: 5 }}>الفئة</label>
+            <select style={inp} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+              <option value="">— بدون فئة —</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S2.muted, display: 'block', marginBottom: 5 }}>الحد الأدنى للمخزون</label>
+            <input style={inp} type="number" min="0" value={form.min_stock} onChange={e => setForm(p => ({ ...p, min_stock: e.target.value }))} placeholder="0" />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S2.muted}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 22px', borderRadius: 10, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '💾 حفظ'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function WarehouseDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -546,6 +632,7 @@ export default function WarehouseDetailPage() {
   const [showAddCategory, setShowAddCategory] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showUnitConversion, setShowUnitConversion] = useState<Product | null>(null)
+  const [showEditProduct, setShowEditProduct] = useState<Product | null>(null)
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7))
 
   const fetchAll = useCallback(async () => {
@@ -811,11 +898,13 @@ export default function WarehouseDetailPage() {
                           </span>
                         </td>
                         <td style={{ padding: '12px 16px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <button
                             onClick={() => toggleActive(p)}
                             style={{
                               padding: '5px 12px', borderRadius: 8, fontSize: 11, cursor: 'pointer',
-                              fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: 'none',
+                              fontFamily: 'Tajawal, sans-serif', fontWeight: 600,
+                              border: `1px solid ${isInactive ? S.green : S.red}`,
                               background: isInactive ? S.greenB : S.redB,
                               color: isInactive ? S.green : S.red,
                             }}
@@ -823,11 +912,12 @@ export default function WarehouseDetailPage() {
                             {isInactive ? '▶ تفعيل' : '⏸ إيقاف'}
                           </button>
                           <button
-                            onClick={() => setShowUnitConversion(p)}
-                            style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid #8B5CF6`, background: 'rgba(139,92,246,0.12)', color: '#8B5CF6', marginTop: 4 }}
+                            onClick={() => setShowEditProduct(p)}
+                            style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, marginTop: 4 }}
                           >
-                            ⚖️ تحويل
+                            ✏️ تعديل
                           </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -1128,11 +1218,13 @@ export default function WarehouseDetailPage() {
         <StockOutModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products}
           onClose={() => setShowStockOut(false)} onSaved={() => { setShowStockOut(false); fetchAll() }} />
       )}
-      {showUnitConversion && (
-        <UnitConversionModal
-          product={showUnitConversion}
+      {showEditProduct && (
+        <EditProductModal
+          product={showEditProduct}
+          categories={categories}
           units={units}
-          onClose={() => setShowUnitConversion(null)}
+          onClose={() => setShowEditProduct(null)}
+          onSaved={() => { setShowEditProduct(null); fetchAll() }}
         />
       )}
     </div>

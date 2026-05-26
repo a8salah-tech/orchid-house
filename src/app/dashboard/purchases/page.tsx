@@ -50,6 +50,7 @@ interface InvoiceItem {
   product_id: string; product_name: string
   quantity: string; unit_price: string; unit_id: string; matched: boolean
   contents_per_unit?: number; contents_unit_name?: string
+  contents_manual?: string
 }
 
 // ══ AI Invoice Scanner ══
@@ -143,7 +144,7 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
   const [invoiceImage, setInvoiceImage] = useState<string | null>(null)
   const [showAddSupplier, setShowAddSupplier] = useState(false)
   const [localSuppliers, setLocalSuppliers] = useState(suppliers)
-  const [items, setItems] = useState<InvoiceItem[]>([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false }])
+  const [items, setItems] = useState<InvoiceItem[]>([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }])
   const [form, setForm] = useState({
     supplier_id: '', warehouse_id: warehouses[0]?.id || '',
     // ✅ FIX 5: رقم الفاتورة من المورد منفصل عن رقم النظام
@@ -210,7 +211,7 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
   }
 
   function addItem() {
-    setItems(p => [...p, { product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false }])
+    setItems(p => [...p, { product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }])
   }
 
   function setItem(i: number, k: string, v: string) {
@@ -249,14 +250,16 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
           invoice_id: inv.id, product_id: item.product_id,
           quantity: parseFloat(item.quantity), unit_price: parseFloat(item.unit_price),
           unit_id: item.unit_id || null,
+          notes: item.contents_manual ? `محتويات الوحدة: ${item.contents_manual}` : null,
         }])
-        // لو في تحويل وحدة — احسب الكمية الفعلية
+        // احسب الكمية الفعلية
         const conv = unitConversions.find(c =>
           c.product_id === item.product_id && c.from_unit_id === item.unit_id
         )
-        const actualQty = conv
-          ? parseFloat(item.quantity) * conv.factor
-          : parseFloat(item.quantity)
+        const contentsPerUnit = item.contents_manual
+          ? parseFloat(item.contents_manual)
+          : conv ? conv.factor : 1
+        const actualQty = parseFloat(item.quantity) * contentsPerUnit
         
         await supabase.from('stock_movements').insert([{
           movement_type: 'in', product_id: item.product_id,
@@ -346,7 +349,7 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
                     onClickCapture={() => window.open(invoiceImage, '_blank')}
                   >🔍 عرض الصورة</button>
                   <button
-                    onClick={() => { setInvoiceImage(null); setItems([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false }]) }}
+                    onClick={() => { setInvoiceImage(null); setItems([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }]) }}
                     style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}
                   >🔄 إعادة المحاولة</button>
                 </div>
@@ -430,7 +433,7 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
                     )}
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
                   <div>
                     <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية</label>
                     <input style={inp} type="number" placeholder="0" value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} />
@@ -472,6 +475,26 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
                       <div style={{ fontSize: 10, color: '#8B5CF6', marginTop: 3, fontWeight: 600 }}>
                         📦 1 وحدة = {item.contents_per_unit} {item.contents_unit_name}
                         {item.quantity && <span style={{ color: '#C9A84C' }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)} {item.contents_unit_name}</span>}
+                      </div>
+                    )}
+                  </div>
+                  {/* محتويات الوحدة اليدوية */}
+                  <div>
+                    <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>
+                      محتويات الوحدة
+                      <span style={{ fontSize: 9, color: '#8B5CF6', marginRight: 4 }}>(اختياري)</span>
+                    </label>
+                    <input
+                      style={{ ...inp, borderColor: item.contents_manual ? '#8B5CF6' : 'rgba(255,255,255,0.10)' }}
+                      type="number"
+                      min="1"
+                      placeholder="مثال: 24"
+                      value={item.contents_manual || ''}
+                      onChange={e => setItems(p => p.map((it, xi) => xi === i ? { ...it, contents_manual: e.target.value } : it))}
+                    />
+                    {item.contents_manual && item.quantity && (
+                      <div style={{ fontSize: 10, color: '#8B5CF6', marginTop: 3, fontWeight: 600 }}>
+                        📦 الإجمالي الفعلي: {(parseFloat(item.quantity) * parseFloat(item.contents_manual)).toFixed(0)} قطعة/وحدة فرعية
                       </div>
                     )}
                   </div>

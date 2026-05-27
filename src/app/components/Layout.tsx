@@ -109,7 +109,6 @@ const ALL_MENU: MenuGroup[] = [
   { group: 'الإعدادات', items: [
     { label: 'الموردون',         label_en: 'Suppliers',   icon: '🤝', path: '/dashboard/suppliers',            permission: 'suppliers' },
     { label: 'إدارة الصلاحيات', label_en: 'Permissions', icon: '🔐', path: '/dashboard/settings/permissions', permission: 'permissions' },
-    { label: 'الإعدادات',       label_en: 'Settings',    icon: '⚙️', path: '/dashboard/settings',            permission: 'settings' },
   ]},
 ]
 

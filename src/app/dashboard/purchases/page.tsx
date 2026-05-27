@@ -30,7 +30,6 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'rtl',
 }
 
-// ✅ FIX 3: فواصل الأرقام
 function formatMYR(amount: number | null | undefined): string {
   if (amount === null || amount === undefined) return '—'
   return 'MYR ' + new Intl.NumberFormat('en-MY', {
@@ -53,7 +52,7 @@ interface InvoiceItem {
   contents_manual?: string
 }
 
-// ══ AI Invoice Scanner ══
+// ── AI Scanner ──
 async function scanInvoiceWithAI(base64Image: string, products: Product[]): Promise<{
   supplier_name: string; invoice_number: string; invoice_date: string
   items: { name: string; quantity: number; unit_price: number }[]; notes: string
@@ -68,7 +67,232 @@ async function scanInvoiceWithAI(base64Image: string, products: Product[]): Prom
   return result.data
 }
 
-// ══ Add Supplier Modal ══
+// ══════════════════════════════════════════
+// ProductSearchInput — بحث ذكي للأصناف
+// ══════════════════════════════════════════
+function ProductSearchInput({ products, value, productName, matched, onChange, onAddNew }: {
+  products: Product[]
+  value: string
+  productName: string
+  matched: boolean
+  onChange: (id: string, name: string, lastPrice: number) => void
+  onAddNew: (name: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const [highlighted, setHighlighted] = useState(0)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const selectedName = value ? (products.find(p => p.id === value)?.name || productName) : productName
+
+  const filtered = query.trim().length === 0
+    ? products.slice(0, 50)
+    : products.filter(p =>
+        p.name.toLowerCase().includes(query.toLowerCase()) ||
+        (p.name_en || '').toLowerCase().includes(query.toLowerCase())
+      ).slice(0, 30)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false); setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  function handleSelect(p: Product) {
+    onChange(p.id, p.name, p.last_purchase_price || 0)
+    setQuery(''); setOpen(false)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!open) return
+    const total = filtered.length + (query.trim() ? 1 : 0)
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlighted(h => Math.min(h + 1, total - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlighted(h => Math.max(h - 1, 0)) }
+    else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (highlighted < filtered.length) { if (filtered[highlighted]) handleSelect(filtered[highlighted]) }
+      else { onAddNew(query.trim()); setOpen(false); setQuery('') }
+    } else if (e.key === 'Escape') { setOpen(false); setQuery('') }
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          style={{
+            ...inp,
+            borderColor: matched ? S.green : open ? S.gold : 'rgba(255,255,255,0.10)',
+            paddingLeft: 36,
+          }}
+          placeholder={selectedName || 'ابحث عن الصنف...'}
+          value={open ? query : selectedName}
+          onChange={e => { setQuery(e.target.value); setHighlighted(0) }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+        />
+        <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, opacity: 0.4, pointerEvents: 'none' }}>🔍</span>
+        {matched && !open && (
+          <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: S.green }}>✓</span>
+        )}
+      </div>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 999,
+          background: S.navy2, border: `1px solid ${S.gold}`,
+          borderRadius: 12, marginTop: 4,
+          maxHeight: 260, overflowY: 'auto',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        }}>
+          {query.trim() === '' && (
+            <div style={{ padding: '7px 12px', borderBottom: `1px solid ${S.border}`, fontSize: 11, color: S.muted }}>
+              اكتب للبحث — {products.length} صنف متاح
+            </div>
+          )}
+
+          {filtered.length === 0 && query.trim() !== '' ? (
+            <div style={{ padding: '12px 16px', fontSize: 13, color: S.muted, textAlign: 'center' }}>
+              لا نتائج لـ "<strong style={{ color: S.white }}>{query}</strong>"
+            </div>
+          ) : filtered.map((p, i) => (
+            <div
+              key={p.id}
+              onMouseDown={() => handleSelect(p)}
+              onMouseEnter={() => setHighlighted(i)}
+              style={{
+                padding: '9px 14px', cursor: 'pointer',
+                background: highlighted === i ? 'rgba(201,168,76,0.12)' : value === p.id ? 'rgba(34,197,94,0.08)' : 'transparent',
+                borderBottom: `1px solid ${S.border}`,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 13, color: S.white, fontWeight: value === p.id ? 700 : 400 }}>
+                  {value === p.id && <span style={{ color: S.green, marginLeft: 6 }}>✓ </span>}
+                  {p.name}
+                </div>
+                {p.name_en && <div style={{ fontSize: 11, color: S.muted }}>{p.name_en}</div>}
+              </div>
+              <div style={{ textAlign: 'left', flexShrink: 0, marginRight: 8 }}>
+                <div style={{ fontSize: 10, color: S.muted }}>{p.category}</div>
+                {p.last_purchase_price > 0 && (
+                  <div style={{ fontSize: 11, color: S.gold }}>آخر سعر: {p.last_purchase_price.toFixed(2)}</div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {query.trim() !== '' && (
+            <div
+              onMouseDown={() => { onAddNew(query.trim()); setOpen(false); setQuery('') }}
+              onMouseEnter={() => setHighlighted(filtered.length)}
+              style={{
+                padding: '10px 14px', cursor: 'pointer',
+                background: highlighted === filtered.length ? 'rgba(201,168,76,0.15)' : 'transparent',
+                borderTop: filtered.length > 0 ? `1px solid ${S.border}` : 'none',
+                display: 'flex', alignItems: 'center', gap: 8,
+                color: S.gold, fontSize: 13, fontWeight: 700,
+              }}
+            >
+              <span style={{
+                width: 22, height: 22, borderRadius: '50%',
+                background: S.gold3, border: `1px solid ${S.gold}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, flexShrink: 0,
+              }}>+</span>
+              إضافة "<strong>{query.trim()}</strong>" كصنف جديد
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════
+// AddProductModal — إضافة صنف جديد سريع
+// ══════════════════════════════════════════
+function AddProductModal({ initialName, onClose, onSaved }: {
+  initialName: string
+  onClose: () => void
+  onSaved: (p: Product) => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    name: initialName, name_en: '', category: 'عام',
+    current_stock: '0', last_purchase_price: '0',
+  })
+
+  async function save() {
+    if (!form.name.trim()) { alert('يرجى إدخال اسم الصنف'); return }
+    setSaving(true)
+    const { data, error } = await supabase
+      .from('warehouse_products')
+      .insert([{
+        name: form.name.trim(),
+        name_en: form.name_en.trim() || null,
+        category: form.category,
+        current_stock: parseFloat(form.current_stock) || 0,
+        last_purchase_price: parseFloat(form.last_purchase_price) || 0,
+        is_active: true,
+      }])
+      .select('*, units(symbol)')
+      .single()
+    setSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
+    onSaved(data)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.gold}`, width: '100%', maxWidth: 420, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: S.gold, fontSize: 16, fontWeight: 700 }}>📦 إضافة صنف جديد</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم الصنف (عربي) *</label>
+            <input style={inp} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: زيت زيتون" autoFocus />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم الصنف (إنجليزي)</label>
+            <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Olive Oil" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التصنيف</label>
+            <input style={inp} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} placeholder="مثال: زيوت، مواد جافة..." />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المخزون الحالي</label>
+              <input style={{ ...inp, direction: 'ltr' }} type="number" value={form.current_stock} onChange={e => setForm(p => ({ ...p, current_stock: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>آخر سعر شراء</label>
+              <input style={{ ...inp, direction: 'ltr' }} type="number" value={form.last_purchase_price} onChange={e => setForm(p => ({ ...p, last_purchase_price: e.target.value }))} />
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '💾 إضافة الصنف'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════
+// AddSupplierModal
+// ══════════════════════════════════════════
 function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: (s: Supplier) => void }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
@@ -111,19 +335,14 @@ function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   )
 }
 
-// ══ Image Viewer Modal ══
-// ✅ FIX 2: صورة الفاتورة لا تملأ الشاشة + زر إغلاق واضح
+// ══════════════════════════════════════════
+// ImageViewerModal
+// ══════════════════════════════════════════
 function ImageViewerModal({ imageUrl, onClose }: { imageUrl: string; onClose: () => void }) {
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={onClose}
-    >
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
       <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          style={{ position: 'absolute', top: -16, left: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: S.white, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, fontWeight: 700 }}
-        >✕</button>
+        <button onClick={onClose} style={{ position: 'absolute', top: -16, left: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: S.white, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, fontWeight: 700 }}>✕</button>
         <img src={imageUrl} alt="فاتورة" style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain', display: 'block' }} />
         <div style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: S.muted }}>اضغط خارج الصورة للإغلاق</div>
       </div>
@@ -131,8 +350,10 @@ function ImageViewerModal({ imageUrl, onClose }: { imageUrl: string; onClose: ()
   )
 }
 
-// ══ New Invoice Modal ══
-function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversions, onClose, onSaved }: {
+// ══════════════════════════════════════════
+// NewInvoiceModal
+// ══════════════════════════════════════════
+function NewInvoiceModal({ products: initialProducts, suppliers, units, warehouses, unitConversions, onClose, onSaved }: {
   products: Product[]; suppliers: Supplier[]; units: Unit[]
   warehouses: { id: string; name: string }[]; unitConversions: any[]; onClose: () => void; onSaved: () => void
 }) {
@@ -143,12 +364,17 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
   const [scanProgress, setScanProgress] = useState('')
   const [invoiceImage, setInvoiceImage] = useState<string | null>(null)
   const [showAddSupplier, setShowAddSupplier] = useState(false)
+  const [showAddProduct, setShowAddProduct] = useState(false)
+  const [newProductName, setNewProductName] = useState('')
+  const [addingForIndex, setAddingForIndex] = useState<number>(-1)
   const [localSuppliers, setLocalSuppliers] = useState(suppliers)
-  const [items, setItems] = useState<InvoiceItem[]>([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }])
+  const [localProducts, setLocalProducts] = useState(initialProducts)
+  const [items, setItems] = useState<InvoiceItem[]>([{
+    product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: ''
+  }])
   const [form, setForm] = useState({
     supplier_id: '', warehouse_id: warehouses[0]?.id || '',
-    // ✅ FIX 5: رقم الفاتورة من المورد منفصل عن رقم النظام
-    supplier_invoice_number: '', // رقم فاتورة المورد
+    supplier_invoice_number: '',
     invoice_date: new Date().toISOString().split('T')[0], notes: '',
   })
 
@@ -168,38 +394,30 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
     setScanProgress('🔍 جاري تحليل الفاتورة بالذكاء الاصطناعي...')
     try {
       setScanProgress('📷 استخراج البيانات من الصورة...')
-      const result = await scanInvoiceWithAI(base64, products)
+      const result = await scanInvoiceWithAI(base64, localProducts)
       setScanProgress('🔗 مطابقة الأصناف مع قاعدة البيانات...')
-
       if (result.invoice_number) setForm(p => ({ ...p, supplier_invoice_number: result.invoice_number }))
       if (result.invoice_date) setForm(p => ({ ...p, invoice_date: result.invoice_date }))
       if (result.notes) setForm(p => ({ ...p, notes: result.notes }))
-
       if (result.supplier_name) {
-        const matched = localSuppliers.find(s =>
-          s.name.includes(result.supplier_name) || result.supplier_name.includes(s.name)
-        )
+        const matched = localSuppliers.find(s => s.name.includes(result.supplier_name) || result.supplier_name.includes(s.name))
         if (matched) setForm(p => ({ ...p, supplier_id: matched.id }))
       }
-
       if (result.items?.length) {
         const matchedItems: InvoiceItem[] = result.items.map(item => {
-          const match = products.find(p =>
+          const match = localProducts.find(p =>
             p.name.includes(item.name) || item.name.includes(p.name) ||
             (p.name_en && (p.name_en.toLowerCase().includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(p.name_en.toLowerCase())))
           )
           return {
-            product_id: match?.id || '',
-            product_name: match?.name || item.name,
-            quantity: String(item.quantity || ''),
-            unit_price: String(item.unit_price || ''),
+            product_id: match?.id || '', product_name: match?.name || item.name,
+            quantity: String(item.quantity || ''), unit_price: String(item.unit_price || ''),
             unit_id: match?.units ? units.find(u => u.symbol === match.units?.symbol)?.id || '' : '',
             matched: !!match,
           }
         })
         setItems(matchedItems)
       }
-
       setScanProgress('✅ تم استخراج البيانات بنجاح!')
       setTimeout(() => setScanProgress(''), 2000)
     } catch {
@@ -218,7 +436,7 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
     setItems(p => p.map((it, idx) => {
       if (idx !== i) return it
       if (k === 'product_id') {
-        const prod = products.find(p => p.id === v)
+        const prod = localProducts.find(p => p.id === v)
         return { ...it, product_id: v, product_name: prod?.name || '', matched: !!prod, unit_price: prod?.last_purchase_price ? String(prod.last_purchase_price) : it.unit_price }
       }
       return { ...it, [k]: v }
@@ -232,7 +450,6 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
     setSaving(true)
     try {
       const total = items.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
-      // ✅ FIX 5: نحفظ رقم فاتورة المورد في invoice_number، والنظام يولد رقمه التلقائي
       const { data: inv, error: invErr } = await supabase.from('purchase_invoices').insert([{
         supplier_id: form.supplier_id || null,
         warehouse_id: form.warehouse_id,
@@ -244,7 +461,6 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
         status: 'confirmed',
       }]).select().single()
       if (invErr) throw invErr
-
       for (const item of items) {
         await supabase.from('purchase_invoice_items').insert([{
           invoice_id: inv.id, product_id: item.product_id,
@@ -252,15 +468,9 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
           unit_id: item.unit_id || null,
           notes: item.contents_manual ? `محتويات الوحدة: ${item.contents_manual}` : null,
         }])
-        // احسب الكمية الفعلية
-        const conv = unitConversions.find(c =>
-          c.product_id === item.product_id && c.from_unit_id === item.unit_id
-        )
-        const contentsPerUnit = item.contents_manual
-          ? parseFloat(item.contents_manual)
-          : conv ? conv.factor : 1
+        const conv = unitConversions.find(c => c.product_id === item.product_id && c.from_unit_id === item.unit_id)
+        const contentsPerUnit = item.contents_manual ? parseFloat(item.contents_manual) : conv ? conv.factor : 1
         const actualQty = parseFloat(item.quantity) * contentsPerUnit
-        
         await supabase.from('stock_movements').insert([{
           movement_type: 'in', product_id: item.product_id,
           warehouse_id: form.warehouse_id, quantity: actualQty,
@@ -286,17 +496,13 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
 
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <div>
-              <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800, marginBottom: 4 }}>🛒 فاتورة مشتريات جديدة</h2>
-              <p style={{ fontSize: 11, color: S.muted }}>صوّر الفاتورة وسيقوم الذكاء الاصطناعي باستخراج البيانات تلقائياً</p>
-            </div>
-            <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
+            <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>🛒 فاتورة مشتريات جديدة</h2>
+            <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
           </div>
 
-          {/* ✅ FIX 1: Mobile responsive grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
 
-            {/* LEFT: صورة الفاتورة */}
+            {/* صورة الفاتورة */}
             <div>
               <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 10 }}>📷 صورة الفاتورة</div>
               <div
@@ -311,16 +517,13 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
                 }}
               >
                 {invoiceImage ? (
-                  // ✅ FIX 2: الصورة محدودة الحجم داخل الـ modal
                   <img src={invoiceImage} alt="فاتورة" style={{ maxHeight: 200, maxWidth: '100%', borderRadius: 10, objectFit: 'contain' }} />
                 ) : (
                   <div>
                     <div style={{ fontSize: 36, marginBottom: 8 }}>📸</div>
                     <div style={{ fontSize: 13, color: S.white, fontWeight: 600, marginBottom: 4 }}>صوّر أو ارفع الفاتورة</div>
                     <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>الذكاء الاصطناعي سيستخرج البيانات تلقائياً</div>
-                    <div style={{ padding: '7px 18px', background: S.gold3, border: `1px solid ${S.gold}`, borderRadius: 8, display: 'inline-block', fontSize: 12, color: S.gold, fontWeight: 700 }}>
-                      اختر صورة
-                    </div>
+                    <div style={{ padding: '7px 18px', background: S.gold3, border: `1px solid ${S.gold}`, borderRadius: 8, display: 'inline-block', fontSize: 12, color: S.gold, fontWeight: 700 }}>اختر صورة</div>
                   </div>
                 )}
               </div>
@@ -341,26 +544,15 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
 
               {invoiceImage && (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {/* ✅ FIX 2: زر عرض بدل حذف مباشر */}
-                  <button
-                    onClick={() => { /* handled by clicking image zone */ }}
-                    style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}
-                    // نفتح صورة في tab جديد
-                    onClickCapture={() => window.open(invoiceImage, '_blank')}
-                  >🔍 عرض الصورة</button>
-                  <button
-                    onClick={() => { setInvoiceImage(null); setItems([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }]) }}
-                    style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}
-                  >🔄 إعادة المحاولة</button>
+                  <button onClickCapture={() => window.open(invoiceImage, '_blank')} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔍 عرض الصورة</button>
+                  <button onClick={() => { setInvoiceImage(null); setItems([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }]) }} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔄 إعادة المحاولة</button>
                 </div>
               )}
             </div>
 
-            {/* RIGHT: بيانات الفاتورة */}
+            {/* بيانات الفاتورة */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 4 }}>📋 بيانات الفاتورة</div>
-
-              {/* المورد */}
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المورد</label>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -368,35 +560,28 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
                     <option value="">اختر المورد</option>
                     {localSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
-                  <button onClick={() => setShowAddSupplier(true)} style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center' }}>+</button>
+                  <button onClick={() => setShowAddSupplier(true)} style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 18 }}>+</button>
                 </div>
               </div>
-
-              {/* المستودع */}
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المستودع *</label>
-                <select style={{ ...inp }} value={form.warehouse_id} onChange={e => setForm(p => ({ ...p, warehouse_id: e.target.value }))}>
+                <select style={inp} value={form.warehouse_id} onChange={e => setForm(p => ({ ...p, warehouse_id: e.target.value }))}>
                   <option value="">اختر المستودع</option>
                   {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
               </div>
-
-              {/* ✅ FIX 5: رقمان منفصلان */}
               <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px' }}>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 2 }}>رقم النظام</div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: S.gold }}>يُولَّد تلقائياً عند الحفظ ✦</div>
               </div>
-
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>رقم فاتورة المورد</label>
                 <input style={inp} value={form.supplier_invoice_number} onChange={e => setForm(p => ({ ...p, supplier_invoice_number: e.target.value }))} placeholder="رقم الفاتورة من المورد (اختياري)" />
               </div>
-
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التاريخ</label>
                 <input style={inp} type="date" value={form.invoice_date} onChange={e => setForm(p => ({ ...p, invoice_date: e.target.value }))} />
               </div>
-
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>ملاحظات</label>
                 <input style={inp} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="أي ملاحظات إضافية..." />
@@ -404,35 +589,37 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
             </div>
           </div>
 
-          {/* ── الأصناف ── */}
+          {/* الأصناف */}
           <div style={{ marginTop: 20, borderTop: `1px solid ${S.border}`, paddingTop: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div style={{ fontSize: 14, color: S.gold, fontWeight: 700 }}>📦 أصناف الفاتورة</div>
               <button onClick={addItem} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>+ إضافة صنف</button>
             </div>
 
-            {/* ✅ FIX 1: Mobile friendly items */}
             {items.map((item, i) => (
               <div key={i} style={{ background: S.card, borderRadius: 12, padding: '12px', marginBottom: 10 }}>
-                {/* ✅ FIX 4: اسم الصنف يظهر واضح */}
+                {/* ✅ بحث ذكي للصنف */}
                 <div style={{ marginBottom: 8 }}>
                   <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الصنف</label>
-                  <div style={{ position: 'relative' }}>
-                    <select
-                      style={{ ...inp, borderColor: item.matched ? S.green : 'rgba(255,255,255,0.10)' }}
-                      value={item.product_id}
-                      onChange={e => setItem(i, 'product_id', e.target.value)}
-                    >
-                      <option value="">{item.product_name ? `✓ ${item.product_name}` : 'اختر الصنف'}</option>
-                      {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.name_en ? ` — ${p.name_en}` : ''}</option>)}
-                    </select>
-                    {item.matched && (
-                      <div style={{ fontSize: 11, color: S.green, marginTop: 3, fontWeight: 600 }}>
-                        ✓ {item.product_name}
-                      </div>
-                    )}
-                  </div>
+                  <ProductSearchInput
+                    products={localProducts}
+                    value={item.product_id}
+                    productName={item.product_name}
+                    matched={item.matched}
+                    onChange={(id, name, lastPrice) => {
+                      setItems(p => p.map((it, idx) => idx === i ? {
+                        ...it, product_id: id, product_name: name, matched: true,
+                        unit_price: lastPrice > 0 ? String(lastPrice) : it.unit_price,
+                      } : it))
+                    }}
+                    onAddNew={(name) => {
+                      setNewProductName(name)
+                      setAddingForIndex(i)
+                      setShowAddProduct(true)
+                    }}
+                  />
                 </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
                   <div>
                     <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية</label>
@@ -444,63 +631,45 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
                   </div>
                   <div>
                     <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الوحدة</label>
-                    <select style={{ ...inp }} value={item.unit_id} onChange={e => {
+                    <select style={inp} value={item.unit_id} onChange={e => {
                       setItem(i, 'unit_id', e.target.value)
-                      // Check for unit conversion
                       if (item.product_id && e.target.value) {
-                        const conv = unitConversions.find(c =>
-                          c.product_id === item.product_id && c.from_unit_id === e.target.value
-                        )
-                        if (conv) {
-                          setItems(p => p.map((it, idx) => idx === i ? {
-                            ...it,
-                            unit_id: e.target.value,
-                            contents_per_unit: conv.factor,
-                            contents_unit_name: conv.to_unit?.name,
-                          } : it))
-                        } else {
-                          setItems(p => p.map((it, idx) => idx === i ? {
-                            ...it,
-                            unit_id: e.target.value,
-                            contents_per_unit: undefined,
-                            contents_unit_name: undefined,
-                          } : it))
-                        }
+                        const conv = unitConversions.find(c => c.product_id === item.product_id && c.from_unit_id === e.target.value)
+                        setItems(p => p.map((it, idx) => idx === i ? {
+                          ...it, unit_id: e.target.value,
+                          contents_per_unit: conv?.factor, contents_unit_name: conv?.to_unit?.name,
+                        } : it))
                       }
                     }}>
                       <option value="">—</option>
                       {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
                     </select>
                     {item.contents_per_unit && item.contents_unit_name && (
-                      <div style={{ fontSize: 10, color: '#8B5CF6', marginTop: 3, fontWeight: 600 }}>
+                      <div style={{ fontSize: 10, color: S.purple, marginTop: 3, fontWeight: 600 }}>
                         📦 1 وحدة = {item.contents_per_unit} {item.contents_unit_name}
-                        {item.quantity && <span style={{ color: '#C9A84C' }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)} {item.contents_unit_name}</span>}
+                        {item.quantity && <span style={{ color: S.gold }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)}</span>}
                       </div>
                     )}
                   </div>
-                  {/* محتويات الوحدة اليدوية */}
                   <div>
                     <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>
-                      محتويات الوحدة
-                      <span style={{ fontSize: 9, color: '#8B5CF6', marginRight: 4 }}>(اختياري)</span>
+                      محتويات الوحدة <span style={{ fontSize: 9, color: S.purple }}>(اختياري)</span>
                     </label>
                     <input
-                      style={{ ...inp, borderColor: item.contents_manual ? '#8B5CF6' : 'rgba(255,255,255,0.10)' }}
-                      type="number"
-                      min="1"
-                      placeholder="مثال: 24"
+                      style={{ ...inp, borderColor: item.contents_manual ? S.purple : 'rgba(255,255,255,0.10)' }}
+                      type="number" min="1" placeholder="مثال: 24"
                       value={item.contents_manual || ''}
                       onChange={e => setItems(p => p.map((it, xi) => xi === i ? { ...it, contents_manual: e.target.value } : it))}
                     />
                     {item.contents_manual && item.quantity && (
-                      <div style={{ fontSize: 10, color: '#8B5CF6', marginTop: 3, fontWeight: 600 }}>
-                        📦 الإجمالي الفعلي: {(parseFloat(item.quantity) * parseFloat(item.contents_manual)).toFixed(0)} قطعة/وحدة فرعية
+                      <div style={{ fontSize: 10, color: S.purple, marginTop: 3, fontWeight: 600 }}>
+                        📦 الإجمالي: {(parseFloat(item.quantity) * parseFloat(item.contents_manual)).toFixed(0)} قطعة
                       </div>
                     )}
                   </div>
                   <button onClick={() => setItems(p => p.filter((_, idx) => idx !== i))} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '10px', fontSize: 14, alignSelf: 'flex-end' }}>✕</button>
                 </div>
-                {/* ✅ FIX 3: إجمالي الصنف بفواصل */}
+
                 {item.quantity && item.unit_price && (
                   <div style={{ textAlign: 'left', marginTop: 6, fontSize: 12, color: S.gold, fontWeight: 600 }}>
                     = {formatMYR(parseFloat(item.quantity) * parseFloat(item.unit_price))}
@@ -509,15 +678,12 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
               </div>
             ))}
 
-            {/* Total */}
             <div style={{ background: S.navy3, borderRadius: 12, padding: '14px 18px', marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ color: S.muted, fontSize: 14 }}>إجمالي الفاتورة</span>
-              {/* ✅ FIX 3: فواصل الأرقام */}
               <span style={{ color: S.gold, fontSize: 22, fontWeight: 800 }}>{formatMYR(total)}</span>
             </div>
           </div>
 
-          {/* Actions */}
           <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
             <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -533,14 +699,32 @@ function NewInvoiceModal({ products, suppliers, units, warehouses, unitConversio
           onSaved={(s) => { setLocalSuppliers(p => [...p, s]); setForm(p => ({ ...p, supplier_id: s.id })); setShowAddSupplier(false) }}
         />
       )}
+
+      {showAddProduct && (
+        <AddProductModal
+          initialName={newProductName}
+          onClose={() => { setShowAddProduct(false); setNewProductName(''); setAddingForIndex(-1) }}
+          onSaved={(p) => {
+            setLocalProducts(prev => [...prev, p])
+            if (addingForIndex >= 0) {
+              setItems(prev => prev.map((it, idx) => idx === addingForIndex ? {
+                ...it, product_id: p.id, product_name: p.name, matched: true,
+                unit_price: p.last_purchase_price > 0 ? String(p.last_purchase_price) : it.unit_price,
+              } : it))
+            }
+            setShowAddProduct(false); setNewProductName(''); setAddingForIndex(-1)
+          }}
+        />
+      )}
+
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </>
   )
 }
 
-// ══ الصفحة الرئيسية ══
-
-// ══ Invoice Detail Modal ══
+// ══════════════════════════════════════════
+// InvoiceDetailModal
+// ══════════════════════════════════════════
 function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, onClose, onViewImage, onDeleted, onSaved }: {
   invoice: any; products: any[]; suppliers: any[]; units: any[]; warehouses: any[]
   onClose: () => void; onViewImage: (url: string) => void; onDeleted: () => void; onSaved: () => void
@@ -571,7 +755,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
     card: 'rgba(255,255,255,0.04)', card2: 'rgba(255,255,255,0.07)',
   }
 
-  const inp: React.CSSProperties = {
+  const inpD: React.CSSProperties = {
     width: '100%', background: 'rgba(255,255,255,0.04)',
     border: `1px solid rgba(255,255,255,0.10)`,
     borderRadius: 10, padding: '9px 12px', fontSize: 13,
@@ -585,94 +769,32 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
         .from('purchase_invoice_items')
         .select('id, invoice_id, product_id, quantity, unit_price, unit_id, notes')
         .eq('invoice_id', invoice.id)
-      
-      if (!rawItems || rawItems.length === 0) {
-        setItems([])
-        setEditItems([])
-        setLoadingItems(false)
-        return
-      }
-
-      // جيب أسماء المنتجات بشكل منفصل
+      if (!rawItems || rawItems.length === 0) { setItems([]); setEditItems([]); setLoadingItems(false); return }
       const productIds = [...new Set(rawItems.map((i: any) => i.product_id))]
-      const { data: prods } = await supabase
-        .from('warehouse_products')
-        .select('id, name')
-        .in('id', productIds)
-      
+      const { data: prods } = await supabase.from('warehouse_products').select('id, name').in('id', productIds)
       const prodMap = Object.fromEntries((prods || []).map((p: any) => [p.id, p.name]))
-      
-      const loaded = rawItems.map((i: any) => ({
-        ...i,
-        product_name: prodMap[i.product_id] || '—',
-      }))
-      
+      const loaded = rawItems.map((i: any) => ({ ...i, product_name: prodMap[i.product_id] || '—' }))
       setItems(loaded)
-      setEditItems(loaded.map((i: any) => ({
-        id: i.id,
-        product_id: i.product_id,
-        quantity: String(i.quantity),
-        unit_price: String(i.unit_price),
-        unit_id: i.unit_id || '',
-      })))
+      setEditItems(loaded.map((i: any) => ({ id: i.id, product_id: i.product_id, quantity: String(i.quantity), unit_price: String(i.unit_price), unit_id: i.unit_id || '' })))
       setLoadingItems(false)
     }
     loadItems()
   }, [invoice.id])
 
-  function addEditItem() {
-    setEditItems(p => [...p, { product_id: '', quantity: '', unit_price: '', unit_id: '' }])
-  }
-
-  function removeEditItem(idx: number) {
-    setEditItems(p => p.filter((_, i) => i !== idx))
-  }
-
   async function handleSave() {
     if (editItems.length === 0) { alert('يرجى إضافة صنف واحد على الأقل'); return }
-    if (editItems.some(i => !i.product_id || !i.quantity || !i.unit_price)) {
-      alert('يرجى إكمال بيانات الأصناف'); return
-    }
+    if (editItems.some(i => !i.product_id || !i.quantity || !i.unit_price)) { alert('يرجى إكمال بيانات الأصناف'); return }
     setSaving(true)
     const total = editItems.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
-    
-    // Update invoice header
-    await supabase.from('purchase_invoices').update({
-      invoice_number: editForm.invoice_number || null,
-      invoice_date: editForm.invoice_date,
-      supplier_id: editForm.supplier_id || null,
-      warehouse_id: editForm.warehouse_id || null,
-      notes: editForm.notes || null,
-      total_amount: total,
-    }).eq('id', invoice.id)
-
-    // Delete old items & stock movements
+    await supabase.from('purchase_invoices').update({ invoice_number: editForm.invoice_number || null, invoice_date: editForm.invoice_date, supplier_id: editForm.supplier_id || null, warehouse_id: editForm.warehouse_id || null, notes: editForm.notes || null, total_amount: total }).eq('id', invoice.id)
     await supabase.from('purchase_invoice_items').delete().eq('invoice_id', invoice.id)
     await supabase.from('stock_movements').delete().eq('invoice_id', invoice.id)
-
-    // Insert new items & stock movements
     for (const item of editItems) {
-      const { data: newItem } = await supabase.from('purchase_invoice_items').insert([{
-        invoice_id: invoice.id,
-        product_id: item.product_id,
-        quantity: parseFloat(item.quantity),
-        unit_price: parseFloat(item.unit_price),
-        unit_id: item.unit_id || null,
-        total_price: parseFloat(item.quantity) * parseFloat(item.unit_price),
-      }]).select().single()
-
+      await supabase.from('purchase_invoice_items').insert([{ invoice_id: invoice.id, product_id: item.product_id, quantity: parseFloat(item.quantity), unit_price: parseFloat(item.unit_price), unit_id: item.unit_id || null, total_price: parseFloat(item.quantity) * parseFloat(item.unit_price) }])
       if (editForm.warehouse_id) {
-        await supabase.from('stock_movements').insert([{
-          product_id: item.product_id,
-          warehouse_id: editForm.warehouse_id,
-          movement_type: 'in',
-          quantity: parseFloat(item.quantity),
-          invoice_id: invoice.id,
-          notes: 'تعديل فاتورة مشتريات',
-        }])
+        await supabase.from('stock_movements').insert([{ product_id: item.product_id, warehouse_id: editForm.warehouse_id, movement_type: 'in', quantity: parseFloat(item.quantity), invoice_id: invoice.id, notes: 'تعديل فاتورة مشتريات' }])
       }
     }
-
     setSaving(false)
     onSaved()
   }
@@ -692,27 +814,19 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
       <div style={{ background: S2.navy2, borderRadius: 18, border: `1px solid ${S2.border}`, width: '100%', maxWidth: 580, padding: '24px 20px', margin: 'auto' }}>
-
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <h3 style={{ color: S2.gold, fontSize: 17, fontWeight: 700, marginBottom: 2 }}>
-              {mode === 'edit' ? '✏️ تعديل الفاتورة' : '🧾 تفاصيل الفاتورة'}
-            </h3>
+            <h3 style={{ color: S2.gold, fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{mode === 'edit' ? '✏️ تعديل الفاتورة' : '🧾 تفاصيل الفاتورة'}</h3>
             {invoice.invoice_number && <div style={{ fontSize: 12, color: S2.muted }}>رقم المورد: {invoice.invoice_number}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {mode === 'view' && (
-              <button onClick={() => setMode('edit')}
-                style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                ✏️ تعديل
-              </button>
+              <button onClick={() => setMode('edit')} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✏️ تعديل</button>
             )}
             <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S2.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
           </div>
         </div>
 
-        {/* ══ VIEW MODE ══ */}
         {mode === 'view' && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
@@ -728,6 +842,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                 </div>
               ))}
             </div>
+
             {invoice.notes && (
               <div style={{ background: S2.card, borderRadius: 10, padding: '10px 12px', marginBottom: 16 }}>
                 <div style={{ fontSize: 10, color: S2.muted, marginBottom: 3 }}>📝 ملاحظات</div>
@@ -735,15 +850,12 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
               </div>
             )}
 
-            {/* Items */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: S2.white, marginBottom: 10 }}>📦 أصناف الفاتورة</div>
               {loadingItems ? (
                 <div style={{ textAlign: 'center', padding: 20, color: S2.muted, fontSize: 12 }}>⏳ جاري التحميل...</div>
               ) : items.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 20, color: S2.muted, fontSize: 12, background: S2.card, borderRadius: 10 }}>
-                  لا توجد أصناف — اضغط تعديل لإضافتها
-                </div>
+                <div style={{ textAlign: 'center', padding: 20, color: S2.muted, fontSize: 12, background: S2.card, borderRadius: 10 }}>لا توجد أصناف — اضغط تعديل لإضافتها</div>
               ) : (
                 <div style={{ borderRadius: 10, overflow: 'hidden', border: `1px solid ${S2.border}` }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', background: S2.navy3, padding: '8px 12px', gap: 8 }}>
@@ -752,79 +864,65 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                     ))}
                   </div>
                   {items.map((item, i) => {
-                    const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0)
+                    const t = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0)
                     return (
                       <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
                         <div style={{ fontSize: 12, color: S2.white, fontWeight: 600 }}>{item.product_name || '—'}</div>
-                        <div style={{ fontSize: 12, color: S2.muted }}>{item.quantity} {units.find(u => u.id === item.unit_id)?.name_ar || units.find(u => u.id === item.unit_id)?.symbol || '' || ''}</div>
+                        <div style={{ fontSize: 12, color: S2.muted }}>{item.quantity} {units.find(u => u.id === item.unit_id)?.symbol || ''}</div>
                         <div style={{ fontSize: 12, color: S2.muted }}>{parseFloat(item.unit_price).toFixed(2)}</div>
-                        <div style={{ fontSize: 12, color: S2.gold, fontWeight: 600 }}>{total.toFixed(2)}</div>
+                        <div style={{ fontSize: 12, color: S2.gold, fontWeight: 600 }}>{t.toFixed(2)}</div>
                       </div>
                     )
                   })}
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: S2.greenB }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: S2.green, gridColumn: '1/4' }}>الإجمالي</div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: S2.green }}>
-                      {items.reduce((s, item) => s + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0).toFixed(2)}
-                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: S2.green }}>{items.reduce((s, item) => s + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0).toFixed(2)}</div>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Image */}
             {invoice.image_url && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: S2.gold, fontWeight: 700, marginBottom: 8 }}>📸 صورة الفاتورة</div>
-                <img src={invoice.image_url} alt="فاتورة"
-                  style={{ width: '100%', maxHeight: 180, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S2.border}`, objectFit: 'contain', background: S2.navy3 }}
-                  onClick={() => onViewImage(invoice.image_url)} />
-                <button onClick={() => onViewImage(invoice.image_url)}
-                  style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S2.blue}`, background: S2.blueB, color: S2.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-                  🔍 عرض بالحجم الكامل
-                </button>
+                <img src={invoice.image_url} alt="فاتورة" style={{ width: '100%', maxHeight: 180, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S2.border}`, objectFit: 'contain', background: S2.navy3 }} onClick={() => onViewImage(invoice.image_url)} />
+                <button onClick={() => onViewImage(invoice.image_url)} style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S2.blue}`, background: S2.blueB, color: S2.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔍 عرض بالحجم الكامل</button>
               </div>
             )}
 
-            {/* Actions */}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={handleCancel} disabled={deleting}
-                style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S2.amber}`, background: S2.amberB, color: S2.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>
+              <button onClick={handleCancel} disabled={deleting} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S2.amber}`, background: S2.amberB, color: S2.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>
                 {deleting ? '⏳...' : '🚫 إلغاء الفاتورة'}
               </button>
-              <button onClick={onClose}
-                style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${S2.muted}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-                إغلاق
-              </button>
+              <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${S2.muted}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
             </div>
           </>
         )}
 
-        {/* ══ EDIT MODE ══ */}
         {mode === 'edit' && (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>رقم الفاتورة (المورد)</label>
-                  <input style={inp} value={editForm.invoice_number} onChange={e => setEditForm(p => ({ ...p, invoice_number: e.target.value }))} placeholder="اختياري" />
+                  <input style={inpD} value={editForm.invoice_number} onChange={e => setEditForm(p => ({ ...p, invoice_number: e.target.value }))} placeholder="اختياري" />
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>التاريخ</label>
-                  <input style={inp} type="date" value={editForm.invoice_date} onChange={e => setEditForm(p => ({ ...p, invoice_date: e.target.value }))} />
+                  <input style={inpD} type="date" value={editForm.invoice_date} onChange={e => setEditForm(p => ({ ...p, invoice_date: e.target.value }))} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>المورد</label>
-                  <select style={inp} value={editForm.supplier_id} onChange={e => setEditForm(p => ({ ...p, supplier_id: e.target.value }))}>
+                  <select style={inpD} value={editForm.supplier_id} onChange={e => setEditForm(p => ({ ...p, supplier_id: e.target.value }))}>
                     <option value="">— بدون مورد —</option>
                     {suppliers.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>المستودع *</label>
-                  <select style={inp} value={editForm.warehouse_id} onChange={e => setEditForm(p => ({ ...p, warehouse_id: e.target.value }))}>
+                  <select style={inpD} value={editForm.warehouse_id} onChange={e => setEditForm(p => ({ ...p, warehouse_id: e.target.value }))}>
                     <option value="">اختر المستودع</option>
                     {warehouses.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
@@ -832,38 +930,29 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
               </div>
               <div>
                 <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>ملاحظات</label>
-                <input style={inp} value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} placeholder="اختياري" />
+                <input style={inpD} value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} placeholder="اختياري" />
               </div>
             </div>
 
-            {/* Edit Items */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: S2.white }}>📦 الأصناف</div>
-                <button onClick={addEditItem}
-                  style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S2.green}`, background: S2.greenB, color: S2.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-                  ➕ إضافة صنف
-                </button>
+                <button onClick={() => setEditItems(p => [...p, { product_id: '', quantity: '', unit_price: '', unit_id: '' }])} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S2.green}`, background: S2.greenB, color: S2.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>➕ إضافة صنف</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {editItems.map((item, i) => (
                   <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 6, alignItems: 'center', background: S2.card, borderRadius: 10, padding: '8px 10px' }}>
-                    <select style={{ ...inp, padding: '7px 10px' }} value={item.product_id} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, product_id: e.target.value } : x))}>
+                    <select style={{ ...inpD, padding: '7px 10px' }} value={item.product_id} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, product_id: e.target.value } : x))}>
                       <option value="">الصنف</option>
                       {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
-                    <input style={{ ...inp, padding: '7px 10px' }} type="number" placeholder="الكمية" value={item.quantity}
-                      onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, quantity: e.target.value } : x))} />
-                    <input style={{ ...inp, padding: '7px 10px' }} type="number" placeholder="السعر" value={item.unit_price}
-                      onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, unit_price: e.target.value } : x))} />
-                    <button onClick={() => removeEditItem(i)}
-                      style={{ background: S2.redB, border: `1px solid ${S2.red}`, borderRadius: 8, color: S2.red, cursor: 'pointer', padding: '7px 10px', fontSize: 14 }}>✕</button>
+                    <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="الكمية" value={item.quantity} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, quantity: e.target.value } : x))} />
+                    <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="السعر" value={item.unit_price} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, unit_price: e.target.value } : x))} />
+                    <button onClick={() => setEditItems(p => p.filter((_, xi) => xi !== i))} style={{ background: S2.redB, border: `1px solid ${S2.red}`, borderRadius: 8, color: S2.red, cursor: 'pointer', padding: '7px 10px', fontSize: 14 }}>✕</button>
                   </div>
                 ))}
                 {editItems.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: 16, color: S2.muted, fontSize: 12, background: S2.card, borderRadius: 10 }}>
-                    اضغط "إضافة صنف" لإضافة الأصناف
-                  </div>
+                  <div style={{ textAlign: 'center', padding: 16, color: S2.muted, fontSize: 12, background: S2.card, borderRadius: 10 }}>اضغط "إضافة صنف" لإضافة الأصناف</div>
                 )}
               </div>
               {editItems.length > 0 && (
@@ -873,14 +962,9 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
               )}
             </div>
 
-            {/* Edit Actions */}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setMode('view')}
-                style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S2.muted}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-                إلغاء
-              </button>
-              <button onClick={handleSave} disabled={saving}
-                style={{ padding: '9px 22px', borderRadius: 10, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              <button onClick={() => setMode('view')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S2.muted}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+              <button onClick={handleSave} disabled={saving} style={{ padding: '9px 22px', borderRadius: 10, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 {saving ? '⏳ جاري الحفظ...' : '💾 حفظ التعديلات'}
               </button>
             </div>
@@ -891,10 +975,11 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
   )
 }
 
+// ══════════════════════════════════════════
+// الصفحة الرئيسية
+// ══════════════════════════════════════════
 export default function PurchasesPage() {
-  const router = useRouter()
   const supabase = createClient()
-
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -954,23 +1039,22 @@ export default function PurchasesPage() {
         .inv-row:hover td { background: rgba(255,255,255,0.03) !important; }
       `}</style>
 
-      {/* ══ Header ══ */}
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>🛒 المشتريات</h1>
-          <p style={{ fontSize: 13, color: S.muted }}>إدارة فواتير المشتريات مع مسح ذكي بالذكاء الاصطناعي</p>
+          <p style={{ fontSize: 13, color: S.muted }}>إدارة فواتير المشتريات ومسح ذكي بالذكاء الاصطناعي</p>
         </div>
         <button onClick={() => setShowNew(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-          ✨ فاتورة جديدة بالذكاء الاصطناعي
+          ✨ فاتورة جديدة
         </button>
       </div>
 
-      {/* ══ Stats ══ */}
+      {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
         {[
           { label: 'إجمالي الفواتير', value: invoices.length, icon: '🧾', color: S.blue, bg: S.blueB },
           { label: 'مشتريات هذا الشهر', value: monthInvoices.length, icon: '📅', color: S.green, bg: S.greenB },
-          // ✅ FIX 3: فواصل الأرقام في الإحصائيات
           { label: 'إجمالي هذا الشهر', value: formatMYR(monthTotal), icon: '💰', color: S.gold, bg: S.gold3 },
           { label: 'إجمالي كل الفواتير', value: formatMYR(totalAll), icon: '📊', color: S.purple, bg: S.purpleB },
           { label: 'عدد الموردين', value: suppliers.length, icon: '🤝', color: S.teal, bg: S.tealB },
@@ -986,19 +1070,7 @@ export default function PurchasesPage() {
         ))}
       </div>
 
-      {/* ══ AI Banner ══ */}
-      <div style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(59,130,246,0.08))', border: `1px solid rgba(139,92,246,0.25)`, borderRadius: 16, padding: '16px 20px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 28 }}>🤖</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>مسح الفواتير بالذكاء الاصطناعي</div>
-          <div style={{ fontSize: 12, color: S.muted }}>صوّر أي فاتورة ورقية وسيقوم الذكاء الاصطناعي باستخراج جميع البيانات تلقائياً</div>
-        </div>
-        <button onClick={() => setShowNew(true)} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
-          جرّب الآن ✨
-        </button>
-      </div>
-
-      {/* ══ Filters ══ */}
+      {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث برقم الفاتورة أو المورد..." />
         <select style={{ ...inp, width: 'auto', minWidth: 160 }} value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)}>
@@ -1011,7 +1083,7 @@ export default function PurchasesPage() {
         )}
       </div>
 
-      {/* ══ Invoices Table ══ */}
+      {/* Table */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
       ) : (
@@ -1038,21 +1110,14 @@ export default function PurchasesPage() {
                   </td></tr>
                 ) : filtered.map((inv, idx) => (
                   <tr key={inv.id} className="inv-row" style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setSelectedInvoice(inv)}>
-                    {/* ✅ FIX 5: رقم النظام التلقائي */}
                     <td style={{ padding: '14px 16px', color: S.purple, fontWeight: 800, fontSize: 14 }}>#{filtered.length - idx}</td>
-                    {/* رقم فاتورة المورد */}
                     <td style={{ padding: '14px 16px', color: S.gold, fontWeight: 700, fontSize: 13 }}>{inv.invoice_number || <span style={{ color: S.muted, fontStyle: 'italic', fontSize: 11 }}>—</span>}</td>
                     <td style={{ padding: '14px 16px', color: S.white, fontSize: 13, fontWeight: 600 }}>{inv.warehouse_suppliers?.name || <span style={{ color: S.muted }}>—</span>}</td>
                     <td style={{ padding: '14px 16px', fontSize: 12, color: S.muted }}>{inv.invoice_date}</td>
-                    {/* ✅ FIX 3: فواصل الأرقام */}
                     <td style={{ padding: '14px 16px', fontWeight: 700, color: S.green, fontSize: 13 }}>{formatMYR(inv.total_amount)}</td>
                     <td style={{ padding: '14px 16px' }}>
                       {inv.image_url ? (
-                        <img
-                          src={inv.image_url} alt="فاتورة"
-                          style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', border: `1px solid ${S.border}` }}
-                          onClick={(e) => { e.stopPropagation(); setViewerImage(inv.image_url) }}
-                        />
+                        <img src={inv.image_url} alt="فاتورة" style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', border: `1px solid ${S.border}` }} onClick={(e) => { e.stopPropagation(); setViewerImage(inv.image_url) }} />
                       ) : <span style={{ color: S.muted, fontSize: 18 }}>📄</span>}
                     </td>
                     <td style={{ padding: '14px 16px', color: S.muted, fontSize: 18 }}>←</td>
@@ -1064,14 +1129,9 @@ export default function PurchasesPage() {
         </div>
       )}
 
-      {/* ══ Invoice Detail Modal ══ */}
       {selectedInvoice && (
         <InvoiceDetailModal
-          invoice={selectedInvoice}
-          products={products}
-          suppliers={suppliers}
-          units={units}
-          warehouses={warehouses}
+          invoice={selectedInvoice} products={products} suppliers={suppliers} units={units} warehouses={warehouses}
           onClose={() => setSelectedInvoice(null)}
           onViewImage={(url) => setViewerImage(url)}
           onDeleted={() => { setSelectedInvoice(null); fetchAll() }}
@@ -1079,7 +1139,6 @@ export default function PurchasesPage() {
         />
       )}
 
-      {/* ✅ FIX 2: Image Viewer منفصل */}
       {viewerImage && <ImageViewerModal imageUrl={viewerImage} onClose={() => setViewerImage(null)} />}
 
       {showNew && (

@@ -5,13 +5,15 @@ import type { NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // الصفحات العامة — مش محتاجة login
   const publicPaths = ['/login', '/unauthorized', '/register']
-if (publicPaths.includes(pathname) || pathname.startsWith('/menu') || pathname.startsWith('/bookings')) {
+  if (
+    publicPaths.includes(pathname) ||
+    pathname.startsWith('/menu') ||
+    pathname.startsWith('/bookings')
+  ) {
     return NextResponse.next()
   }
 
-  // تحقق من الـ session
   const response = NextResponse.next()
 
   const supabase = createServerClient(
@@ -19,9 +21,7 @@ if (publicPaths.includes(pathname) || pathname.startsWith('/menu') || pathname.s
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
+        getAll() { return request.cookies.getAll() },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
@@ -33,12 +33,10 @@ if (publicPaths.includes(pathname) || pathname.startsWith('/menu') || pathname.s
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // لو مش logged in
   if (!user) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // لو logged in وبيحاول يدخل login
   if (user && pathname === '/login') {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
@@ -48,6 +46,10 @@ if (publicPaths.includes(pathname) || pathname.startsWith('/menu') || pathname.s
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // ✅ فقط الصفحات الفعلية - مش كل حاجة
+    '/dashboard/:path*',
+    '/login',
+    '/register',
+    '/unauthorized',
   ],
 }

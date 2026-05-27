@@ -1,5 +1,5 @@
 'use client'
-export const dynamic = 'force-dynamic'
+
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
@@ -112,32 +112,32 @@ export default function TablesPage() {
   }
   .card {
     width:9cm; height:14cm;
-    border:2px solid #C9A84C;
+    border:2px solid #4BB8F0;
     border-radius:20px;
     display:flex; flex-direction:column; align-items:center;
     justify-content:space-between;
     padding:24px 20px 18px;
     background:#fff;
     position:relative; overflow:hidden;
-    box-shadow: 0 4px 24px rgba(201,168,76,0.15);
+    box-shadow: 0 4px 24px rgba(75,184,240,0.15);
   }
   .card::before {
     content:''; position:absolute; top:0; left:0; right:0; height:5px;
-    background:linear-gradient(90deg,#0A1628,#C9A84C,#E8C97A,#C9A84C,#0A1628);
+    background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);
   }
   .card::after {
     content:''; position:absolute; bottom:0; left:0; right:0; height:5px;
-    background:linear-gradient(90deg,#0A1628,#C9A84C,#E8C97A,#C9A84C,#0A1628);
+    background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);
   }
   .top { text-align:center; width:100%; }
   .group-name {
     font-family:'Montserrat',sans-serif;
-    font-size:9px; font-weight:600; color:#8A9BB5;
+    font-size:9px; font-weight:600; color:#4BB8F0;
     letter-spacing:5px; text-transform:uppercase; margin-bottom:2px;
   }
   .brand-name {
     font-family:'Cormorant Garamond',serif;
-    font-size:30px; font-weight:700; color:#0A1628;
+    font-size:30px; font-weight:700; color:#1E6FA8;
     letter-spacing:3px; text-transform:uppercase; line-height:1;
   }
   .brand-sub {
@@ -146,30 +146,30 @@ export default function TablesPage() {
   }
   .gold-line {
     width:50px; height:1.5px;
-    background:linear-gradient(90deg,transparent,#C9A84C,transparent);
+    background:linear-gradient(90deg,transparent,#4BB8F0,transparent);
     margin:10px auto;
   }
   .qr-section { display:flex; flex-direction:column; align-items:center; }
   .qr-frame {
     padding:10px; border:2px solid #0A1628; border-radius:14px;
     background:#fff; margin-bottom:14px;
-    box-shadow: inset 0 0 0 3px #C9A84C, inset 0 0 0 5px #fff, inset 0 0 0 6px #0A1628;
+    box-shadow: inset 0 0 0 3px #4BB8F0, inset 0 0 0 5px #fff, inset 0 0 0 6px #0A1628;
   }
   .qr-frame img { width:160px; height:160px; display:block; }
   .table-pill {
     background:linear-gradient(135deg,#0A1628,#0F2040);
-    color:#C9A84C; border-radius:40px;
+    color:#4BB8F0; border-radius:40px;
     padding:8px 28px; font-size:16px; font-weight:700;
     letter-spacing:2px; font-family:'Cormorant Garamond',serif;
-    border: 1.5px solid #C9A84C;
-    box-shadow: 0 4px 16px rgba(201,168,76,0.25);
+    border: 1.5px solid #4BB8F0;
+    box-shadow: 0 4px 16px rgba(75,184,240,0.25);
   }
   .scan-row { display:flex; align-items:center; gap:6px; margin-top:10px; }
   .scan-text { font-size:8px; color:#8A9BB5; letter-spacing:2px; text-transform:uppercase; font-weight:500; }
   .bottom { text-align:center; width:100%; }
   .wifi-row { font-size:8px; color:#bbb; letter-spacing:1px; margin-bottom:6px; }
   .footer-text { font-size:7px; color:#ccc; letter-spacing:0.5px; }
-  .corner { position:absolute; width:16px; height:16px; border-color:#C9A84C; border-style:solid; }
+  .corner { position:absolute; width:16px; height:16px; border-color:#4BB8F0; border-style:solid; }
   .corner-tl { top:10px; left:10px; border-width:2px 0 0 2px; border-radius:3px 0 0 0; }
   .corner-tr { top:10px; right:10px; border-width:2px 2px 0 0; border-radius:0 3px 0 0; }
   .corner-bl { bottom:10px; left:10px; border-width:0 0 2px 2px; border-radius:0 0 0 3px; }
@@ -189,7 +189,7 @@ export default function TablesPage() {
     <div class="group-name">Orchid Group</div>
     <div class="brand-name">Orchid House</div>
     <div class="brand-sub">Fine Dining Restaurant</div>
-    <div class="gold-line"></div>
+    <div class="blue-line"></div>
   </div>
   <div class="qr-section">
     <div class="qr-frame"><img src="${img}" /></div>
@@ -200,8 +200,7 @@ export default function TablesPage() {
     </div>
   </div>
   <div class="bottom">
-    <div class="gold-line"></div>
-    <div class="wifi-row">🌐 orchid.bidlx.com</div>
+    <div class="blue-line"></div>
     <div class="footer-text">All prices subject to 6% SST &amp; 10% service charge</div>
   </div>
 </div>
@@ -296,7 +295,7 @@ export default function TablesPage() {
                     <div style={{ fontSize: 10, color: S.gold, fontWeight: 700, letterSpacing: 3, marginBottom: 14, textTransform: 'uppercase' }}>🌸 Orchid House</div>
 
                     {/* QR with border */}
-                    <div style={{ background: '#fff', padding: 8, borderRadius: 12, border: `2px solid ${S.gold}`, boxShadow: `0 0 20px rgba(201,168,76,0.2)` }}>
+                    <div style={{ background: '#fff', padding: 8, borderRadius: 12, border: '2px solid #4BB8F0', boxShadow: '0 0 20px rgba(75,184,240,0.2)' }}>
                       {qrUrls[table.id] ? (
                         <img src={qrUrls[table.id]} alt="QR" style={{ width: 140, height: 140, display: 'block', borderRadius: 6 }} />
                       ) : (
@@ -305,7 +304,7 @@ export default function TablesPage() {
                     </div>
 
                     {/* Table Name Badge */}
-                    <div style={{ position: 'absolute', bottom: -16, left: '50%', transform: 'translateX(-50%)', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, borderRadius: 30, padding: '6px 22px', fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', boxShadow: `0 4px 16px rgba(201,168,76,0.5)`, letterSpacing: 0.5 }}>
+                    <div style={{ position: 'absolute', bottom: -16, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg, #1E6FA8, #4BB8F0)', color: '#fff', borderRadius: 30, padding: '6px 22px', fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(75,184,240,0.4)', letterSpacing: 0.5 }}>
                       {table.name || `Table ${table.number}`}
                     </div>
                   </div>
@@ -326,7 +325,7 @@ export default function TablesPage() {
 
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => printQR(table)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      <button onClick={() => printQR(table)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid #4BB8F0', background: 'rgba(75,184,240,0.12)', color: '#4BB8F0', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                         🖨️ Print
                       </button>
                       <button onClick={() => deleteTable(table.id)} style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid rgba(239,68,68,0.4)`, background: 'rgba(239,68,68,0.08)', color: S.red, cursor: 'pointer', fontSize: 13 }}>

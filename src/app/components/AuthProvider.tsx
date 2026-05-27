@@ -1,12 +1,13 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
-const createClient = () => createBrowserClient(
+const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { auth: { autoRefreshToken: true, persistSession: true } }
 )
 
 interface Employee {
@@ -32,27 +33,39 @@ export function useAuth() { return useContext(AuthContext) }
 const PUBLIC_PATHS = ['/login', '/unauthorized', '/register', '/menu']
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const supabase = createClient()
   const router = useRouter()
-  const pathname = usePathname()
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
+  
+  // ✅ منع double execution
+  const isFetching = useRef(false)
+  // ✅ تخزين الـ user id عشان ما نعيدش التحميل لو نفس اليوزر
+  const loadedUserId = useRef<string | null>(null)
 
-  const loadUser = useCallback(async () => {
+  const loadUser = useCallback(async (forceReload = false) => {
+    // ✅ لو شغال أصلاً، وقف
+    if (isFetching.current) return
+    isFetching.current = true
+
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
+      const currentPath = window.location.pathname
       if (!user) {
         setEmployee(null)
         setPermissions({})
-        if (!PUBLIC_PATHS.some(p => pathname.startsWith(p))) router.push('/login')
-        setLoading(false)
+        loadedUserId.current = null
+        if (!PUBLIC_PATHS.some(p => currentPath.startsWith(p))) router.push('/login')
         return
       }
 
-      // جيب بيانات الموظف والصلاحيات
+      // ✅ لو نفس اليوزر وماشي تحميل، ما تكملش
+      if (!forceReload && loadedUserId.current === user.id) {
+        return
+      }
+
       const { data: empData } = await supabase
         .from('employees')
         .select('id, name, name_en, role, department, branch_id, is_active')
@@ -62,46 +75,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!empData || !empData.is_active) {
         await supabase.auth.signOut()
         router.push('/login')
-        setLoading(false)
         return
       }
 
-      setEmployee(empData)
-
-      // جيب الصلاحيات
       const { data: roleData } = await supabase
         .from('roles_permissions')
         .select('permissions')
         .eq('role', empData.role)
         .single()
 
+      setEmployee(empData)
       setPermissions(roleData?.permissions || {})
+      loadedUserId.current = user.id
+
     } catch {
       setEmployee(null)
       setPermissions({})
+      loadedUserId.current = null
+    } finally {
+      setLoading(false)
+      isFetching.current = false
     }
-    setLoading(false)
-  }, [pathname])
+  }, [router])
 
+  // ✅ مرة واحدة عند البداية بس
   useEffect(() => { loadUser() }, [loadUser])
 
-  // مراقبة تغيير Auth
+  // ✅ فقط SIGNED_OUT - مش SIGNED_IN ولا TOKEN_REFRESHED
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
         setEmployee(null)
         setPermissions({})
+        loadedUserId.current = null
+        isFetching.current = false
         router.push('/login')
-      } else if (event === 'SIGNED_IN') {
-        loadUser()
       }
+      // ✅ SIGNED_IN و TOKEN_REFRESHED محذوفين عمداً
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [router])
 
   function hasPermission(key: string): boolean {
     if (!employee) return false
-    if (permissions.all === true) return true // مدير النظام
+    if (permissions.all === true) return true
     return permissions[key] === true
   }
 
@@ -109,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
     setEmployee(null)
     setPermissions({})
+    loadedUserId.current = null
     router.push('/login')
   }
 

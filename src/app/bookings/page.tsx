@@ -1,5 +1,5 @@
 'use client'
-export const dynamic = 'force-dynamic'
+
 
 import { useState, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'

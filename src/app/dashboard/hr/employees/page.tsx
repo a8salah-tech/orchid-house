@@ -1,5 +1,5 @@
 'use client'
-export const dynamic = 'force-dynamic'
+
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../../../components/AuthProvider'

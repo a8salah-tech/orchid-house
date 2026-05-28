@@ -1,6 +1,5 @@
 'use client'
 
-
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
@@ -33,7 +32,13 @@ const inp: React.CSSProperties = {
 }
 
 type PayrollMonth = { id: string; month: number; year: number; status: string; notes?: string; created_at: string }
-type Employee = { id: string; name: string; name_en?: string; employee_number?: string; role: string; department?: string; salary?: number; insurance?: number; work_insurance?: number }
+type Branch = { id: string; name: string }
+type Employee = {
+  id: string; name: string; name_en?: string; employee_number?: string
+  role: string; department?: string; salary?: number; insurance?: number
+  work_insurance?: number; branch_id?: string
+  branches?: { name: string } | any  // ← هذا يحل المشكلة
+}
 type PayrollRecord = {
   id?: string; payroll_month_id: string; employee_id: string
   basic_salary: number; insurance: number; working_days: number; days_worked: number
@@ -55,10 +60,8 @@ type PayrollRecord = {
 
 function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
   return {
-    payroll_month_id: monthId,
-    employee_id: emp.id,
-    basic_salary: emp.salary || 0,
-    insurance: emp.insurance || 0,
+    payroll_month_id: monthId, employee_id: emp.id,
+    basic_salary: emp.salary || 0, insurance: emp.insurance || 0,
     working_days: 30, days_worked: 30,
     overtime_days: 0, overtime_hours: 0,
     allowance_1: 0, allowance_1_label: 'Allowance 1',
@@ -69,191 +72,161 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
     deduction_1: 0, deduction_1_label: 'Deduction 1',
     deduction_2: 0, deduction_2_label: 'Deduction 2',
     deduction_3: 0, deduction_3_label: 'Deduction 3',
-    advance: 0, advance_balance: 0,
-    carried_forward: 0,
+    advance: 0, advance_balance: 0, carried_forward: 0,
     amount_due: 0, amount_paid: 0,
     work_insurance: emp.work_insurance || 0,
   }
 }
 
-// حساب صافي الراتب
 function calcRecord(r: PayrollRecord) {
-  const dailyRate  = r.basic_salary / (r.working_days || 30)
-  const hourlyRate = dailyRate / 8
-
+  const dailyRate   = r.basic_salary / (r.working_days || 30)
+  const hourlyRate  = dailyRate / 8
   const earnedBase  = dailyRate * r.days_worked
   const overtimePay = (dailyRate * r.overtime_days) + (hourlyRate * r.overtime_hours)
   const totalAllowances = r.allowance_1 + r.allowance_2 + r.allowance_3
-  const totalEarnings = earnedBase + overtimePay + totalAllowances
-
+  const totalEarnings   = earnedBase + overtimePay + totalAllowances
   const absenceDed  = dailyRate * r.absence_days
   const lateDed     = hourlyRate * r.late_hours
   const earlyDed    = hourlyRate * r.early_exit_hours
   const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + r.advance
-
-  const netSalary = totalEarnings - totalDeductions + r.carried_forward
-  const amountDue = netSalary > 0 ? netSalary : 0
-  const balance   = amountDue - r.amount_paid
-
+  const netSalary   = totalEarnings - totalDeductions + r.carried_forward
+  const amountDue   = netSalary > 0 ? netSalary : 0
+  const balance     = amountDue - r.amount_paid
   return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, totalDeductions, netSalary, amountDue, balance }
 }
 
-// ══ Cell input ══
-function Cell({ value, onChange, type = 'number', label, readOnly = false }: { value: any; onChange: (v: any) => void; type?: string; label?: string; readOnly?: boolean }) {
+function Cell({ value, onChange }: { value: any; onChange: (v: any) => void }) {
   return (
-    <td style={{ padding: '4px 6px', border: `1px solid ${S.border}`, minWidth: type === 'text' ? 100 : 80 }}>
-      {label && <div style={{ fontSize: 9, color: S.muted, marginBottom: 2 }}>{label}</div>}
+    <td style={{ padding: '4px 6px', border: `1px solid ${S.border}`, minWidth: 80 }}>
       <input
         style={{ ...inp, fontSize: 11, padding: '4px 6px' }}
-        type="text"
-        inputMode="decimal"
-        value={value}
+        type="text" inputMode="decimal" value={value}
         onChange={e => {
           const v = e.target.value.replace(/[^\d.]/g, '')
-          onChange(type === 'number' ? (parseFloat(v) || 0) : v)
+          onChange(parseFloat(v) || 0)
         }}
       />
     </td>
   )
 }
 
-// ══ Row Component ══
 function PayrollRow({ record, empMap, onChange }: {
   record: PayrollRecord
   empMap: Record<string, Employee>
   onChange: (updated: PayrollRecord) => void
 }) {
-  const emp = empMap[record.employee_id]
+  const emp  = empMap[record.employee_id]
   const calc = calcRecord(record)
-  const set = (field: keyof PayrollRecord, val: any) => onChange({ ...record, [field]: val })
-
-  const thStyle: React.CSSProperties = { padding: '6px 8px', fontSize: 11, color: S.white, background: 'rgba(255,255,255,0.02)', border: `1px solid ${S.border}`, whiteSpace: 'nowrap' }
+  const set  = (field: keyof PayrollRecord, val: any) => onChange({ ...record, [field]: val })
+  const thStyle: React.CSSProperties = {
+    padding: '6px 8px', fontSize: 11, color: S.white,
+    background: 'rgba(255,255,255,0.02)', border: `1px solid ${S.border}`, whiteSpace: 'nowrap',
+  }
+  const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
     <tr>
-      {/* م */}
       <td style={{ ...thStyle, color: S.muted, textAlign: 'center', minWidth: 30 }}>{emp?.employee_number || '—'}</td>
-      {/* اسم الموظف */}
-      <td style={{ ...thStyle, minWidth: 140 }}>
-        <div style={{ fontWeight: 700, color: S.white, fontSize: 12 }}>{emp?.name}</div>
+      <td style={{ ...thStyle, minWidth: 160 }}>
+        <div style={{ fontWeight: 700, color: S.white, fontSize: 12 }}>{emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}</div>
         <div style={{ fontSize: 10, color: S.muted }}>{emp?.department}</div>
       </td>
-      {/* الراتب الأساسي */}
-      <Cell value={record.basic_salary} onChange={v => set('basic_salary', v)} />
-      {/* التأمين */}
-      <Cell value={record.insurance} onChange={v => set('insurance', v)} />
-      {/* م.أجر اليوم */}
-      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{calc.dailyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      {/* م.أجر الساعة */}
-      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{calc.hourlyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      {/* أيام الإضافي */}
-      <Cell value={record.overtime_days} onChange={v => set('overtime_days', v)} />
-      {/* ساعات الإضافي */}
-      <Cell value={record.overtime_hours} onChange={v => set('overtime_hours', v)} />
-      {/* استحقاق 1 */}
-      <Cell value={record.allowance_1} onChange={v => set('allowance_1', v)} />
-      {/* استحقاق 2 */}
-      <Cell value={record.allowance_2} onChange={v => set('allowance_2', v)} />
-      {/* استحقاق 3 */}
-      <Cell value={record.allowance_3} onChange={v => set('allowance_3', v)} />
-      {/* إجمالي الاستحقاقات */}
-      <td style={{ ...thStyle, color: S.green, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{calc.totalEarnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      {/* الغياب */}
-      <Cell value={record.absence_days} onChange={v => set('absence_days', v)} />
-      {/* التأخير (ساعات) */}
-      <Cell value={record.late_hours} onChange={v => set('late_hours', v)} />
-      {/* خروج مبكر (ساعات) */}
+      <Cell value={record.basic_salary}     onChange={v => set('basic_salary', v)} />
+      <Cell value={record.insurance}        onChange={v => set('insurance', v)} />
+      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{fmt(calc.dailyRate)}</td>
+      <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{fmt(calc.hourlyRate)}</td>
+      <Cell value={record.overtime_days}    onChange={v => set('overtime_days', v)} />
+      <Cell value={record.overtime_hours}   onChange={v => set('overtime_hours', v)} />
+      <Cell value={record.allowance_1}      onChange={v => set('allowance_1', v)} />
+      <Cell value={record.allowance_2}      onChange={v => set('allowance_2', v)} />
+      <Cell value={record.allowance_3}      onChange={v => set('allowance_3', v)} />
+      <td style={{ ...thStyle, color: S.green, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{fmt(calc.totalEarnings)}</td>
+      <Cell value={record.absence_days}     onChange={v => set('absence_days', v)} />
+      <Cell value={record.late_hours}       onChange={v => set('late_hours', v)} />
       <Cell value={record.early_exit_hours} onChange={v => set('early_exit_hours', v)} />
-      {/* التأمينات */}
-      <td style={{ ...thStyle, color: S.muted, textAlign: 'center' }}>{record.insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      {/* الضرائب */}
-      <Cell value={record.tax} onChange={v => set('tax', v)} />
-      {/* استقطاع 1 */}
-      <Cell value={record.deduction_1} onChange={v => set('deduction_1', v)} />
-      {/* استقطاع 2 */}
-      <Cell value={record.deduction_2} onChange={v => set('deduction_2', v)} />
-      {/* استقطاع 3 */}
-      <Cell value={record.deduction_3} onChange={v => set('deduction_3', v)} />
-      {/* إجمالي الاستقطاعات */}
-      <td style={{ ...thStyle, color: S.red, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{calc.totalDeductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      {/* السلفة */}
-      <Cell value={record.advance} onChange={v => set('advance', v)} />
-      {/* رصيد السلف */}
-      <Cell value={record.advance_balance} onChange={v => set('advance_balance', v)} />
-      {/* المرحّل */}
-      <Cell value={record.carried_forward} onChange={v => set('carried_forward', v)} />
-      {/* صافي الراتب */}
+      <td style={{ ...thStyle, color: S.muted, textAlign: 'center' }}>{fmt(record.insurance)}</td>
+      <Cell value={record.tax}              onChange={v => set('tax', v)} />
+      <Cell value={record.deduction_1}      onChange={v => set('deduction_1', v)} />
+      <Cell value={record.deduction_2}      onChange={v => set('deduction_2', v)} />
+      <Cell value={record.deduction_3}      onChange={v => set('deduction_3', v)} />
+      <td style={{ ...thStyle, color: S.red, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{fmt(calc.totalDeductions)}</td>
+      <Cell value={record.advance}          onChange={v => set('advance', v)} />
+      <Cell value={record.advance_balance}  onChange={v => set('advance_balance', v)} />
+      <Cell value={record.carried_forward}  onChange={v => set('carried_forward', v)} />
       <td style={{ ...thStyle, color: calc.netSalary >= 0 ? S.teal : S.red, fontWeight: 800, textAlign: 'center', minWidth: 90, fontSize: 13 }}>
-        {calc.netSalary.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {fmt(calc.netSalary)}
       </td>
-      {/* المبلغ المستحق */}
-      <Cell value={record.amount_due} onChange={v => set('amount_due', v)} />
-      {/* المبلغ المدفوع */}
-      <Cell value={record.amount_paid} onChange={v => set('amount_paid', v)} />
-      {/* الرصيد الباقي */}
+      <Cell value={record.amount_due}       onChange={v => set('amount_due', v)} />
+      <Cell value={record.amount_paid}      onChange={v => set('amount_paid', v)} />
       <td style={{ ...thStyle, color: (record.amount_due - record.amount_paid) > 0 ? S.amber : S.green, fontWeight: 700, textAlign: 'center' }}>
-        {(record.amount_due - record.amount_paid).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {fmt(record.amount_due - record.amount_paid)}
       </td>
-      {/* تأمينات صندوق العمل */}
-      <Cell value={record.work_insurance} onChange={v => set('work_insurance', v)} />
+      <Cell value={record.work_insurance}   onChange={v => set('work_insurance', v)} />
     </tr>
   )
 }
 
 export default function PayrollPage() {
   const sbRef = useRef(createClient())
-  const sb = sbRef.current
+  const sb    = sbRef.current
   const { employee: currentUser, permissions, hasPermission } = useAuth()
   const isAdmin = permissions?.all === true || hasPermission('payroll')
 
-  const [months, setMonths] = useState<PayrollMonth[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const [months,        setMonths]        = useState<PayrollMonth[]>([])
+  const [branches,      setBranches]      = useState<Branch[]>([])
+  const [employees,     setEmployees]     = useState<Employee[]>([])
   const [selectedMonth, setSelectedMonth] = useState<PayrollMonth | null>(null)
-  const [records, setRecords] = useState<PayrollRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [showNewMonth, setShowNewMonth] = useState(false)
-  const [newMonth, setNewMonth] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() })
-  const [search, setSearch] = useState('')
+  const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null)  // ✅ الفرع المختار
+  const [records,       setRecords]       = useState<PayrollRecord[]>([])
+  const [loading,       setLoading]       = useState(true)
+  const [saving,        setSaving]        = useState(false)
+  const [saved,         setSaved]         = useState(false)
+  const [showNewMonth,  setShowNewMonth]  = useState(false)
+  const [newMonth,      setNewMonth]      = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() })
+  const [search,        setSearch]        = useState('')
 
   const empMap = useMemo(() => Object.fromEntries(employees.map(e => [e.id, e])), [employees])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [mo, em] = await Promise.all([
+    const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
-      sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance').eq('is_active', true).order('name'),
+      sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name'),
+      sb.from('branches').select('id,name').eq('is_active', true).order('name'),
     ])
     setMonths(mo.data || [])
     setEmployees(em.data || [])
+    setBranches(br.data || [])
     setLoading(false)
   }, [sb])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-async function loadMonthRecords(month: PayrollMonth) {
-  setSelectedMonth(month)
-  
-  // جيب الموظفين لو مش موجودين
-  let emps = employees
-  if (emps.length === 0) {
-    const { data } = await sb.from('employees')
-      .select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance')
-      .eq('is_active', true).order('name')
-    emps = data || []
-    setEmployees(emps)
-  }
+  async function loadMonthRecords(month: PayrollMonth, branch?: Branch | null) {
+    setSelectedMonth(month)
+    setSelectedBranch(branch || null)
 
-  const { data } = await sb.from('payroll_records')
-    .select('*, employees(id,name,name_en,employee_number,role,department,salary,insurance,work_insurance)')
-    .eq('payroll_month_id', month.id)
-  
-  const existing = data || []
-  const existingIds = existing.map((r: any) => r.employee_id)
-  const missing = emps.filter(e => !existingIds.includes(e.id)).map(e => emptyRecord(month.id, e))
-  setRecords([...existing, ...missing])
-}
+    let emps = employees
+    if (emps.length === 0) {
+      const { data } = await sb.from('employees')
+        .select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)')
+        .eq('is_active', true).order('name')
+      emps = data || []
+      setEmployees(emps)
+    }
+
+    // ✅ فلتر موظفي الفرع المختار
+    const filteredEmps = branch ? emps.filter(e => e.branch_id === branch.id) : emps
+
+    const { data } = await sb.from('payroll_records')
+      .select('*, employees(id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name))')
+      .eq('payroll_month_id', month.id)
+
+    const existing    = (data || []).filter((r: any) => filteredEmps.some(e => e.id === r.employee_id))
+    const existingIds = existing.map((r: any) => r.employee_id)
+    const missing     = filteredEmps.filter(e => !existingIds.includes(e.id)).map(e => emptyRecord(month.id, e))
+    setRecords([...existing, ...missing])
+  }
 
   async function createMonth() {
     const { data, error } = await sb.from('payroll_months')
@@ -270,23 +243,17 @@ async function loadMonthRecords(month: PayrollMonth) {
     setSaving(true)
     const toUpsert = records.map(r => {
       const calc = calcRecord(r)
-      return {
-        ...r,
-        amount_due: r.amount_due || calc.amountDue,
-        updated_at: new Date().toISOString(),
-        employees: undefined,
-      }
+      return { ...r, amount_due: r.amount_due || calc.amountDue, updated_at: new Date().toISOString(), employees: undefined }
     })
     const { error } = await sb.from('payroll_records').upsert(toUpsert, { onConflict: 'payroll_month_id,employee_id' })
     setSaving(false)
     if (error) { alert('Error: ' + error.message); return }
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    setSaved(true); setTimeout(() => setSaved(false), 3000)
   }
 
   async function finalizeMonth() {
     if (!selectedMonth) return
-    if (!confirm('Are you sure you want to finalize this month? This cannot be undone.')) return
+    if (!confirm('Are you sure you want to finalize this month?')) return
     await saveAll()
     await sb.from('payroll_months').update({ status: 'finalized', finalized_at: new Date().toISOString() }).eq('id', selectedMonth.id)
     fetchAll()
@@ -296,91 +263,51 @@ async function loadMonthRecords(month: PayrollMonth) {
   function printPayroll() {
     if (!selectedMonth) return
     const monthName = MONTHS[selectedMonth.month - 1]
-    const totals = records.reduce((acc, r) => {
+    const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const totals = visibleRecords.reduce((acc, r) => {
       const c = calcRecord(r)
-      acc.earnings += c.totalEarnings
-      acc.deductions += c.totalDeductions
-      acc.net += c.netSalary
-      acc.paid += r.amount_paid
-      return acc
+      return { earnings: acc.earnings + c.totalEarnings, deductions: acc.deductions + c.totalDeductions, net: acc.net + c.netSalary, paid: acc.paid + r.amount_paid }
     }, { earnings: 0, deductions: 0, net: 0, paid: 0 })
 
-    const rows = records
-      .filter(r => empMap[r.employee_id])
-      .map(r => {
-        const e = empMap[r.employee_id]
-        const c = calcRecord(r)
-        return `<tr>
-          <td>${e?.employee_number || '—'}</td>
-          <td>${e?.name || '—'}</td>
-          <td>${r.basic_salary.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${c.dailyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${c.hourlyRate.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.overtime_days}</td>
-          <td>${r.overtime_hours}</td>
-          <td>${r.allowance_1.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.allowance_2.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.allowance_3.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td style="font-weight:bold;color:#2e7d32">${c.totalEarnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.absence_days}</td>
-          <td>${r.late_hours}</td>
-          <td>${r.early_exit_hours}</td>
-          <td>${r.insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.tax.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.deduction_1.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.deduction_2.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.deduction_3.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td style="font-weight:bold;color:#c62828">${c.totalDeductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td style="font-weight:bold;color:#0277bd">${c.netSalary.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${r.work_insurance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        </tr>`
-      }).join('')
+    const rows = visibleRecords.filter(r => empMap[r.employee_id]).map(r => {
+      const e = empMap[r.employee_id]
+      const c = calcRecord(r)
+      return `<tr>
+        <td>${e?.employee_number || '—'}</td>
+        <td>${e?.name || '—'} ${e?.name_en || ''}</td>
+        <td>${fmt(r.basic_salary)}</td><td>${fmt(r.insurance)}</td>
+        <td>${fmt(c.dailyRate)}</td><td>${fmt(c.hourlyRate)}</td>
+        <td>${r.overtime_days}</td><td>${r.overtime_hours}</td>
+        <td>${fmt(r.allowance_1)}</td><td>${fmt(r.allowance_2)}</td><td>${fmt(r.allowance_3)}</td>
+        <td style="font-weight:bold;color:#2e7d32">${fmt(c.totalEarnings)}</td>
+        <td>${r.absence_days}</td><td>${r.late_hours}</td><td>${r.early_exit_hours}</td>
+        <td>${fmt(r.insurance)}</td><td>${fmt(r.tax)}</td>
+        <td>${fmt(r.deduction_1)}</td><td>${fmt(r.deduction_2)}</td><td>${fmt(r.deduction_3)}</td>
+        <td style="font-weight:bold;color:#c62828">${fmt(c.totalDeductions)}</td>
+        <td style="font-weight:bold;color:#0277bd">${fmt(c.netSalary)}</td>
+        <td>${fmt(r.work_insurance)}</td>
+      </tr>`
+    }).join('')
 
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>Payroll - ${monthName} ${selectedMonth.year}</title>
-    <style>
-      body { font-family: Arial, sans-serif; font-size: 10px; margin: 10px; direction: rtl; }
-      h2 { text-align: center; font-size: 14px; margin-bottom: 4px; }
-      h3 { text-align: center; font-size: 11px; color: #C9A84C; margin-bottom: 12px; }
-      table { width: 100%; border-collapse: collapse; font-size: 9px; }
-      th { background: #0A1628; color: white; padding: 5px 4px; border: 1px solid #333; text-align: center; white-space: nowrap; }
-      td { padding: 4px; border: 1px solid #ccc; text-align: center; }
-      tr:nth-child(even) { background: #f9f9f9; }
-      .total-row { background: #fff8e1 !important; font-weight: bold; }
-      @media print { @page { size: A3 landscape; margin: 8mm; } }
-    </style>
+    <title>Payroll - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>
+    <style>body{font-family:Arial,sans-serif;font-size:10px;margin:10px;direction:rtl}h2{text-align:center;font-size:14px}h3{text-align:center;font-size:11px;color:#C9A84C}table{width:100%;border-collapse:collapse;font-size:9px}th{background:#0A1628;color:white;padding:5px 4px;border:1px solid #333;text-align:center;white-space:nowrap}td{padding:4px;border:1px solid #ccc;text-align:center}tr:nth-child(even){background:#f9f9f9}.total-row{background:#fff8e1!important;font-weight:bold}@media print{@page{size:A3 landscape;margin:8mm}}</style>
     </head><body>
     <h2>🌸 Orchid House — Payroll Sheet</h2>
-    <h3>${monthName} ${selectedMonth.year}</h3>
-    <table>
-      <thead><tr>
-        <th>ID</th><th>Employee</th><th>Basic Salary</th><th>Insurance</th>
-        <th>Daily Rate</th><th>Hourly Rate</th>
-        <th>OT Days</th><th>OT Hours</th>
-        <th>Allow 1</th><th>Allow 2</th><th>Allow 3</th>
-        <th>Total Earnings</th>
-        <th>Absence</th><th>Late (h)</th><th>Early Exit (h)</th>
-        <th>Insurance</th><th>Tax</th>
-        <th>Ded 1</th><th>Ded 2</th><th>Ded 3</th>
-        <th>Total Deductions</th>
-        <th>Net Salary</th>
-        <th>Work Ins.</th>
-      </tr></thead>
-      <tbody>${rows}
-        <tr class="total-row">
-          <td colspan="11" style="text-align:right;padding-right:8px">TOTAL</td>
-          <td>${totals.earnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td colspan="8"></td>
-          <td>${totals.deductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td>${totals.net.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td></td>
-        </tr>
-      </tbody>
-    </table>
-    <div style="margin-top:20px;display:flex;justify-content:space-between;font-size:11px;">
+    <h3>${monthName} ${selectedMonth.year}${selectedBranch ? ' | ' + selectedBranch.name : ''}</h3>
+    <table><thead><tr>
+      <th>ID</th><th>Employee</th><th>Basic</th><th>Ins.</th><th>Daily</th><th>Hourly</th>
+      <th>OT Days</th><th>OT Hrs</th><th>A1</th><th>A2</th><th>A3</th><th>Total Earn.</th>
+      <th>Absent</th><th>Late</th><th>Early</th><th>Ins.</th><th>Tax</th>
+      <th>D1</th><th>D2</th><th>D3</th><th>Total Ded.</th><th>Net</th><th>Work Ins.</th>
+    </tr></thead><tbody>${rows}
+    <tr class="total-row"><td colspan="11" style="text-align:right">TOTAL</td>
+      <td>${fmt(totals.earnings)}</td><td colspan="8"></td>
+      <td>${fmt(totals.deductions)}</td><td>${fmt(totals.net)}</td><td></td>
+    </tr></tbody></table>
+    <div style="margin-top:20px;display:flex;justify-content:space-between;font-size:11px">
       <div>Prepared by: _______________</div>
       <div>Approved by: _______________</div>
       <div>Date: ${new Date().toLocaleDateString()}</div>
@@ -394,7 +321,7 @@ async function loadMonthRecords(month: PayrollMonth) {
     if (!search) return records
     return records.filter(r => {
       const e = empMap[r.employee_id]
-      return e?.name.includes(search) || (e?.employee_number || '').includes(search)
+      return e?.name.includes(search) || (e?.name_en || '').toLowerCase().includes(search.toLowerCase()) || (e?.employee_number || '').includes(search)
     })
   }, [records, search, empMap])
 
@@ -403,25 +330,27 @@ async function loadMonthRecords(month: PayrollMonth) {
     return filteredRecords.filter(r => r.employee_id === currentUser?.id)
   }, [filteredRecords, isAdmin, currentUser?.id])
 
-  // Totals
   const totals = useMemo(() => visibleRecords.reduce((acc, r) => {
     const c = calcRecord(r)
-    return {
-      earnings: acc.earnings + c.totalEarnings,
-      deductions: acc.deductions + c.totalDeductions,
-      net: acc.net + c.netSalary,
-      paid: acc.paid + r.amount_paid,
-      balance: acc.balance + (r.amount_due - r.amount_paid),
-    }
+    return { earnings: acc.earnings + c.totalEarnings, deductions: acc.deductions + c.totalDeductions, net: acc.net + c.netSalary, paid: acc.paid + r.amount_paid, balance: acc.balance + (r.amount_due - r.amount_paid) }
   }, { earnings: 0, deductions: 0, net: 0, paid: 0, balance: 0 }), [visibleRecords])
+
+  // ✅ إحصائيات كل فرع
+  const branchStats = useMemo(() => {
+    return branches.map(b => {
+      const branchEmps = employees.filter(e => e.branch_id === b.id)
+      const totalSalary = branchEmps.reduce((s, e) => s + (e.salary || 0), 0)
+      return { branch: b, empCount: branchEmps.length, totalSalary }
+    })
+  }, [branches, employees])
 
   const thStyle: React.CSSProperties = {
     padding: '8px 6px', fontSize: 10, color: S.white, background: S.navy3,
-    border: `1px solid ${S.border}`, whiteSpace: 'nowrap', textAlign: 'center', position: 'sticky', top: 0, zIndex: 10,
+    border: `1px solid ${S.border}`, whiteSpace: 'nowrap', textAlign: 'center',
+    position: 'sticky', top: 0, zIndex: 10,
   }
-  const thGroupStyle = (color: string): React.CSSProperties => ({
-    ...thStyle, background: color, fontSize: 9,
-  })
+  const thGroupStyle = (color: string): React.CSSProperties => ({ ...thStyle, background: color, fontSize: 9 })
+  const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, minHeight: '100vh' }}>
@@ -432,18 +361,21 @@ async function loadMonthRecords(month: PayrollMonth) {
         select option { background: #0F2040; color: #FAFAF8; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.4); border-radius: 3px; }
+        .branch-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .branch-card { transition: all .2s; }
       `}</style>
 
-      {/* ══ HEADER ══ */}
+      {/* HEADER */}
       <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 24px', display: 'flex', alignItems: 'center', height: 60, gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>💰 Payroll Management</h1>
         {selectedMonth && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>
               {MONTHS[selectedMonth.month - 1]} {selectedMonth.year}
+              {selectedBranch && <span style={{ color: S.gold, marginRight: 8 }}> — {selectedBranch.name}</span>}
             </span>
             <span style={{ background: selectedMonth.status === 'finalized' ? S.greenB : S.amberB, color: selectedMonth.status === 'finalized' ? S.green : S.amber, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>
-              {selectedMonth.status === 'finalized' ? '✅ Finalized' : selectedMonth.status === 'processing' ? '⚙️ Processing' : '📝 Draft'}
+              {selectedMonth.status === 'finalized' ? '✅ Finalized' : '📝 Draft'}
             </span>
             <input style={{ ...inp, width: 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
             <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
@@ -455,7 +387,7 @@ async function loadMonthRecords(month: PayrollMonth) {
                 <button onClick={finalizeMonth} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Finalize</button>
               </>
             )}
-            <button onClick={() => setSelectedMonth(null)} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>← Back</button>
+            <button onClick={() => { setSelectedMonth(null); setSelectedBranch(null) }} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>← Back</button>
           </div>
         )}
       </div>
@@ -463,15 +395,76 @@ async function loadMonthRecords(month: PayrollMonth) {
       <div style={{ padding: 20 }}>
 
         {!selectedMonth ? (
-          /* ══ MONTHS LIST ══ */
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h2 style={{ fontSize: 17, fontWeight: 800, color: S.white, marginBottom: 4 }}>📅 Payroll Months</h2>
-                <p style={{ fontSize: 12, color: S.muted }}>Select a month to view or edit payroll</p>
+                <p style={{ fontSize: 12, color: S.muted }}>اختر الشهر ثم الفرع لعرض المرتبات</p>
               </div>
               {isAdmin && <button onClick={() => setShowNewMonth(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Month</button>}
             </div>
+
+            {/* ✅ Branch Stats Cards */}
+            {!loading && branches.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: S.white, marginBottom: 12 }}>🏪 ملخص الفروع</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+                  {/* كل الفروع */}
+                  <div
+                    className="branch-card"
+                    style={{ background: S.gold3, border: `1px solid rgba(201,168,76,0.3)`, borderRadius: 16, padding: '20px 22px', cursor: 'pointer' }}
+                    onClick={() => months.length > 0 && loadMonthRecords(months[0], null)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                      <div style={{ fontSize: 28 }}>🌸</div>
+                      <div style={{ background: 'rgba(201,168,76,0.2)', borderRadius: 20, padding: '3px 10px', fontSize: 11, color: S.gold, fontWeight: 700 }}>كل الفروع</div>
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: S.gold, marginBottom: 4 }}>Orchid Group</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '10px 12px' }}>
+                        <div style={{ fontSize: 10, color: S.muted, marginBottom: 3 }}>👥 إجمالي الموظفين</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: S.white }}>{employees.length}</div>
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '10px 12px' }}>
+                        <div style={{ fontSize: 10, color: S.muted, marginBottom: 3 }}>💰 إجمالي المرتبات</div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: S.green }}>
+                          MYR {employees.reduce((s, e) => s + (e.salary || 0), 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* كل فرع على حدة */}
+                  {branchStats.map(({ branch, empCount, totalSalary }) => (
+                    <div
+                      key={branch.id}
+                      className="branch-card"
+                      style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: '20px 22px', cursor: 'pointer' }}
+                      onClick={() => months.length > 0 && loadMonthRecords(months[0], branch)}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                        <div style={{ fontSize: 28 }}>🏪</div>
+                        <div style={{ background: S.blueB, borderRadius: 20, padding: '3px 10px', fontSize: 11, color: S.blue, fontWeight: 700 }}>فرع</div>
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 900, color: S.white, marginBottom: 4 }}>{branch.name}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                        <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 10, color: S.muted, marginBottom: 3 }}>👥 الموظفون</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: S.white }}>{empCount}</div>
+                        </div>
+                        <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 10, color: S.muted, marginBottom: 3 }}>💰 المرتبات</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: S.green }}>
+                            MYR {totalSalary.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ height: 1, background: S.border, margin: '24px 0' }} />
+              </div>
+            )}
 
             {/* New Month Modal */}
             {showNewMonth && (
@@ -481,7 +474,7 @@ async function loadMonthRecords(month: PayrollMonth) {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
                     <div>
                       <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Month</label>
-                      <select style={{ ...inp }} value={newMonth.month} onChange={e => setNewMonth(p => ({ ...p, month: parseInt(e.target.value) }))}>
+                      <select style={inp} value={newMonth.month} onChange={e => setNewMonth(p => ({ ...p, month: parseInt(e.target.value) }))}>
                         {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
                       </select>
                     </div>
@@ -498,6 +491,7 @@ async function loadMonthRecords(month: PayrollMonth) {
               </div>
             )}
 
+            {/* Months List */}
             {loading ? (
               <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
             ) : months.length === 0 ? (
@@ -507,38 +501,53 @@ async function loadMonthRecords(month: PayrollMonth) {
                 <button onClick={() => setShowNewMonth(true)} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ Create First Month</button>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
-                {months.map(m => (
-                  <div key={m.id} onClick={() => loadMonthRecords(m)}
-                    style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${m.status === 'finalized' ? S.green + '40' : S.border}`, padding: '18px 20px', cursor: 'pointer', transition: 'all .2s' }}
-                    onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
-                    onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                      <div>
-                        <div style={{ fontSize: 18, fontWeight: 900, color: S.white }}>{MONTHS[m.month - 1]}</div>
-                        <div style={{ fontSize: 13, color: S.muted }}>{m.year}</div>
+              <>
+                <div style={{ fontSize: 13, color: S.muted, fontWeight: 700, marginBottom: 12 }}>📅 الأشهر — اضغط لعرض كل الموظفين أو اختر فرعاً من الأعلى</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
+                  {months.map(m => (
+                    <div key={m.id}
+                      style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${m.status === 'finalized' ? S.green + '40' : S.border}`, padding: '18px 20px', cursor: 'pointer', transition: 'all .2s' }}
+                      onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
+                      onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: S.white }}>{MONTHS[m.month - 1]}</div>
+                          <div style={{ fontSize: 13, color: S.muted }}>{m.year}</div>
+                        </div>
+                        <span style={{ background: m.status === 'finalized' ? S.greenB : S.card2, color: m.status === 'finalized' ? S.green : S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
+                          {m.status === 'finalized' ? '✅' : '📝'} {m.status}
+                        </span>
                       </div>
-                      <span style={{ background: m.status === 'finalized' ? S.greenB : m.status === 'processing' ? S.amberB : S.card2, color: m.status === 'finalized' ? S.green : m.status === 'processing' ? S.amber : S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
-                        {m.status === 'finalized' ? '✅' : m.status === 'processing' ? '⚙️' : '📝'} {m.status}
-                      </span>
+                      {/* أزرار الفروع داخل كل شهر */}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                        <button onClick={() => loadMonthRecords(m, null)}
+                          style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          🌸 كل الفروع
+                        </button>
+                        {branches.map(b => (
+                          <button key={b.id} onClick={() => loadMonthRecords(m, b)}
+                            style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                            🏪 {b.name}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11, color: S.muted }}>{new Date(m.created_at).toLocaleDateString()}</div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
           </>
         ) : (
-          /* ══ PAYROLL TABLE ══ */
+          /* PAYROLL TABLE */
           <>
             {/* Summary Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
-               { label: isAdmin ? 'Total Employees' : 'My Payroll', value: visibleRecords.length, color: S.white, icon: '👥' },
-               { label: 'Total Earnings',   value: 'MYR ' + totals.earnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.green, icon: '📈' },
-               { label: 'Total Deductions', value: 'MYR ' + totals.deductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.red, icon: '📉' },
-               { label: 'Net Payroll',      value: 'MYR ' + totals.net.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: S.teal, icon: '💰' },
-               { label: 'Balance',          value: 'MYR ' + totals.balance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: totals.balance > 0 ? S.amber : S.green, icon: '⚖️' },
+                { label: isAdmin ? 'Total Employees' : 'My Payroll', value: visibleRecords.length, color: S.white, icon: '👥' },
+                { label: 'Total Earnings',   value: 'MYR ' + fmt(totals.earnings),   color: S.green,  icon: '📈' },
+                { label: 'Total Deductions', value: 'MYR ' + fmt(totals.deductions), color: S.red,    icon: '📉' },
+                { label: 'Net Payroll',      value: 'MYR ' + fmt(totals.net),        color: S.teal,   icon: '💰' },
+                { label: 'Balance',          value: 'MYR ' + fmt(totals.balance),    color: totals.balance > 0 ? S.amber : S.green, icon: '⚖️' },
               ].map((s, i) => (
                 <div key={i} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: '14px 16px' }}>
                   <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{s.icon} {s.label}</div>
@@ -597,24 +606,23 @@ async function loadMonthRecords(month: PayrollMonth) {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRecords.map((r, i) => (
+                    {visibleRecords.map(r => (
                       <PayrollRow
                         key={r.employee_id}
                         record={r}
                         empMap={empMap}
-                        onChange={updated => setRecords(prev => prev.map((p, j) => p.employee_id === updated.employee_id ? updated : p))}
+                        onChange={updated => setRecords(prev => prev.map(p => p.employee_id === updated.employee_id ? updated : p))}
                       />
                     ))}
-                    {/* Totals Row */}
                     <tr style={{ background: 'rgba(201,168,76,0.1)', fontWeight: 800 }}>
                       <td colSpan={11} style={{ padding: '10px 14px', border: `1px solid ${S.border}`, color: S.gold, fontSize: 13, textAlign: 'right' }}>TOTAL</td>
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.green, textAlign: 'center', fontSize: 13 }}>{totals.earnings.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.green, textAlign: 'center', fontSize: 13 }}>{fmt(totals.earnings)}</td>
                       <td colSpan={8} style={{ border: `1px solid ${S.border}` }} />
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.red, textAlign: 'center', fontSize: 13 }}>{totals.deductions.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.red, textAlign: 'center', fontSize: 13 }}>{fmt(totals.deductions)}</td>
                       <td colSpan={3} style={{ border: `1px solid ${S.border}` }} />
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.teal, textAlign: 'center', fontSize: 14 }}>{totals.net.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.teal, textAlign: 'center', fontSize: 14 }}>{fmt(totals.net)}</td>
                       <td colSpan={2} style={{ border: `1px solid ${S.border}` }} />
-                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: totals.balance > 0 ? S.amber : S.green, textAlign: 'center', fontSize: 13 }}>{totals.balance.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: totals.balance > 0 ? S.amber : S.green, textAlign: 'center', fontSize: 13 }}>{fmt(totals.balance)}</td>
                       <td style={{ border: `1px solid ${S.border}` }} />
                     </tr>
                   </tbody>

@@ -564,29 +564,44 @@ export default function EmployeesPage() {
   useEffect(() => { fetchAll() }, [fetchAll])
   useEffect(() => { setPage(1) }, [search, filterRole, filterDept, filterBranch, filterStatus, filterHasAccount, sortBy])
 
-  async function activateRegistration(reg: Registration) {
-    const parsed = parseRegNotes(reg.notes)
+async function activateRegistration(reg: Registration) {
+  const parsed = parseRegNotes(reg.notes)
+
+  // ✅ تحويل القسم من إنجليزي لعربي
+  const deptMap: Record<string, string> = {
+    'Kitchen':    'المطبخ',
+    'Bar':        'البار',
+    'Hall':       'الصالة',
+    'Desserts':   'الحلويات',
+    'Cashier':    'الكاشير',
+    'Management': 'الإدارة',
+    'Delivery':   'التوصيل',
+    'Cleaning':   'النظافة',
+  }
+  const mappedDept = deptMap[reg.department] || reg.department || null
     // ⑧ البحث عن الفرع بالاسم
 const branchMap: Record<string, string> = {
   'Orchid House KLCC': 'اوركيد فرع KLCC',
   'Orchid House':      'اوركيد هاوس',
 }
-const mappedName = branchMap[parsed.branch_name || ''] || parsed.branch_name
-const matchedBranch = branches.find(b => b.name === mappedName)
- 
-const { data: newEmp, error } = await supabase.from('employees').insert([{
-      name: reg.name, name_en: reg.name_en || null, phone: reg.phone || null,
-      email: reg.email || null,           // البريد الشخصي
-      email_account: reg.email_account || null, // بريد النظام
-      department: reg.department || null, role: reg.role || 'employee',
-      photo_url: reg.photo_url || null, national_id_url: reg.national_id_url || null,
-      notes: parsed.extra_notes || null,
-      employee_number: parsed.employee_number || null,
-      salary: parsed.salary || null,
-      join_date: parsed.join_date || new Date().toISOString().split('T')[0],
-      branch_id: matchedBranch?.id || null,
-      is_active: true,
-    }]).select().single()
+  const mappedName = branchMap[parsed.branch_name || ''] || parsed.branch_name
+  const matchedBranch = branches.find(b => b.name === mappedName)
+
+  const { data: newEmp, error } = await supabase.from('employees').insert([{
+    name: reg.name, name_en: reg.name_en || null, phone: reg.phone || null,
+    email: reg.email || null,
+    email_account: reg.email_account || null,
+    department: mappedDept, // ✅ القسم المحوّل
+    role: reg.role || 'employee',
+    photo_url: reg.photo_url || null,
+    national_id_url: reg.national_id_url || null,
+    notes: parsed.extra_notes || null,
+    employee_number: parsed.employee_number || null,
+    salary: parsed.salary || null,
+    join_date: parsed.join_date || new Date().toISOString().split('T')[0],
+    branch_id: matchedBranch?.id || null,
+    is_active: true,
+  }]).select().single()
     if (error) { alert('خطأ: ' + error.message); return }
     if (reg.email_account && reg.password_hint && newEmp?.id) {
       try {

@@ -117,8 +117,11 @@ export default function RegisterPage() {
     const e: Record<string, string> = {}
     if (!photoFile) e.photo = 'Employee photo is required'
     if (!idFile) e.id_photo = 'ID / Passport is required'
+    const arabicRegex = /[\u0600-\u06FF]/
     if (!name.trim()) e.name = 'First name is required'
+    else if (arabicRegex.test(name)) e.name = 'Please enter your name in English only'
     if (!nameEn.trim()) e.name_en = 'Last name is required'
+    else if (arabicRegex.test(nameEn)) e.name_en = 'Please enter your name in English only'
     if (!branch) e.branch = 'Please select a branch'
     if (branch && !employeeNumber.trim()) e.employee_number = 'Employee number is required'
     if (!phone.trim()) e.phone = 'Phone number is required'
@@ -314,13 +317,18 @@ export default function RegisterPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 {label('First Name', true)}
-                <input style={inp('name')} value={name} onChange={e => setName(e.target.value)} placeholder="First Name" />
+                <input style={inp('name')} value={name} onChange={e => {
+                const val = e.target.value.replace(/[\u0600-\u06FF]/g, '')
+               setName(val)
+              }} placeholder="First Name (English only)" />
                 {errMsg('name')}
               </div>
               <div>
                 {label('Last Name', true)}
-                <input style={inp('name_en')} value={nameEn} onChange={e => setNameEn(e.target.value)} placeholder="Last Name" />
-                {errMsg('name_en')}
+                <input style={inp('name_en')} value={nameEn} onChange={e => {
+                const val = e.target.value.replace(/[\u0600-\u06FF]/g, '')
+                setNameEn(val)
+                }} placeholder="Last Name (English only)" />
               </div>
             </div>
 

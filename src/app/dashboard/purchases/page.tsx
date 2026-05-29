@@ -216,17 +216,28 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
 // ══════════════════════════════════════════
 // AddProductModal — إضافة صنف جديد سريع
 // ══════════════════════════════════════════
-function AddProductModal({ initialName, onClose, onSaved }: {
+function AddProductModal({ initialName, onClose, onSaved, units: allUnits }: {
   initialName: string
   onClose: () => void
   onSaved: (p: Product) => void
+  units?: { id: string; name: string; symbol: string }[]
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
+  const [categories, setCategories] = useState<string[]>([])
   const [form, setForm] = useState({
-    name: initialName, name_en: '', category: 'عام',
+    name: initialName, name_en: '', category: '',
     current_stock: '0', last_purchase_price: '0',
+    unit_id: '', min_stock: '0',
   })
+
+  useEffect(() => {
+    // جيب الكاتيجوريز الموجودة
+    supabase.from('warehouse_products').select('category').eq('is_active', true).then(({ data }) => {
+      const cats = [...new Set((data || []).map((p: any) => p.category).filter(Boolean))].sort()
+      setCategories(cats)
+    })
+  }, [])
 
   async function save() {
     if (!form.name.trim()) { alert('يرجى إدخال اسم الصنف'); return }
@@ -236,9 +247,11 @@ function AddProductModal({ initialName, onClose, onSaved }: {
       .insert([{
         name: form.name.trim(),
         name_en: form.name_en.trim() || null,
-        category: form.category,
+        category: form.category || 'عام',
         current_stock: parseFloat(form.current_stock) || 0,
         last_purchase_price: parseFloat(form.last_purchase_price) || 0,
+        min_stock: parseFloat(form.min_stock) || 0,
+        unit_id: form.unit_id || null,
         is_active: true,
       }])
       .select('*, units(symbol)')
@@ -248,14 +261,17 @@ function AddProductModal({ initialName, onClose, onSaved }: {
     onSaved(data)
   }
 
+  const selectStyle: React.CSSProperties = { ...inp, cursor: 'pointer', appearance: 'none' as any }
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.gold}`, width: '100%', maxWidth: 420, padding: 28 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.gold}`, width: '100%', maxWidth: 460, padding: 28, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h3 style={{ color: S.gold, fontSize: 16, fontWeight: 700 }}>📦 إضافة صنف جديد</h3>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* اسم الصنف */}
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم الصنف (عربي) *</label>
             <input style={inp} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: زيت زيتون" autoFocus />
@@ -264,14 +280,43 @@ function AddProductModal({ initialName, onClose, onSaved }: {
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم الصنف (إنجليزي)</label>
             <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Olive Oil" />
           </div>
+
+          {/* التصنيف — dropdown من الموجودين */}
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التصنيف</label>
-            <input style={inp} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} placeholder="مثال: زيوت، مواد جافة..." />
+            <select style={selectStyle} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+              <option value="">-- اختر تصنيف --</option>
+              {categories.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+              <option value="__new__">+ تصنيف جديد...</option>
+            </select>
+            {form.category === '__new__' && (
+              <input style={{ ...inp, marginTop: 8 }} placeholder="اكتب اسم التصنيف الجديد"
+                onChange={e => setForm(p => ({ ...p, category: e.target.value }))} autoFocus />
+            )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+
+          {/* الوحدة */}
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وحدة القياس</label>
+            <select style={selectStyle} value={form.unit_id} onChange={e => setForm(p => ({ ...p, unit_id: e.target.value }))}>
+              <option value="">-- بدون وحدة --</option>
+              {(allUnits || []).map(u => (
+                <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>
+              ))}
+            </select>
+          </div>
+
+          {/* الأسعار والمخزون */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المخزون الحالي</label>
               <input style={{ ...inp, direction: 'ltr' }} type="number" value={form.current_stock} onChange={e => setForm(p => ({ ...p, current_stock: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الحد الأدنى</label>
+              <input style={{ ...inp, direction: 'ltr' }} type="number" value={form.min_stock} onChange={e => setForm(p => ({ ...p, min_stock: e.target.value }))} />
             </div>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>آخر سعر شراء</label>
@@ -703,6 +748,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
       {showAddProduct && (
         <AddProductModal
           initialName={newProductName}
+          units={units}
           onClose={() => { setShowAddProduct(false); setNewProductName(''); setAddingForIndex(-1) }}
           onSaved={(p) => {
             setLocalProducts(prev => [...prev, p])

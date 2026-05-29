@@ -1,6 +1,5 @@
 'use client'
 
-
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -22,44 +21,64 @@ const S = {
   teal: '#14B8A6', tealB: 'rgba(20,184,166,0.12)',
 }
 
+// ✅ أدوار محدّثة — تشمل kitchen_manager و hall_manager
 const ROLES_INFO: Record<string, { label: string; icon: string; color: string; bg: string; desc: string }> = {
-  admin:               { label: 'مدير النظام',    icon: '👑', color: S.gold,   bg: S.gold3,   desc: 'صلاحية كاملة على كل النظام' },
-  branch_manager:      { label: 'مدير الفرع',     icon: '🏪', color: S.purple, bg: S.purpleB, desc: 'إدارة الفرع والتقارير والموظفين' },
-  kitchen_supervisor:  { label: 'مشرف المطبخ',    icon: '👨‍🍳', color: S.red,    bg: S.redB,    desc: 'المطبخ والمخزون وطلبات الفروع' },
-  hall_supervisor:     { label: 'مشرف الصالة',    icon: '🍽️', color: S.blue,   bg: S.blueB,   desc: 'الصالة والحجوزات وخدمة العملاء' },
-  bar_supervisor:      { label: 'مشرف البار',     icon: '☕', color: S.teal,   bg: S.tealB,   desc: 'البار والمشروبات والمخزون' },
-  cashier:             { label: 'كاشير',           icon: '💰', color: S.green,  bg: S.greenB,  desc: 'المبيعات والفواتير والدفع' },
-  warehouse_keeper: { label: 'أمين المستودع', icon: '🏭', color: '#F97316', bg: 'rgba(249,115,22,0.12)', desc: 'إدارة المخزون والمشتريات وطلبات الفروع' },
-  employee:            { label: 'موظف',            icon: '👤', color: S.muted,  bg: S.card2,   desc: 'طلباته الشخصية فقط' },
+  admin:               { label: 'مدير النظام',    icon: '👑', color: S.gold,    bg: S.gold3,                        desc: 'صلاحية كاملة على كل النظام' },
+  branch_manager:      { label: 'مدير الفرع',     icon: '🏪', color: S.purple,  bg: S.purpleB,                      desc: 'إدارة الفرع والتقارير والموظفين' },
+  kitchen_manager:     { label: 'مدير المطبخ',    icon: '🍳', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'المطبخ والبار والحلويات والموظفين' },
+  hall_manager:        { label: 'مدير الصالة',    icon: '🏛️', color: '#06B6D4', bg: 'rgba(6,182,212,0.12)',          desc: 'الصالة والحجوزات والعملاء' },
+  bar_manager: { label: 'مدير البار', icon: '🍹', color: '#6366F1', bg: 'rgba(99,102,241,0.12)',                desc: 'البار والمشروبات والموظفين' },
+  kitchen_supervisor:  { label: 'مشرف المطبخ',    icon: '👨‍🍳', color: S.red,     bg: S.redB,                         desc: 'المطبخ والمخزون وطلبات الفروع' },
+  hall_supervisor:     { label: 'مشرف الصالة',    icon: '🍽️', color: S.blue,    bg: S.blueB,                        desc: 'الصالة والحجوزات وخدمة العملاء' },
+  bar_supervisor:      { label: 'مشرف البار',     icon: '☕', color: S.teal,    bg: S.tealB,                        desc: 'البار والمشروبات والمخزون' },
+  cashier:             { label: 'كاشير',           icon: '💰', color: S.green,   bg: S.greenB,                       desc: 'المبيعات والفواتير والدفع' },
+  warehouse_keeper:    { label: 'أمين المستودع',  icon: '🏭', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'إدارة المخزون والمشتريات وطلبات الفروع' },
+  employee:            { label: 'موظف',            icon: '👤', color: S.muted,   bg: S.card2,                        desc: 'طلباته الشخصية فقط' },
 }
 
+// ✅ الصلاحيات الافتراضية لكل دور
+const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
+  admin:              { all: true },
+  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, notifications: true },
+  kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, hr: true, my_requests: true, attendance: true, notifications: true },
+  hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, my_requests: true, attendance: true, notifications: true },
+  bar_manager: { bar: true, branch_requests: true, hr: true, my_requests: true, attendance: true, notifications: true },
+  kitchen_supervisor: { kitchen: true, branch_requests: true, my_requests: true, attendance: true },
+  hall_supervisor:    { hall: true, bookings: true, my_requests: true, attendance: true },
+  bar_supervisor:     { bar: true, my_requests: true, attendance: true },
+  cashier:            { sales: true, invoices: true, my_requests: true, attendance: true },
+  warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, suppliers: true, my_requests: true, attendance: true, notifications: true },
+  employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true },
+}
+
+// ✅ كل الصلاحيات الموجودة — محتفظ بكل الأصلية + الجديدة
 const ALL_PERMISSIONS = [
   { key: 'all',              label: 'كل الصلاحيات',        group: 'عام',           icon: '🔓' },
   { key: 'warehouse',        label: 'المستودعات',           group: 'إدارة المخزون', icon: '🏭' },
   { key: 'purchases',        label: 'المشتريات',            group: 'إدارة المخزون', icon: '🛒' },
   { key: 'branch_requests',  label: 'طلبات الفروع',        group: 'إدارة المخزون', icon: '📦' },
+  { key: 'suppliers',        label: 'الموردون',             group: 'إدارة المخزون', icon: '🤝' },
   { key: 'kitchen',          label: 'المطبخ',               group: 'العمليات',      icon: '👨‍🍳' },
   { key: 'hall',             label: 'الصالة',               group: 'العمليات',      icon: '🍽️' },
   { key: 'bar',              label: 'البار',                group: 'العمليات',      icon: '☕' },
   { key: 'desserts',         label: 'الحلويات',             group: 'العمليات',      icon: '🍰' },
+  { key: 'sales',            label: 'المبيعات / الكاشير',  group: 'العمليات',      icon: '💳' },
   { key: 'menu',             label: 'قائمة الطعام',         group: 'المنيو',        icon: '📖' },
   { key: 'bookings',         label: 'الحجوزات',             group: 'العملاء',       icon: '📅' },
   { key: 'customers',        label: 'قاعدة العملاء',        group: 'العملاء',       icon: '👥' },
   { key: 'loyalty',          label: 'نقاط الولاء',          group: 'العملاء',       icon: '🎁' },
-  { key: 'sales',            label: 'المبيعات',             group: 'المالية',       icon: '💳' },
   { key: 'invoices',         label: 'الفواتير',             group: 'المالية',       icon: '🧾' },
   { key: 'accounting',       label: 'المحاسبة',             group: 'المالية',       icon: '💸' },
-  { key: 'reports',          label: 'التقارير',             group: 'التقارير',      icon: '📊' },
+  { key: 'reports',          label: 'التقارير',             group: 'المالية',       icon: '📊' },
+  { key: 'payroll',          label: 'الرواتب والأجور',       group: 'المالية',       icon: '💰' },
   { key: 'hr',               label: 'الموارد البشرية',      group: 'الموارد',       icon: '👷' },
   { key: 'my_requests',      label: 'طلباتي الشخصية',       group: 'الموارد',       icon: '📋' },
+  { key: 'attendance',       label: 'الحضور والانصراف',     group: 'الموارد',       icon: '⏰' },
+  { key: 'my_payroll',       label: 'راتبي',                group: 'الموارد',       icon: '💵' },
   { key: 'marketing',        label: 'التسويق',              group: 'التسويق',       icon: '📢' },
+  { key: 'notifications',    label: 'الإشعارات',            group: 'الإعدادات',     icon: '🔔' },
   { key: 'settings',         label: 'الإعدادات',            group: 'الإعدادات',     icon: '⚙️' },
   { key: 'permissions',      label: 'إدارة الصلاحيات',      group: 'الإعدادات',     icon: '🔐' },
-  { key: 'suppliers',        label: 'الموردون',             group: 'الإعدادات',     icon: '🤝' },
-  { key: 'payroll',          label: 'الرواتب والأجور',       group: 'المالية', icon: '💰' },
-  { key: 'attendance',       label: 'الحضور والانصراف',      group: 'الموارد', icon: '⏰' },
-  { key: 'my_payroll',       label: 'راتبي',                 group: 'الموارد', icon: '💰' },
-
 ]
 
 const GROUPS = [...new Set(ALL_PERMISSIONS.map(p => p.group))]
@@ -84,6 +103,10 @@ export default function PermissionsPage() {
     setRoles(data || [])
     const permsMap: Record<string, Record<string, boolean>> = {}
     ;(data || []).forEach((r: RolePermission) => { permsMap[r.role] = r.permissions || {} })
+    // ✅ أضف الأدوار الجديدة لو مش موجودة في DB
+    Object.keys(ROLES_INFO).forEach(role => {
+      if (!permsMap[role]) permsMap[role] = DEFAULT_PERMISSIONS[role] || {}
+    })
     setLocalPerms(permsMap)
     setLoading(false)
   }, [])
@@ -97,21 +120,36 @@ export default function PermissionsPage() {
     }))
   }
 
+  // ✅ يدعم إنشاء role جديد لو مش موجود
   async function saveRole(role: string) {
     setSaving(role)
-    const { error } = await supabase.from('roles_permissions')
-      .update({ permissions: localPerms[role] })
-      .eq('role', role)
+    const existing = roles.find(r => r.role === role)
+    let error
+    if (existing) {
+      ;({ error } = await supabase.from('roles_permissions')
+        .update({ permissions: localPerms[role] })
+        .eq('role', role))
+    } else {
+      ;({ error } = await supabase.from('roles_permissions')
+        .insert([{ role, role_name_ar: ROLES_INFO[role]?.label || role, permissions: localPerms[role], is_active: true }]))
+    }
     setSaving(null)
     if (error) { alert('خطأ: ' + error.message); return }
     setSaved(role)
     setTimeout(() => setSaved(null), 2000)
+    fetchAll()
   }
 
-  const currentRole = roles.find(r => r.role === selectedRole)
+  // ✅ إعادة للافتراضي
+  async function resetToDefault(role: string) {
+    if (!confirm(`إعادة صلاحيات "${ROLES_INFO[role]?.label}" للافتراضي؟`)) return
+    setLocalPerms(prev => ({ ...prev, [role]: DEFAULT_PERMISSIONS[role] || {} }))
+  }
+
   const currentPerms = localPerms[selectedRole] || {}
   const roleInfo = ROLES_INFO[selectedRole] || { label: selectedRole, icon: '👤', color: S.muted, bg: S.card2, desc: '' }
   const isAdmin = selectedRole === 'admin'
+  const enabledCount = Object.values(currentPerms).filter(Boolean).length
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
@@ -133,20 +171,20 @@ export default function PermissionsPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20 }}>
 
         {/* Roles List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 12, color: S.muted, fontWeight: 700, marginBottom: 4, letterSpacing: 1 }}>الأدوار الوظيفية</div>
           {Object.entries(ROLES_INFO).map(([key, info]) => {
-            const role = roles.find(r => r.role === key)
             const permCount = Object.values(localPerms[key] || {}).filter(Boolean).length
+            const isSelected = selectedRole === key
             return (
               <button key={key} onClick={() => setSelectedRole(key)}
-                style={{ padding: '12px 14px', borderRadius: 12, border: `1px solid ${selectedRole === key ? info.color : S.border}`, background: selectedRole === key ? info.bg : 'transparent', cursor: 'pointer', textAlign: 'right', transition: 'all .2s', display: 'flex', alignItems: 'center', gap: 10 }}>
+                style={{ padding: '12px 14px', borderRadius: 12, border: `1px solid ${isSelected ? info.color : S.border}`, background: isSelected ? info.bg : 'transparent', cursor: 'pointer', textAlign: 'right', transition: 'all .2s', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 20 }}>{info.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: selectedRole === key ? info.color : S.white, marginBottom: 2 }}>{info.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: isSelected ? info.color : S.white, marginBottom: 2 }}>{info.label}</div>
                   <div style={{ fontSize: 10, color: S.muted }}>
                     {key === 'admin' ? 'كل الصلاحيات' : `${permCount} صلاحية`}
                   </div>
@@ -163,8 +201,9 @@ export default function PermissionsPage() {
             <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
           ) : (
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+
               {/* Role Header */}
-              <div style={{ padding: '20px 24px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ padding: '20px 24px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 48, height: 48, borderRadius: '50%', background: roleInfo.bg, border: `2px solid ${roleInfo.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>
                     {roleInfo.icon}
@@ -175,10 +214,16 @@ export default function PermissionsPage() {
                   </div>
                 </div>
                 {!isAdmin && (
-                  <button onClick={() => saveRole(selectedRole)} disabled={saving === selectedRole}
-                    style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    {saving === selectedRole ? '⏳ جاري الحفظ...' : saved === selectedRole ? '✅ تم الحفظ' : '💾 حفظ التغييرات'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => resetToDefault(selectedRole)}
+                      style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      🔄 إعادة للافتراضي
+                    </button>
+                    <button onClick={() => saveRole(selectedRole)} disabled={saving === selectedRole}
+                      style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      {saving === selectedRole ? '⏳ جاري الحفظ...' : saved === selectedRole ? '✅ تم الحفظ' : '💾 حفظ التغييرات'}
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -191,13 +236,38 @@ export default function PermissionsPage() {
                 </div>
               ) : (
                 <div style={{ padding: 20 }}>
+
+                  {/* Summary */}
+                  <div style={{ background: S.navy3, borderRadius: 12, padding: '12px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: S.muted }}>الصلاحيات المفعّلة: <strong style={{ color: S.gold }}>{enabledCount}</strong> / {ALL_PERMISSIONS.length - 1}</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => {
+                        const all: Record<string, boolean> = {}
+                        ALL_PERMISSIONS.filter(p => p.key !== 'all').forEach(p => { all[p.key] = true })
+                        setLocalPerms(prev => ({ ...prev, [selectedRole]: all }))
+                      }} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                        تفعيل الكل
+                      </button>
+                      <button onClick={() => setLocalPerms(prev => ({ ...prev, [selectedRole]: {} }))}
+                        style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                        إلغاء الكل
+                      </button>
+                    </div>
+                  </div>
+
                   {GROUPS.filter(g => g !== 'عام').map(group => {
                     const groupPerms = ALL_PERMISSIONS.filter(p => p.group === group)
-                    const allEnabled = groupPerms.every(p => currentPerms[p.key])
+                    const enabledInGroup = groupPerms.filter(p => currentPerms[p.key]).length
+                    const allEnabled = enabledInGroup === groupPerms.length
                     return (
                       <div key={group} style={{ marginBottom: 20 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                          <div style={{ fontSize: 13, color: S.gold, fontWeight: 700 }}>{group}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ fontSize: 13, color: S.gold, fontWeight: 700 }}>{group}</div>
+                            <div style={{ fontSize: 11, color: S.muted, background: S.card, borderRadius: 20, padding: '2px 8px' }}>
+                              {enabledInGroup}/{groupPerms.length}
+                            </div>
+                          </div>
                           <button onClick={() => {
                             const newVal = !allEnabled
                             setLocalPerms(prev => ({
@@ -229,14 +299,6 @@ export default function PermissionsPage() {
                       </div>
                     )
                   })}
-
-                  {/* Summary */}
-                  <div style={{ background: S.navy3, borderRadius: 12, padding: '14px 18px', marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 13, color: S.muted }}>الصلاحيات المفعّلة</span>
-                    <span style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>
-                      {Object.values(currentPerms).filter(Boolean).length} / {ALL_PERMISSIONS.length - 1}
-                    </span>
-                  </div>
                 </div>
               )}
             </div>

@@ -40,7 +40,6 @@ const REQUEST_TYPES: Record<string, { label: string; icon: string; color: string
   complaint:     { label: 'شكوى / مشكلة',    icon: '⚠️', color: S.red,   bg: S.redB },
   suggestion:    { label: 'اقتراح',           icon: '💡', color: S.green,  bg: S.greenB },
   other:           { label: 'طلب آخر',               icon: '📋', color: S.muted,  bg: S.card2 },
-  attendance_correction: { label: 'تصحيح حضور', icon: '🕐', color: S.teal, bg: S.tealB, hasDates: true },
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
@@ -321,16 +320,15 @@ Reason: ${form.reason}`
 }
 
 // ══ New Request Modal ══
-function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initialType }: {
-  employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string; initialType?: string
+function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId }: {
+  employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    employee_id: currentEmployeeId || '', request_type: initialType || 'leave_annual',
+    employee_id: currentEmployeeId || '', request_type: 'leave_annual',
     title: '', description: '', amount: '',
     start_date: '', end_date: '',
-    correct_checkin: '', correct_checkout: '',
   })
 
   const reqType = REQUEST_TYPES[form.request_type]
@@ -342,19 +340,12 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
   async function save() {
     if (!form.employee_id || !form.request_type) { alert('يرجى اختيار الموظف ونوع الطلب'); return }
     if (!form.description) { alert('يرجى إدخال تفاصيل الطلب'); return }
-    if (form.request_type === 'attendance_correction' && !form.start_date) { alert('يرجى تحديد تاريخ الحضور المراد تصحيحه'); return }
     setSaving(true)
-
-    // إضافة معلومات تصحيح الحضور للوصف
-    const correctionInfo = form.request_type === 'attendance_correction'
-      ? `\n\nتاريخ الحضور: ${form.start_date}\nوقت الدخول الصح: ${form.correct_checkin || '—'}\nوقت الخروج الصح: ${form.correct_checkout || '—'}`
-      : ''
-
     const { error } = await supabase.from('employee_requests').insert([{
       employee_id: form.employee_id,
       request_type: form.request_type,
       title: form.title || reqType.label,
-      description: form.description + correctionInfo,
+      description: form.description,
       amount: form.amount ? parseFloat(form.amount) : null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
@@ -433,45 +424,19 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
           {reqType.hasDates && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>
-                  {form.request_type === 'attendance_correction' ? 'تاريخ الحضور *' : 'من تاريخ'}
-                </label>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>من تاريخ</label>
                 <input style={inp} type="date" value={form.start_date} onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))} />
               </div>
-              {form.request_type !== 'attendance_correction' && (
-                <div>
-                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>إلى تاريخ</label>
-                  <input style={inp} type="date" value={form.end_date} onChange={e => setForm(p => ({ ...p, end_date: e.target.value }))} />
-                </div>
-              )}
-              {daysCount > 0 && form.request_type !== 'attendance_correction' && (
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>إلى تاريخ</label>
+                <input style={inp} type="date" value={form.end_date} onChange={e => setForm(p => ({ ...p, end_date: e.target.value }))} />
+              </div>
+              {daysCount > 0 && (
                 <div style={{ gridColumn: '1/-1', background: S.blueB, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 13, color: S.muted }}>عدد الأيام</span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: S.blue }}>{daysCount} يوم</span>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* حقول تصحيح الحضور */}
-          {form.request_type === 'attendance_correction' && (
-            <div style={{ background: S.tealB, border: `1px solid ${S.teal}30`, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 12 }}>🕐 أوقات الحضور الصحيحة</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وقت الدخول الصح</label>
-                  <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.correct_checkin}
-                    onChange={e => setForm(p => ({ ...p, correct_checkin: e.target.value }))} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وقت الخروج الصح</label>
-                  <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.correct_checkout}
-                    onChange={e => setForm(p => ({ ...p, correct_checkout: e.target.value }))} />
-                </div>
-              </div>
-              <div style={{ fontSize: 11, color: S.muted, marginTop: 8 }}>
-                Leave empty if you only want to correct one time
-              </div>
             </div>
           )}
         </div>
@@ -516,25 +481,6 @@ function RequestDetailModal({ request, onClose, onUpdate, onDelete }: {
       approved_at: ['approved', 'completed'].includes(newStatus) ? new Date().toISOString() : null,
       rejection_reason: newStatus === 'rejected' ? rejectionReason : null,
     }).eq('id', request.id)
-
-    // ✅ تطبيق تصحيح الحضور تلقائياً عند الموافقة
-    if (newStatus === 'approved' && request.request_type === 'attendance_correction' && request.start_date) {
-      const desc = request.description || ''
-      const checkinMatch  = desc.match(/وقت الدخول الصح:\s*(\d{2}:\d{2})/)
-      const checkoutMatch = desc.match(/وقت الخروج الصح:\s*(\d{2}:\d{2})/)
-      const updateData: any = {}
-      if (checkinMatch?.[1])  updateData.check_in_time  = `${request.start_date}T${checkinMatch[1]}:00`
-      if (checkoutMatch?.[1]) updateData.check_out_time = `${request.start_date}T${checkoutMatch[1]}:00`
-      updateData.is_manual = true
-      updateData.notes = `تم تصحيحه بموافقة ${approvedBy}`
-      if (Object.keys(updateData).length > 2) {
-        await supabase.from('attendance')
-          .update(updateData)
-          .eq('employee_id', request.employee_id)
-          .eq('date', request.start_date)
-      }
-    }
-
     setUpdating(false)
     onUpdate()
   }
@@ -629,28 +575,6 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             </div>
           ))}
         </div>
-
-        {/* تصحيح الحضور — عرض التفاصيل */}
-        {request.request_type === 'attendance_correction' && (
-          <div style={{ background: S.tealB, border: `1px solid ${S.teal}30`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 8 }}>🕐 تفاصيل تصحيح الحضور</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[
-                { label: 'تاريخ الحضور', value: request.start_date || '—' },
-                { label: 'وقت الدخول الصح', value: request.description?.match(/وقت الدخول الصح:\s*([^\n]+)/)?.[1] || '—' },
-                { label: 'وقت الخروج الصح', value: request.description?.match(/وقت الخروج الصح:\s*([^\n]+)/)?.[1] || '—' },
-              ].map((r, i) => (
-                <div key={i} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '8px 12px' }}>
-                  <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{r.label}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{r.value}</div>
-                </div>
-              ))}
-            </div>
-            {request.status === 'approved' && (
-              <div style={{ marginTop: 8, fontSize: 11, color: S.green }}>✅ تم تطبيق التصحيح على سجل الحضور تلقائياً</div>
-            )}
-          </div>
-        )}
 
         {/* Description */}
         <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
@@ -749,7 +673,6 @@ export default function EmployeeRequestsPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
-  const [showNewType, setShowNewType] = useState('leave_annual')
   const [showSalaryIncrease, setShowSalaryIncrease] = useState(false)
   const [showSalaryAdvance, setShowSalaryAdvance] = useState(false)
   const [selected, setSelected] = useState<EmployeeRequest | null>(null)
@@ -818,7 +741,6 @@ export default function EmployeeRequestsPage() {
         </div>
 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
   <button onClick={() => setShowNew(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Request</button>
-  <button onClick={() => { setShowNewType('attendance_correction'); setShowNew(true); }} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🕐 Attendance Correction </button>
   <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📈 Salary Increase</button>
   <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💸 Salary Advance</button>
 </div>
@@ -954,7 +876,7 @@ export default function EmployeeRequestsPage() {
         </div>
       )}
 
-     {showNew && <NewRequestModal employees={employees} initialType={showNewType} onClose={() => { setShowNew(false); setShowNewType('leave_annual') }} onSaved={() => { setShowNew(false); setShowNewType('leave_annual'); fetchAll() }} currentEmployeeId={currentUser?.id} />}
+     {showNew && <NewRequestModal employees={employees} onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployeeId={currentUser?.id} />}
       {showSalaryIncrease && employees.find(e => e.id === currentUser?.id) && (
   <SalaryIncreaseModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryIncrease(false)} onSaved={() => { setShowSalaryIncrease(false); fetchAll() }} />
 )}

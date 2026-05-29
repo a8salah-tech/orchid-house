@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useLang } from '../../components/LanguageContext'
 import { createBrowserClient } from '@supabase/ssr'
 
 const createClient = () => createBrowserClient(
@@ -24,6 +25,7 @@ const S = {
 interface Warehouse {
   id: string
   name: string
+  name_en?: string 
   description: string
   location: string
   is_main: boolean
@@ -35,11 +37,12 @@ interface Warehouse {
 
 function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name: '', description: '', location: '', is_main: false })
 
   async function save() {
-    if (!form.name) { alert('يرجى إدخال اسم المستودع'); return }
+    if (!form.name) { alert(isAr ? 'يرجى إدخال اسم المستودع' : 'Please enter warehouse name'); return }
     setSaving(true)
     const { error } = await supabase.from('warehouses').insert([form])
     setSaving(false)
@@ -51,14 +54,14 @@ function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved:
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 460, padding: 28 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>🏭 إضافة مستودع جديد</h3>
+          <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>{isAr ? '🏭 إضافة مستودع جديد' : '🏭 Add New Warehouse'}</h3>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم المستودع *</label>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'اسم المستودع *' : 'Warehouse Name *'}</label>
             <input
-              style={{ width: '100%', background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'rtl' }}
+              style={{ width: '100%', background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr' }}
               value={form.name}
               onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
               placeholder="مثال: مستودع المشروبات"
@@ -67,7 +70,7 @@ function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved:
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الوصف</label>
             <input
-              style={{ width: '100%', background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'rtl' }}
+              style={{ width: '100%', background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr' }}
               value={form.description}
               onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
               placeholder="وصف مختصر للمستودع"
@@ -76,10 +79,10 @@ function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved:
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الموقع / العنوان</label>
             <input
-              style={{ width: '100%', background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'rtl' }}
+              style={{ width: '100%', background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr' }}
               value={form.location}
               onChange={e => setForm(p => ({ ...p, location: e.target.value }))}
-              placeholder="مثال: الدور الأول، المطبخ الرئيسي"
+              placeholder={isAr ? "مثال: الدور الأول، المطبخ الرئيسي" : "e.g. Ground Floor, Main Kitchen"}
             />
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 14px', background: S.card, borderRadius: 10 }}>
@@ -90,15 +93,15 @@ function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved:
               style={{ width: 16, height: 16, accentColor: S.gold }}
             />
             <div>
-              <div style={{ fontSize: 13, color: S.white, fontWeight: 600 }}>مستودع رئيسي</div>
-              <div style={{ fontSize: 11, color: S.muted }}>يغذي باقي المستودعات</div>
+              <div style={{ fontSize: 13, color: S.white, fontWeight: 600 }}>{isAr ? 'مستودع رئيسي' : 'Main Warehouse'}</div>
+              <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'يغذي باقي المستودعات' : 'Supplies other warehouses'}</div>
             </div>
           </label>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
           <button onClick={save} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳ جاري الحفظ...' : '💾 حفظ المستودع'}
+            {saving ? (isAr ? '⏳ جاري الحفظ...' : '⏳ Saving...') : (isAr ? '💾 حفظ المستودع' : '💾 Save')}
           </button>
         </div>
       </div>
@@ -116,7 +119,7 @@ async function printInventoryReport(supabase: any) {
     .order('category')
     .order('name')
 
-  if (!products || products.length === 0) { alert('لا توجد منتجات'); return }
+  if (!products || products.length === 0) { alert('No products found'); return }
 
   const grouped: Record<string, any[]> = {}
   products.forEach((p: any) => {
@@ -184,6 +187,7 @@ async function printInventoryReport(supabase: any) {
 // ══ Add Unit Modal ══
 function AddUnitModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
   const [units, setUnits] = useState<{id:string;name:string;symbol:string}[]>([])
   const [form, setForm] = useState({ name: '', symbol: '' })
@@ -210,13 +214,13 @@ function AddUnitModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     supabase.from('units').select('id,name,symbol').order('name').then(({ data }) => setUnits(data || []))
   }
 
-  const inp2: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: 'rtl' }
+  const inp2: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', direction: isAr ? 'rtl' : 'ltr' }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
       <div style={{ background: '#0F2040', borderRadius: 18, border: '1px solid rgba(255,255,255,0.08)', width: '100%', maxWidth: 460, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ color: '#14B8A6', fontSize: 16, fontWeight: 700 }}>📦 إدارة الوحدات</h3>
+          <h3 style={{ color: '#14B8A6', fontSize: 16, fontWeight: 700 }}>{isAr ? '📦 إدارة الوحدات' : '📦 Manage Units'}</h3>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#8A9BB5', fontSize: 22, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 16, marginBottom: 20 }}>
@@ -236,7 +240,7 @@ function AddUnitModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             </button>
           </div>
         </div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#FAFAF8', marginBottom: 10 }}>📋 الوحدات ({units.length})</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#FAFAF8', marginBottom: 10 }}>{isAr ? `📋 الوحدات (${units.length})` : `📋 Units (${units.length})`}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
           {units.map(u => (
             <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: '8px 14px' }}>
@@ -252,6 +256,7 @@ function AddUnitModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 }
 
 export default function WarehousesPage() {
+  const { isAr } = useLang()
   const router = useRouter()
   const supabase = createClient()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
@@ -295,33 +300,33 @@ export default function WarehousesPage() {
   const subWarehouses = warehouses.filter(w => !w.is_main)
 
   return (
-    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
+    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');`}</style>
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>🏭 المستودعات</h1>
-          <p style={{ fontSize: 13, color: S.muted }}>إدارة جميع المستودعات — اضغط على أي مستودع للدخول إليه</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>{isAr ? '🏭 المستودعات' : '🏭 Warehouses'}</h1>
+          <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'إدارة جميع المستودعات — اضغط على أي مستودع للدخول إليه' : 'Manage all warehouses — click any to enter'}</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             onClick={() => printInventoryReport(supabase)}
             style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid #3B82F6`, background: 'rgba(59,130,246,0.12)', color: '#3B82F6', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
           >
-            🖨️ طباعة تقرير المخزون
+            {isAr ? '🖨️ طباعة تقرير المخزون' : '🖨️ Print Report'}
           </button>
           <button
             onClick={() => setShowAddUnit(true)}
             style={{ padding: '10px 16px', borderRadius: 12, border: '1px solid #14B8A6', background: 'rgba(20,184,166,0.12)', color: '#14B8A6', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
           >
-            📦 وحدات
+            {isAr ? '📦 وحدات' : '📦 Units'}
           </button>
           <button
             onClick={() => setShowAdd(true)}
             style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
           >
-            ➕ مستودع جديد
+            {isAr ? '➕ مستودع جديد' : '➕ New Warehouse'}
           </button>
         </div>
       </div>
@@ -333,7 +338,7 @@ export default function WarehousesPage() {
           {/* المستودع الرئيسي */}
           {mainWarehouse && (
             <div style={{ marginBottom: 28 }}>
-              <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 12, letterSpacing: 1 }}>المستودع الرئيسي</div>
+              <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 12, letterSpacing: 1 }}>{isAr ? 'المستودع الرئيسي' : 'Main Warehouse'}</div>
               <div
                 onClick={() => router.push(`/dashboard/warehouse/${mainWarehouse.id}`)}
                 style={{
@@ -350,8 +355,8 @@ export default function WarehousesPage() {
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                       <span style={{ fontSize: 24 }}>🏭</span>
-                      <h2 style={{ fontSize: 20, fontWeight: 800, color: S.gold }}>{mainWarehouse.name}</h2>
-                      <span style={{ background: S.gold3, border: `1px solid ${S.gold}`, color: S.gold, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>رئيسي</span>
+                      <h2 style={{ fontSize: 20, fontWeight: 800, color: S.gold }}> {isAr ? mainWarehouse.name : (mainWarehouse.name_en || mainWarehouse.name)} </h2>
+                      <span style={{ background: S.gold3, border: `1px solid ${S.gold}`, color: S.gold, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>{isAr ? 'رئيسي' : 'Main'}</span>
                     </div>
                     {mainWarehouse.description && <p style={{ fontSize: 13, color: S.muted, marginBottom: 4 }}>{mainWarehouse.description}</p>}
                     {mainWarehouse.location && <p style={{ fontSize: 12, color: S.muted }}>📍 {mainWarehouse.location}</p>}
@@ -359,16 +364,16 @@ export default function WarehousesPage() {
                   <div style={{ display: 'flex', gap: 16 }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 24, fontWeight: 800, color: S.white }}>{mainWarehouse.product_count}</div>
-                      <div style={{ fontSize: 11, color: S.muted }}>صنف</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Items'}</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 24, fontWeight: 800, color: mainWarehouse.low_stock_count! > 0 ? S.amber : S.green }}>{mainWarehouse.low_stock_count}</div>
-                      <div style={{ fontSize: 11, color: S.muted }}>منخفض</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'منخفض' : 'Low'}</div>
                     </div>
                   </div>
                 </div>
                 <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 6, color: S.gold, fontSize: 12 }}>
-                  <span>يغذي {subWarehouses.length} مستودع فرعي</span>
+                  <span>{isAr ? `يغذي ${subWarehouses.length} مستودع فرعي` : `Feeds ${subWarehouses.length} branch warehouses`}</span>
                   <span>←</span>
                 </div>
               </div>
@@ -378,7 +383,7 @@ export default function WarehousesPage() {
           {/* المستودعات الفرعية */}
           {subWarehouses.length > 0 && (
             <div>
-              <div style={{ fontSize: 12, color: S.muted, fontWeight: 700, marginBottom: 12, letterSpacing: 1 }}>المستودعات الفرعية</div>
+              <div style={{ fontSize: 12, color: S.muted, fontWeight: 700, marginBottom: 12, letterSpacing: 1 }}>{isAr ? 'المستودعات الفرعية' : 'Branch Warehouses'}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
                 {subWarehouses.map(w => (
                   <div
@@ -399,16 +404,16 @@ export default function WarehousesPage() {
                         color: w.low_stock_count! > 0 ? S.amber : S.green,
                         borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700
                       }}>
-                        {w.low_stock_count! > 0 ? `⚠️ ${w.low_stock_count} منخفض` : '✅ كافي'}
+                        {w.low_stock_count! > 0 ? (isAr ? `⚠️ ${w.low_stock_count} منخفض` : `⚠️ ${w.low_stock_count} Low`) : (isAr ? '✅ كافي' : '✅ OK')}
                       </span>
                     </div>
-                    <h3 style={{ fontSize: 16, fontWeight: 700, color: S.white, marginBottom: 4 }}>{w.name}</h3>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, color: S.white, marginBottom: 4 }}>{isAr ? w.name : (w.name_en || w.name)}</h3>
                     {w.description && <p style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>{w.description}</p>}
                     {w.location && <p style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>📍 {w.location}</p>}
                     <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: `1px solid ${S.border}` }}>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 18, fontWeight: 700, color: S.white }}>{w.product_count}</div>
-                        <div style={{ fontSize: 11, color: S.muted }}>صنف</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Items'}</div>
                       </div>
                       <div style={{ fontSize: 20, color: S.muted }}>←</div>
                     </div>
@@ -428,7 +433,7 @@ export default function WarehousesPage() {
                   onMouseLeave={e => { e.currentTarget.style.borderColor = S.border; e.currentTarget.style.background = 'transparent' }}
                 >
                   <div style={{ fontSize: 28, color: S.muted }}>➕</div>
-                  <div style={{ fontSize: 13, color: S.muted, fontWeight: 600 }}>إضافة مستودع جديد</div>
+                  <div style={{ fontSize: 13, color: S.muted, fontWeight: 600 }}>{isAr ? 'إضافة مستودع جديد' : 'Add New Warehouse'}</div>
                 </div>
               </div>
             </div>
@@ -439,12 +444,12 @@ export default function WarehousesPage() {
             <div style={{ textAlign: 'center', padding: 60 }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>🏭</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: S.white, marginBottom: 8 }}>لا توجد مستودعات بعد</div>
-              <div style={{ fontSize: 13, color: S.muted, marginBottom: 24 }}>ابدأ بإضافة المستودع الرئيسي</div>
+              <div style={{ fontSize: 13, color: S.muted, marginBottom: 24 }}>{isAr ? 'ابدأ بإضافة المستودع الرئيسي' : 'Start by adding the main warehouse'}</div>
               <button
                 onClick={() => setShowAdd(true)}
                 style={{ padding: '12px 24px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}
               >
-                ➕ إضافة مستودع
+                {isAr ? '➕ إضافة مستودع' : '➕ Add Warehouse'}
               </button>
             </div>
           )}

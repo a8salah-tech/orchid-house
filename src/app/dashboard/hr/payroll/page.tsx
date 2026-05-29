@@ -36,8 +36,7 @@ type Branch = { id: string; name: string }
 type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
   role: string; department?: string; salary?: number; insurance?: number
-  work_insurance?: number; branch_id?: string
-  branches?: { name: string } | any  // ← هذا يحل المشكلة
+  work_insurance?: number; branch_id?: string; branches?: { name: string } | any
 }
 type PayrollRecord = {
   id?: string; payroll_month_id: string; employee_id: string
@@ -95,13 +94,15 @@ function calcRecord(r: PayrollRecord) {
   return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, totalDeductions, netSalary, amountDue, balance }
 }
 
-function Cell({ value, onChange }: { value: any; onChange: (v: any) => void }) {
+function Cell({ value, onChange, readOnly = false }: { value: any; onChange: (v: any) => void; readOnly?: boolean }) {
   return (
     <td style={{ padding: '4px 6px', border: `1px solid ${S.border}`, minWidth: 80 }}>
       <input
-        style={{ ...inp, fontSize: 11, padding: '4px 6px' }}
+        style={{ ...inp, fontSize: 11, padding: '4px 6px', opacity: readOnly ? 0.6 : 1, cursor: readOnly ? 'default' : 'text' }}
         type="text" inputMode="decimal" value={value}
+        readOnly={readOnly}
         onChange={e => {
+          if (readOnly) return
           const v = e.target.value.replace(/[^\d.]/g, '')
           onChange(parseFloat(v) || 0)
         }}
@@ -110,10 +111,11 @@ function Cell({ value, onChange }: { value: any; onChange: (v: any) => void }) {
   )
 }
 
-function PayrollRow({ record, empMap, onChange }: {
+function PayrollRow({ record, empMap, onChange, readOnly = false }: {
   record: PayrollRecord
   empMap: Record<string, Employee>
   onChange: (updated: PayrollRecord) => void
+  readOnly?: boolean
 }) {
   const emp  = empMap[record.employee_id]
   const calc = calcRecord(record)
@@ -131,28 +133,28 @@ function PayrollRow({ record, empMap, onChange }: {
         <div style={{ fontWeight: 700, color: S.white, fontSize: 12 }}>{emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}</div>
         <div style={{ fontSize: 10, color: S.muted }}>{emp?.department}</div>
       </td>
-      <Cell value={record.basic_salary}     onChange={v => set('basic_salary', v)} />
-      <Cell value={record.insurance}        onChange={v => set('insurance', v)} />
+      <Cell value={record.basic_salary}     onChange={v => set('basic_salary', v)}     readOnly={readOnly} />
+      <Cell value={record.insurance}        onChange={v => set('insurance', v)}        readOnly={readOnly} />
       <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{fmt(calc.dailyRate)}</td>
       <td style={{ ...thStyle, color: S.gold, textAlign: 'center', minWidth: 70 }}>{fmt(calc.hourlyRate)}</td>
-      <Cell value={record.overtime_days}    onChange={v => set('overtime_days', v)} />
-      <Cell value={record.overtime_hours}   onChange={v => set('overtime_hours', v)} />
-      <Cell value={record.allowance_1}      onChange={v => set('allowance_1', v)} />
-      <Cell value={record.allowance_2}      onChange={v => set('allowance_2', v)} />
-      <Cell value={record.allowance_3}      onChange={v => set('allowance_3', v)} />
+      <Cell value={record.overtime_days}    onChange={v => set('overtime_days', v)}    readOnly={readOnly} />
+      <Cell value={record.overtime_hours}   onChange={v => set('overtime_hours', v)}   readOnly={readOnly} />
+      <Cell value={record.allowance_1}      onChange={v => set('allowance_1', v)}      readOnly={readOnly} />
+      <Cell value={record.allowance_2}      onChange={v => set('allowance_2', v)}      readOnly={readOnly} />
+      <Cell value={record.allowance_3}      onChange={v => set('allowance_3', v)}      readOnly={readOnly} />
       <td style={{ ...thStyle, color: S.green, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{fmt(calc.totalEarnings)}</td>
-      <Cell value={record.absence_days}     onChange={v => set('absence_days', v)} />
-      <Cell value={record.late_hours}       onChange={v => set('late_hours', v)} />
-      <Cell value={record.early_exit_hours} onChange={v => set('early_exit_hours', v)} />
+      <Cell value={record.absence_days}     onChange={v => set('absence_days', v)}     readOnly={readOnly} />
+      <Cell value={record.late_hours}       onChange={v => set('late_hours', v)}       readOnly={readOnly} />
+      <Cell value={record.early_exit_hours} onChange={v => set('early_exit_hours', v)} readOnly={readOnly} />
       <td style={{ ...thStyle, color: S.muted, textAlign: 'center' }}>{fmt(record.insurance)}</td>
-      <Cell value={record.tax}              onChange={v => set('tax', v)} />
-      <Cell value={record.deduction_1}      onChange={v => set('deduction_1', v)} />
-      <Cell value={record.deduction_2}      onChange={v => set('deduction_2', v)} />
-      <Cell value={record.deduction_3}      onChange={v => set('deduction_3', v)} />
+      <Cell value={record.tax}              onChange={v => set('tax', v)}              readOnly={readOnly} />
+      <Cell value={record.deduction_1}      onChange={v => set('deduction_1', v)}      readOnly={readOnly} />
+      <Cell value={record.deduction_2}      onChange={v => set('deduction_2', v)}      readOnly={readOnly} />
+      <Cell value={record.deduction_3}      onChange={v => set('deduction_3', v)}      readOnly={readOnly} />
       <td style={{ ...thStyle, color: S.red, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{fmt(calc.totalDeductions)}</td>
-      <Cell value={record.advance}          onChange={v => set('advance', v)} />
-      <Cell value={record.advance_balance}  onChange={v => set('advance_balance', v)} />
-      <Cell value={record.carried_forward}  onChange={v => set('carried_forward', v)} />
+      <Cell value={record.advance}          onChange={v => set('advance', v)}          readOnly={readOnly} />
+      <Cell value={record.advance_balance}  onChange={v => set('advance_balance', v)}  readOnly={readOnly} />
+      <Cell value={record.carried_forward}  onChange={v => set('carried_forward', v)}  readOnly={readOnly} />
       <td style={{ ...thStyle, color: calc.netSalary >= 0 ? S.teal : S.red, fontWeight: 800, textAlign: 'center', minWidth: 90, fontSize: 13 }}>
         {fmt(calc.netSalary)}
       </td>
@@ -611,6 +613,7 @@ export default function PayrollPage() {
                         key={r.employee_id}
                         record={r}
                         empMap={empMap}
+                        readOnly={!isAdmin}
                         onChange={updated => setRecords(prev => prev.map(p => p.employee_id === updated.employee_id ? updated : p))}
                       />
                     ))}

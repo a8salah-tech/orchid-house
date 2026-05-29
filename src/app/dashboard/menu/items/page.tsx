@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { useLang } from '../../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,7 +29,7 @@ const inp: React.CSSProperties = {
   border: '1px solid rgba(255,255,255,0.10)',
   borderRadius: 10, padding: '10px 14px', fontSize: 13,
   color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
-  boxSizing: 'border-box', direction: 'rtl',
+  boxSizing: 'border-box',
 }
 
 function formatMYR(amount: number | null | undefined): string {
@@ -38,16 +39,19 @@ function formatMYR(amount: number | null | undefined): string {
   }).format(amount)
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 20 // fallback
 const TOP_6_NAMES = ['شيش طاووق','كباب دجاج','مندي دجاج','شاورما مع الرز','كبسة دجاج','وجبة شاورما']
 
 // ══ Pagination Component ══
-function Pagination({ page, total, totalPages, onChange }: {
-  page: number; total: number; totalPages: number; onChange: (p: number) => void
+function Pagination({ page, total, totalPages, onChange, pageSize, onPageSizeChange }: {
+  page: number; total: number; totalPages: number; onChange: (p: number) => void; pageSize?: number; onPageSizeChange?: (s: number) => void
 }) {
-  if (totalPages <= 1) return null
-  const from = (page - 1) * PAGE_SIZE + 1
-  const to = Math.min(page * PAGE_SIZE, total)
+  const { isAr } = useLang()
+
+  if (totalPages <= 1 && !onPageSizeChange) return null
+  const size = pageSize || 50
+  const from = (page - 1) * size + 1
+  const to = Math.min(page * size, total)
   const getPages = (): (number | '...')[] => {
     if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
     const pages: (number | '...')[] = [1]
@@ -59,11 +63,11 @@ function Pagination({ page, total, totalPages, onChange }: {
   }
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, flexWrap: 'wrap', gap: 12 }}>
-      <div style={{ fontSize: 12, color: S.muted }}>عرض {from}–{to} من {total} صنف</div>
+      <div style={{ fontSize: 12, color: S.muted }}>{isAr ? `عرض ${from}–${to} من ${total} صنف` : `Showing ${from}–${to} of ${total} items`}</div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <button onClick={() => onChange(page - 1)} disabled={page === 1}
           style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === 1 ? S.border : S.gold}`, background: page === 1 ? 'transparent' : S.gold3, color: page === 1 ? S.muted : S.gold, cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-          ← السابق
+          {isAr ? '← السابق' : '← Prev'}
         </button>
         {getPages().map((p, i) => (
           p === '...' ? <span key={`e${i}`} style={{ color: S.muted }}>...</span>
@@ -74,7 +78,7 @@ function Pagination({ page, total, totalPages, onChange }: {
         ))}
         <button onClick={() => onChange(page + 1)} disabled={page === totalPages}
           style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === totalPages ? S.border : S.gold}`, background: page === totalPages ? 'transparent' : S.gold3, color: page === totalPages ? S.muted : S.gold, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-          التالي →
+          {isAr ? 'التالي →' : 'Next →'}
         </button>
       </div>
     </div>
@@ -132,6 +136,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
 
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [sizes, setSizes] = useState<{id?:string;name:string;name_en:string;price:string;is_active:boolean}[]>([])
+  const { isAr } = useLang()
   const [modalTab, setModalTab] = useState<'info'|'sizes'>('info')
   useEffect(() => {
     if (!item?.id) return
@@ -202,16 +207,16 @@ function ItemModal({ item, categories, onClose, onSaved }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>
-              {item ? '✏️ تعديل الصنف' : '➕ إضافة صنف جديد'}
+              {item ? (isAr ? '✏️ تعديل الصنف' : '✏️ Edit Item') : (isAr ? '➕ إضافة صنف جديد' : '➕ Add New Item')}
             </h2>
-            <p style={{ fontSize: 12, color: S.muted }}>أدخل تفاصيل الصنف والسعر والصورة</p>
+            <p style={{ fontSize: 12, color: S.muted }}>{isAr ? 'أدخل تفاصيل الصنف والسعر والصورة' : 'Enter item details, price and image'}</p>
           </div>
           <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
         <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
           {(['info','sizes'] as const).map(t => (
             <button key={t} onClick={() => setModalTab(t)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: modalTab === t ? 700 : 400, background: modalTab === t ? S.gold3 : 'transparent', color: modalTab === t ? S.gold : S.muted }}>
-              {t === 'info' ? '📋 بيانات الصنف' : '📏 الأحجام'}
+              {t === 'info' ? (isAr ? '📋 بيانات الصنف' : '📋 Item Info') : (isAr ? '📏 الأحجام' : '📏 Sizes')}
             </button>
           ))}
         </div>
@@ -220,7 +225,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
 
           {/* LEFT: الصورة */}
           <div>
-            <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 12 }}>📸 صورة الصنف</div>
+            <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 12 }}>{isAr ? '📸 صورة الصنف' : '📸 Item Image'}</div>
             <div
               onClick={() => fileRef.current?.click()}
               style={{
@@ -243,7 +248,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImage} />
             {imagePreview && (
               <button onClick={() => setImagePreview('')} style={{ width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-                🗑️ حذف الصورة
+                {isAr ? '🗑️ حذف الصورة' : '🗑️ Remove Image'}
               </button>
             )}
 
@@ -253,7 +258,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>هامش الربح</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: parseFloat(margin) > 60 ? S.green : parseFloat(margin) > 40 ? S.amber : S.red }}>{margin}%</div>
                 <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
-                  ربح: {formatMYR(parseFloat(form.price) - parseFloat(form.cost_price))} لكل صنف
+                  {isAr ? 'ربح' : 'Profit'}: {formatMYR(parseFloat(form.price) - parseFloat(form.cost_price))} {isAr ? 'لكل صنف' : 'per item'}
                 </div>
               </div>
             )}
@@ -274,7 +279,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             {/* الأسماء */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
-                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم الصنف (عربي) *</label>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'اسم الصنف (عربي) *' : 'Item Name (Arabic) *'}</label>
                 <input style={inp} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: شوربة عدس" />
               </div>
               <div>
@@ -286,7 +291,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             {/* OR Code */}
 {item?.or_code && (
   <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px' }}>
-    <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>رقم الصنف</div>
+    <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>{isAr ? 'رقم الصنف' : 'Item Code'}</div>
     <div style={{ fontSize: 14, fontWeight: 700, color: S.gold }}>{item.or_code}</div>
   </div>
 )}
@@ -306,13 +311,13 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الخصم %</label>
               <input style={inp} type="number" min="0" max="100" value={form.discount_percent} onChange={e => setForm(p => ({ ...p, discount_percent: e.target.value }))} placeholder="0" />
-              {parseFloat(form.discount_percent) > 0 && form.price && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>السعر بعد الخصم: MYR {(parseFloat(form.price) * (1 - parseFloat(form.discount_percent)/100)).toFixed(2)}</div>}
+              {parseFloat(form.discount_percent) > 0 && form.price && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>{isAr ? 'السعر بعد الخصم' : 'Price after discount'}: MYR {(parseFloat(form.price) * (1 - parseFloat(form.discount_percent)/100)).toFixed(2)}</div>}
             </div>
 
             {/* الوصف */}
             <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الوصف (عربي)</label>
-              <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="وصف مختصر للصنف..." />
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'الوصف (عربي)' : 'Description (Arabic)'}</label>
+              <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder={isAr ? "وصف مختصر للصنف..." : "Brief description..."} />
             </div>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Description (English)</label>
@@ -324,14 +329,14 @@ function ItemModal({ item, categories, onClose, onSaved }: {
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: S.card, borderRadius: 10, padding: '10px 14px', flex: 1 }}>
                 <input type="checkbox" checked={form.is_active} onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))} style={{ accentColor: S.gold, width: 16, height: 16 }} />
                 <div>
-                  <div style={{ fontSize: 12, color: S.white, fontWeight: 600 }}>نشط</div>
+                  <div style={{ fontSize: 12, color: S.white, fontWeight: 600 }}>{isAr ? 'نشط' : 'Active'}</div>
                   <div style={{ fontSize: 10, color: S.muted }}>يظهر في النظام</div>
                 </div>
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: S.card, borderRadius: 10, padding: '10px 14px', flex: 1 }}>
                 <input type="checkbox" checked={form.is_available} onChange={e => setForm(p => ({ ...p, is_available: e.target.checked }))} style={{ accentColor: S.green, width: 16, height: 16 }} />
                 <div>
-                  <div style={{ fontSize: 12, color: S.white, fontWeight: 600 }}>متاح</div>
+                  <div style={{ fontSize: 12, color: S.white, fontWeight: 600 }}>{isAr ? 'متاح' : 'Available'}</div>
                   <div style={{ fontSize: 10, color: S.muted }}>متوفر للطلب</div>
                 </div>
               </label>
@@ -344,7 +349,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
         {modalTab === 'sizes' && (
           <div>
             <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: S.muted }}>
-              💡 أضف أحجام للصنف (كاملة، نص، ربع) بأسعار مختلفة. إذا لم تضف — يستخدم السعر الأساسي.
+              {isAr ? '💡 أضف أحجام للصنف (كاملة، نص، ربع) بأسعار مختلفة. إذا لم تضف — يستخدم السعر الأساسي.' : '💡 Add sizes (Full, Half, Quarter) with different prices. If not added — base price is used.'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>📏 الأحجام</div>
@@ -358,7 +363,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
                   <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px auto', gap: 8, alignItems: 'center', background: S.card, borderRadius: 10, padding: '8px 10px' }}>
                     <input style={{ ...inp, padding: '7px 10px' }} placeholder="الاسم عربي" value={size.name} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name: e.target.value } : s))} />
                     <input style={{ ...inp, padding: '7px 10px', direction: 'ltr' as const }} placeholder="English name" value={size.name_en} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name_en: e.target.value } : s))} />
-                    <input style={{ ...inp, padding: '7px 10px' }} type="number" step="0.01" placeholder="السعر" value={size.price} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, price: e.target.value } : s))} />
+                    <input style={{ ...inp, padding: '7px 10px', direction: isAr ? 'rtl' : 'ltr' }} type="number" step="0.01" placeholder={isAr ? 'السعر' : 'Price'} value={size.price} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, price: e.target.value } : s))} />
                     <button onClick={() => setSizes(p => p.filter((_, si) => si !== i))} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13 }}>🗑️</button>
                   </div>
                 ))}
@@ -368,9 +373,9 @@ function ItemModal({ item, categories, onClose, onSaved }: {
         )}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
           <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳ جاري الحفظ...' : item ? '💾 حفظ التعديلات' : '✅ إضافة الصنف'}
+            {saving ? (isAr ? '⏳ جاري الحفظ...' : '⏳ Saving...') : item ? (isAr ? '💾 حفظ التعديلات' : '💾 Save Changes') : (isAr ? '✅ إضافة الصنف' : '✅ Add Item')}
           </button>
         </div>
       </div>
@@ -381,6 +386,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
 // ══ Add Category Modal ══
 function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name: '', name_en: '', icon: '🍽️' })
   const icons = ['🍲', '🥗', '🫙', '🔥', '🥙', '🍛', '🥩', '🍚', '☕', '🧃', '🍮', '🫓', '🥘', '🍜', '🫕', '🥪', '🍱', '🧆']
@@ -398,7 +404,7 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 460, padding: 28 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>➕ إضافة قسم جديد</h3>
+          <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>{isAr ? '➕ إضافة قسم جديد' : '➕ Add New Category'}</h3>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -425,9 +431,9 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
           <button onClick={save} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳...' : '💾 حفظ القسم'}
+            {saving ? '⏳...' : (isAr ? '💾 حفظ القسم' : '💾 Save Category')}
           </button>
         </div>
       </div>
@@ -468,6 +474,7 @@ function calcIngCost(ing: any): number {
 function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => void }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  const { isAr } = useLang()
 
   const [ingredients, setIngredients] = useState<any[]>([])
   const [products, setProducts]       = useState<any[]>([])
@@ -580,7 +587,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 4 }}>🧪 مكونات الوصفة</h2>
+            <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 4 }}>{isAr ? '🧪 مكونات الوصفة' : '🧪 Recipe Ingredients'}</h2>
             <p style={{ fontSize: 13, color: S.muted }}>{item.name} — {item.name_en}</p>
           </div>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -614,17 +621,17 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: S.white }}>{ingredients.length} مكون</div>
           <button onClick={addIngredient} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            ➕ إضافة مكون
+            {isAr ? '➕ إضافة مكون' : '➕ Add Ingredient'}
           </button>
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
+          <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>{isAr ? '⏳ جاري التحميل...' : '⏳ Loading...'}</div>
         ) : ingredients.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, background: S.card, borderRadius: 14, color: S.muted }}>
             <div style={{ fontSize: 36, marginBottom: 10 }}>🧪</div>
             <div style={{ fontSize: 14, color: S.white, marginBottom: 6 }}>لا توجد مكونات بعد</div>
-            <div style={{ fontSize: 12 }}>اضغط "إضافة مكون" لتحديد مكونات هذا الصنف من المستودع</div>
+            <div style={{ fontSize: 12 }}>{isAr ? 'اضغط "إضافة مكون" لتحديد مكونات هذا الصنف من المستودع' : 'Click "Add Ingredient" to link ingredients from warehouse'}</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -657,7 +664,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
                         <input
                           autoFocus
                           style={{ ...inpS, direction: 'rtl' }}
-                          placeholder="🔍 ابحث عن مكون..."
+                          placeholder={isAr ? "🔍 ابحث عن مكون..." : "🔍 Search ingredient..."}
                           value={search[ing.id] || ''}
                           onChange={e => setSearch(p => ({ ...p, [ing.id]: e.target.value }))}
                         />
@@ -760,6 +767,7 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
 
 export default function MenuItemsPage() {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [lang] = useState<'ar'|'en'>(() => typeof window !== 'undefined' ? (localStorage.getItem('dashboard-lang') as 'ar'|'en' || 'ar') : 'ar')
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
@@ -773,6 +781,7 @@ export default function MenuItemsPage() {
   const [ingredientsItem, setIngredientsItem] = useState<MenuItem | null>(null)
   const [filterAvailable, setFilterAvailable] = useState<'all' | 'available' | 'unavailable'>('all')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -797,7 +806,7 @@ export default function MenuItemsPage() {
   }
 
   async function deleteItem(id: string) {
-    if (!confirm('هل تريد حذف هذا الصنف؟')) return
+    if (!confirm(isAr ? 'هل تريد حذف هذا الصنف؟' : 'Delete this item?')) return
     await supabase.from('menu_items').update({ is_active: false }).eq('id', id)
     fetchAll()
   }
@@ -811,11 +820,11 @@ export default function MenuItemsPage() {
   })
 
   // Reset page when filters change
-  useEffect(() => { setPage(1) }, [selectedCat, search, filterAvailable])
+  useEffect(() => { setPage(1) }, [selectedCat, search, filterAvailable, pageSize])
 
   // Paginate
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = pageSize === 9999 ? 1 : Math.ceil(filtered.length / pageSize)
+  const paginated = pageSize === 9999 ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize)
 
   // Top 6
   const top6 = items.filter(i => TOP_6_NAMES.includes(i.name))
@@ -826,7 +835,7 @@ export default function MenuItemsPage() {
   const avgPrice = items.length ? (items.reduce((s, i) => s + i.price, 0) / items.length) : 0
 
   return (
-    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
+    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
         select option { background: #0F2040; color: #FAFAF8; }
@@ -838,14 +847,14 @@ export default function MenuItemsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>📖 قائمة الطعام</h1>
-          <p style={{ fontSize: 13, color: S.muted }}>إدارة أصناف المنيو والأسعار والصور</p>
+          <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'إدارة أصناف المنيو والأسعار والصور' : 'Manage menu items, prices and images'}</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button onClick={() => setShowAddCat(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
             📁 قسم جديد
           </button>
           <button onClick={() => setShowAddItem(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            ➕ صنف جديد
+            {isAr ? '➕ صنف جديد' : '➕ New Item'}
           </button>
         </div>
       </div>
@@ -853,11 +862,11 @@ export default function MenuItemsPage() {
       {/* ══ Stats ══ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 24 }}>
         {[
-          { label: 'إجمالي الأصناف', value: totalItems, icon: '🍽️', color: S.blue, bg: S.blueB },
-          { label: 'متاح الآن', value: availableItems, icon: '✅', color: S.green, bg: S.greenB },
-          { label: 'غير متاح', value: totalItems - availableItems, icon: '⏸', color: S.red, bg: S.redB },
+          { label: isAr ? 'إجمالي الأصناف' : 'Total Items', value: totalItems, icon: '🍽️', color: S.blue, bg: S.blueB },
+          { label: isAr ? 'متاح الآن' : 'Available', value: availableItems, icon: '✅', color: S.green, bg: S.greenB },
+          { label: isAr ? 'غير متاح' : 'Unavailable', value: totalItems - availableItems, icon: '⏸', color: S.red, bg: S.redB },
           { label: 'الأقسام', value: categories.length, icon: '📁', color: S.purple, bg: S.purpleB },
-          { label: 'متوسط السعر', value: formatMYR(avgPrice), icon: '💰', color: S.gold, bg: S.gold3 },
+          { label: isAr ? 'متوسط السعر' : 'Avg Price', value: formatMYR(avgPrice), icon: '💰', color: S.gold, bg: S.gold3 },
         ].map((s, i) => (
           <div key={i} style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 18px' }}>
             <div style={{ fontSize: 20, marginBottom: 8 }}>{s.icon}</div>
@@ -945,12 +954,12 @@ export default function MenuItemsPage() {
           style={{ ...inp, flex: 1, minWidth: 200 }}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="🔍 بحث بالاسم أو الكود أو الإنجليزي..."
+          placeholder={isAr ? "🔍 بحث بالاسم أو الكود أو الإنجليزي..." : "🔍 Search by name, code or English..."}
         />
         <select style={{ ...inp, width: 'auto', minWidth: 140 }} value={filterAvailable} onChange={e => setFilterAvailable(e.target.value as 'all' | 'available' | 'unavailable')}>
-          <option value="all">كل الأصناف</option>
-          <option value="available">متاح فقط</option>
-          <option value="unavailable">غير متاح</option>
+          <option value="all">{isAr ? "كل الأصناف" : "All Items"}</option>
+          <option value="available">{isAr ? "متاح فقط" : "Available only"}</option>
+          <option value="unavailable">{isAr ? "غير متاح" : "Unavailable"}</option>
         </select>
         <div style={{ display: 'flex', background: S.navy3, borderRadius: 10, padding: 4, gap: 4 }}>
           <button onClick={() => setView('grid')} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: view === 'grid' ? S.gold3 : 'transparent', color: view === 'grid' ? S.gold : S.muted, cursor: 'pointer', fontSize: 16 }}>⊞</button>
@@ -961,16 +970,16 @@ export default function MenuItemsPage() {
 
       {/* ══ Items ══ */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
+        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>{isAr ? '⏳ جاري التحميل...' : '⏳ Loading...'}</div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>🍽️</div>
           <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد أصناف</div>
-          <div style={{ fontSize: 13 }}>اضغط "صنف جديد" لإضافة أول صنف</div>
+          <div style={{ fontSize: 13 }}>{isAr ? 'اضغط "صنف جديد" لإضافة أول صنف' : 'Click "New Item" to add your first item'}</div>
         </div>
       ) : view === 'grid' ? (
         /* Grid View */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, alignItems: 'start' }}>
           {paginated.map(item => (
             <div key={item.id} className="item-card" style={{
               background: S.navy2, borderRadius: 16,
@@ -989,7 +998,7 @@ export default function MenuItemsPage() {
                 )}
                 {/* Availability Badge */}
                 <div style={{ position: 'absolute', top: 8, right: 8, background: item.is_available ? S.greenB : S.redB, border: `1px solid ${item.is_available ? S.green : S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700, color: item.is_available ? S.green : S.red, backdropFilter: 'blur(8px)' }}>
-                  {item.is_available ? '✅ متاح' : '⏸ غير متاح'}
+                  {item.is_available ? (isAr ? '✅ متاح' : '✅ Available') : (isAr ? '⏸ غير متاح' : '⏸ Unavailable')}
                 </div>
                 {/* OR Code */}
                 {item.or_code && (
@@ -1030,7 +1039,7 @@ export default function MenuItemsPage() {
                 <div style={{ flex: 1 }} />
                 {/* Actions */}
 <div style={{ display: 'flex', gap: 6 }}>
-  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>✏️ تعديل</button>
+  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>{isAr ? '✏️ تعديل' : '✏️ Edit'}</button>
   <button onClick={() => setIngredientsItem(item)} style={{ padding: '7px 8px', borderRadius: 8, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 12 }}>🧪</button>
   <button onClick={() => toggleAvailable(item)} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${item.is_available ? S.amber : S.green}`, background: item.is_available ? S.amberB : S.greenB, color: item.is_available ? S.amber : S.green, cursor: 'pointer', fontSize: 12 }}>
     {item.is_available ? '⏸' : '▶'}
@@ -1048,7 +1057,7 @@ export default function MenuItemsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
               <thead>
                 <tr style={{ background: S.navy3 }}>
-                  {['الصنف', 'القسم', 'الكود', 'سعر البيع', 'التكلفة', 'الهامش', 'الحالة', ''].map(h => (
+                  {[isAr ? 'الصنف' : 'Item', isAr ? 'القسم' : 'Category', isAr ? 'الكود' : 'Code', isAr ? 'سعر البيع' : 'Price', isAr ? 'التكلفة' : 'Cost', isAr ? 'الهامش' : 'Margin', isAr ? 'الحالة' : 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                   ))}
                 </tr>
@@ -1092,7 +1101,7 @@ export default function MenuItemsPage() {
                       </td>
                       <td style={{ padding: '12px 16px' }}>
                         <span style={{ background: item.is_available ? S.greenB : S.redB, color: item.is_available ? S.green : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
-                          {item.is_available ? '✅ متاح' : '⏸ غير متاح'}
+                          {item.is_available ? (isAr ? '✅ متاح' : '✅ Available') : (isAr ? '⏸ غير متاح' : '⏸ Unavailable')}
                         </span>
                       </td>
                       <td style={{ padding: '12px 16px' }}>
@@ -1114,7 +1123,7 @@ export default function MenuItemsPage() {
       )}
 
       {/* ══ Pagination ══ */}
-      <Pagination page={page} total={filtered.length} totalPages={totalPages} onChange={setPage} />
+      <Pagination page={page} total={filtered.length} totalPages={totalPages} onChange={setPage} pageSize={pageSize} onPageSizeChange={(s) => { setPageSize(s); setPage(1) }} />
 
       {/* ══ Modals ══ */}
       {(showAddItem || editItem) && (

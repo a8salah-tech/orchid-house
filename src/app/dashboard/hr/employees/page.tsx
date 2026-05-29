@@ -547,7 +547,24 @@ export default function EmployeesPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const [emp, br, reg] = await Promise.all([
-      supabase.from('employees').select('*, branches(name)').order('name'),
+      (() => {
+        let q = supabase.from('employees').select('*, branches(name)').order('name')
+        // فلتر حسب الدور — مدير المطبخ يشوف المطبخ والبار فقط، مدير الصالة يشوف الصالة فقط
+        if (currentUser?.role === 'kitchen_manager') {
+          q = q.in('department', ['المطبخ', 'البار', 'الحلويات', 'Kitchen', 'Bar', 'Desserts'])
+        } else if (currentUser?.role === 'hall_manager') {
+          q = q.in('department', ['الصالة', 'Hall'])
+        } else if (currentUser?.role === 'bar_manager') {
+          q = q.in('department', ['البار', 'Bar'])
+        } else if (currentUser?.role === 'kitchen_supervisor') {
+          q = q.in('department', ['المطبخ', 'Kitchen'])
+        } else if (currentUser?.role === 'hall_supervisor') {
+          q = q.in('department', ['الصالة', 'Hall'])
+        } else if (currentUser?.role === 'bar_supervisor') {
+          q = q.in('department', ['البار', 'Bar'])
+        }
+        return q
+      })(),
       supabase.from('branches').select('id,name').eq('is_active', true),
       supabase.from('employee_registrations').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
     ])

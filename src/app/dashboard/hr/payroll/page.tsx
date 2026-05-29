@@ -193,7 +193,16 @@ export default function PayrollPage() {
     setLoading(true)
     const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
-      sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name'),
+      (() => {
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name')
+        if (currentUser?.role === 'kitchen_manager') q = q.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
+        else if (currentUser?.role === 'hall_manager') q = q.in('department', ['الصالة','Hall'])
+        else if (currentUser?.role === 'bar_manager') q = q.in('department', ['البار','Bar'])
+        else if (currentUser?.role === 'kitchen_supervisor') q = q.in('department', ['المطبخ','Kitchen'])
+        else if (currentUser?.role === 'hall_supervisor') q = q.in('department', ['الصالة','Hall'])
+        else if (currentUser?.role === 'bar_supervisor') q = q.in('department', ['البار','Bar'])
+        return q
+      })(),
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
     ])
     setMonths(mo.data || [])
@@ -210,9 +219,14 @@ export default function PayrollPage() {
 
     let emps = employees
     if (emps.length === 0) {
-      const { data } = await sb.from('employees')
-        .select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)')
-        .eq('is_active', true).order('name')
+      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name')
+      if (currentUser?.role === 'kitchen_manager') q2 = q2.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
+      else if (currentUser?.role === 'hall_manager') q2 = q2.in('department', ['الصالة','Hall'])
+      else if (currentUser?.role === 'bar_manager') q2 = q2.in('department', ['البار','Bar'])
+      else if (currentUser?.role === 'kitchen_supervisor') q2 = q2.in('department', ['المطبخ','Kitchen'])
+      else if (currentUser?.role === 'hall_supervisor') q2 = q2.in('department', ['الصالة','Hall'])
+      else if (currentUser?.role === 'bar_supervisor') q2 = q2.in('department', ['البار','Bar'])
+      const { data } = await q2
       emps = data || []
       setEmployees(emps)
     }
@@ -329,8 +343,12 @@ export default function PayrollPage() {
 
   const visibleRecords = useMemo(() => {
     if (isAdmin) return filteredRecords
+    // مدير قسم — يشوف رواتب موظفين قسمه بس مش راتبه هو
+    const managerRoles = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager']
+    if (managerRoles.includes(currentUser?.role || '')) return filteredRecords.filter(r => r.employee_id !== currentUser?.id)
+    // موظف عادي — يشوف راتبه بس
     return filteredRecords.filter(r => r.employee_id === currentUser?.id)
-  }, [filteredRecords, isAdmin, currentUser?.id])
+  }, [filteredRecords, isAdmin, currentUser?.id, currentUser?.role])
 
   const totals = useMemo(() => visibleRecords.reduce((acc, r) => {
     const c = calcRecord(r)

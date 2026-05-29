@@ -333,7 +333,23 @@ export default function ShiftsPage() {
       setShifts(shData||[])
 
       // بعد ✅
-const {data: empData} = await supabase.from('employees').select('id,name,name_en,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
+
+      // فلتر الموظفين حسب دور المدير
+      let empQuery = supabase.from('employees').select('id,name,name_en,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
+      if (employee?.role === 'kitchen_manager') {
+        empQuery = empQuery.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
+      } else if (employee?.role === 'hall_manager') {
+        empQuery = empQuery.in('department', ['الصالة','Hall'])
+      } else if (employee?.role === 'bar_manager') {
+        empQuery = empQuery.in('department', ['البار','Bar'])
+      } else if (employee?.role === 'kitchen_supervisor') {
+        empQuery = empQuery.in('department', ['المطبخ','Kitchen'])
+      } else if (employee?.role === 'hall_supervisor') {
+        empQuery = empQuery.in('department', ['الصالة','Hall'])
+      } else if (employee?.role === 'bar_supervisor') {
+        empQuery = empQuery.in('department', ['البار','Bar'])
+      }
+      const {data: empData} = await empQuery
       setEmployees(empData||[])
 const {data: schData} = await supabase.from('shift_schedules')
   .select('*')

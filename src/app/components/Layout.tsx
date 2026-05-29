@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from './AuthProvider'
 import NotificationBell from './NotificationBell'
+import { LanguageContext } from './LanguageContext'
 
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
@@ -117,7 +118,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [lang, setLang] = useState<'ar' | 'en'>('ar')
+  const [lang, setLang] = useState<'ar' | 'en'>('en')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set()
     try {
@@ -131,7 +132,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const saved = sessionStorage.getItem('sidebar-scroll')
     if (saved && sidebarRef.current) sidebarRef.current.scrollTop = parseInt(saved)
     const savedLang = localStorage.getItem('dashboard-lang')
-    if (savedLang === 'en' || savedLang === 'ar') setLang(savedLang)
+    setLang((savedLang === 'en' || savedLang === 'ar') ? savedLang : 'en')
   }, [])
 
   useEffect(() => {
@@ -182,6 +183,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   )
 
   return (
+    <LanguageContext.Provider value={{ lang, isAr }}>
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr' }}>
 
       {/* ══ HEADER ══ */}
@@ -296,5 +298,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         button:hover { opacity: 0.85; }
       `}</style>
     </div>
+    </LanguageContext.Provider>
   )
 }

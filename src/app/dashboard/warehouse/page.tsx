@@ -29,6 +29,7 @@ interface Warehouse {
   description: string
   location: string
   is_main: boolean
+  is_default: boolean
   is_active: boolean
   created_at: string
   product_count?: number
@@ -270,7 +271,6 @@ export default function WarehousesPage() {
       .from('warehouses')
       .select('*')
       .eq('is_active', true)
-      .order('is_main', { ascending: false })
       .order('created_at')
     
     if (data) {
@@ -296,8 +296,9 @@ export default function WarehousesPage() {
 
   useEffect(() => { fetchWarehouses() }, [])
 
-  const mainWarehouse = warehouses.find(w => w.is_main)
-  const subWarehouses = warehouses.filter(w => !w.is_main)
+  const defaultWarehouse = warehouses.find(w => w.is_default)
+  const mainWarehouse = warehouses.find(w => w.is_main && !w.is_default)
+  const subWarehouses = warehouses.filter(w => !w.is_main && !w.is_default)
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
@@ -335,6 +336,43 @@ export default function WarehousesPage() {
         <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
       ) : (
         <>
+          {/* المستودع الافتراضي */}
+          {defaultWarehouse && (
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 12, color: S.purple, fontWeight: 700, marginBottom: 12, letterSpacing: 1 }}>{isAr ? '🗃️ المستودع الافتراضي' : '🗃️ Default Warehouse'}</div>
+              <div
+                onClick={() => router.push(`/dashboard/warehouse/${defaultWarehouse.id}`)}
+                style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(139,92,246,0.03))', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 18, padding: 24, cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden' }}
+                onMouseEnter={e => (e.currentTarget.style.border = `1px solid ${S.purple}`)}
+                onMouseLeave={e => (e.currentTarget.style.border = '1px solid rgba(139,92,246,0.3)')}
+              >
+                <div style={{ position: 'absolute', top: -20, left: -20, fontSize: 80, opacity: 0.05 }}>🗃️</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <span style={{ fontSize: 24 }}>🗃️</span>
+                      <h2 style={{ fontSize: 20, fontWeight: 800, color: S.purple }}>{isAr ? defaultWarehouse.name : (defaultWarehouse.name_en || defaultWarehouse.name)}</h2>
+                      <span style={{ background: S.purpleB, border: `1px solid ${S.purple}`, color: S.purple, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>{isAr ? 'افتراضي' : 'Default'}</span>
+                    </div>
+                    {defaultWarehouse.description && <p style={{ fontSize: 13, color: S.muted, marginBottom: 4 }}>{defaultWarehouse.description}</p>}
+                    {defaultWarehouse.location && <p style={{ fontSize: 12, color: S.muted }}>📍 {defaultWarehouse.location}</p>}
+                    <p style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>{isAr ? 'يحتوي على جميع بيانات المستودعات' : 'Contains all warehouse data and records'}</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: S.white }}>{defaultWarehouse.product_count}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Items'}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: defaultWarehouse.low_stock_count! > 0 ? S.amber : S.green }}>{defaultWarehouse.low_stock_count}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'منخفض' : 'Low'}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* المستودع الرئيسي */}
           {mainWarehouse && (
             <div style={{ marginBottom: 28 }}>

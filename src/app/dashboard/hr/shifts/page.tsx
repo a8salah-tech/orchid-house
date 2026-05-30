@@ -258,8 +258,8 @@ function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الموظف *</label>
             <select style={inp} value={empId} onChange={e => { setEmpId(e.target.value); setCalendarMap({}); loadExistingSchedule(e.target.value) }}>
-              <option value="">اختر الموظف</option>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.name} — {e.department}</option>)}
+              <option value="">-- اختر الموظف --</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name}{e.name_en ? ' '+e.name_en : ''} — {e.department}</option>)}
             </select>
             {loadedSchedule && <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>⚠️ يوجد جدول محفوظ — سيتم استبداله عند الحفظ</div>}
           </div>
@@ -571,19 +571,14 @@ export default function ShiftsPage() {
 
       // فلتر الموظفين حسب دور المدير
       let empQuery = supabase.from('employees').select('id,name,name_en,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
-      if (employee?.role === 'kitchen_manager') {
-        empQuery = empQuery.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
-      } else if (employee?.role === 'hall_manager') {
-        empQuery = empQuery.in('department', ['الصالة','Hall'])
-      } else if (employee?.role === 'bar_manager') {
-        empQuery = empQuery.in('department', ['البار','Bar'])
-      } else if (employee?.role === 'kitchen_supervisor') {
-        empQuery = empQuery.in('department', ['المطبخ','Kitchen'])
-      } else if (employee?.role === 'hall_supervisor') {
-        empQuery = empQuery.in('department', ['الصالة','Hall'])
-      } else if (employee?.role === 'bar_supervisor') {
-        empQuery = empQuery.in('department', ['البار','Bar'])
-      }
+      // فلتر بالفرع أولاً لمدير الفرع
+      if (employee?.role === 'branch_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '')
+      else if (employee?.role === 'kitchen_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
+      else if (employee?.role === 'hall_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['الصالة','Hall'])
+      else if (employee?.role === 'bar_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['البار','Bar'])
+      else if (employee?.role === 'kitchen_supervisor') empQuery = empQuery.eq('branch_id', employee?.branch_id || '').in('department', ['المطبخ','Kitchen'])
+      else if (employee?.role === 'hall_supervisor') empQuery = empQuery.eq('branch_id', employee?.branch_id || '').in('department', ['الصالة','Hall'])
+      else if (employee?.role === 'bar_supervisor') empQuery = empQuery.eq('branch_id', employee?.branch_id || '').in('department', ['البار','Bar'])
       const {data: empData} = await empQuery
       setEmployees(empData||[])
 const {data: schData} = await supabase.from('shift_schedules')
@@ -674,10 +669,23 @@ const {data: schData} = await supabase.from('shift_schedules')
     table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px;text-align:center}
     th{background:#0A1628;color:white}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}</style></head>
     <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}</h2>
-    <table><thead><tr><th>الموظف</th><th>القسم</th>
-    ${monthDays.map(d=>`<th>${d.day}<br/><small>${DAYS_SHORT[d.dow]}</small></th>`).join('')}</tr></thead>
-    <tbody>${employees.map(emp=>`<tr><td style="text-align:right">${emp.name}${emp.name_en?' '+emp.name_en:''}</td><td>${emp.department||''}</td>
-    ${monthDays.map(d=>{const s=getShift(emp.id,d.date);return s?`<td><span class='s' style='background:${(s.shifts?.color||"#C9A84C")}30;color:${s.shifts?.color||"#C9A84C"}'>${s.shifts?.name||'✓'}</span></td>`:'<td style="color:#ccc">✗</td>'}).join('')}</tr>`).join('')}
+    <table><thead><tr><th style='text-align:right;min-width:120px'>الموظف</th><th style='min-width:80px'>الدوام</th>
+    ${monthDays.map(d=>`<th style='min-width:28px'>${d.day}<br/><span style='font-size:8px'>${DAYS_SHORT[d.dow]}</span></th>`).join('')}</tr></thead>
+    <tbody>${employees.map(emp=>`<tr><td style="text-align:right;white-space:nowrap;font-weight:bold">${emp.name}${emp.name_en ? ' '+emp.name_en : ''}</td>
+    <td style='text-align:center;font-size:10px;color:#555'>${(() => {
+      const allSch = monthDays.map(d => getShift(emp.id, d.date)).filter(Boolean)
+      if (allSch.length === 0) return '—'
+      const first = allSch[0]
+      const st = first.custom_start ? first.custom_start.slice(0,5) : (first.shifts?.start_time?.slice(0,5)||'')
+      const en = first.custom_end ? first.custom_end.slice(0,5) : (first.shifts?.end_time?.slice(0,5)||'')
+      return st + (en ? '—' + en : '')
+    })()} </td>
+    ${monthDays.map(d=>{
+      const s=getShift(emp.id,d.date)
+      if (!s) return '<td style="color:#ddd;font-size:10px">✗</td>'
+      const color = s.shifts?.color||'#C9A84C'
+      return '<td style="background:'+color+'20;color:'+color+';font-weight:bold;font-size:11px">✓</td>'
+    }).join('')}</tr>`).join('')}
     </tbody></table></body></html>`
     const win=window.open('','_blank'); if(win){win.document.write(html);win.document.close();win.print()}
   }
@@ -808,7 +816,19 @@ const {data: schData} = await supabase.from('shift_schedules')
                                   <div style={{width:26,height:26,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
                                   <div>
                                     <div style={{fontSize:12,fontWeight:700,color:S.white}}>{emp.name}{emp.name_en ? ' '+emp.name_en : ''}</div>
-                                    <div style={{fontSize:10,color:S.muted}}>{emp.department}</div>
+                                    <div style={{fontSize:10,color:S.muted,display:'flex',gap:6,alignItems:'center'}}>
+                                      {(() => {
+                                        // ابحث عن أول شيفت في الشهر
+                                        const firstSch = monthDays.map(d => getShift(emp.id, d.date)).find(s => s)
+                                        if (firstSch?.custom_start && firstSch?.custom_end) {
+                                          return <span style={{color:'#8B5CF6'}}>{firstSch.custom_start.slice(0,5)} — {firstSch.custom_end.slice(0,5)}</span>
+                                        }
+                                        if (firstSch?.shifts?.start_time) {
+                                          return <span style={{color:firstSch.shifts.color||S.muted}}>{firstSch.shifts.start_time.slice(0,5)} — {firstSch.shifts.end_time?.slice(0,5)} · {emp.department}</span>
+                                        }
+                                        return <span style={{color:S.muted}}>{emp.department}</span>
+                                      })()}
+                                    </div>
                                   </div>
                                 </div>
                               </td>
@@ -894,7 +914,7 @@ const {data: schData} = await supabase.from('shift_schedules')
               <div style={{padding:'16px 18px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
                   <div style={{fontSize:16,fontWeight:800,color:S.white}}>{shift.name}</div>
-                  {isAdmin&&<button onClick={()=>setEditShift(shift)} style={{padding:'5px 10px',borderRadius:8,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:12}}>✏️</button>}
+                  {isManager&&<button onClick={()=>setEditShift(shift)} style={{padding:'5px 10px',borderRadius:8,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:12}}>✏️</button>}
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                   <div style={{background:S.card,borderRadius:8,padding:'8px 12px'}}>

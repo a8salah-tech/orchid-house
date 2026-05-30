@@ -118,6 +118,84 @@ function WorkflowSteps({ request }: { request: BranchRequest }) {
   )
 }
 
+
+// ══ Quick Add Product Modal ══
+function QuickAddProductModal({ onClose, onSaved }: {
+  onClose: () => void
+  onSaved: (p: { id: string; name: string; name_en?: string }) => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ name: '', name_en: '', category: 'عام', unit_id: '' })
+  const [units, setUnits] = useState<{ id: string; name: string; symbol: string }[]>([])
+  const [categories, setCategories] = useState<string[]>([])
+
+  useEffect(() => {
+    supabase.from('units').select('id,name,symbol').order('name').then(({ data }) => setUnits(data || []))
+    supabase.from('warehouse_products').select('category').eq('is_active', true).then(({ data }) => {
+      const cats = [...new Set((data || []).map((p: any) => p.category).filter(Boolean))].sort() as string[]
+      setCategories(cats)
+    })
+  }, [])
+
+  async function save() {
+    if (!form.name.trim()) { alert('يرجى إدخال اسم المنتج'); return }
+    setSaving(true)
+    const { data, error } = await supabase.from('warehouse_products').insert([{
+      name: form.name.trim(), name_en: form.name_en.trim() || null,
+      category: form.category || 'عام', unit_id: form.unit_id || null,
+      current_stock: 0, min_stock: 0, is_active: true,
+    }]).select('id, name, name_en').single()
+    setSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
+    onSaved(data)
+  }
+
+  const inp3: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const, direction: 'rtl' as const }
+  const sel3: React.CSSProperties = { ...inp3, cursor: 'pointer', background: '#0F2040' }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.green}`, width: '100%', maxWidth: 420, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ color: S.green, fontSize: 16, fontWeight: 700 }}>📦 إضافة منتج جديد للمستودع</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم المنتج (عربي) *</label>
+            <input style={inp3} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: زيت زيتون" autoFocus />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم المنتج (إنجليزي)</label>
+            <input style={{ ...inp3, direction: 'ltr' as const }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Olive Oil" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التصنيف</label>
+            <select style={sel3} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="عام">عام</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وحدة القياس</label>
+            <select style={sel3} value={form.unit_id} onChange={e => setForm(p => ({ ...p, unit_id: e.target.value }))}>
+              <option value="">-- بدون وحدة --</option>
+              {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '💾 إضافة المنتج'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ══ New Request Modal ══
 function NewRequestModal({ branches, products, units, currentEmployee, onClose, onSaved }: {
   branches: Branch[]; products: Product[]; units: Unit[]
@@ -125,6 +203,9 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
+  const [showAddProduct, setShowAddProduct] = useState(false)
+  const [productSearch, setProductSearch] = useState<Record<number, string>>({})
+  const [localProducts, setLocalProducts] = useState(products)
   const [items, setItems] = useState<RequestItem[]>([
     { product_id: '', quantity_requested: '', unit_id: '', notes: '' }
   ])
@@ -152,7 +233,7 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
     setItems(p => p.map((it, idx) => {
       if (idx !== i) return it
       if (k === 'product_id') {
-        const prod = products.find(p => p.id === v)
+        const prod = localProducts.find(p => p.id === v)
         const matchUnit = prod?.units ? units.find(u => u.symbol === prod.units?.symbol)?.id || '' : ''
         return { ...it, product_id: v, unit_id: matchUnit }
       }
@@ -187,7 +268,7 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
     } finally { setSaving(false) }
   }
 
-  const sel: React.CSSProperties = { ...inp, cursor: 'pointer' }
+  const sel: React.CSSProperties = { ...inp, cursor: 'pointer', background: '#0F2040', color: S.white }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
@@ -228,14 +309,30 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
         <div style={{ background: S.navy3, borderRadius: 14, padding: 18, marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: S.gold }}>الأصناف المطلوبة</div>
-            <button onClick={addItem} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>+ إضافة صنف</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={addItem} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>+ إضافة صنف</button>
+              <button onClick={() => setShowAddProduct(true)} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📦 منتج جديد</button>
+            </div>
           </div>
           {items.map((item, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <select style={sel} value={item.product_id} onChange={e => setItem(i, 'product_id', e.target.value)}>
-                <option value="">-- اختر الصنف --</option>
-                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <div style={{ position: 'relative' }}>
+                <input
+                  list={`products-list-${i}`}
+                  style={{ ...inp, background: '#0F2040', color: S.white, border: `1px solid ${S.border}`, fontSize: 13 }}
+                  value={productSearch[i] !== undefined ? productSearch[i] : (localProducts.find(p => p.id === item.product_id)?.name || '')}
+                  onChange={e => {
+                    setProductSearch(prev => ({ ...prev, [i]: e.target.value }))
+                    const found = localProducts.find(p => p.name === e.target.value)
+                    if (found) { setItem(i, 'product_id', found.id); setProductSearch(prev => ({ ...prev, [i]: found.name })) }
+                    else setItem(i, 'product_id', '')
+                  }}
+                  placeholder="🔍 اكتب اسم الصنف..."
+                />
+                <datalist id={`products-list-${i}`}>
+                  {localProducts.map(p => <option key={p.id} value={p.name} />)}
+                </datalist>
+              </div>
               <input style={{ ...inp, direction: 'ltr' }} type="number" value={item.quantity_requested} onChange={e => setItem(i, 'quantity_requested', e.target.value)} placeholder="الكمية" />
               <select style={sel} value={item.unit_id} onChange={e => setItem(i, 'unit_id', e.target.value)}>
                 <option value="">الوحدة</option>
@@ -255,6 +352,15 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
           </button>
         </div>
       </div>
+      {showAddProduct && (
+        <QuickAddProductModal
+          onClose={() => setShowAddProduct(false)}
+          onSaved={(p) => {
+            setLocalProducts(prev => [...prev, { ...p, current_stock: 0 }])
+            setShowAddProduct(false)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -515,7 +515,18 @@ export default function EmployeesPage() {
   const supabase = createClient()
   const { employee: currentUser, permissions } = useAuth()
   const isAdmin = permissions?.all === true
-  const isManager = isAdmin || ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
+  const role = currentUser?.role || ''
+  const isManager = isAdmin || ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
+
+  // ── صلاحيات مفصّلة ──
+  const canEdit       = isAdmin                                                          // تعديل: admin فقط
+  const canDelete     = isAdmin                                                          // حذف: admin فقط
+  const canToggle     = isAdmin || ['branch_manager','kitchen_manager','hall_manager','bar_manager'].includes(role) // إيقاف/تفعيل
+  const canSeeStats   = isAdmin                                                          // الإحصائيات الكاملة
+  const canSeeRegs    = isAdmin                                                          // طلبات التسجيل
+  const canAddEmp     = isAdmin                                                          // إضافة موظف
+  const myBranchId    = currentUser?.branch_id || ''
+  const myDept        = currentUser?.department || ''
   const isEmployee = !isManager
 
   const [myRequests, setMyRequests] = useState<any[]>([])
@@ -545,7 +556,6 @@ export default function EmployeesPage() {
   const statsRef = useRef<HTMLDivElement>(null)
 
   const fetchAll = useCallback(async () => {
-    if (!currentUser) return  // انتظر تحميل المستخدم أولاً
     setLoading(true)
     const [emp, br, reg] = await Promise.all([
       (() => {
@@ -567,7 +577,7 @@ export default function EmployeesPage() {
         return q
       })(),
       supabase.from('branches').select('id,name').eq('is_active', true),
-      supabase.from('employee_registrations').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
+      canSeeRegs ? supabase.from('employee_registrations').select('*').eq('status', 'pending').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
     ])
     setEmployees(emp.data || [])
     setBranches(br.data || [])
@@ -577,9 +587,9 @@ export default function EmployeesPage() {
       setMyRequests(myReq || [])
     }
     setLoading(false)
-  }, [currentUser?.id, currentUser?.role])
+  }, [currentUser?.id])
 
-  useEffect(() => { if (currentUser) fetchAll() }, [fetchAll, currentUser])
+  useEffect(() => { if (currentUser?.id) fetchAll() }, [fetchAll, currentUser?.id, currentUser?.role])
   useEffect(() => { setPage(1) }, [search, filterRole, filterDept, filterBranch, filterStatus, filterHasAccount, sortBy])
 
 async function activateRegistration(reg: Registration) {
@@ -802,19 +812,23 @@ const branchMap: Record<string, string> = {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>👷 الموظفون</h1>
           {/* ⑨ ملخص سريع */}
-          <p style={{ fontSize: 13, color: S.white }}>{employees.length} موظف · {activeCount} نشط · {withAccount} لديهم حسابات · إجمالي الرواتب MYR {totalSalary.toLocaleString()}</p>
+          <p style={{ fontSize: 13, color: S.white }}>
+            {canSeeStats
+              ? `${employees.length} موظف · ${activeCount} نشط · ${withAccount} لديهم حسابات · إجمالي الرواتب MYR ${totalSalary.toLocaleString()}`
+              : `${employees.length} موظف في قسمك · ${activeCount} نشط`
+            }
+          </p>
         </div>
         
         <div style={{ display: 'flex', gap: 8 }}>
           {/* ② زر تصدير */}
           <button onClick={() => exportToCSV(filtered)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📥 تصدير</button>
-
-          <button onClick={() => setShowAdd(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ موظف جديد</button>
+          {canAddEmp && <button onClick={() => setShowAdd(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ موظف جديد</button>}
         </div>
       </div>
 
       {/* ══ طلبات التسجيل ══ */}
-      {registrations.length > 0 && (
+      {canSeeRegs && registrations.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -882,7 +896,7 @@ const branchMap: Record<string, string> = {
       )}
 
       {/* ④ Stats مع scroll أفقي لعرض كل الأقسام */}
-      <div ref={statsRef} className="stats-scroll" style={{ display: 'flex', gap: 12, marginBottom: 24, overflowX: 'auto', paddingBottom: 8 }}>
+      {canSeeStats && <div ref={statsRef} className="stats-scroll" style={{ display: 'flex', gap: 12, marginBottom: 24, overflowX: 'auto', paddingBottom: 8 }}>
         {/* الإجمالي */}
         <div style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 18px', flexShrink: 0, minWidth: 120, cursor: 'pointer' }} onClick={() => setFilterStatus('all')}>
           <div style={{ fontSize: 22, marginBottom: 6 }}>👥</div>
@@ -925,7 +939,7 @@ const branchMap: Record<string, string> = {
             <div style={{ fontSize: 11, color: S.muted }}>{dept}</div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* ⑥ Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1005,9 +1019,9 @@ const branchMap: Record<string, string> = {
                  <div style={{ fontSize: 11, color: S.muted }}>📧 {emp.email || emp.email_account || '—'}</div>
                 </div>
                 <div style={{ marginTop: 14, display: 'flex', gap: 8 }} onClick={e => e.stopPropagation()}>
-                  <button onClick={() => { setEditEmp(emp); setDetailEmp(null) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✏️ تعديل</button>
-                  <button onClick={() => toggleActive(emp)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${emp.is_active ? S.red : S.green}`, background: emp.is_active ? S.redB : S.greenB, color: emp.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12 }}>{emp.is_active ? '⏸' : '▶'}</button>
-                  <button onClick={() => deleteEmployee(emp)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                  {canEdit && <button onClick={() => { setEditEmp(emp); setDetailEmp(null) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✏️ تعديل</button>}
+                  <button onClick={() => canToggle && toggleActive(emp)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${emp.is_active ? S.red : S.green}`, background: emp.is_active ? S.redB : S.greenB, color: emp.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12 }}>{emp.is_active ? '⏸' : '▶'}</button>
+                  {canDelete && <button onClick={() => deleteEmployee(emp)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>}
                 </div>
               </div>
             )
@@ -1052,9 +1066,9 @@ const branchMap: Record<string, string> = {
                       <td style={{ padding: '12px 16px' }}><span style={{ background: emp.is_active ? S.greenB : S.redB, color: emp.is_active ? S.green : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{emp.is_active ? '✅ نشط' : '⏸ موقف'}</span></td>
                       <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <button onClick={() => setEditEmp(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12 }}>✏️</button>
-                          <button onClick={() => toggleActive(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${emp.is_active ? S.red : S.green}`, background: emp.is_active ? S.redB : S.greenB, color: emp.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12 }}>{emp.is_active ? '⏸' : '▶'}</button>
-                          <button onClick={() => deleteEmployee(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                          {canEdit && <button onClick={() => setEditEmp(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12 }}>✏️</button>}
+                          <button onClick={() => canToggle && toggleActive(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${emp.is_active ? S.red : S.green}`, background: emp.is_active ? S.redB : S.greenB, color: emp.is_active ? S.red : S.green, cursor: 'pointer', fontSize: 12 }}>{emp.is_active ? '⏸' : '▶'}</button>
+                          {canDelete && <button onClick={() => deleteEmployee(emp)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>}
                         </div>
                       </td>
                     </tr>

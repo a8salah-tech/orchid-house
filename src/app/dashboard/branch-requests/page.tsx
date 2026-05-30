@@ -66,7 +66,7 @@ function canDoWarehouseAction(role: string) {
 }
 
 interface Branch { id: string; name: string; location: string }
-interface Product { id: string; name: string; name_en?: string; current_stock: number; units?: { symbol: string } }
+interface Product { id: string; name: string; name_en?: string; current_stock: number; units?: { symbol: string } | any }
 interface Unit { id: string; name: string; symbol: string }
 interface RequestItem { product_id: string; quantity_requested: string; unit_id: string; notes: string }
 interface BranchRequest {

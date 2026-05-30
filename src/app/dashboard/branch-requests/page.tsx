@@ -205,6 +205,7 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
   const [saving, setSaving] = useState(false)
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [productSearch, setProductSearch] = useState<Record<number, string>>({})
+  const [activeDropdown, setActiveDropdown] = useState<number | null>(null)
   const [localProducts, setLocalProducts] = useState(products)
   const [items, setItems] = useState<RequestItem[]>([
     { product_id: '', quantity_requested: '', unit_id: '', notes: '' }
@@ -318,20 +319,63 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
               <div style={{ position: 'relative' }}>
                 <input
-                  list={`products-list-${i}`}
-                  style={{ ...inp, background: '#0F2040', color: S.white, border: `1px solid ${S.border}`, fontSize: 13 }}
+                  style={{ ...inp, background: '#0F2040', color: S.white, border: `1px solid ${activeDropdown === i ? S.gold : S.border}`, fontSize: 13, paddingLeft: 36 }}
                   value={productSearch[i] !== undefined ? productSearch[i] : (localProducts.find(p => p.id === item.product_id)?.name || '')}
                   onChange={e => {
                     setProductSearch(prev => ({ ...prev, [i]: e.target.value }))
-                    const found = localProducts.find(p => p.name === e.target.value)
-                    if (found) { setItem(i, 'product_id', found.id); setProductSearch(prev => ({ ...prev, [i]: found.name })) }
-                    else setItem(i, 'product_id', '')
+                    setActiveDropdown(i)
+                    if (!e.target.value) setItem(i, 'product_id', '')
                   }}
-                  placeholder="🔍 اكتب اسم الصنف..."
+                  onFocus={() => setActiveDropdown(i)}
+                  placeholder="🔍 ابحث..."
+                  autoComplete="off"
                 />
-                <datalist id={`products-list-${i}`}>
-                  {localProducts.map(p => <option key={p.id} value={p.name} />)}
-                </datalist>
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
+                {activeDropdown === i && (
+                  <div
+                    onMouseDown={e => e.preventDefault()}
+                    style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, left: 0, zIndex: 9999, background: '#0A1628', border: `1px solid ${S.gold}40`, borderRadius: 12, maxHeight: 260, overflowY: 'auto', boxShadow: '0 16px 40px rgba(0,0,0,0.8)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+                  >
+                    <div style={{ padding: '8px 12px', borderBottom: `1px solid ${S.border}`, fontSize: 11, color: S.gold, fontWeight: 700, position: 'sticky', top: 0, background: '#0A1628', zIndex: 1 }}>
+                      {(() => {
+                        const q = (productSearch[i] || '').toLowerCase()
+                        const count = localProducts.filter(p => !q || p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q)).length
+                        return q ? `${count} نتيجة لـ "${productSearch[i]}"` : `${count} صنف`
+                      })()}
+                    </div>
+                    {localProducts
+                      .filter(p => { const q = (productSearch[i] || '').toLowerCase(); return !q || p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q) })
+                      .slice(0, 50)
+                      .map(p => (
+                        <div key={p.id}
+                          onClick={() => { setItem(i, 'product_id', p.id); setProductSearch(prev => ({ ...prev, [i]: p.name })); setActiveDropdown(null) }}
+                          style={{ padding: '12px 14px', cursor: 'pointer', borderBottom: `1px solid rgba(255,255,255,0.04)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: item.product_id === p.id ? 'rgba(201,168,76,0.12)' : 'transparent', minHeight: 48 }}
+                          onMouseEnter={e => { if (item.product_id !== p.id) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)' }}
+                          onMouseLeave={e => { if (item.product_id !== p.id) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: item.product_id === p.id ? S.gold : S.white, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                            {p.name_en && <div style={{ fontSize: 11, color: S.muted }}>{p.name_en}</div>}
+                          </div>
+                          <div style={{ flexShrink: 0, textAlign: 'left', marginRight: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: p.current_stock > 0 ? S.green : S.red }}>{p.current_stock}</div>
+                            <div style={{ fontSize: 10, color: S.muted }}>{p.units?.symbol || ''}</div>
+                          </div>
+                          {item.product_id === p.id && <div style={{ fontSize: 14, color: S.gold, flexShrink: 0 }}>✓</div>}
+                        </div>
+                      ))
+                    }
+                    {localProducts.filter(p => { const q = (productSearch[i] || '').toLowerCase(); return !q || p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q) }).length === 0 && (
+                      <div style={{ padding: '24px', textAlign: 'center', color: S.muted, fontSize: 13 }}>
+                        <div style={{ fontSize: 28, marginBottom: 6 }}>🔍</div>
+                        لا توجد نتائج
+                      </div>
+                    )}
+                    <div style={{ padding: '10px', borderTop: `1px solid ${S.border}`, textAlign: 'center', position: 'sticky', bottom: 0, background: '#0A1628' }}>
+                      <button onClick={() => setActiveDropdown(null)} style={{ fontSize: 12, color: S.muted, background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '6px 20px', cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+                    </div>
+                  </div>
+                )}
               </div>
               <input style={{ ...inp, direction: 'ltr' }} type="number" value={item.quantity_requested} onChange={e => setItem(i, 'quantity_requested', e.target.value)} placeholder="الكمية" />
               <select style={sel} value={item.unit_id} onChange={e => setItem(i, 'unit_id', e.target.value)}>
@@ -536,6 +580,7 @@ export default function BranchRequestsPage() {
   const [search, setSearch] = useState('')
 
   const role = employee?.role || ''
+  const myBranchId = employee?.branch_id || ''
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -547,7 +592,15 @@ export default function BranchRequestsPage() {
       supabase.from('warehouse_products').select('id, name, name_en, current_stock, units(symbol)').eq('is_active', true).order('name'),
       supabase.from('units').select('*').order('name'),
     ])
-    setRequests(reqRes.data || [])
+    let reqs = reqRes.data || []
+    if (role === 'branch_manager') reqs = reqs.filter((r: any) => r.branch_id === myBranchId)
+    else if (role === 'kitchen_manager') reqs = reqs.filter((r: any) => ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'].includes(r.department))
+    else if (role === 'hall_manager') reqs = reqs.filter((r: any) => ['الصالة','Hall'].includes(r.department))
+    else if (role === 'bar_manager') reqs = reqs.filter((r: any) => ['البار','Bar'].includes(r.department))
+    else if (role === 'kitchen_supervisor') reqs = reqs.filter((r: any) => ['المطبخ','Kitchen'].includes(r.department))
+    else if (role === 'hall_supervisor') reqs = reqs.filter((r: any) => ['الصالة','Hall'].includes(r.department))
+    else if (role === 'bar_supervisor') reqs = reqs.filter((r: any) => ['البار','Bar'].includes(r.department))
+    setRequests(reqs)
     setBranches(branchRes.data || [])
     setProducts(prodRes.data || [])
     setUnits(unitRes.data || [])

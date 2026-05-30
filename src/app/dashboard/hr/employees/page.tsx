@@ -576,7 +576,7 @@ export default function EmployeesPage() {
       setMyRequests(myReq || [])
     }
     setLoading(false)
-  }, [currentUser?.id])
+  }, [currentUser?.id, currentUser?.role])
 
   useEffect(() => { fetchAll() }, [fetchAll])
   useEffect(() => { setPage(1) }, [search, filterRole, filterDept, filterBranch, filterStatus, filterHasAccount, sortBy])

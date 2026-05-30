@@ -96,142 +96,377 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
 
 // ══ Assign Monthly Modal ══
 function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void }) {
+  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState('')
   const now = new Date()
   const [empId, setEmpId] = useState('')
-  const [shiftId, setShiftId] = useState('')
   const [month, setMonth] = useState(now.getMonth())
   const [year, setYear] = useState(now.getFullYear())
-  const [days, setDays] = useState([0,1,2,3,4,5,6])
-  const [monthsCount, setMonthsCount] = useState(1)
+  // calendarMap: date → { type: 'shift'|'custom'|'leave'|'off', shiftId?: string, customStart?: string, customEnd?: string }
+  const [calendarMap, setCalendarMap] = useState<Record<string, { type: string; shiftId?: string; customStart?: string; customEnd?: string }>>({})
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set())
+  const [bulkShift, setBulkShift] = useState('')
+  const [bulkType, setBulkType] = useState<'shift'|'custom'|'leave'|'off'>('shift')
+  const [customStart, setCustomStart] = useState('08:00')
+  const [customEnd, setCustomEnd] = useState('16:00')
+  // لتعديل يوم واحد بشكل مباشر
+  const [editDay, setEditDay] = useState<string | null>(null)
+  // تحميل الجدول الموجود عند اختيار موظف
+  const [loadedSchedule, setLoadedSchedule] = useState(false)
 
-  const daysInMonth = new Date(year, month+1, 0).getDate()
-  const previewDays = useMemo(() => Array.from({length:daysInMonth},(_,i)=>{
-    const d = new Date(year,month,i+1)
-    return {date:ld(d), dow:d.getDay(), day:i+1}
-  }).filter(d=>days.includes(d.dow)), [year,month,days,daysInMonth])
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const firstDow = new Date(year, month, 1).getDay()
+  const DAYS_HDR = ['أح', 'إث', 'ثل', 'أر', 'خم', 'جم', 'سب']
+
+  const allDays = Array.from({ length: daysInMonth }, (_: unknown, i: number) => {
+    const d = new Date(year, month, i + 1)
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`
+    return { day: i + 1, date: dateStr, dow: d.getDay() }
+  })
+
+  // تحميل الجدول الموجود للموظف لهذا الشهر
+  async function loadExistingSchedule(eId: string) {
+    if (!eId) return
+    const ms = `${year}-${String(month + 1).padStart(2, '0')}-01`
+    const me = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+    const { data } = await supabase.from('shift_schedules')
+      .select('*, shifts(name,color,start_time,end_time)')
+      .eq('employee_id', eId).gte('date', ms).lte('date', me)
+    if (data && data.length > 0) {
+      const map: Record<string, { type: string; shiftId?: string; customStart?: string; customEnd?: string }> = {}
+      data.forEach((s: any) => {
+        const dateStr = String(s.date).slice(0, 10)
+        if (s.custom_start && s.custom_end) {
+          map[dateStr] = { type: 'custom', customStart: s.custom_start.slice(0,5), customEnd: s.custom_end.slice(0,5) }
+        } else if (s.shift_id) {
+          map[dateStr] = { type: 'shift', shiftId: s.shift_id }
+        }
+      })
+      setCalendarMap(map)
+      setLoadedSchedule(true)
+    } else {
+      setCalendarMap({})
+      setLoadedSchedule(false)
+    }
+  }
+
+  function toggleDate(dateStr: string) {
+    if (editDay === dateStr) { setEditDay(null); return }
+    setSelectedDates(prev => {
+      const next = new Set(prev)
+      if (next.has(dateStr)) next.delete(dateStr)
+      else next.add(dateStr)
+      return next
+    })
+  }
+
+  function applyBulk() {
+    if (selectedDates.size === 0) { alert('اختر أيام أولاً'); return }
+    if (bulkType === 'shift' && !bulkShift) { alert('اختر الشيفت'); return }
+    if (bulkType === 'custom' && (!customStart || !customEnd)) { alert('أدخل وقت البداية والنهاية'); return }
+    setCalendarMap(prev => {
+      const next = { ...prev }
+      selectedDates.forEach(d => {
+        if (bulkType === 'off') delete next[d]
+        else if (bulkType === 'shift') next[d] = { type: 'shift', shiftId: bulkShift }
+        else if (bulkType === 'custom') next[d] = { type: 'custom', customStart, customEnd }
+        else if (bulkType === 'leave') next[d] = { type: 'leave' }
+      })
+      return next
+    })
+    setSelectedDates(new Set())
+  }
+
+  function applyPattern(pattern: 'all_shift' | 'weekdays' | 'clear') {
+    if (pattern === 'clear') { setCalendarMap({}); return }
+    if (bulkType === 'shift' && !bulkShift) { alert('اختر الشيفت أولاً'); return }
+    if (bulkType === 'custom' && (!customStart || !customEnd)) { alert('أدخل الوقت أولاً'); return }
+    const next: Record<string, { type: string; shiftId?: string; customStart?: string; customEnd?: string }> = {}
+    allDays.forEach(d => {
+      const include = pattern === 'all_shift' || (pattern === 'weekdays' && d.dow !== 5 && d.dow !== 6)
+      if (include) {
+        if (bulkType === 'shift') next[d.date] = { type: 'shift', shiftId: bulkShift }
+        else if (bulkType === 'custom') next[d.date] = { type: 'custom', customStart, customEnd }
+      }
+    })
+    setCalendarMap(next)
+  }
+
+  // تعديل يوم واحد مباشرة
+  function applyEditDay(type: string, shiftId?: string, cs?: string, ce?: string) {
+    if (!editDay) return
+    setCalendarMap(prev => {
+      const next = { ...prev }
+      if (type === 'off') delete next[editDay]
+      else if (type === 'shift') next[editDay] = { type: 'shift', shiftId }
+      else if (type === 'custom') next[editDay] = { type: 'custom', customStart: cs, customEnd: ce }
+      else if (type === 'leave') next[editDay] = { type: 'leave' }
+      return next
+    })
+    setEditDay(null)
+  }
 
   async function save() {
-    if (!empId||!shiftId||previewDays.length===0) { alert('يرجى إكمال البيانات'); return }
+    if (!empId) { alert('اختر موظف'); return }
+    const shiftDays = Object.entries(calendarMap).filter(([, v]) => v.type === 'shift' || v.type === 'custom')
+    const leaveDays = Object.entries(calendarMap).filter(([, v]) => v.type === 'leave')
+    if (shiftDays.length === 0 && leaveDays.length === 0) { alert('لم تحدد أي أيام'); return }
     setSaving(true)
-    const sh = shifts.find(s=>s.id===shiftId)
-    let totalDays = 0
-
-    for (let m = 0; m < monthsCount; m++) {
-      const targetMonth = (month + m) % 12
-      const targetYear = year + Math.floor((month + m) / 12)
-      const daysInTargetMonth = new Date(targetYear, targetMonth+1, 0).getDate()
-      const targetDays = Array.from({length:daysInTargetMonth},(_,i)=>{
-        const d = new Date(targetYear,targetMonth,i+1)
-        return {date:ld(d), dow:d.getDay()}
-      }).filter(d=>days.includes(d.dow))
-
-      const ms = `${targetYear}-${String(targetMonth+1).padStart(2,'0')}-01`
-      const me = `${targetYear}-${String(targetMonth+1).padStart(2,'0')}-${String(daysInTargetMonth).padStart(2,'0')}`
-      setProgress(`حذف جدول ${MONTHS_AR[targetMonth]} ${targetYear}...`)
-      await supabase.from('shift_schedules').delete().eq('employee_id',empId).gte('date',ms).lte('date',me)
-      setProgress(`إضافة أيام ${MONTHS_AR[targetMonth]} ${targetYear}...`)
-      const rows = targetDays.map(d=>({employee_id:empId,shift_id:shiftId,date:d.date,status:'confirmed'}))
-      for (let i=0;i<rows.length;i+=50) {
-        const {error} = await supabase.from('shift_schedules').insert(rows.slice(i,i+50))
-        if (error) { alert('خطأ: '+error.message); setSaving(false); return }
+    const ms = `${year}-${String(month + 1).padStart(2, '0')}-01`
+    const me = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+    setProgress('حذف الجدول القديم...')
+    await supabase.from('shift_schedules').delete().eq('employee_id', empId).gte('date', ms).lte('date', me)
+    if (shiftDays.length > 0) {
+      setProgress(`إضافة ${shiftDays.length} يوم...`)
+      const rows = shiftDays.map(([date, v]) => ({
+        employee_id: empId,
+        shift_id: v.type === 'shift' ? v.shiftId : null,
+        date,
+        status: 'confirmed',
+        custom_start: v.type === 'custom' ? v.customStart : null,
+        custom_end: v.type === 'custom' ? v.customEnd : null,
+      }))
+      for (let i = 0; i < rows.length; i += 50) {
+        const { error } = await supabase.from('shift_schedules').insert(rows.slice(i, i + 50))
+        if (error) { alert('خطأ: ' + error.message); setSaving(false); return }
       }
-      totalDays += targetDays.length
     }
-
-    const endMonth = (month + monthsCount - 1) % 12
-    const endYear = year + Math.floor((month + monthsCount - 1) / 12)
     await supabase.from('employee_requests').insert([{
-      employee_id:empId, request_type:'shift_assigned',
-      title:`جدول ${MONTHS_AR[month]} ${year}${monthsCount > 1 ? ' — ' + MONTHS_AR[endMonth] + ' ' + endYear : ''}`,
-      description:`تم تعيينك في ${sh?.name} لـ ${totalDays} يوم (${monthsCount} شهر)`,
-      status:'approved'
+      employee_id: empId, request_type: 'shift_assigned',
+      title: `جدول ${MONTHS_AR[month]} ${year}`,
+      description: `شيفتات: ${shiftDays.length} يوم — إجازات: ${leaveDays.length} يوم`,
+      status: 'approved'
     }])
     setSaving(false)
     onSaved()
   }
 
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:300,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:20,overflowY:'auto'}}>
-      <div style={{background:S.navy2,borderRadius:20,border:`1px solid ${S.border}`,width:'100%',maxWidth:520,padding:28,margin:'auto'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 720, padding: 28, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <h3 style={{color:S.white,fontSize:16,fontWeight:800,marginBottom:4}}>📅 تعيين جدول شهري</h3>
-            <p style={{fontSize:12,color:S.muted}}>الشيفت سيتكرر في الأيام المختارة</p>
+            <h3 style={{ color: S.white, fontSize: 16, fontWeight: 800, marginBottom: 4 }}>📅 تعيين جدول شهري</h3>
+            <p style={{ fontSize: 12, color: S.muted }}>اختر الأيام من التقويم — يدعم الشيفتات والأوقات المخصصة والإجازات</p>
           </div>
-          <button onClick={onClose} style={{background:'transparent',border:'none',color:S.muted,fontSize:20,cursor:'pointer'}}>✕</button>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+
+        {/* Row: Employee + Month + Year */}
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
           <div>
-            <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>الموظف *</label>
-            <select style={inp} value={empId} onChange={e=>setEmpId(e.target.value)}>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الموظف *</label>
+            <select style={inp} value={empId} onChange={e => { setEmpId(e.target.value); setCalendarMap({}); loadExistingSchedule(e.target.value) }}>
               <option value="">اختر الموظف</option>
-              {employees.map(e=><option key={e.id} value={e.id}>{e.name}{e.name_en ? ' ' + e.name_en : ''} — {e.department}</option>)}
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name} — {e.department}</option>)}
+            </select>
+            {loadedSchedule && <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>⚠️ يوجد جدول محفوظ — سيتم استبداله عند الحفظ</div>}
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الشهر</label>
+            <select style={inp} value={month} onChange={e => { setMonth(parseInt(e.target.value)); setCalendarMap({}); setSelectedDates(new Set()); setLoadedSchedule(false) }}>
+              {MONTHS_AR.map((m: string, i: number) => <option key={i} value={i}>{m}</option>)}
             </select>
           </div>
           <div>
-            <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:8}}>الشيفت *</label>
-            <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              {shifts.map(s=>(
-                <label key={s.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:10,border:`1px solid ${shiftId===s.id?s.color:S.border}`,background:shiftId===s.id?s.color+'15':'transparent',cursor:'pointer'}}>
-                  <input type="radio" name="shiftR" checked={shiftId===s.id} onChange={()=>setShiftId(s.id)} style={{accentColor:s.color}} />
-                  <div style={{width:8,height:28,borderRadius:4,background:s.color}} />
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:S.white}}>{s.name}</div>
-                    <div style={{fontSize:11,color:S.muted}}>{s.start_time?.slice(0,5)} — {s.end_time?.slice(0,5)}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>السنة</label>
+            <select style={inp} value={year} onChange={e => { setYear(parseInt(e.target.value)); setCalendarMap({}); setSelectedDates(new Set()); setLoadedSchedule(false) }}>
+              {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div>
-              <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>الشهر</label>
-              <select style={inp} value={month} onChange={e=>setMonth(parseInt(e.target.value))}>
-                {MONTHS_AR.map((m,i)=><option key={i} value={i}>{m}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>السنة</label>
-              <select style={inp} value={year} onChange={e=>setYear(parseInt(e.target.value))}>
-                {[2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:8}}>عدد الشهور</label>
-              <div style={{display:'flex',gap:8}}>
-                {[{label:'شهر',v:1},{label:'3 شهور',v:3},{label:'6 شهور',v:6},{label:'سنة',v:12}].map(opt=>(
-                  <button key={opt.v} onClick={()=>setMonthsCount(opt.v)}
-                    style={{flex:1,padding:'8px 4px',borderRadius:8,border:`1px solid ${monthsCount===opt.v?S.gold:S.border}`,background:monthsCount===opt.v?S.gold3:'transparent',color:monthsCount===opt.v?S.gold:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:monthsCount===opt.v?700:400}}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+        </div>
+
+        {/* Shift + Custom time selector */}
+        <div style={{ background: S.navy3, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 10 }}>نوع اليوم للتطبيق</div>
+
+          {/* Type buttons */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            {[
+              { key: 'shift', label: '⏰ شيفت', color: S.blue, bg: S.blueB },
+              { key: 'custom', label: '🕐 وقت مخصص', color: S.purple, bg: S.purpleB },
+              { key: 'leave', label: '🏖️ إجازة', color: S.amber, bg: S.amberB },
+              { key: 'off', label: '❌ مسح', color: S.red, bg: S.redB },
+            ].map(t => (
+              <button key={t.key} onClick={() => setBulkType(t.key as any)}
+                style={{ padding: '7px 16px', borderRadius: 8, border: `2px solid ${bulkType === t.key ? t.color : S.border}`, background: bulkType === t.key ? t.bg : 'transparent', color: bulkType === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                {t.label}
+              </button>
+            ))}
           </div>
-          <div>
-            <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:8}}>أيام العمل</label>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              {DAYS_SHORT.map((d,i)=>(
-                <button key={i} onClick={()=>setDays(p=>p.includes(i)?p.filter(x=>x!==i):[...p,i].sort())}
-                  style={{width:42,height:42,borderRadius:10,border:`1px solid ${days.includes(i)?S.gold:S.border}`,background:days.includes(i)?S.gold3:'transparent',color:days.includes(i)?S.gold:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
-                  {d}
+
+          {/* Shift selector */}
+          {bulkType === 'shift' && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              {shifts.map(s => (
+                <button key={s.id} onClick={() => setBulkShift(s.id)}
+                  style={{ padding: '6px 14px', borderRadius: 8, border: `2px solid ${bulkShift === s.id ? s.color : S.border}`, background: bulkShift === s.id ? s.color + '20' : 'transparent', color: bulkShift === s.id ? s.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  {s.name} ({s.start_time?.slice(0, 5)}—{s.end_time?.slice(0, 5)})
                 </button>
               ))}
             </div>
-          </div>
-          {previewDays.length>0&&(
-            <div style={{background:S.greenB,border:`1px solid rgba(34,197,94,0.3)`,borderRadius:10,padding:'10px 14px'}}>
-              <div style={{fontSize:13,fontWeight:700,color:S.green}}>✅ {previewDays.length} يوم في {MONTHS_AR[month]} {year}</div>
+          )}
+
+          {/* Custom time */}
+          {bulkType === 'custom' && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>من</label>
+                <input type="time" style={{ ...inp, width: 120, direction: 'ltr', textAlign: 'center' }} value={customStart} onChange={e => setCustomStart(e.target.value)} />
+              </div>
+              <div style={{ color: S.muted, marginTop: 20 }}>→</div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>إلى</label>
+                <input type="time" style={{ ...inp, width: 120, direction: 'ltr', textAlign: 'center' }} value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
+              </div>
+              <div style={{ background: S.purpleB, borderRadius: 8, padding: '6px 12px', marginTop: 16, fontSize: 12, color: S.purple, fontWeight: 700 }}>
+                {customStart} — {customEnd}
+              </div>
             </div>
           )}
+
+          {/* Quick patterns */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderTop: `1px solid ${S.border}`, paddingTop: 10 }}>
+            <span style={{ fontSize: 11, color: S.muted, alignSelf: 'center' }}>تطبيق سريع:</span>
+            <button onClick={() => applyPattern('all_shift')} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>كل الشهر</button>
+            <button onClick={() => applyPattern('weekdays')} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>أيام الأسبوع</button>
+            <button onClick={() => applyPattern('clear')} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>مسح الكل</button>
+          </div>
         </div>
-        <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end',alignItems:'center'}}>
-          {saving&&<span style={{fontSize:12,color:S.muted}}>{progress}</span>}
-          <button onClick={onClose} style={{padding:'10px 20px',borderRadius:10,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif'}}>إلغاء</button>
-          <button onClick={save} disabled={saving} style={{padding:'10px 24px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
-            {saving?'⏳...':'✅ تعيين'}
+
+        {/* Bulk action bar */}
+        {selectedDates.size > 0 && (
+          <div style={{ background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: S.amber, fontWeight: 700 }}>{selectedDates.size} يوم محدد</span>
+            <button onClick={applyBulk} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ تطبيق على المحدد</button>
+            <button onClick={() => setSelectedDates(new Set())} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>إلغاء التحديد</button>
+          </div>
+        )}
+
+        {/* Edit day popup */}
+        {editDay && (
+          <div style={{ background: S.navy3, border: `1px solid ${S.gold}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 10 }}>✏️ تعديل يوم {editDay}</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {shifts.map(s => (
+                <button key={s.id} onClick={() => applyEditDay('shift', s.id)}
+                  style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${s.color}`, background: s.color + '20', color: s.color, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  {s.name}
+                </button>
+              ))}
+              <button onClick={() => applyEditDay('custom', undefined, customStart, customEnd)}
+                style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                🕐 {customStart}—{customEnd}
+              </button>
+              <button onClick={() => applyEditDay('leave')}
+                style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                🏖️ إجازة
+              </button>
+              <button onClick={() => applyEditDay('off')}
+                style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ❌ مسح
+              </button>
+              <button onClick={() => setEditDay(null)}
+                style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                إغلاق
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Calendar */}
+        <div style={{ background: S.navy3, borderRadius: 14, padding: 14, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 6 }}>
+            {DAYS_HDR.map(d => (
+              <div key={d} style={{ textAlign: 'center', fontSize: 11, color: S.muted, fontWeight: 700, padding: '4px 0' }}>{d}</div>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+            {Array.from({ length: firstDow }).map((_: unknown, i: number) => <div key={`e-${i}`} />)}
+            {allDays.map(d => {
+              const entry = calendarMap[d.date]
+              const isSelected = selectedDates.has(d.date)
+              const isEditDay = editDay === d.date
+              const isToday = d.date === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
+              const shift = entry?.type === 'shift' ? shifts.find(s => s.id === entry.shiftId) : null
+              const isWeekend = d.dow === 5 || d.dow === 6
+
+              let bg = 'rgba(255,255,255,0.03)'
+              let border = '1px solid rgba(255,255,255,0.06)'
+              if (isEditDay) { bg = 'rgba(201,168,76,0.25)'; border = `2px solid ${S.gold}` }
+              else if (isSelected) { bg = 'rgba(245,158,11,0.2)'; border = `1px solid ${S.amber}` }
+              else if (entry?.type === 'shift' && shift) { bg = shift.color + '20'; border = `1px solid ${shift.color}60` }
+              else if (entry?.type === 'custom') { bg = 'rgba(139,92,246,0.15)'; border = `1px solid ${S.purple}60` }
+              else if (entry?.type === 'leave') { bg = 'rgba(245,158,11,0.15)'; border = `1px solid ${S.amber}40` }
+              if (isToday && !isEditDay) border = `2px solid ${S.gold}`
+
+              return (
+                <div key={d.date}
+                  onClick={() => toggleDate(d.date)}
+                  onDoubleClick={() => setEditDay(d.date)}
+                  title="اضغط للتحديد — اضغط مرتين للتعديل المباشر"
+                  style={{ background: bg, border, borderRadius: 8, padding: '4px 2px', cursor: 'pointer', textAlign: 'center', minHeight: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'all .1s' }}>
+                  <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}</div>
+                  {entry?.type === 'shift' && shift && (
+                    <div style={{ fontSize: 9, fontWeight: 700, color: shift.color, background: shift.color + '30', borderRadius: 4, padding: '1px 4px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {shift.name?.slice(0, 4)}
+                    </div>
+                  )}
+                  {entry?.type === 'custom' && (
+                    <div style={{ fontSize: 8, fontWeight: 700, color: S.purple, background: S.purpleB, borderRadius: 4, padding: '1px 3px' }}>
+                      {entry.customStart?.slice(0,5)}
+                    </div>
+                  )}
+                  {entry?.type === 'leave' && <div style={{ fontSize: 12 }}>🏖️</div>}
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ fontSize: 10, color: S.muted, marginTop: 8, textAlign: 'center' }}>
+            💡 اضغط مرة للتحديد — اضغط مرتين للتعديل المباشر
+          </div>
+        </div>
+
+        {/* Summary */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          {[
+            { label: 'شيفتات', count: Object.values(calendarMap).filter(v => v.type === 'shift').length, color: S.blue, icon: '⏰' },
+            { label: 'مخصصة', count: Object.values(calendarMap).filter(v => v.type === 'custom').length, color: S.purple, icon: '🕐' },
+            { label: 'إجازات', count: Object.values(calendarMap).filter(v => v.type === 'leave').length, color: S.amber, icon: '🏖️' },
+            { label: 'محددة', count: selectedDates.size, color: S.amber, icon: '🔶' },
+          ].map((s, i) => (
+            <div key={i} style={{ background: S.card, borderRadius: 10, padding: '8px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span>{s.icon}</span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.count}</span>
+              <span style={{ fontSize: 12, color: S.muted }}>{s.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Legend */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          {shifts.map(s => (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 3, background: s.color }} />
+              <span style={{ fontSize: 11, color: S.muted }}>{s.name}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: S.purple }} />
+            <span style={{ fontSize: 11, color: S.muted }}>وقت مخصص</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>🏖️</span>
+            <span style={{ fontSize: 11, color: S.muted }}>إجازة</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {saving && <span style={{ fontSize: 12, color: S.muted }}>{progress}</span>}
+          <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '✅ حفظ الجدول'}
           </button>
         </div>
       </div>
@@ -442,7 +677,7 @@ const {data: schData} = await supabase.from('shift_schedules')
     <table><thead><tr><th>الموظف</th><th>القسم</th>
     ${monthDays.map(d=>`<th>${d.day}<br/><small>${DAYS_SHORT[d.dow]}</small></th>`).join('')}</tr></thead>
     <tbody>${employees.map(emp=>`<tr><td style="text-align:right">${emp.name}${emp.name_en?' '+emp.name_en:''}</td><td>${emp.department||''}</td>
-    ${monthDays.map(d=>{const s=getShift(emp.id,d.date);return s?`<td><span class="s" style="background:${s.shifts?.color||'#gold'}30;color:${s.shifts?.color||'#C9A84C'}">${s.shifts?.name||''}</span></td>`:'<td>—</td>'}).join('')}</tr>`).join('')}
+    ${monthDays.map(d=>{const s=getShift(emp.id,d.date);return s?`<td><span class='s' style='background:${(s.shifts?.color||"#C9A84C")}30;color:${s.shifts?.color||"#C9A84C"}'>${s.shifts?.name||'✓'}</span></td>`:'<td style="color:#ccc">✗</td>'}).join('')}</tr>`).join('')}
     </tbody></table></body></html>`
     const win=window.open('','_blank'); if(win){win.document.write(html);win.document.close();win.print()}
   }
@@ -481,7 +716,7 @@ const {data: schData} = await supabase.from('shift_schedules')
             <button onClick={()=>setShowRequest(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.teal}`,background:S.tealB,color:S.teal,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>🔄 طلب تغيير شيفت</button>
           ):(
             <>
-              {isManager&&<button onClick={()=>setShowAddShift(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.purple}`,background:S.purpleB,color:S.purple,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>⏰ شيفت جديد</button>}
+              {isAdmin&&<button onClick={()=>setShowAddShift(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.purple}`,background:S.purpleB,color:S.purple,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>⏰ شيفت جديد</button>}
               <button onClick={()=>setShowAssign(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>📅 تعيين جدول شهري</button>
               <button onClick={printSchedule} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>🖨️ طباعة</button>
             </>
@@ -659,7 +894,7 @@ const {data: schData} = await supabase.from('shift_schedules')
               <div style={{padding:'16px 18px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
                   <div style={{fontSize:16,fontWeight:800,color:S.white}}>{shift.name}</div>
-                  {isManager&&<button onClick={()=>setEditShift(shift)} style={{padding:'5px 10px',borderRadius:8,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:12}}>✏️</button>}
+                  {isAdmin&&<button onClick={()=>setEditShift(shift)} style={{padding:'5px 10px',borderRadius:8,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:12}}>✏️</button>}
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                   <div style={{background:S.card,borderRadius:8,padding:'8px 12px'}}>

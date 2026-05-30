@@ -545,6 +545,7 @@ export default function EmployeesPage() {
   const statsRef = useRef<HTMLDivElement>(null)
 
   const fetchAll = useCallback(async () => {
+    if (!currentUser) return  // انتظر تحميل المستخدم أولاً
     setLoading(true)
     const [emp, br, reg] = await Promise.all([
       (() => {
@@ -578,7 +579,7 @@ export default function EmployeesPage() {
     setLoading(false)
   }, [currentUser?.id, currentUser?.role])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => { if (currentUser) fetchAll() }, [fetchAll, currentUser])
   useEffect(() => { setPage(1) }, [search, filterRole, filterDept, filterBranch, filterStatus, filterHasAccount, sortBy])
 
 async function activateRegistration(reg: Registration) {
@@ -807,6 +808,7 @@ const branchMap: Record<string, string> = {
         <div style={{ display: 'flex', gap: 8 }}>
           {/* ② زر تصدير */}
           <button onClick={() => exportToCSV(filtered)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📥 تصدير</button>
+
           <button onClick={() => setShowAdd(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ موظف جديد</button>
         </div>
       </div>

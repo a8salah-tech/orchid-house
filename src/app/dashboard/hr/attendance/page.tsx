@@ -329,7 +329,7 @@ function MyAttendanceCard() {
 // ══════════════════════════════════════════
 // Admin View
 // ══════════════════════════════════════════
-function AdminAttendanceView() {
+function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const sbRef = useRef(createClient())
   const sb    = sbRef.current
 
@@ -356,9 +356,19 @@ function AdminAttendanceView() {
         .select('*, employees(id,name,name_en,employee_number,role,department,branch_id,salary,branches(name))')
         .eq('date', date)
         .order('check_in_time'),
-      sb.from('employees')
-        .select('id,name,name_en,employee_number,role,department,branch_id,salary,branches(name)')
-        .eq('is_active', true).order('name'),
+      (() => {
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,salary,branches(name)').eq('is_active', true).order('name')
+        const role = empInfo?.role || ''
+        const branchId = empInfo?.branch_id || ''
+        if (role === 'branch_manager') q = q.eq('branch_id', branchId)
+        else if (role === 'kitchen_manager') q = q.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
+        else if (role === 'hall_manager') q = q.in('department', ['الصالة','Hall'])
+        else if (role === 'bar_manager') q = q.in('department', ['البار','Bar'])
+        else if (role === 'kitchen_supervisor') q = q.eq('branch_id', branchId).in('department', ['المطبخ','Kitchen'])
+        else if (role === 'hall_supervisor') q = q.eq('branch_id', branchId).in('department', ['الصالة','Hall'])
+        else if (role === 'bar_supervisor') q = q.eq('branch_id', branchId).in('department', ['البار','Bar'])
+        return q
+      })(),
       sb.from('branches').select('id,name').eq('is_active', true),
     ])
     setRecords(att.data || [])
@@ -838,7 +848,8 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {isManager ? <AdminAttendanceView /> : <MyAttendanceCard />}
+      <MyAttendanceCard />
+      {isManager && <div style={{ marginTop: 32 }}><AdminAttendanceView empInfo={employee} /></div>}
     </div>
   )
 }

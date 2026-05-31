@@ -342,7 +342,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [manualStatus, setManualStatus] = useState('present')
   const [manualNote,   setManualNote]   = useState('')
   const [saving,       setSaving]       = useState(false)
-  const [filterBranch, setFilterBranch] = useState('all')
+  const [filterBranch, setFilterBranch] = useState(() => empInfo?.branch_id || 'all')
   const [tab,          setTab]          = useState<'day' | 'report'>('day')
   const [reportEmp,    setReportEmp]    = useState('')
   const [reportMonth,  setReportMonth]  = useState(new Date().toISOString().slice(0, 7))
@@ -361,9 +361,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         const role = empInfo?.role || ''
         const branchId = empInfo?.branch_id || ''
         if (role === 'branch_manager') q = q.eq('branch_id', branchId)
-        else if (role === 'kitchen_manager') q = q.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
-        else if (role === 'hall_manager') q = q.in('department', ['الصالة','Hall'])
-        else if (role === 'bar_manager') q = q.in('department', ['البار','Bar'])
+        else if (role === 'kitchen_manager') q = q.eq('branch_id', branchId).in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
+        else if (role === 'hall_manager') q = q.eq('branch_id', branchId).in('department', ['الصالة','Hall'])
+        else if (role === 'bar_manager') q = q.eq('branch_id', branchId).in('department', ['البار','Bar'])
         else if (role === 'kitchen_supervisor') q = q.eq('branch_id', branchId).in('department', ['المطبخ','Kitchen'])
         else if (role === 'hall_supervisor') q = q.eq('branch_id', branchId).in('department', ['الصالة','Hall'])
         else if (role === 'bar_supervisor') q = q.eq('branch_id', branchId).in('department', ['البار','Bar'])
@@ -439,6 +439,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const late       = filteredRecords.filter(r => r.status === 'late').length
 
   // إحصائيات الفروع
+  const isAdminView = ['admin','branch_manager'].includes(empInfo?.role || '')
   const branchStats = branches.map(b => {
     const brEmps    = employees.filter(e => e.branch_id === b.id)
     const brRecords = records.filter(r => brEmps.some(e => e.id === r.employee_id))
@@ -557,7 +558,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   <div><div style={{ fontSize: 10, color: S.muted }}>Present</div><div style={{ fontSize: 18, fontWeight: 800, color: S.green }}>{records.filter(r => r.check_in_time).length}</div></div>
                 </div>
               </div>
-              {branchStats.map(bs => (
+              {isAdminView && branchStats.map(bs => (
                 <div key={bs.branch.id}
                   onClick={() => setFilterBranch(bs.branch.id)}
                   style={{ background: filterBranch === bs.branch.id ? S.blueB : S.navy2, border: `1px solid ${filterBranch === bs.branch.id ? S.blue : S.border}`, borderRadius: 14, padding: '14px 16px', cursor: 'pointer', transition: 'all .15s' }}

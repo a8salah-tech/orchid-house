@@ -172,7 +172,11 @@ export default function PayrollPage() {
   const sbRef = useRef(createClient())
   const sb    = sbRef.current
   const { employee: currentUser, permissions, hasPermission } = useAuth()
-  const isAdmin = permissions?.all === true || hasPermission('payroll')
+  const role = currentUser?.role || ''
+  const isSuperAdmin = permissions?.all === true
+  const isBranchManager = role === 'branch_manager'
+  const isAdmin = isSuperAdmin
+  const myId = currentUser?.id || ''
 
   const [months,        setMonths]        = useState<PayrollMonth[]>([])
   const [branches,      setBranches]      = useState<Branch[]>([])
@@ -195,12 +199,9 @@ export default function PayrollPage() {
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
       (() => {
         let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name')
-        if (currentUser?.role === 'kitchen_manager') q = q.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
-        else if (currentUser?.role === 'hall_manager') q = q.in('department', ['الصالة','Hall'])
-        else if (currentUser?.role === 'bar_manager') q = q.in('department', ['البار','Bar'])
-        else if (currentUser?.role === 'kitchen_supervisor') q = q.in('department', ['المطبخ','Kitchen'])
-        else if (currentUser?.role === 'hall_supervisor') q = q.in('department', ['الصالة','Hall'])
-        else if (currentUser?.role === 'bar_supervisor') q = q.in('department', ['البار','Bar'])
+        // فلتر حسب الدور
+        if (!isSuperAdmin && isBranchManager) q = q.eq('branch_id', currentUser?.branch_id || '')
+        else if (!isSuperAdmin && !isBranchManager) q = q.eq('id', myId)
         return q
       })(),
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
@@ -220,12 +221,8 @@ export default function PayrollPage() {
     let emps = employees
     if (emps.length === 0) {
       let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name')
-      if (currentUser?.role === 'kitchen_manager') q2 = q2.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
-      else if (currentUser?.role === 'hall_manager') q2 = q2.in('department', ['الصالة','Hall'])
-      else if (currentUser?.role === 'bar_manager') q2 = q2.in('department', ['البار','Bar'])
-      else if (currentUser?.role === 'kitchen_supervisor') q2 = q2.in('department', ['المطبخ','Kitchen'])
-      else if (currentUser?.role === 'hall_supervisor') q2 = q2.in('department', ['الصالة','Hall'])
-      else if (currentUser?.role === 'bar_supervisor') q2 = q2.in('department', ['البار','Bar'])
+      if (!isSuperAdmin && isBranchManager) q2 = q2.eq('branch_id', currentUser?.branch_id || '')
+      else if (!isSuperAdmin && !isBranchManager) q2 = q2.eq('id', myId)
       const { data } = await q2
       emps = data || []
       setEmployees(emps)
@@ -355,7 +352,7 @@ export default function PayrollPage() {
     return { earnings: acc.earnings + c.totalEarnings, deductions: acc.deductions + c.totalDeductions, net: acc.net + c.netSalary, paid: acc.paid + r.amount_paid, balance: acc.balance + (r.amount_due - r.amount_paid) }
   }, { earnings: 0, deductions: 0, net: 0, paid: 0, balance: 0 }), [visibleRecords])
 
-  // ✅ إحصائيات كل فرع
+  // ✅ إحصائيات كل فرع — admin و branch_manager فقط
   const branchStats = useMemo(() => {
     return branches.map(b => {
       const branchEmps = employees.filter(e => e.branch_id === b.id)
@@ -371,6 +368,9 @@ export default function PayrollPage() {
   }
   const thGroupStyle = (color: string): React.CSSProperties => ({ ...thStyle, background: color, fontSize: 9 })
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // حماية الصفحة — أي شخص يحاول الوصول يشوف راتبه فقط
+  // DB security: Supabase RLS يجب أن يكون مفعّل
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, minHeight: '100vh' }}>
@@ -563,7 +563,7 @@ export default function PayrollPage() {
             {/* Summary Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
-                { label: isAdmin ? 'Total Employees' : 'My Payroll', value: visibleRecords.length, color: S.white, icon: '👥' },
+                { label: isSuperAdmin ? 'Total Employees' : isBranchManager ? 'Branch Employees' : 'My Payroll', value: visibleRecords.length, color: S.white, icon: '👥' },
                 { label: 'Total Earnings',   value: 'MYR ' + fmt(totals.earnings),   color: S.green,  icon: '📈' },
                 { label: 'Total Deductions', value: 'MYR ' + fmt(totals.deductions), color: S.red,    icon: '📉' },
                 { label: 'Net Payroll',      value: 'MYR ' + fmt(totals.net),        color: S.teal,   icon: '💰' },

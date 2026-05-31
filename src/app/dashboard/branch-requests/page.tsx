@@ -39,8 +39,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   manager_approved:     { label: 'معتمد من مدير القسم',  color: S.blue,   bg: S.blueB,   icon: '👨‍💼', step: 2 },
   branch_approved:      { label: 'معتمد من مدير الفرع',  color: S.purple, bg: S.purpleB, icon: '🏪', step: 3 },
   warehouse_processing: { label: 'قيد التجهيز بالمستودع',color: S.orange, bg: S.orangeB, icon: '🏭', step: 4 },
-  manager_received:     { label: 'استلم مدير القسم',      color: S.teal,   bg: S.tealB,   icon: '✅', step: 5 },
-  supervisor_received:  { label: 'استلم المشرف',          color: S.green,  bg: S.greenB,  icon: '🎉', step: 6 },
+  supervisor_received:  { label: 'استلم المشرف',          color: S.green,  bg: S.greenB,  icon: '🎉', step: 5 },
+  manager_received:     { label: 'استلم مدير القسم',      color: S.teal,   bg: S.tealB,   icon: '✅', step: 6 },
   rejected:             { label: 'مرفوض',                 color: S.red,    bg: S.redB,    icon: '❌', step: 0 },
 }
 
@@ -95,8 +95,8 @@ function WorkflowSteps({ request }: { request: BranchRequest }) {
     { step: 2, label: 'اعتماد مدير القسم', icon: '👨‍💼', done: currentStep >= 2, by: request.manager_approved_by, at: request.manager_approved_at },
     { step: 3, label: 'اعتماد مدير الفرع', icon: '🏪', done: currentStep >= 3, by: request.branch_manager_approved_by, at: request.branch_manager_approved_at },
     { step: 4, label: 'تجهيز المستودع', icon: '🏭', done: currentStep >= 4, by: request.warehouse_received_by, at: request.warehouse_received_at },
-    { step: 5, label: 'استلام مدير القسم', icon: '✅', done: currentStep >= 5, by: request.manager_received_by, at: request.manager_received_at },
-    { step: 6, label: 'استلام المشرف', icon: '🎉', done: currentStep >= 6, by: request.supervisor_received_by, at: request.supervisor_received_at },
+    { step: 5, label: 'استلام المشرف', icon: '🎉', done: currentStep >= 5, by: request.supervisor_received_by, at: request.supervisor_received_at },
+    { step: 6, label: 'استلام مدير القسم', icon: '✅', done: currentStep >= 6, by: request.manager_received_by, at: request.manager_received_at },
   ]
 
   return (
@@ -435,8 +435,8 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: {
   const showManagerApproval = canDoManagerApproval(role) && request.status === 'pending'
   const showBranchApproval = canDoBranchApproval(role) && request.status === 'manager_approved'
   const showWarehouseAction = canDoWarehouseAction(role) && request.status === 'branch_approved'
-  const showManagerReceived = canDoManagerApproval(role) && request.status === 'warehouse_processing'
-  const showSupervisorReceived = SUPERVISOR_ROLES.includes(role) && request.status === 'manager_received'
+  const showSupervisorReceived = SUPERVISOR_ROLES.includes(role) && request.status === 'warehouse_processing'
+  const showManagerReceived = canDoManagerApproval(role) && request.status === 'supervisor_received'
   const showReject = (canDoManagerApproval(role) || canDoBranchApproval(role)) && ['pending', 'manager_approved'].includes(request.status)
 
   const hasAction = showManagerApproval || showBranchApproval || showWarehouseAction || showManagerReceived || showSupervisorReceived
@@ -652,9 +652,9 @@ export default function BranchRequestsPage() {
             { icon: '→', label: '', color: S.muted },
             { icon: '🏭', label: 'المستودع يجهز', color: S.orange },
             { icon: '→', label: '', color: S.muted },
-            { icon: '✅', label: 'مدير القسم يستلم', color: S.teal },
-            { icon: '→', label: '', color: S.muted },
             { icon: '🎉', label: 'المشرف يستلم', color: S.green },
+            { icon: '→', label: '', color: S.muted },
+            { icon: '✅', label: 'مدير القسم يستلم', color: S.teal },
           ].map((s, i) => (
             <span key={i} style={{ fontSize: s.icon === '→' ? 16 : 12, color: s.color, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
               {s.icon !== '→' && <span>{s.icon}</span>}

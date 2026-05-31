@@ -582,7 +582,7 @@ export default function ShiftsPage() {
       const {data: empData} = await empQuery
       setEmployees(empData||[])
 const {data: schData} = await supabase.from('shift_schedules')
-  .select('*')
+  .select('*, shifts(name,color,start_time,end_time), custom_start, custom_end')
   .gte('date', monthStart)
   .lte('date', monthEnd)
 
@@ -969,7 +969,11 @@ const {data: schData} = await supabase.from('shift_schedules')
       {activeTab==='my_schedule'&&(
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-            <span style={{fontSize:14,fontWeight:700,color:S.white}}>{MONTHS_AR[viewMonth]} {viewYear} — {mySchedules.length} شيفت</span>
+            <span style={{fontSize:14,fontWeight:700,color:S.white}}>
+  {MONTHS_AR[viewMonth]} {viewYear} —{' '}
+  {mySchedules.filter((s:any)=>s.shift_id||s.custom_start).length} يوم عمل{' '}
+  {mySchedules.filter((s:any)=>!s.shift_id&&!s.custom_start).length > 0 && `· ${mySchedules.filter((s:any)=>!s.shift_id&&!s.custom_start).length} إجازة`}
+</span>
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>{if(viewMonth===0){setViewMonth(11);setViewYear(y=>y-1)}else setViewMonth(m=>m-1)}} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${S.border}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif'}}>← السابق</button>
               <button onClick={()=>{if(viewMonth===11){setViewMonth(0);setViewYear(y=>y+1)}else setViewMonth(m=>m+1)}} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${S.border}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif'}}>التالي →</button>
@@ -988,16 +992,25 @@ const {data: schData} = await supabase.from('shift_schedules')
               {mySchedules.map((sch:any)=>{
                 const d=new Date(String(sch.date)+'T00:00:00')
                 const isToday=String(sch.date).slice(0,10)===todayStr()
+                const isLeave = !sch.shift_id && !sch.custom_start
+                const isCustom = sch.custom_start && sch.custom_end
+                const shiftName = isLeave ? '🏖️ إجازة' : isCustom ? '🕐 دوام مخصص' : (sch.shifts?.name || '—')
+                const timeFrom = isCustom ? sch.custom_start?.slice(0,5) : sch.shifts?.start_time?.slice(0,5)
+                const timeTo = isCustom ? sch.custom_end?.slice(0,5) : sch.shifts?.end_time?.slice(0,5)
+                const barColor = isLeave ? S.amber : isCustom ? S.purple : (sch.shifts?.color || S.gold)
+                const borderColor = isToday ? S.gold : barColor + '40'
+                const bgColor = isToday ? S.gold3 : isLeave ? S.amberB : S.navy2
                 return (
-                  <div key={sch.id} style={{background:isToday?S.gold3:S.navy2,borderRadius:12,border:`1px solid ${isToday?S.gold:(sch.shifts?.color||S.gold)+'30'}`,padding:'12px 16px',display:'flex',alignItems:'center',gap:14}}>
+                  <div key={sch.id} style={{background:bgColor,borderRadius:12,border:`1px solid ${borderColor}`,padding:'12px 16px',display:'flex',alignItems:'center',gap:14}}>
                     <div style={{width:44,textAlign:'center',flexShrink:0}}>
                       <div style={{fontSize:18,fontWeight:800,color:isToday?S.gold:S.white}}>{d.getDate()}</div>
                       <div style={{fontSize:10,color:S.muted}}>{DAYS_SHORT[d.getDay()]}</div>
                     </div>
-                    <div style={{width:6,height:40,borderRadius:3,background:sch.shifts?.color||S.gold,flexShrink:0}} />
+                    <div style={{width:6,height:40,borderRadius:3,background:barColor,flexShrink:0}} />
                     <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,color:S.white,marginBottom:2}}>{sch.shifts?.name}</div>
-                      <div style={{fontSize:12,color:S.muted}}>{sch.shifts?.start_time?.slice(0,5)} — {sch.shifts?.end_time?.slice(0,5)}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:isLeave?S.amber:S.white,marginBottom:2}}>{shiftName}</div>
+                      {!isLeave && timeFrom && <div style={{fontSize:12,color:isCustom?S.purple:S.muted,fontWeight:isCustom?700:400}}>⏰ {timeFrom} — {timeTo}</div>}
+                      {isLeave && <div style={{fontSize:11,color:S.amber}}>يوم راحة</div>}
                     </div>
                     {isToday&&<span style={{background:S.greenB,color:S.green,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}>اليوم ✅</span>}
                   </div>

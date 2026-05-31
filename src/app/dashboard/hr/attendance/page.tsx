@@ -640,7 +640,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                       return (
                         <tr key={r.id} style={{ borderBottom: `1px solid ${S.border}` }}>
                           <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{r.employees?.name || emp?.name || '—'}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{(r.employees?.name || emp?.name || '—')}{r.employees?.name_en ? ' ' + r.employees.name_en : emp?.name_en ? ' ' + emp.name_en : ''}</div>
                             <div style={{ fontSize: 11, color: S.gold }}>{r.employees?.employee_number || emp?.employee_number}</div>
                           </td>
                           <td style={{ padding: '12px 14px', fontSize: 12, color: S.blue }}>

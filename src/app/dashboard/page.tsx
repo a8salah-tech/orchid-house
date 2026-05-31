@@ -77,21 +77,32 @@ const ROLE_LABELS: Record<string, { label: string; label_en: string; icon: strin
 function EmployeeDashboard({ employee }: { employee: any }) {
   const router = useRouter()
   const { isAr } = useLang()
-  const role = ROLE_LABELS[employee?.role || 'employee'] || ROLE_LABELS.employee
+  const roleLabel = ROLE_LABELS[employee?.role || 'employee'] || ROLE_LABELS.employee
   const hour = new Date().getHours()
   const greeting = isAr ? (hour < 12 ? 'صباح الخير' : hour < 17 ? 'مساء الخير' : 'مساء النور') : (hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening')
 
+  const role = employee?.role || 'employee'
+  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','employee','warehouse_keeper']
+  const KITCHEN_ROLES = ['kitchen_manager','kitchen_supervisor']
+  const HALL_ROLES = ['hall_manager','hall_supervisor']
+  const BAR_ROLES = ['bar_manager','bar_supervisor']
+  const SUPERVISOR_ROLES = ['kitchen_supervisor','hall_supervisor','bar_supervisor']
+  const MANAGER_ROLES = ['kitchen_manager','hall_manager','bar_manager']
+
   const MY_LINKS = [
-    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',     path: '/dashboard/cashier',          show: ['cashier','admin','branch_manager'] },
-    { icon: '👨‍🍳', label: isAr ? 'المطبخ' : 'Kitchen',    path: '/dashboard/kitchen',           show: ['kitchen_supervisor','admin'] },
-    { icon: '🍰', label: isAr ? 'الحلويات' : 'Desserts',    path: '/dashboard/desserts',          show: ['employee','admin'] },
-    { icon: '☕', label: isAr ? 'البار' : 'Bar',       path: '/dashboard/bar',              show: ['bar_supervisor','admin'] },
-    { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',   path: '/dashboard/tables',           show: ['hall_supervisor','cashier','admin'] },
-    { icon: '💰', label: isAr ? 'راتبي' : 'My Salary',       path: '/dashboard/hr/payroll',       show: ['employee','cashier','kitchen_supervisor','hall_supervisor','bar_supervisor','admin'] },
-    { icon: '⏰', label: isAr ? 'حضوري' : 'Attendance',       path: '/dashboard/hr/attendance',    show: ['employee','cashier','kitchen_supervisor','hall_supervisor','bar_supervisor','admin'] },
-    { icon: '📋', label: isAr ? 'طلباتي' : 'My Requests',      path: '/dashboard/hr/requests',      show: ['employee','cashier','kitchen_supervisor','hall_supervisor','bar_supervisor','admin'] },
-    { icon: '🕐', label: isAr ? 'الشيفتات' : 'Shifts',   path: '/dashboard/hr/shifts',        show: ['employee','cashier','kitchen_supervisor','hall_supervisor','bar_supervisor','admin'] },
-  ].filter(l => l.show.includes(employee?.role || 'employee'))
+    { icon: '👨‍🍳', label: isAr ? 'المطبخ' : 'Kitchen',          path: '/dashboard/kitchen',           show: [...KITCHEN_ROLES] },
+    { icon: '🍰', label: isAr ? 'الحلويات' : 'Desserts',          path: '/dashboard/desserts',          show: ['kitchen_manager','kitchen_supervisor'] },
+    { icon: '☕', label: isAr ? 'البار' : 'Bar',                   path: '/dashboard/bar',               show: [...BAR_ROLES] },
+    { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',            path: '/dashboard/tables',            show: [...HALL_ROLES,'cashier'] },
+    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',            path: '/dashboard/cashier',           show: ['cashier'] },
+    { icon: '🏭', label: isAr ? 'المستودع' : 'Warehouse',         path: '/dashboard/warehouse',         show: ['warehouse_keeper'] },
+    { icon: '👷', label: isAr ? 'الموظفون' : 'Employees',         path: '/dashboard/hr/employees',      show: [...MANAGER_ROLES] },
+    { icon: '📦', label: isAr ? 'طلبات الفروع' : 'Branch Req',   path: '/dashboard/branch-requests',   show: [...SUPERVISOR_ROLES,...MANAGER_ROLES,'warehouse_keeper'] },
+    { icon: '📅', label: isAr ? 'الشيفتات' : 'Shifts',            path: '/dashboard/hr/shifts',         show: [...ALL_NON_ADMIN] },
+    { icon: '⏰', label: isAr ? 'الحضور' : 'Attendance',          path: '/dashboard/hr/attendance',     show: [...ALL_NON_ADMIN] },
+    { icon: '📋', label: isAr ? 'طلباتي' : 'My Requests',        path: '/dashboard/hr/requests',       show: [...ALL_NON_ADMIN] },
+    { icon: '💰', label: isAr ? 'راتبي' : 'My Salary',            path: '/dashboard/hr/payroll',        show: [...ALL_NON_ADMIN] },
+  ].filter(l => l.show.includes(role))
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
@@ -100,11 +111,11 @@ function EmployeeDashboard({ employee }: { employee: any }) {
       {/* Greeting */}
       <div style={{ background: `linear-gradient(135deg,${S.navy2},${S.navy3})`, borderRadius: 20, border: `1px solid ${S.border}`, padding: '28px 32px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 20, animation: 'fadeUp .4s ease' }}>
         <div style={{ width: 64, height: 64, borderRadius: '50%', background: `linear-gradient(135deg,${S.gold},${S.gold2})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, flexShrink: 0 }}>
-          {role.icon}
+          {roleLabel.icon}
         </div>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 900, color: S.gold, marginBottom: 4 }}>{greeting}، {employee?.name}!</h1>
-          <div style={{ fontSize: 14, color: S.muted }}>{isAr ? role.label : role.label_en}{employee?.department ? ` · ${employee.department}` : ''}</div>
+          <div style={{ fontSize: 14, color: S.muted }}>{isAr ? roleLabel.label : roleLabel.label_en}{employee?.department ? ` · ${employee.department}` : ''}</div>
           <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>
             {new Date().toLocaleDateString(isAr ? 'ar-SA' : 'en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>

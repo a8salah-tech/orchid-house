@@ -372,6 +372,156 @@ export default function PayrollPage() {
   // حماية الصفحة — أي شخص يحاول الوصول يشوف راتبه فقط
   // DB security: Supabase RLS يجب أن يكون مفعّل
 
+
+  // ── عرض راتب الموظف الشخصي ──
+  const isManagerRole = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
+  if (!isSuperAdmin && !isBranchManager) {
+    const myRecord = visibleRecords[0]
+    const myEmp = myRecord ? empMap[myRecord.employee_id] : empMap[myId]
+
+    const earnings = myRecord ? [
+      { label: 'الراتب الأساسي', value: myRecord.basic_salary || 0, color: S.green },
+      { label: myRecord.allowance_1_label || 'بدل 1', value: myRecord.allowance_1 || 0, color: S.green },
+      { label: myRecord.allowance_2_label || 'بدل 2', value: myRecord.allowance_2 || 0, color: S.green },
+      { label: myRecord.allowance_3_label || 'بدل 3', value: myRecord.allowance_3 || 0, color: S.green },
+      { label: 'أوفر تايم', value: (myRecord.overtime_days || 0) > 0 || (myRecord.overtime_hours || 0) > 0 ? calcRecord(myRecord).overtimePay : 0, color: S.green },
+    ].filter(e => e.value > 0) : []
+
+    const deductions = myRecord ? [
+      { label: 'خصم الغياب', value: myRecord.absence_days > 0 ? calcRecord(myRecord).absenceDed : 0, color: S.red },
+      { label: 'خصم التأخير', value: myRecord.late_hours > 0 ? calcRecord(myRecord).lateDed : 0, color: S.red },
+      { label: 'سلفة', value: myRecord.advance || 0, color: S.amber },
+      { label: myRecord.deduction_1_label || 'خصم 1', value: myRecord.deduction_1 || 0, color: S.red },
+      { label: myRecord.deduction_2_label || 'خصم 2', value: myRecord.deduction_2 || 0, color: S.red },
+    ].filter(d => d.value > 0) : []
+
+    const c = myRecord ? calcRecord(myRecord) : null
+    const netSalary = c?.netSalary || myEmp?.salary || 0
+    const grossSalary = c?.totalEarnings || netSalary
+
+    return (
+      <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, padding: '0 4px' }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');`}</style>
+
+        {/* Header */}
+        <div style={{ marginBottom: 20 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: S.white, marginBottom: 4 }}>💰 راتبي</h1>
+          <p style={{ fontSize: 13, color: S.muted }}>تفاصيل راتبك الشهري</p>
+        </div>
+
+        {/* Month selector */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+          <select
+            style={{ flex: 1, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif' }}
+            value={selectedMonth?.id || ''}
+            onChange={e => { const m = months.find(m => m.id === e.target.value) || null; setSelectedMonth(m) }}
+          >
+            <option value="">-- اختر الشهر --</option>
+            {months.map(m => (
+              <option key={m.id} value={m.id}>{['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'][m.month-1]} {m.year}</option>
+            ))}
+          </select>
+        </div>
+
+        {!selectedMonth ? (
+          <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}` }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+            <div style={{ color: S.muted, fontSize: 14 }}>اختر الشهر لعرض راتبك</div>
+          </div>
+        ) : !myRecord ? (
+          <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}` }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+            <div style={{ color: S.muted, fontSize: 14 }}>لم يتم إصدار كشف راتب لهذا الشهر بعد</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+            {/* Payslip Header */}
+            <div style={{ background: `linear-gradient(135deg, rgba(201,168,76,0.15), rgba(201,168,76,0.05))`, border: `1px solid ${S.gold}40`, borderRadius: 18, padding: '20px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: S.gold3, border: `2px solid ${S.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 800, color: S.gold, flexShrink: 0 }}>
+                  {myEmp?.name?.charAt(0) || '؟'}
+                </div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{myEmp?.name} {myEmp?.name_en || ''}</div>
+                  <div style={{ fontSize: 12, color: S.muted }}>{myEmp?.employee_number} · {myEmp?.department}</div>
+                </div>
+              </div>
+              {/* Net Salary Big */}
+              <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>صافي الراتب</div>
+                <div style={{ fontSize: 38, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                <div style={{ marginTop: 10 }}>
+                  <span style={{ background: selectedMonth?.status === 'finalized' ? S.greenB : S.amberB, color: selectedMonth?.status === 'finalized' ? S.green : S.amber, borderRadius: 20, padding: '4px 14px', fontSize: 12, fontWeight: 700 }}>
+                    {selectedMonth?.status === 'finalized' ? '✅ معتمد' : selectedMonth?.status === 'paid' ? '💳 مدفوع' : '📝 مسودة'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Earnings */}
+            {earnings.length > 0 && (
+              <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.green }}>➕ الإضافات</div>
+                {earnings.map((e, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < earnings.length - 1 ? `1px solid ${S.border}` : 'none' }}>
+                    <span style={{ fontSize: 13, color: S.white }}>{e.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: e.color }}>MYR {e.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(34,197,94,0.06)' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>إجمالي الإضافات</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: S.green }}>MYR {grossSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Deductions */}
+            {deductions.length > 0 && (
+              <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.red }}>➖ الخصومات</div>
+                {deductions.map((d, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < deductions.length - 1 ? `1px solid ${S.border}` : 'none' }}>
+                    <span style={{ fontSize: 13, color: S.white }}>{d.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: d.color }}>- MYR {d.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(239,68,68,0.06)' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>إجمالي الخصومات</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: S.red }}>- MYR {deductions.reduce((s, d) => s + d.value, 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Summary */}
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.gold}30`, overflow: 'hidden' }}>
+              {[
+                { label: 'الراتب الأساسي', value: myRecord.basic_salary || 0, color: S.white },
+                { label: 'إجمالي الإضافات', value: grossSalary, color: S.green },
+                { label: 'إجمالي الخصومات', value: -(deductions.reduce((s, d) => s + d.value, 0)), color: S.red },
+              ].map((row, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${S.border}` }}>
+                  <span style={{ fontSize: 13, color: S.muted }}>{row.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: row.color }}>MYR {Math.abs(row.value).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 16px', background: S.gold3 }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>💰 صافي الراتب</span>
+                <span style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+
+            {myRecord.notes && (
+              <div style={{ background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 12, padding: '12px 16px', fontSize: 13, color: S.amber }}>
+                📝 {myRecord.notes}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, minHeight: '100vh' }}>
       <style>{`

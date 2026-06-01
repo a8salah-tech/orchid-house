@@ -95,12 +95,12 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
 }
 
 // ══ Assign Monthly Modal ══
-function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void }) {
+function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null }) {
   const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState('')
   const now = new Date()
-  const [empId, setEmpId] = useState('')
+  const [empId, setEmpId] = useState(initialEmpId || '')
   const [month, setMonth] = useState(now.getMonth())
   const [year, setYear] = useState(now.getFullYear())
   // calendarMap: date → { type: 'shift'|'custom'|'leave'|'off', shiftId?: string, customStart?: string, customEnd?: string }
@@ -117,6 +117,10 @@ function AssignModal({ employees, shifts, onClose, onSaved }: { employees: any[]
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstDow = new Date(year, month, 1).getDay()
+  useEffect(() => {
+    if (initialEmpId) loadExistingSchedule(initialEmpId)
+  }, [initialEmpId])
+
   const DAYS_HDR = ['أح', 'إث', 'ثل', 'أر', 'خم', 'جم', 'سب']
 
   const allDays = Array.from({ length: daysInMonth }, (_: unknown, i: number) => {
@@ -546,6 +550,7 @@ export default function ShiftsPage() {
   const [activeTab, setActiveTab] = useState('schedule')
   const [showAddShift, setShowAddShift] = useState(false)
   const [showAssign, setShowAssign] = useState(false)
+  const [assignEmpId, setAssignEmpId] = useState<string | null>(null)
   const [showRequest, setShowRequest] = useState(false)
   const [editShift, setEditShift] = useState<any>(null)
 
@@ -811,8 +816,8 @@ const {data: schData} = await supabase.from('shift_schedules')
                         <tbody>
                           {branchEmployees.map((emp,ei)=>(
                             <tr key={emp.id} style={{borderBottom:`1px solid ${S.border}`,background:ei%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
-                              <td style={{padding:'8px 14px',position:'sticky',right:0,background:ei%2===0?S.navy2:'#0d1b35',borderLeft:`1px solid ${S.border}`,zIndex:1}}>
-                                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                              <td style={{padding:'8px 14px',position:'sticky',right:0,background:ei%2===0?S.navy2:'#0d1b35',borderLeft:`1px solid ${S.border}`,zIndex:1,cursor:isManager?'pointer':'default'}} title={isManager?'اضغط لتعيين الشيفت':''}>
+                                <div style={{display:'flex',alignItems:'center',gap:8}} onClick={()=>{ if(isManager){ setAssignEmpId(emp.id); setShowAssign(true) } }} title={isManager ? 'اضغط لتعيين الشيفت' : ''}>
                                   <div style={{width:26,height:26,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
                                   <div>
                                     <div style={{fontSize:12,fontWeight:700,color:S.white}}>{emp.name}{emp.name_en ? ' '+emp.name_en : ''}</div>
@@ -1057,7 +1062,7 @@ const {data: schData} = await supabase.from('shift_schedules')
 
       {/* Modals */}
       {(showAddShift||editShift)&&<ShiftModal shift={editShift} onClose={()=>{setShowAddShift(false);setEditShift(null)}} onSaved={()=>{setShowAddShift(false);setEditShift(null);refresh()}} />}
-      {showAssign&&<AssignModal employees={employees} shifts={shifts} onClose={()=>setShowAssign(false)} onSaved={()=>{setShowAssign(false);refresh()}} />}
+      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
       {showRequest&&employee?.id&&<RequestModal shifts={shifts} employeeId={employee.id} onClose={()=>setShowRequest(false)} onSaved={()=>{setShowRequest(false);refresh()}} />}
     </div>
   )

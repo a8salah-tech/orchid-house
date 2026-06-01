@@ -375,8 +375,13 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
             </div>
           </div>
           {items.map((item, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <div style={{ position: 'relative' }}>
+            <div key={i} style={{ marginBottom: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: '10px 12px', border: `1px solid ${S.border}` }}>
+              {/* ملاحظات الصنف */}
+              <div style={{ marginBottom: 8 }}>
+                <input style={{ ...inp, fontSize: 12, padding: '8px 12px' }} value={item.notes} onChange={e => setItem(i, 'notes', e.target.value)} placeholder="ملاحظات الصنف..." />
+              </div>
+              {/* خانة البحث - صف مستقل */}
+              <div style={{ position: 'relative', marginBottom: 8 }}>
                 <input
                   style={{ ...inp, background: '#0F2040', color: S.white, border: `1px solid ${activeDropdown === i ? S.gold : S.border}`, fontSize: 13, paddingLeft: 36 }}
                   value={productSearch[i] !== undefined ? productSearch[i] : (localProducts.find(p => p.id === item.product_id)?.name || '')}
@@ -436,14 +441,17 @@ function NewRequestModal({ branches, products, units, currentEmployee, onClose, 
                   </div>
                 )}
               </div>
-              <input style={{ ...inp, direction: 'ltr' }} type="number" value={item.quantity_requested} onChange={e => setItem(i, 'quantity_requested', e.target.value)} placeholder="الكمية" />
-              <select style={sel} value={item.unit_id} onChange={e => setItem(i, 'unit_id', e.target.value)}>
-                <option value="">الوحدة</option>
-                {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-              {items.length > 1 && (
-                <button onClick={() => removeItem(i)} style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14 }}>🗑️</button>
-              )}
+              {/* الكمية + الوحدة + حذف */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
+                <input style={{ ...inp, direction: 'ltr', fontSize: 13 }} type="number" value={item.quantity_requested} onChange={e => setItem(i, 'quantity_requested', e.target.value)} placeholder="الكمية" />
+                <select style={{ ...sel, fontSize: 13 }} value={item.unit_id} onChange={e => setItem(i, 'unit_id', e.target.value)}>
+                  <option value="">الوحدة</option>
+                  {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                {items.length > 1 && (
+                  <button onClick={() => removeItem(i)} style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14 }}>🗑️</button>
+                )}
+              </div>
             </div>
           ))}
         </div>

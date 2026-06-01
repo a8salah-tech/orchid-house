@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '../../../components/AuthProvider'
+import { useLang } from '../../../components/LanguageContext'
 import { createBrowserClient } from '@supabase/ssr'
 
 const createClient = () => createBrowserClient(
@@ -31,16 +32,16 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'rtl',
 }
 
-const REQUEST_TYPES: Record<string, { label: string; icon: string; color: string; bg: string; hasAmount?: boolean; hasDates?: boolean }> = {
-  leave_annual:  { label: 'إجازة سنوية',     icon: '🏖️', color: S.blue,   bg: S.blueB,   hasDates: true },
-  leave_sick:    { label: 'إجازة مرضية',     icon: '🏥', color: S.red,    bg: S.redB,    hasDates: true },
-  leave_emergency:{ label: 'إجازة طارئة',    icon: '🚨', color: S.amber,  bg: S.amberB,  hasDates: true },
-  overtime:      { label: 'طلب أوفر تايم',   icon: '⏰', color: S.purple, bg: S.purpleB, hasDates: true },
-  extra_meal:    { label: 'وجبة إضافية',     icon: '🍽️', color: S.teal,  bg: S.tealB },
-  complaint:     { label: 'شكوى / مشكلة',    icon: '⚠️', color: S.red,   bg: S.redB },
-  suggestion:    { label: 'اقتراح',           icon: '💡', color: S.green,  bg: S.greenB },
-  other:           { label: 'طلب آخر',               icon: '📋', color: S.muted,  bg: S.card2 },
-  attendance_correction: { label: 'تصحيح حضور', icon: '🕐', color: S.teal, bg: S.tealB, hasDates: true },
+const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: string; color: string; bg: string; hasAmount?: boolean; hasDates?: boolean }> = {
+  leave_annual:  { label: 'إجازة سنوية', label_en: 'Annual Leave',     icon: '🏖️', color: S.blue,   bg: S.blueB,   hasDates: true },
+  leave_sick:    { label: 'إجازة مرضية', label_en: 'Sick Leave',     icon: '🏥', color: S.red,    bg: S.redB,    hasDates: true },
+  leave_emergency:{ label: 'إجازة طارئة', label_en: 'Emergency Leave',    icon: '🚨', color: S.amber,  bg: S.amberB,  hasDates: true },
+  overtime:      { label: 'طلب أوفر تايم', label_en: 'Overtime Request',   icon: '⏰', color: S.purple, bg: S.purpleB, hasDates: true },
+  extra_meal:    { label: 'وجبة إضافية', label_en: 'Extra Meal',     icon: '🍽️', color: S.teal,  bg: S.tealB },
+  complaint:     { label: 'شكوى / مشكلة', label_en: 'Complaint / Issue',    icon: '⚠️', color: S.red,   bg: S.redB },
+  suggestion:    { label: 'اقتراح', label_en: 'Suggestion',           icon: '💡', color: S.green,  bg: S.greenB },
+  other:           { label: 'طلب آخر', label_en: 'Other Request',               icon: '📋', color: S.muted,  bg: S.card2 },
+  attendance_correction: { label: 'تصحيح حضور', label_en: 'Attendance Correction', icon: '🕐', color: S.teal, bg: S.tealB, hasDates: true },
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
@@ -325,6 +326,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
   employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string; initialType?: string
 }) {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     employee_id: currentEmployeeId || '', request_type: initialType || 'leave_annual',
@@ -371,8 +373,8 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 620, padding: 32, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📋 طلب جديد</h2>
-            <p style={{ fontSize: 12, color: S.muted }}>تقديم طلب جديد للإدارة</p>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{isAr ? '📋 طلب جديد' : '📋 New Request'}</h2>
+            <p style={{ fontSize: 12, color: S.muted }}>{isAr ? 'تقديم طلب جديد للإدارة' : 'Submit a new request to management'}</p>
           </div>
           <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
@@ -385,7 +387,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
               <button key={key} onClick={() => setForm(p => ({ ...p, request_type: key }))}
                 style={{ padding: '10px 8px', borderRadius: 10, border: `1px solid ${form.request_type === key ? cfg.color : S.border}`, background: form.request_type === key ? cfg.bg : 'transparent', color: form.request_type === key ? cfg.color : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: form.request_type === key ? 700 : 400, textAlign: 'center', transition: 'all .2s' }}>
                 <div style={{ fontSize: 20, marginBottom: 4 }}>{cfg.icon}</div>
-                {cfg.label}
+                {isAr ? cfg.label : cfg.label_en}
               </button>
             ))}
           </div>
@@ -477,9 +479,9 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
           <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳ جاري الإرسال...' : '📤 إرسال الطلب'}
+            {saving ? (isAr ? '⏳ جاري الإرسال...' : '⏳ Submitting...') : (isAr ? '📤 إرسال الطلب' : '📤 Submit Request')}
           </button>
         </div>
       </div>
@@ -693,7 +695,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                 <textarea style={{ ...inp, minHeight: 80, resize: 'vertical', marginBottom: 10 } as React.CSSProperties}
                   value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} placeholder="اشرح سبب الرفض..." />
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setShowReject(false)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+                  <button onClick={() => setShowReject(false)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                   <button onClick={() => updateStatus('rejected')} disabled={updating}
                     style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                     ❌ تأكيد الرفض
@@ -729,6 +731,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
 export default function EmployeeRequestsPage() {
   const supabase = createClient()
   const { employee: currentUser, permissions } = useAuth()
+  const { isAr } = useLang()
   const isAdmin = permissions?.all === true
   const isManager = isAdmin || ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
   const isEmployee = !isManager
@@ -824,17 +827,17 @@ export default function EmployeeRequestsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>
-            {isEmployee ? '📋 طلباتي' : '📋 طلبات الموظفين'}
+            {isEmployee ? (isAr ? '📋 طلباتي' : '📋 My Requests') : (isAr ? '📋 طلبات الموظفين' : '📋 Employee Requests')}
           </h1>
           <p style={{ fontSize: 13, color: S.muted }}>
-            {isEmployee ? 'طلباتك الشخصية — إجازات، سلف، ومقترحات' : 'إدارة طلبات الإجازات والسلف والمقترحات'}
+            {isEmployee ? (isAr ? 'طلباتك الشخصية — إجازات، سلف، ومقترحات' : 'Your personal requests — leaves, advances & suggestions') : (isAr ? 'إدارة طلبات الإجازات والسلف والمقترحات' : 'Manage employee requests — leaves, advances & suggestions')}
           </p>
         </div>
 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-  <button onClick={() => setShowNew(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ New Request</button>
-  <button onClick={() => { setShowNewType('attendance_correction'); setShowNew(true); }} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🕐 Attendance Correction </button>
-  <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📈 Salary Increase</button>
-  <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💸 Salary Advance</button>
+  <button onClick={() => setShowNew(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '➕ طلب جديد' : '➕ New Request'}</button>
+  <button onClick={() => { setShowNewType('attendance_correction'); setShowNew(true); }} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🕐 تصحيح الحضور' : '🕐 Attendance Correction'}</button>
+  <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '📈 زيادة راتب' : '📈 Salary Increase'}</button>
+  <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
 </div>
       </div>
 
@@ -871,7 +874,7 @@ export default function EmployeeRequestsPage() {
           return (
             <button key={key} onClick={() => setFilterType(filterType === key ? 'all' : key)}
               style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filterType === key ? cfg.color : S.border}`, background: filterType === key ? cfg.bg : 'transparent', color: filterType === key ? cfg.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {cfg.icon} {cfg.label} ({count})
+              {cfg.icon} {isAr ? cfg.label : cfg.label_en} ({count})
             </button>
           )
         })}
@@ -926,7 +929,7 @@ export default function EmployeeRequestsPage() {
                       <td style={{ padding: '14px 16px', color: S.gold, fontWeight: 800 }}>#{req.request_number}</td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{ background: rt.bg, color: rt.color, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 700 }}>
-                          {rt.icon} {rt.label}
+                          {rt.icon} {isAr ? rt.label : rt.label_en}
                         </span>
                       </td>
                       <td style={{ padding: '14px 16px' }}>

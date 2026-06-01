@@ -665,18 +665,6 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             <div style={{ fontSize: 13, color: S.white }}>{request.rejection_reason}</div>
           </div>
         )}
-<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-  <button onClick={deleteRequest}
-    style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-    🗑️ حذف الطلب
-  </button>
-  <div style={{ display: 'flex', gap: 8 }}>
-<button onClick={printRequest} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-  🖨️ طباعة
-</button>
-    <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
-  </div>
-</div>
         {/* Actions */}
         {request.status === 'pending' && (
           <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>

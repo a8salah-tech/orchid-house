@@ -126,7 +126,9 @@ function QuickAddProductModal({ onClose, onSaved }: {
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name: '', name_en: '', category: 'عام', unit_id: '' })
+  const [saved, setSaved] = useState(false)
+  const [savedProduct, setSavedProduct] = useState<{ id: string; name: string; name_en?: string } | null>(null)
+  const [form, setForm] = useState({ name: '', name_en: '', category: 'عام', unit_id: '', notes: '' })
   const [units, setUnits] = useState<{ id: string; name: string; symbol: string }[]>([])
   const [categories, setCategories] = useState<string[]>([])
 
@@ -145,52 +147,109 @@ function QuickAddProductModal({ onClose, onSaved }: {
       name: form.name.trim(), name_en: form.name_en.trim() || null,
       category: form.category || 'عام', unit_id: form.unit_id || null,
       current_stock: 0, min_stock: 0, is_active: true,
+      notes: form.notes.trim() || null,
     }]).select('id, name, name_en').single()
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
-    onSaved(data)
+    setSavedProduct(data)
+    setSaved(true)
   }
 
-  const inp3: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const, direction: 'rtl' as const }
-  const sel3: React.CSSProperties = { ...inp3, cursor: 'pointer', background: '#0F2040' }
+  const f: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 10, padding: '12px 14px', fontSize: 14,
+    color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
+    boxSizing: 'border-box' as const, direction: 'rtl' as const,
+    WebkitAppearance: 'none' as const,
+  }
+  const fs: React.CSSProperties = { ...f, cursor: 'pointer', background: '#0F2040' }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.green}`, width: '100%', maxWidth: 420, padding: 28 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ color: S.green, fontSize: 16, fontWeight: 700 }}>📦 إضافة منتج جديد للمستودع</h3>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم المنتج (عربي) *</label>
-            <input style={inp3} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: زيت زيتون" autoFocus />
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 0 }}>
+      <div style={{ background: S.navy2, borderRadius: '20px 20px 0 0', border: `1px solid ${S.green}40`, width: '100%', maxWidth: 520, padding: '24px 20px 32px', maxHeight: '90vh', overflowY: 'auto' }}>
+
+        {/* Handle */}
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)', margin: '0 auto 16px' }} />
+
+        {saved && savedProduct ? (
+          // ── نجاح الإضافة ──
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.green, marginBottom: 6 }}>تمت الإضافة بنجاح!</div>
+            <div style={{ fontSize: 14, color: S.white, marginBottom: 4 }}>
+              <strong>{savedProduct.name}</strong>{savedProduct.name_en ? ` — ${savedProduct.name_en}` : ''}
+            </div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 24 }}>تمت إضافة المنتج للمستودع</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { setSaved(false); setSavedProduct(null); setForm({ name: '', name_en: '', category: 'عام', unit_id: '', notes: '' }) }}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ➕ إضافة منتج آخر
+              </button>
+              <button onClick={() => onSaved(savedProduct!)}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ✓ استخدام هذا المنتج
+              </button>
+            </div>
           </div>
-          <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم المنتج (إنجليزي)</label>
-            <input style={{ ...inp3, direction: 'ltr' as const }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Olive Oil" />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التصنيف</label>
-            <select style={sel3} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-              <option value="عام">عام</option>
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وحدة القياس</label>
-            <select style={sel3} value={form.unit_id} onChange={e => setForm(p => ({ ...p, unit_id: e.target.value }))}>
-              <option value="">-- بدون وحدة --</option>
-              {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>)}
-            </select>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
-          <button onClick={save} disabled={saving} style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳...' : '💾 إضافة المنتج'}
-          </button>
-        </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h3 style={{ color: S.green, fontSize: 17, fontWeight: 800, marginBottom: 2 }}>📦 منتج جديد</h3>
+                <p style={{ fontSize: 12, color: S.muted }}>New Product | إضافة للمستودع</p>
+              </div>
+              <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Arabic name */}
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>اسم المنتج (عربي) — Arabic Name *</label>
+                <input style={f} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: زيت زيتون" autoFocus />
+              </div>
+
+              {/* English name */}
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>اسم المنتج (إنجليزي) — English Name</label>
+                <input style={{ ...f, direction: 'ltr' as const }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="Olive Oil" />
+              </div>
+
+              {/* Category + Unit in one row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>التصنيف — Category</label>
+                  <select style={fs} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                    <option value="عام">عام / General</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>الوحدة — Unit</label>
+                  <select style={fs} value={form.unit_id} onChange={e => setForm(p => ({ ...p, unit_id: e.target.value }))}>
+                    <option value="">-- لا يوجد --</option>
+                    {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>ملاحظات — Notes</label>
+                <textarea style={{ ...f, minHeight: 70, resize: 'none' } as React.CSSProperties}
+                  value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="أي ملاحظات إضافية... / Any additional notes..." />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+              <button onClick={onClose} style={{ flex: 1, padding: '13px', borderRadius: 12, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+              <button onClick={save} disabled={saving} style={{ flex: 2, padding: '13px', borderRadius: 12, border: 'none', background: saving ? 'rgba(34,197,94,0.3)' : `linear-gradient(135deg, ${S.green}, #16a34a)`, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+                {saving ? '⏳ جاري الحفظ...' : '💾 إضافة المنتج'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

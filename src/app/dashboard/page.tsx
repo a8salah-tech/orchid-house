@@ -90,18 +90,22 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   const MANAGER_ROLES = ['kitchen_manager','hall_manager','bar_manager']
 
   const MY_LINKS = [
-    { icon: '👨‍🍳', label: isAr ? 'المطبخ' : 'Kitchen',          path: '/dashboard/kitchen',           show: [...KITCHEN_ROLES] },
-    { icon: '🍰', label: isAr ? 'الحلويات' : 'Desserts',          path: '/dashboard/desserts',          show: ['kitchen_manager','kitchen_supervisor'] },
-    { icon: '☕', label: isAr ? 'البار' : 'Bar',                   path: '/dashboard/bar',               show: [...BAR_ROLES] },
-    { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',            path: '/dashboard/tables',            show: [...HALL_ROLES,'cashier'] },
-    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',            path: '/dashboard/cashier',           show: ['cashier'] },
-    { icon: '🏭', label: isAr ? 'المستودع' : 'Warehouse',         path: '/dashboard/warehouse',         show: ['warehouse_keeper'] },
-    { icon: '👷', label: isAr ? 'الموظفون' : 'Employees',         path: '/dashboard/hr/employees',      show: [...MANAGER_ROLES] },
-    { icon: '📦', label: isAr ? 'طلبات الفروع' : 'Branch Req',   path: '/dashboard/branch-requests',   show: [...SUPERVISOR_ROLES,...MANAGER_ROLES,'warehouse_keeper'] },
-    { icon: '📅', label: isAr ? 'الشيفتات' : 'Shifts',            path: '/dashboard/hr/shifts',         show: [...ALL_NON_ADMIN] },
-    { icon: '⏰', label: isAr ? 'الحضور' : 'Attendance',          path: '/dashboard/hr/attendance',     show: [...ALL_NON_ADMIN] },
-    { icon: '📋', label: isAr ? 'طلباتي' : 'My Requests',        path: '/dashboard/hr/requests',       show: [...ALL_NON_ADMIN] },
-    { icon: '💰', label: isAr ? 'راتبي' : 'My Salary',            path: '/dashboard/hr/payroll',        show: [...ALL_NON_ADMIN] },
+    // ── العمل ──
+    { icon: '👨‍🍳', label: isAr ? 'المطبخ' : 'Kitchen',              path: '/dashboard/kitchen',           show: [...KITCHEN_ROLES] },
+    { icon: '🍰', label: isAr ? 'الحلويات' : 'Desserts',              path: '/dashboard/desserts',          show: ['kitchen_manager','kitchen_supervisor'] },
+    { icon: '☕', label: isAr ? 'البار' : 'Bar',                       path: '/dashboard/bar',               show: [...BAR_ROLES] },
+    { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',                path: '/dashboard/tables',            show: [...HALL_ROLES,'cashier'] },
+    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',                path: '/dashboard/cashier',           show: ['cashier'] },
+    { icon: '🏭', label: isAr ? 'المستودع' : 'Warehouse',             path: '/dashboard/warehouse',         show: ['warehouse_keeper'] },
+    // ── الإدارة (مديرين فقط) ──
+    { icon: '👷', label: isAr ? 'الموظفون' : 'Employees',             path: '/dashboard/hr/employees',      show: [...MANAGER_ROLES] },
+    { icon: '📅', label: isAr ? 'الشيفتات' : 'Shifts',                path: '/dashboard/hr/shifts',         show: [...MANAGER_ROLES] },
+    { icon: '📦', label: isAr ? 'طلبات الفروع' : 'Branch Requests',  path: '/dashboard/branch-requests',   show: [...SUPERVISOR_ROLES,...MANAGER_ROLES,'warehouse_keeper'] },
+    // ── الشخصي (للجميع) ──
+    { icon: '🗓️', label: isAr ? 'دوامي' : 'My Schedule',             path: '/dashboard/hr/my-schedule',    show: [...ALL_NON_ADMIN] },
+    { icon: '⏰', label: isAr ? 'الحضور' : 'Attendance',              path: '/dashboard/hr/attendance',     show: [...ALL_NON_ADMIN] },
+    { icon: '📋', label: isAr ? 'طلباتي' : 'My Requests',            path: '/dashboard/hr/requests',       show: [...ALL_NON_ADMIN] },
+    { icon: '💰', label: isAr ? 'راتبي' : 'My Salary',                path: '/dashboard/hr/my-salary',      show: [...ALL_NON_ADMIN] },
   ].filter(l => l.show.includes(role))
 
   return (

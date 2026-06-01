@@ -494,6 +494,7 @@ function RequestDetailModal({ request, onClose, onUpdate, onDelete }: {
   request: EmployeeRequest; onClose: () => void; onUpdate: () => void; onDelete: () => void
 }) {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [updating, setUpdating] = useState(false)
   const [approvedBy, setApprovedBy] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')

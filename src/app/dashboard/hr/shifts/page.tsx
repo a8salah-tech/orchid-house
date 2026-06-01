@@ -51,7 +51,7 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
     if (shift) await supabase.from('shifts').update(form).eq('id', shift.id)
     else await supabase.from('shifts').insert([form])
     setSaving(false)
-    onSaved()
+    setTimeout(() => onSaved(), 300)
   }
 
   return (
@@ -95,14 +95,14 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
 }
 
 // ══ Assign Monthly Modal ══
-function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null }) {
+function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initialMonth, initialYear }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null; initialMonth?: number; initialYear?: number }) {
   const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState('')
   const now = new Date()
   const [empId, setEmpId] = useState(initialEmpId || '')
-  const [month, setMonth] = useState(now.getMonth())
-  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(initialMonth ?? now.getMonth())
+  const [year, setYear] = useState(initialYear ?? now.getFullYear())
   // calendarMap: date → { type: 'shift'|'custom'|'leave'|'off', shiftId?: string, customStart?: string, customEnd?: string }
   const [calendarMap, setCalendarMap] = useState<Record<string, { type: string; shiftId?: string; customStart?: string; customEnd?: string }>>({})
   const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set())
@@ -233,17 +233,20 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId }: { em
       }))
       for (let i = 0; i < rows.length; i += 50) {
         const { error } = await supabase.from('shift_schedules').insert(rows.slice(i, i + 50))
-        if (error) { alert('خطأ: ' + error.message); setSaving(false); return }
+        if (error) { console.error('Shift insert error:', error); alert('خطأ في الحفظ: ' + error.message); setSaving(false); return }
       }
     }
-    await supabase.from('employee_requests').insert([{
-      employee_id: empId, request_type: 'shift_assigned',
-      title: `جدول ${MONTHS_AR[month]} ${year}`,
-      description: `شيفتات: ${shiftDays.length} يوم — إجازات: ${leaveDays.length} يوم`,
-      status: 'approved'
-    }])
+    // إشعار اختياري — لو فشل مش هيوقف الحفظ
+    try {
+      await supabase.from('employee_requests').insert([{
+        employee_id: empId, request_type: 'shift_assigned',
+        title: `جدول ${MONTHS_AR[month]} ${year}`,
+        description: `شيفتات: ${shiftDays.length} يوم — إجازات: ${leaveDays.length} يوم`,
+        status: 'approved'
+      }])
+    } catch (_) {}
     setSaving(false)
-    onSaved()
+    setTimeout(() => onSaved(), 300)
   }
 
   return (
@@ -490,7 +493,7 @@ function RequestModal({ shifts, employeeId, onClose, onSaved }: { shifts: any[];
     setSaving(true)
     await supabase.from('shift_requests').insert([{employee_id:employeeId,shift_id:shiftId,date,reason,status:'pending'}])
     setSaving(false)
-    onSaved()
+    setTimeout(() => onSaved(), 300)
   }
 
   return (
@@ -548,6 +551,7 @@ export default function ShiftsPage() {
   const [viewMonth, setViewMonth] = useState(now.getMonth())
   const [viewYear, setViewYear] = useState(now.getFullYear())
   const [activeTab, setActiveTab] = useState('schedule')
+  const [filterBranch, setFilterBranch] = useState('all')
   const [showAddShift, setShowAddShift] = useState(false)
   const [showAssign, setShowAssign] = useState(false)
   const [assignEmpId, setAssignEmpId] = useState<string | null>(null)
@@ -586,10 +590,22 @@ export default function ShiftsPage() {
       else if (employee?.role === 'bar_supervisor') empQuery = empQuery.eq('branch_id', employee?.branch_id || '').in('department', ['البار','Bar'])
       const {data: empData} = await empQuery
       setEmployees(empData||[])
-const {data: schData} = await supabase.from('shift_schedules')
-  .select('*, shifts(name,color,start_time,end_time), custom_start, custom_end')
-  .gte('date', monthStart)
-  .lte('date', monthEnd)
+// جيب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50
+      const empIds = (empData||[]).map((e:any) => e.id)
+      let allSchData: any[] = []
+      const chunkSize = 50
+      for (let i = 0; i < Math.max(1, Math.ceil(empIds.length / chunkSize)); i++) {
+        const chunk = empIds.slice(i * chunkSize, (i + 1) * chunkSize)
+        let q = supabase.from('shift_schedules')
+          .select('*, shifts(name,color,start_time,end_time), custom_start, custom_end')
+          .gte('date', monthStart)
+          .lte('date', monthEnd)
+        if (chunk.length > 0) q = q.in('employee_id', chunk)
+        const { data: chunkData } = await q
+        allSchData = [...allSchData, ...(chunkData || [])]
+        if (chunk.length === 0) break
+      }
+      const schData = allSchData
 
       const sch = schData||[]
       setSchedules(sch)
@@ -729,7 +745,7 @@ const {data: schData} = await supabase.from('shift_schedules')
             <button onClick={()=>setShowRequest(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.teal}`,background:S.tealB,color:S.teal,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>🔄 طلب تغيير شيفت</button>
           ):(
             <>
-              {isAdmin&&<button onClick={()=>setShowAddShift(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.purple}`,background:S.purpleB,color:S.purple,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>⏰ شيفت جديد</button>}
+              {isManager&&<button onClick={()=>setShowAddShift(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.purple}`,background:S.purpleB,color:S.purple,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>⏰ شيفت جديد</button>}
               <button onClick={()=>setShowAssign(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>📅 تعيين جدول شهري</button>
               <button onClick={printSchedule} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>🖨️ طباعة</button>
             </>
@@ -780,11 +796,25 @@ const {data: schData} = await supabase.from('shift_schedules')
             </div>
           </div>
 
+          {/* فلتر الفرع */}
+          {branches.length > 1 && (
+            <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+              <button onClick={()=>setFilterBranch('all')} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterBranch==='all'?S.gold:S.border}`,background:filterBranch==='all'?S.gold3:'transparent',color:filterBranch==='all'?S.gold:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
+                🌐 كل الفروع ({employees.length})
+              </button>
+              {branches.map(b=>(
+                <button key={b} onClick={()=>setFilterBranch(filterBranch===b?'all':b)} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterBranch===b?S.blue:S.border}`,background:filterBranch===b?S.blueB:'transparent',color:filterBranch===b?S.blue:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
+                  🏪 {b} ({employees.filter(e=>getBranchName(e)===b).length})
+                </button>
+              ))}
+            </div>
+          )}
+
           {loading?(
             <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳ جاري التحميل...</div>
           ):(
             /* عرض مقسم على الفروع */
-            branches.map(branch=>{
+            branches.filter(b=>filterBranch==='all'||b===filterBranch).map(branch=>{
               const branchEmployees = employees.filter(e=>getBranchName(e)===branch)
               if (branchEmployees.length===0) return null
               return (
@@ -801,7 +831,7 @@ const {data: schData} = await supabase.from('shift_schedules')
                       <table style={{width:'100%',borderCollapse:'collapse'}}>
                         <thead>
                           <tr style={{background:S.navy3}}>
-                            <th style={{padding:'10px 14px',textAlign:'right',fontSize:12,color:S.muted,fontWeight:700,borderBottom:`1px solid ${S.border}`,position:'sticky',right:0,background:S.navy3,minWidth:130,zIndex:2}}>الموظف</th>
+                            <th style={{padding:'10px 14px',textAlign:'right',fontSize:12,color:S.muted,fontWeight:700,borderBottom:`1px solid ${S.border}`,minWidth:130}}>الموظف</th>
                             {monthDays.map(d=>{
                               const isToday = d.date===todayStr()
                               return (
@@ -816,7 +846,7 @@ const {data: schData} = await supabase.from('shift_schedules')
                         <tbody>
                           {branchEmployees.map((emp,ei)=>(
                             <tr key={emp.id} style={{borderBottom:`1px solid ${S.border}`,background:ei%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
-                              <td style={{padding:'8px 14px',position:'sticky',right:0,background:ei%2===0?S.navy2:'#0d1b35',borderLeft:`1px solid ${S.border}`,zIndex:1,cursor:isManager?'pointer':'default'}} title={isManager?'اضغط لتعيين الشيفت':''}>
+                              <td style={{padding:'8px 14px',background:ei%2===0?S.navy2:'#0d1b35',borderLeft:`1px solid ${S.border}`,cursor:isManager?'pointer':'default'}} title={isManager?'اضغط لتعيين الشيفت':''}>
                                 <div style={{display:'flex',alignItems:'center',gap:8}} onClick={()=>{ if(isManager){ setAssignEmpId(emp.id); setShowAssign(true) } }} title={isManager ? 'اضغط لتعيين الشيفت' : ''}>
                                   <div style={{width:26,height:26,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
                                   <div>
@@ -843,9 +873,10 @@ const {data: schData} = await supabase.from('shift_schedules')
                                 return (
                                   <td key={d.day} style={{padding:'2px',textAlign:'center',background:isToday?'rgba(201,168,76,0.04)':'transparent'}}>
                                     {sch?(
-                                      <div title={`${sch.shifts?.name} ${sch.shifts?.start_time?.slice(0,5)}—${sch.shifts?.end_time?.slice(0,5)}`}
-                                        style={{background:(sch.shifts?.color||S.gold)+'30',border:`1px solid ${(sch.shifts?.color||S.gold)}60`,borderRadius:4,padding:'2px 1px',fontSize:9,fontWeight:800,color:sch.shifts?.color||S.gold,lineHeight:1.2}}>
-                                        {sch.shifts?.name?.slice(0,3)||'✓'}
+                                      <div
+                                        title={sch.custom_start ? `${sch.custom_start.slice(0,5)}—${sch.custom_end?.slice(0,5)}` : `${sch.shifts?.name||''} ${sch.shifts?.start_time?.slice(0,5)||''}—${sch.shifts?.end_time?.slice(0,5)||''}`}
+                                        style={{background:sch.custom_start?S.purpleB:(sch.shifts?.color||S.green)+'25',border:`1px solid ${sch.custom_start?S.purple:(sch.shifts?.color||S.green)+'60'}`,borderRadius:4,padding:'3px 2px',fontSize:11,fontWeight:800,color:sch.custom_start?S.purple:(sch.shifts?.color||S.green),lineHeight:1,textAlign:'center'}}>
+                                        ✓
                                       </div>
                                     ):(
                                       <span style={{color:'rgba(255,255,255,0.1)',fontSize:10}}>—</span>
@@ -1062,7 +1093,7 @@ const {data: schData} = await supabase.from('shift_schedules')
 
       {/* Modals */}
       {(showAddShift||editShift)&&<ShiftModal shift={editShift} onClose={()=>{setShowAddShift(false);setEditShift(null)}} onSaved={()=>{setShowAddShift(false);setEditShift(null);refresh()}} />}
-      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
+      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} initialMonth={viewMonth} initialYear={viewYear} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
       {showRequest&&employee?.id&&<RequestModal shifts={shifts} employeeId={employee.id} onClose={()=>setShowRequest(false)} onSaved={()=>{setShowRequest(false);refresh()}} />}
     </div>
   )

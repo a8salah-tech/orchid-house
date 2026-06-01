@@ -553,11 +553,12 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: {
           </div>
           {(request.branch_request_items || []).map((item, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: i < (request.branch_request_items?.length || 0) - 1 ? `1px solid ${S.border}` : 'none' }}>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{item.warehouse_products?.name}</div>
                 {item.warehouse_products?.name_en && <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{item.warehouse_products.name_en}</div>}
+                {item.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 4, background: S.amberB, borderRadius: 6, padding: '3px 8px', display: 'inline-block' }}>📝 {item.notes}</div>}
               </div>
-              <div style={{ textAlign: 'left' }}>
+              <div style={{ textAlign: 'left', flexShrink: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: S.blue }}>{item.quantity_requested} {item.units?.symbol}</div>
                 {item.quantity_approved > 0 && <div style={{ fontSize: 11, color: S.green }}>معتمد: {item.quantity_approved} {item.units?.symbol}</div>}
               </div>

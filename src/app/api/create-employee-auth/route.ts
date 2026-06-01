@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
-// Service role client — server side only
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -20,33 +19,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' }, { status: 400 })
     }
 
-    // إنشاء حساب Auth
+    let userId: string
+
+    // حاول إنشاء حساب جديد
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // تأكيد تلقائي بدون إيميل
+      email_confirm: true,
     })
 
     if (authError) {
       if (authError.message.includes('already registered')) {
-        return NextResponse.json({ error: 'البريد الإلكتروني مسجل مسبقاً' }, { status: 400 })
+        // الإيميل موجود — ابحث عنه وربطه
+        const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers()
+        if (listError) return NextResponse.json({ error: 'خطأ في البحث عن المستخدم' }, { status: 500 })
+
+        const existingUser = users.find(u => u.email === email)
+        if (!existingUser) return NextResponse.json({ error: 'لم يتم العثور على المستخدم' }, { status: 400 })
+
+        userId = existingUser.id
+
+        // حدّث كلمة المرور لو المطلوب
+        await supabaseAdmin.auth.admin.updateUserById(userId, { password })
+      } else {
+        return NextResponse.json({ error: authError.message }, { status: 400 })
       }
-      return NextResponse.json({ error: authError.message }, { status: 400 })
+    } else {
+      userId = authData.user.id
     }
 
     // ربط الحساب بالموظف
     const { error: updateError } = await supabaseAdmin
       .from('employees')
-      .update({ auth_user_id: authData.user.id, email })
+      .update({ auth_user_id: userId, email_account: email })
       .eq('id', employee_id)
 
     if (updateError) {
-      // حذف الحساب لو الربط فشل
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
       return NextResponse.json({ error: 'فشل ربط الحساب بالموظف' }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, user_id: authData.user.id })
+    return NextResponse.json({ success: true, user_id: userId })
 
   } catch (e) {
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 })

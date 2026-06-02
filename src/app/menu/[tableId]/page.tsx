@@ -77,6 +77,9 @@ const filteredItems = items
     return matchCat && (!q || i.name.includes(q) || i.name_en.toLowerCase().includes(q.toLowerCase()))
   })
   .sort((a, b) => {
+    const aDiscount = (a.discount_percent || 0) > 0 ? 0 : 1
+    const bDiscount = (b.discount_percent || 0) > 0 ? 0 : 1
+    if (aDiscount !== bDiscount) return aDiscount - bDiscount
     const aOrder = (a as any).menu_categories?.sort_order ?? 99
     const bOrder = (b as any).menu_categories?.sort_order ?? 99
     return aOrder - bOrder

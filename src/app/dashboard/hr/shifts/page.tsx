@@ -4,6 +4,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
+import { useLang } from '../../../components/LanguageContext'
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -533,6 +534,7 @@ function RequestModal({ shifts, employeeId, onClose, onSaved }: { shifts: any[];
 
 // ══ الصفحة الرئيسية ══
 export default function ShiftsPage() {
+  const { isAr } = useLang()
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
   const isBranchManager = employee?.role === 'branch_manager'
@@ -683,6 +685,22 @@ export default function ShiftsPage() {
   }
 
   // من يعمل الآن
+
+  function normalizeDept(dept: string) {
+    const arToEn: Record<string, string> = {
+      'المطبخ': 'Kitchen', 'الصالة': 'Hall', 'البار': 'Bar',
+      'الحلويات': 'Desserts', 'الكاشير': 'Cashier', 'النظافة': 'Cleaning',
+      'التوصيل': 'Delivery', 'الإدارة': 'Management',
+    }
+    const enToAr: Record<string, string> = {
+      'Kitchen': 'المطبخ', 'Hall': 'الصالة', 'Bar': 'البار',
+      'Desserts': 'الحلويات', 'Cashier': 'الكاشير', 'Cleaning': 'النظافة',
+      'Delivery': 'التوصيل', 'Management': 'الإدارة',
+    }
+    if (isAr) return enToAr[dept] || dept
+    return arToEn[dept] || dept
+  }
+
   // يعملون الآن = الموظفون اللي سجلوا حضور ولم يسجلوا انصراف بعد
   const workingNow = attendanceToday
 
@@ -938,7 +956,7 @@ export default function ShiftsPage() {
             })
             if (bw.length===0) return null
             // تجميع حسب القسم
-            const depts = [...new Set(bw.map((s:any)=>s.employees?.department||'غير محدد'))]
+            const depts = [...new Set(bw.map((s:any)=>normalizeDept(s.employees?.department||'غير محدد')))]
             return (
               <div key={branch} style={{marginBottom:28}}>
                 {/* عنوان الفرع */}
@@ -948,7 +966,7 @@ export default function ShiftsPage() {
                 </div>
                 {/* تجميع حسب القسم */}
                 {depts.map(dept=>{
-                  const deptEmps = bw.filter((s:any)=>(s.employees?.department||'غير محدد')===dept)
+                  const deptEmps = bw.filter((s:any)=>normalizeDept(s.employees?.department||'غير محدد')===dept)
                   return (
                     <div key={dept} style={{marginBottom:16}}>
                       <div style={{fontSize:12,fontWeight:700,color:S.muted,marginBottom:10,display:'flex',alignItems:'center',gap:6}}>

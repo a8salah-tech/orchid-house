@@ -849,6 +849,13 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
         ))}
       </div>
 
+      {/* ── Print Button ── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button onClick={printWarehouseReport} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          🖨️ طباعة تقرير المخزون
+        </button>
+      </div>
+
       {/* ══ TAB: نظرة عامة ══ */}
       {tab === 'overview' && (
         <div>

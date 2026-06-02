@@ -25,11 +25,27 @@ const S = {
 
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
 const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December']
-const DAYS_AR = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت']
-const DAYS_EN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+const DAYS_AR = ['أح','إث','ثل','أر','خم','جم','سب']
+const DAYS_EN = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
 function localDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+function fmtTime(timeStr: string | null | undefined, isAr: boolean) {
+  if (!timeStr) return '—'
+  const d = new Date(timeStr)
+  return d.toLocaleTimeString(isAr ? 'ar-SA' : 'en-GB', { hour: '2-digit', minute: '2-digit' })
+}
+
+function calcLateMins(checkIn: string | null, shiftStart: string | null, checkInDate: string): number {
+  if (!checkIn || !shiftStart) return 0
+  const ci = new Date(checkIn)
+  const [h, m] = shiftStart.split(':').map(Number)
+  const expected = new Date(checkInDate + 'T00:00:00')
+  expected.setHours(h, m, 0, 0)
+  const diff = Math.floor((ci.getTime() - expected.getTime()) / 60000)
+  return diff > 10 ? diff : 0
 }
 
 export default function MySchedulePage() {
@@ -41,6 +57,7 @@ export default function MySchedulePage() {
   const [viewMonth, setViewMonth] = useState(now.getMonth())
   const [viewYear, setViewYear] = useState(now.getFullYear())
   const [schedules, setSchedules] = useState<any[]>([])
+  const [attendance, setAttendance] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const monthStart = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-01`
@@ -55,22 +72,53 @@ export default function MySchedulePage() {
   useEffect(() => {
     if (!employee?.id) return
     setLoading(true)
-    sb.from('shift_schedules')
-      .select('*, shifts(name,color,start_time,end_time)')
-      .eq('employee_id', employee.id)
-      .gte('date', monthStart)
-      .lte('date', monthEnd)
-      .then(({ data }) => { setSchedules(data || []); setLoading(false) })
+    Promise.all([
+      sb.from('shift_schedules')
+        .select('*, shifts(name,color,start_time,end_time)')
+        .eq('employee_id', employee.id)
+        .gte('date', monthStart)
+        .lte('date', monthEnd),
+      sb.from('attendance')
+        .select('*')
+        .eq('employee_id', employee.id)
+        .gte('date', monthStart)
+        .lte('date', monthEnd),
+    ]).then(([schRes, attRes]) => {
+      setSchedules(schRes.data || [])
+      setAttendance(attRes.data || [])
+      setLoading(false)
+    })
   }, [employee?.id, viewMonth, viewYear])
 
   function getShift(dateStr: string) {
     return schedules.find(s => String(s.date).slice(0,10) === dateStr)
   }
+  function getAtt(dateStr: string) {
+    return attendance.find(a => String(a.date).slice(0,10) === dateStr)
+  }
 
   const todayStr = localDate(now)
   const workDays = schedules.filter(s => s.shift_id || s.custom_start).length
-  const leaveDays = schedules.filter(s => !s.shift_id && !s.custom_start).length
+  // الإجازة = أيام الشهر اللي مفيش ليها شيفت + الأيام اللي محفوظة كإجازة صريحة
+  const scheduledDates = new Set(schedules.map(s => String(s.date).slice(0,10)))
+  const leaveDays = monthDays.filter(d => {
+    const sch = schedules.find(s => String(s.date).slice(0,10) === d.date)
+    return !scheduledDates.has(d.date) || (sch && !sch.shift_id && !sch.custom_start)
+  }).length
   const todayShift = getShift(todayStr)
+
+  // إجمالي التأخير الشهري
+  const totalLateMins = useMemo(() => {
+    return attendance.reduce((total, att) => {
+      const sch = schedules.find(s => String(s.date).slice(0,10) === String(att.date).slice(0,10))
+      const shiftStart = sch?.custom_start || sch?.shifts?.start_time
+      const late = calcLateMins(att.check_in_time, shiftStart, String(att.date).slice(0,10))
+      return total + late
+    }, 0)
+  }, [attendance, schedules])
+
+  const totalLateHours = Math.floor(totalLateMins / 60)
+  const totalLateRemMins = totalLateMins % 60
 
   const MONTHS = isAr ? MONTHS_AR : MONTHS_EN
   const DAYS = isAr ? DAYS_AR : DAYS_EN
@@ -85,7 +133,7 @@ export default function MySchedulePage() {
           📅 {isAr ? 'دوامي' : 'My Schedule'}
         </h1>
         <p style={{ fontSize: 13, color: S.muted }}>
-          {isAr ? 'جدول دوامك الشهري' : 'Your monthly work schedule'}
+          {isAr ? 'جدول دوامك الشهري مع سجل الحضور' : 'Your monthly schedule with attendance records'}
         </p>
       </div>
 
@@ -143,57 +191,101 @@ export default function MySchedulePage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {monthDays.map(d => {
             const sch = getShift(d.date)
+            const att = getAtt(d.date)
             const isToday = d.date === todayStr
-            const isLeave = sch && !sch.shift_id && !sch.custom_start
+            const isLeave = !sch || (!sch.shift_id && !sch.custom_start)
             const hasShift = sch && (sch.shift_id || sch.custom_start)
             const timeFrom = sch?.custom_start ? sch.custom_start.slice(0,5) : sch?.shifts?.start_time?.slice(0,5)
             const timeTo = sch?.custom_end ? sch.custom_end.slice(0,5) : sch?.shifts?.end_time?.slice(0,5)
             const shiftColor = sch?.shifts?.color || S.purple
 
+            // حساب التأخير
+            const shiftStartStr = sch?.custom_start || sch?.shifts?.start_time
+            const lateMins = att ? calcLateMins(att.check_in_time, shiftStartStr, d.date) : 0
+            const isLate = lateMins > 0
+
+            if (!sch && !att) return (
+              <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 14, opacity: 0.3, padding: '6px 16px' }}>
+                <div style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: S.white }}>{d.day}</div>
+                  <div style={{ fontSize: 10, color: S.muted }}>{DAYS[d.dow]}</div>
+                </div>
+                <div style={{ fontSize: 12, color: S.muted }}>—</div>
+              </div>
+            )
+
             return (
               <div key={d.date} style={{
-                background: isToday ? S.gold3 : isLeave ? S.amberB : hasShift ? S.navy2 : 'transparent',
-                border: `1px solid ${isToday ? S.gold+'60' : isLeave ? S.amber+'40' : hasShift ? S.border : 'transparent'}`,
-                borderRadius: 12, padding: hasShift || isLeave ? '12px 16px' : '8px 16px',
-                display: 'flex', alignItems: 'center', gap: 14,
-                opacity: !sch ? 0.4 : 1,
+                background: isToday ? S.gold3 : isLeave ? S.amberB : hasShift ? S.navy2 : S.card,
+                border: `1px solid ${isToday ? S.gold+'60' : isLate ? S.red+'40' : isLeave ? S.amber+'40' : hasShift ? S.border : S.border}`,
+                borderRadius: 14, padding: '12px 16px',
               }}>
-                {/* Day number */}
-                <div style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: isToday ? S.gold : S.white }}>{d.day}</div>
-                  <div style={{ fontSize: 10, color: S.muted }}>{DAYS[d.dow].slice(0, isAr ? 3 : 3)}</div>
-                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  {/* Day */}
+                  <div style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: isToday ? S.gold : S.white }}>{d.day}</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>{DAYS[d.dow]}</div>
+                  </div>
 
-                {/* Color bar */}
-                {(hasShift || isLeave) && (
-                  <div style={{ width: 4, height: 36, borderRadius: 2, background: isLeave ? S.amber : shiftColor, flexShrink: 0 }} />
-                )}
+                  {/* Color bar */}
+                  <div style={{ width: 4, height: 44, borderRadius: 2, background: isLeave ? S.amber : isLate ? S.red : shiftColor, flexShrink: 0 }} />
 
-                {/* Content */}
-                <div style={{ flex: 1 }}>
-                  {hasShift && (
-                    <>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 2 }}>
-                        {sch.custom_start ? (isAr ? '🕐 دوام مخصص' : '🕐 Custom Shift') : (sch.shifts?.name || '')}
-                      </div>
-                      <div style={{ fontSize: 12, color: sch.custom_start ? S.purple : S.muted }}>
-                        ⏰ {timeFrom} — {timeTo}
-                      </div>
-                    </>
+                  {/* Shift info */}
+                  <div style={{ flex: 1 }}>
+                    {isLeave && <div style={{ fontSize: 13, fontWeight: 700, color: S.amber }}>🏖️ {isAr ? 'إجازة' : 'Day Off'}</div>}
+                    {hasShift && (
+                      <>
+                        <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
+                          {isAr ? '📋 الدوام المخصص:' : '📋 Scheduled:'} <span style={{ color: S.white, fontWeight: 600 }}>{timeFrom} — {timeTo}</span>
+                        </div>
+                        {att?.check_in_time && (
+                          <div style={{ fontSize: 12, color: S.muted, marginBottom: isLate ? 4 : 0 }}>
+                            {isAr ? '✅ دخل:' : '✅ Check in:'} <span style={{ color: S.green, fontWeight: 600 }}>{fmtTime(att.check_in_time, isAr)}</span>
+                            {att.check_out_time && (
+                              <> · {isAr ? '🚪 خرج:' : '🚪 Check out:'} <span style={{ color: S.blue, fontWeight: 600 }}>{fmtTime(att.check_out_time, isAr)}</span></>
+                            )}
+                          </div>
+                        )}
+                        {isLate && (
+                          <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}>
+                            ⏰ {isAr ? `متأخر ${lateMins} دقيقة` : `Late ${lateMins} min`}
+                          </div>
+                        )}
+                        {!att?.check_in_time && d.date < todayStr && (
+                          <div style={{ fontSize: 11, color: S.red }}>❌ {isAr ? 'لم يتم تسجيل الحضور' : 'No check-in recorded'}</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {isToday && (
+                    <span style={{ background: S.greenB, color: S.green, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                      {isAr ? 'اليوم' : 'Today'}
+                    </span>
                   )}
-                  {isLeave && <div style={{ fontSize: 13, fontWeight: 700, color: S.amber }}>🏖️ {isAr ? 'إجازة' : 'Day Off'}</div>}
-                  {!sch && <div style={{ fontSize: 12, color: S.muted }}>—</div>}
                 </div>
-
-                {/* Today badge */}
-                {isToday && (
-                  <span style={{ background: S.greenB, color: S.green, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                    {isAr ? 'اليوم ✅' : 'Today ✅'}
-                  </span>
-                )}
               </div>
             )
           })}
+
+          {/* Monthly Late Summary */}
+          {totalLateMins > 0 && (
+            <div style={{ background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 14, padding: '16px 20px', marginTop: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 8 }}>
+                ⏰ {isAr ? 'ملخص التأخير الشهري' : 'Monthly Late Summary'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalLateMins}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'إجمالي الدقائق' : 'Total Minutes'}</div>
+                </div>
+                <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalLateHours}:{String(totalLateRemMins).padStart(2,'0')}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'الساعات:الدقائق' : 'Hours:Minutes'}</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

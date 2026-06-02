@@ -172,10 +172,16 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     }
 
     const payload = {
-      ...form,
+      name: form.name,
+      name_en: form.name_en || null,
+      description: form.description || null,
+      description_en: form.description_en || null,
+      category_id: form.category_id || null,
       price: parseFloat(form.price) || 0,
       cost_price: parseFloat(form.cost_price) || 0,
       discount_percent: parseFloat(form.discount_percent) || 0,
+      is_available: form.is_available !== false,
+      is_active: (form as any).is_active !== false,
       image_url: finalImageUrl,
     }
 

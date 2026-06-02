@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
+import { useLang } from '../../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,6 +67,7 @@ type Employee = {
 // Employee Card
 // ══════════════════════════════════════════
 function MyAttendanceCard() {
+  const { isAr } = useLang()
   const { employee } = useAuth()
   const sbRef = useRef(createClient())
   const sb    = sbRef.current
@@ -144,7 +146,29 @@ function MyAttendanceCard() {
 
       const today_date = new Date().toISOString().split('T')[0]
       const now        = new Date().toISOString()
-      const status     = new Date().getHours() >= 9 ? 'late' : 'present'
+      // حساب التأخير بناءً على جدول الشيفت
+      const now_time = new Date()
+      let shiftStart = null
+      // جيب شيفت الموظف من قاعدة البيانات
+      const { data: schData } = await sb.from('shift_schedules')
+        .select('*, shifts(start_time), custom_start')
+        .eq('employee_id', employee.id)
+        .eq('date', today_date)
+        .maybeSingle()
+      if (schData) {
+        const startStr = schData.custom_start || schData.shifts?.start_time
+        if (startStr) {
+          const [h, m] = startStr.split(':').map(Number)
+          shiftStart = new Date()
+          shiftStart.setHours(h, m, 0, 0)
+        }
+      }
+      // لو مفيش شيفت، نستخدم 9 صباحاً كـ default
+      if (!shiftStart) { shiftStart = new Date(); shiftStart.setHours(9, 0, 0, 0) }
+      const diffMins = Math.floor((now_time.getTime() - shiftStart.getTime()) / 60000)
+      // grace period 10 دقيقة — لو أتأخر أكتر من 10 دقائق يحتسب متأخر
+      const status = diffMins > 10 ? 'late' : 'present'
+      const late_minutes = status === 'late' ? diffMins : 0
 
       const { error } = await sb.from('attendance').upsert({
         employee_id: employee.id,
@@ -154,6 +178,7 @@ function MyAttendanceCard() {
         check_in_lng: lng,
         check_in_distance: Math.round(dist),
         status,
+        late_minutes: late_minutes || 0,
         branch_id: myBranch.id,
       }, { onConflict: 'employee_id,date' })
 
@@ -330,6 +355,7 @@ function MyAttendanceCard() {
 // Admin View
 // ══════════════════════════════════════════
 function AdminAttendanceView({ empInfo }: { empInfo: any }) {
+  const { isAr } = useLang()
   const sbRef = useRef(createClient())
   const sb    = sbRef.current
 
@@ -503,7 +529,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <div class="info-box"><div class="info-label" style="color:orange">⏰ Late Days</div><div class="info-value" style="color:orange">${lateDays}</div></div>
     </div>
     <table>
-      <thead><tr><th>Date</th><th>Check In</th><th>Check Out</th><th>In Distance</th><th>Out Distance</th><th>Duration</th><th>Status</th></tr></thead>
+      <thead><tr><th>Date</th><th>{isAr ? 'تسجيل حضور' : 'Check In'}</th><th>{isAr ? 'تسجيل انصراف' : 'Check Out'}</th><th>In Distance</th><th>Out Distance</th><th>Duration</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     ${reportEmployee.salary ? `
@@ -555,7 +581,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🌸 All Branches</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div><div style={{ fontSize: 10, color: S.muted }}>Total</div><div style={{ fontSize: 18, fontWeight: 800, color: S.white }}>{employees.length}</div></div>
-                  <div><div style={{ fontSize: 10, color: S.muted }}>Present</div><div style={{ fontSize: 18, fontWeight: 800, color: S.green }}>{records.filter(r => r.check_in_time).length}</div></div>
+                  <div><div style={{ fontSize: 10, color: S.muted }}>{isAr ? 'حاضر' : 'Present'}</div><div style={{ fontSize: 18, fontWeight: 800, color: S.green }}>{records.filter(r => r.check_in_time).length}</div></div>
                 </div>
               </div>
               {isAdminView && branchStats.map(bs => (
@@ -566,9 +592,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🏪 {bs.branch.name}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                     <div><div style={{ fontSize: 9, color: S.muted }}>Total</div><div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{bs.total}</div></div>
-                    <div><div style={{ fontSize: 9, color: S.muted }}>Present</div><div style={{ fontSize: 16, fontWeight: 800, color: S.green }}>{bs.present}</div></div>
-                    <div><div style={{ fontSize: 9, color: S.muted }}>Absent</div><div style={{ fontSize: 16, fontWeight: 800, color: S.red }}>{bs.absent}</div></div>
-                    <div><div style={{ fontSize: 9, color: S.muted }}>Late</div><div style={{ fontSize: 16, fontWeight: 800, color: S.amber }}>{bs.late}</div></div>
+                    <div><div style={{ fontSize: 9, color: S.muted }}>{isAr ? 'حاضر' : 'Present'}</div><div style={{ fontSize: 16, fontWeight: 800, color: S.green }}>{bs.present}</div></div>
+                    <div><div style={{ fontSize: 9, color: S.muted }}>{isAr ? 'غائب' : 'Absent'}</div><div style={{ fontSize: 16, fontWeight: 800, color: S.red }}>{bs.absent}</div></div>
+                    <div><div style={{ fontSize: 9, color: S.muted }}>{isAr ? 'متأخر' : 'Late'}</div><div style={{ fontSize: 16, fontWeight: 800, color: S.amber }}>{bs.late}</div></div>
                   </div>
                 </div>
               ))}
@@ -596,28 +622,6 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                 <div style={{ fontSize: 24, fontWeight: 900, color: s.color }}>{s.value}</div>
               </div>
             ))}
-          </div>
-
-          {/* Manual */}
-          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 18, marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 12 }}>✏️ Manual Attendance</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr auto', gap: 10, alignItems: 'center' }}>
-              <select style={inp2} value={manualEmp} onChange={e => setManualEmp(e.target.value)}>
-                <option value="">Select Employee...</option>
-                {filteredEmps.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''} — {e.employee_number || e.role}</option>)}
-              </select>
-              <select style={inp2} value={manualStatus} onChange={e => setManualStatus(e.target.value)}>
-                <option value="present">✅ Present</option>
-                <option value="late">⏰ Late</option>
-                <option value="absent">❌ Absent</option>
-                <option value="remote">🏠 Remote</option>
-              </select>
-              <input style={inp2} value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Note (optional)..." />
-              <button onClick={addManual} disabled={saving || !manualEmp}
-                style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                {saving ? '⏳' : '✅ Add'}
-              </button>
-            </div>
           </div>
 
           {/* Table */}
@@ -825,6 +829,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 // Main Page
 // ══════════════════════════════════════════
 export default function AttendancePage() {
+  const { isAr } = useLang()
   const { employee, permissions } = useAuth()
   const isManager = permissions?.all === true || ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role || '')
 

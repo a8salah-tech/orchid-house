@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { formatMYR } from '../../../../lib/supabase'
+import { useLang } from '../../../components/LanguageContext'
+import { useAuth } from '../../../components/AuthProvider'
 
 
 const createClient = () => createBrowserClient(
@@ -533,6 +535,7 @@ function EditProductModal({ product, categories, units, onClose, onSaved }: {
     name_en: product.name_en || '',
     category: product.category || '',
     min_stock: String(product.min_stock || 0),
+    unit_id: product.units?.id || (product as any).unit_id || '',
   })
 
   const S2 = {
@@ -559,6 +562,7 @@ function EditProductModal({ product, categories, units, onClose, onSaved }: {
       name_en: form.name_en || null,
       category: form.category || null,
       min_stock: parseFloat(form.min_stock) || 0,
+      unit_id: form.unit_id || null,
     }).eq('id', product.id)
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -595,6 +599,13 @@ function EditProductModal({ product, categories, units, onClose, onSaved }: {
             <label style={{ fontSize: 12, color: S2.muted, display: 'block', marginBottom: 5 }}>الحد الأدنى للمخزون</label>
             <input style={inp} type="number" min="0" value={form.min_stock} onChange={e => setForm(p => ({ ...p, min_stock: e.target.value }))} placeholder="0" />
           </div>
+          <div>
+            <label style={{ fontSize: 12, color: S2.muted, display: 'block', marginBottom: 5 }}>الوحدة</label>
+            <select style={inp} value={form.unit_id} onChange={e => setForm(p => ({ ...p, unit_id: e.target.value }))}>
+              <option value="">-- بدون وحدة --</option>
+              {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>)}
+            </select>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S2.muted}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
@@ -610,6 +621,13 @@ function EditProductModal({ product, categories, units, onClose, onSaved }: {
 export default function WarehouseDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const { isAr } = useLang()
+  const { employee } = useAuth()
+  const role = employee?.role || ''
+  const isAdmin = role === 'admin'
+  const isBranchManager = role === 'branch_manager'
+  const isWarehouseKeeper = role === 'warehouse_keeper'
+  const canDelete = isAdmin || isBranchManager
   const warehouseId = params.id as string
   const supabase = createClient()
 
@@ -709,6 +727,69 @@ export default function WarehouseDetailPage() {
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300, color: S.gold, fontSize: 16 }}>⏳ جاري التحميل...</div>
   if (!warehouse) return <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>المستودع غير موجود</div>
 
+
+  function printWarehouseReport() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const today = new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })
+    const grouped: Record<string, typeof products> = {}
+    products.filter(p => p.is_active !== false).forEach(p => {
+      const cat = p.category || 'غير مصنف'
+      if (!grouped[cat]) grouped[cat] = []
+      grouped[cat].push(p)
+    })
+    const lowStock = products.filter(p => p.current_stock <= p.min_stock && p.min_stock > 0 && p.is_active !== false)
+    const totalValue = products.reduce((s, p) => s + (p.current_stock * (p.last_purchase_price || 0)), 0)
+
+    const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
+<title>تقرير المخزون — ${warehouse?.name || ''}</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #1a1a1a; direction: rtl; }
+  .header { text-align: center; border-bottom: 3px solid #C9A84C; padding-bottom: 12px; margin-bottom: 20px; }
+  .logo { font-size: 20px; font-weight: 900; color: #1a1a1a; }
+  .subtitle { font-size: 14px; color: #C9A84C; font-weight: 700; margin-top: 4px; }
+  .meta { font-size: 11px; color: #666; margin-top: 4px; }
+  .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 20px; }
+  .stat { background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; padding: 10px; text-align: center; }
+  .stat-val { font-size: 20px; font-weight: 800; color: #C9A84C; }
+  .stat-lbl { font-size: 10px; color: #666; margin-top: 2px; }
+  .section-title { background: #f0f0f0; font-weight: 800; color: #333; padding: 8px 12px; margin: 16px 0 0; border-right: 4px solid #C9A84C; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+  th { background: #f5f5f5; padding: 7px 10px; text-align: right; font-size: 11px; color: #555; border-bottom: 2px solid #ddd; }
+  td { padding: 6px 10px; border-bottom: 1px solid #eee; font-size: 11px; }
+  .low { color: #EF4444; font-weight: 700; }
+  .ok { color: #22C55E; }
+  .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
+  @media print { @page { margin: 12mm; size: A4; } }
+</style></head><body>
+<div class="header">
+  <div class="logo">🌸 Orchid Group</div>
+  <div class="subtitle">تقرير المخزون — ${warehouse?.name || ''}</div>
+  <div class="meta">${today} · إجمالي ${products.length} صنف</div>
+</div>
+<div class="stats">
+  <div class="stat"><div class="stat-val">${products.filter(p=>p.is_active!==false).length}</div><div class="stat-lbl">أصناف نشطة</div></div>
+  <div class="stat"><div class="stat-val" style="color:#EF4444">${lowStock.length}</div><div class="stat-lbl">مخزون منخفض</div></div>
+  <div class="stat"><div class="stat-val">${products.filter(p=>p.current_stock===0).length}</div><div class="stat-lbl">نفذ المخزون</div></div>
+  <div class="stat"><div class="stat-val" style="font-size:14px">MYR ${totalValue.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div class="stat-lbl">إجمالي قيمة المخزون</div></div>
+</div>
+${lowStock.length > 0 ? `
+<div class="section-title">⚠️ منتجات تحتاج إعادة طلب (${lowStock.length})</div>
+<table><thead><tr><th>الصنف</th><th>الفئة</th><th>المتاح</th><th>الحد الأدنى</th><th>الوحدة</th></tr></thead><tbody>
+${lowStock.map(p=>`<tr><td><b>${p.name}</b>${p.name_en?'<br><span style="color:#999;font-size:10px">'+p.name_en+'</span>':''}</td><td>${p.category||'—'}</td><td class="low">${p.current_stock}</td><td>${p.min_stock}</td><td>${p.units?.symbol||'—'}</td></tr>`).join('')}
+</tbody></table>` : ''}
+${Object.entries(grouped).map(([cat, items]) => `
+<div class="section-title">📦 ${cat} (${items.length})</div>
+<table><thead><tr><th>الصنف</th><th>Item Name</th><th>الوحدة</th><th>المتاح</th><th>الحد الأدنى</th><th>آخر سعر</th></tr></thead><tbody>
+${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align:left;color:#666">${p.name_en||''}</td><td>${p.units?.symbol||'—'}</td><td class="${p.current_stock<=p.min_stock&&p.min_stock>0?'low':'ok'}">${p.current_stock}</td><td>${p.min_stock||0}</td><td>MYR ${(p.last_purchase_price||0).toFixed(2)}</td></tr>`).join('')}
+</tbody></table>`).join('')}
+<div class="footer">Orchid House Restaurant Management System · ${today}</div>
+<script>window.onload=function(){window.print()}<\/script>
+</body></html>`
+    win.document.write(html)
+    win.document.close()
+  }
+
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
       <style>{`
@@ -796,10 +877,25 @@ export default function WarehouseDetailPage() {
                   display: 'flex', alignItems: 'center', gap: 4,
                 }}
               >
-                {CATEGORY_ICONS[cat] || '📦'} {cat}
-                <span style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '1px 6px', fontSize: 11, color: S.white, fontWeight: 700 }}>
-                  {catCounts[cat] || 0}
+                <span onClick={() => { setSelectedCategory(cat); setCurrentPage(1) }} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {CATEGORY_ICONS[cat] || '📦'} {cat}
+                  <span style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '1px 6px', fontSize: 11, color: S.white, fontWeight: 700 }}>
+                    {catCounts[cat] || 0}
+                  </span>
                 </span>
+                {canDelete && (catCounts[cat] || 0) === 0 && (
+                  <span
+                    onClick={async e => {
+                      e.stopPropagation()
+                      if (!confirm(`حذف قسم "${cat}"؟`)) return
+                      await supabase.from('warehouse_categories').delete().eq('name', cat)
+                      setCategories(prev => prev.filter(c => c !== cat))
+                      if (selectedCategory === cat) setSelectedCategory('all')
+                    }}
+                    style={{ marginRight: 4, color: '#EF4444', fontSize: 13, cursor: 'pointer', fontWeight: 700, padding: '0 2px' }}
+                    title="حذف القسم"
+                  >✕</span>
+                )}
               </button>
             ))}
             <button
@@ -913,10 +1009,18 @@ export default function WarehouseDetailPage() {
                           </button>
                           <button
                             onClick={() => setShowEditProduct(p)}
-                            style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, marginTop: 4 }}
+                            style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold }}
                           >
                             ✏️ تعديل
                           </button>
+                          {canDelete && (
+                            <button
+                              onClick={async () => { if(confirm('حذف هذا الصنف نهائياً؟')) { await supabase.from('warehouse_products').delete().eq('id', p.id); fetchAll() } }}
+                              style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid ${S.red}`, background: S.redB, color: S.red }}
+                            >
+                              🗑️ حذف
+                            </button>
+                          )}
                           </div>
                         </td>
                       </tr>

@@ -364,9 +364,6 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [employees,    setEmployees]    = useState<Employee[]>([])
   const [branches,     setBranches]     = useState<Branch[]>([])
   const [loading,      setLoading]      = useState(true)
-  const [manualEmp,    setManualEmp]    = useState('')
-  const [manualStatus, setManualStatus] = useState('present')
-  const [manualNote,   setManualNote]   = useState('')
   const [saving,       setSaving]       = useState(false)
   const [filterBranch, setFilterBranch] = useState(() => empInfo?.branch_id || 'all')
   const [tab,          setTab]          = useState<'day' | 'report'>('day')
@@ -404,18 +401,6 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   }, [date, sb])
 
   useEffect(() => { fetchData() }, [fetchData])
-
-  async function addManual() {
-    if (!manualEmp) return
-    setSaving(true)
-    await sb.from('attendance').upsert({
-      employee_id: manualEmp, date, status: manualStatus, is_manual: true,
-      notes: manualNote || null,
-      check_in_time: manualStatus !== 'absent' ? `${date}T08:00:00` : null,
-    }, { onConflict: 'employee_id,date' })
-    setSaving(false); setManualEmp(''); setManualNote('')
-    fetchData()
-  }
 
   async function loadReport() {
     if (!reportEmp) return
@@ -623,29 +608,6 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
               </div>
             ))}
           </div>
-
-          {/* Manual */}
-          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 18, marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 12 }}>✏️ Manual Attendance</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr auto', gap: 10, alignItems: 'center' }}>
-              <select style={inp2} value={manualEmp} onChange={e => setManualEmp(e.target.value)}>
-                <option value="">Select Employee...</option>
-                {filteredEmps.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''} — {e.employee_number || e.role}</option>)}
-              </select>
-              <select style={inp2} value={manualStatus} onChange={e => setManualStatus(e.target.value)}>
-                <option value="present">✅ Present</option>
-                <option value="late">⏰ Late</option>
-                <option value="absent">❌ Absent</option>
-
-              </select>
-              <input style={inp2} value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Note (optional)..." />
-              <button onClick={addManual} disabled={saving || !manualEmp}
-                style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                {saving ? '⏳' : '✅ Add'}
-              </button>
-            </div>
-          </div>
-
           {/* Table */}
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ Loading...</div>

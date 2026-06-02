@@ -82,7 +82,7 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   const greeting = isAr ? (hour < 12 ? 'صباح الخير' : hour < 17 ? 'مساء الخير' : 'مساء النور') : (hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening')
 
   const role = employee?.role || 'employee'
-  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','employee','warehouse_keeper']
+  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','employee','warehouse_keeper','hall_cleaner','kitchen_cleaner']
   const KITCHEN_ROLES = ['kitchen_manager','kitchen_supervisor']
   const HALL_ROLES = ['hall_manager','hall_supervisor']
   const BAR_ROLES = ['bar_manager','bar_supervisor']

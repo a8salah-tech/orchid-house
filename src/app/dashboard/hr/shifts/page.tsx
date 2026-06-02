@@ -546,6 +546,17 @@ export default function ShiftsPage() {
       <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 64 }}>🔒</div>
         <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444' }}>غير مصرح بالوصول</div>
+        <div style={{ fontSize: 14, color: '#8A9BB5', textAlign: 'center' }}>هذه الصفحة متاحة فقط للمديرين</div>
+      </div>
+    )
+  }
+
+  // ── منع الوصول لغير المصرح لهم ──
+  if (employee && !isAdmin && !isBranchManager && !isDeptManager) {
+    return (
+      <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
+        <div style={{ fontSize: 64 }}>🔒</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444' }}>غير مصرح بالوصول</div>
         <div style={{ fontSize: 14, color: '#8A9BB5', textAlign: 'center' }}>استخدم صفحة "دوامي" لعرض جدولك الشخصي</div>
       </div>
     )
@@ -554,6 +565,7 @@ export default function ShiftsPage() {
   const [shifts, setShifts] = useState<any[]>([])
   const [employees, setEmployees] = useState<any[]>([])
   const [schedules, setSchedules] = useState<any[]>([])
+  const [attendanceToday, setAttendanceToday] = useState<any[]>([])
   const [requests, setRequests] = useState<any[]>([])
   const [mySchedules, setMySchedules] = useState<any[]>([])
   const [myRequests, setMyRequests] = useState<any[]>([])
@@ -636,6 +648,24 @@ export default function ShiftsPage() {
         .order('created_at',{ascending:false}).limit(20)
       setMyRequests(myR||[])
 
+      // جيب الحضور الفعلي لليوم
+      const today = todayStr()
+      const empIds2 = (empData||[]).map((e:any) => e.id)
+      if (empIds2.length > 0) {
+        const attChunks: any[] = []
+        for (let i = 0; i < Math.ceil(empIds2.length/50); i++) {
+          const chunk = empIds2.slice(i*50, (i+1)*50)
+          const { data: attChunk } = await supabase.from('attendance')
+            .select('*, employees(id,name,name_en,department,branches(name))')
+            .eq('date', today)
+            .not('check_in_time', 'is', null)
+            .is('check_out_time', null)
+            .in('employee_id', chunk)
+          attChunks.push(...(attChunk||[]))
+        }
+        setAttendanceToday(attChunks)
+      }
+
       setLoading(false)
     }
 
@@ -653,23 +683,13 @@ export default function ShiftsPage() {
   }
 
   // من يعمل الآن
-  const workingNow = useMemo(()=>{
-    const nowDate = todayStr()
-    const nowMins = new Date().getHours()*60+new Date().getMinutes()
-    return schedules.filter(s=>{
-      if (String(s.date).slice(0,10)!==nowDate) return false
-      if (!s.shifts?.start_time||!s.shifts?.end_time) return false
-      const [sh,sm]=s.shifts.start_time.split(':').map(Number)
-      const [eh,em]=s.shifts.end_time.split(':').map(Number)
-      let end=eh*60+em; if(end<sh*60+sm) end+=24*60
-      return nowMins>=sh*60+sm && nowMins<=end
-    })
-  },[schedules])
+  // يعملون الآن = الموظفون اللي سجلوا حضور ولم يسجلوا انصراف بعد
+  const workingNow = attendanceToday
 
-  // الفروع
+  // الفروع من الموظفين المحملين
   const branches = useMemo(()=>{
     const b = new Set<string>()
-    employees.forEach(e=>{
+    employees.forEach((e:any)=>{
       const brName = Array.isArray(e.branches)?e.branches[0]?.name:e.branches?.name
       b.add(brName||'بدون فرع')
     })
@@ -912,34 +932,46 @@ export default function ShiftsPage() {
       {activeTab==='working_now'&&(
         <div>
           {branches.map(branch=>{
-            const bw = workingNow.filter(s=>{
+            const bw = workingNow.filter((s:any)=>{
               const brName = Array.isArray(s.employees?.branches)?s.employees.branches[0]?.name:s.employees?.branches?.name
               return (brName||'بدون فرع')===branch
             })
             if (bw.length===0) return null
+            // تجميع حسب القسم
+            const depts = [...new Set(bw.map((s:any)=>s.employees?.department||'غير محدد'))]
             return (
-              <div key={branch} style={{marginBottom:24}}>
-                <div style={{fontSize:14,fontWeight:800,color:S.white,marginBottom:12,display:'flex',alignItems:'center',gap:8}}>
+              <div key={branch} style={{marginBottom:28}}>
+                {/* عنوان الفرع */}
+                <div style={{fontSize:15,fontWeight:800,color:S.gold,marginBottom:14,display:'flex',alignItems:'center',gap:8,borderBottom:`1px solid ${S.border}`,paddingBottom:10}}>
                   <span>🏪</span><span>{branch}</span>
                   <span style={{fontSize:12,color:S.green,background:S.greenB,borderRadius:20,padding:'2px 10px'}}>{bw.length} موظف</span>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:12}}>
-                  {bw.map((s:any)=>(
-                    <div key={s.id} style={{background:S.navy2,borderRadius:14,border:`1px solid ${(s.shifts?.color||S.green)+'40'}`,padding:'14px 16px',display:'flex',gap:12,alignItems:'center'}}>
-                      <div style={{position:'relative',flexShrink:0}}>
-                        <div style={{width:40,height:40,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:S.gold}}>{s.employees?.name?.charAt(0)||'؟'}</div>
-                        <div style={{position:'absolute',bottom:0,right:0,width:10,height:10,borderRadius:'50%',background:S.green,border:`2px solid ${S.navy2}`}} />
+                {/* تجميع حسب القسم */}
+                {depts.map(dept=>{
+                  const deptEmps = bw.filter((s:any)=>(s.employees?.department||'غير محدد')===dept)
+                  return (
+                    <div key={dept} style={{marginBottom:16}}>
+                      <div style={{fontSize:12,fontWeight:700,color:S.muted,marginBottom:10,display:'flex',alignItems:'center',gap:6}}>
+                        <span>🏷️</span><span>{dept}</span>
+                        <span style={{fontSize:11,color:S.blue,background:S.blueB,borderRadius:20,padding:'1px 8px'}}>{deptEmps.length}</span>
                       </div>
-                      <div>
-                        <div style={{fontSize:13,fontWeight:700,color:S.white,marginBottom:2}}>{s.employees?.name}</div>
-                        <div style={{fontSize:11,color:S.muted,marginBottom:4}}>{s.employees?.department}</div>
-                        <span style={{background:(s.shifts?.color||S.gold)+'20',color:s.shifts?.color||S.gold,borderRadius:20,padding:'2px 8px',fontSize:11,fontWeight:700}}>
-                          {s.shifts?.name} • {s.shifts?.start_time?.slice(0,5)}—{s.shifts?.end_time?.slice(0,5)}
-                        </span>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10}}>
+                        {deptEmps.map((s:any)=>(
+                          <div key={s.id} style={{background:S.navy2,borderRadius:14,border:`1px solid ${(s.shifts?.color||S.green)+'40'}`,padding:'12px 14px',display:'flex',gap:12,alignItems:'center'}}>
+                            <div style={{position:'relative',flexShrink:0}}>
+                              <div style={{width:38,height:38,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700,color:S.gold}}>{(s.employees?.name||'؟').charAt(0)}</div>
+                              <div style={{position:'absolute',bottom:0,right:0,width:10,height:10,borderRadius:'50%',background:S.green,border:`2px solid ${S.navy2}`}} />
+                            </div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:13,fontWeight:700,color:S.white,marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.employees?.name} {s.employees?.name_en||''}</div>
+                              <div style={{fontSize:11,color:S.green}}>✅ دخل: {s.check_in_time ? new Date(s.check_in_time).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'}) : '—'}</div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )
+                })}
               </div>
             )
           })}

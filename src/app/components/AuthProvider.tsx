@@ -38,16 +38,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [permissions, setPermissions] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   
-  // ✅ منع double execution
-  const isFetching = useRef(false)
-  // ✅ تخزين الـ user id عشان ما نعيدش التحميل لو نفس اليوزر
   const loadedUserId = useRef<string | null>(null)
 
   const loadUser = useCallback(async (forceReload = false) => {
-    // ✅ لو شغال أصلاً، وقف
-    if (isFetching.current) return
-    isFetching.current = true
-
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -58,6 +51,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPermissions({})
         loadedUserId.current = null
         if (!PUBLIC_PATHS.some(p => currentPath.startsWith(p))) router.push('/login')
+        return
+      }
+
+      // ✅ لو نفس اليوزر وماشي تحميل، ما تكملش
+      if (!forceReload && loadedUserId.current === user.id) {
         return
       }
 
@@ -89,7 +87,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loadedUserId.current = null
     } finally {
       setLoading(false)
-      isFetching.current = false
     }
   }, [router])
 
@@ -103,7 +100,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setEmployee(null)
         setPermissions({})
         loadedUserId.current = null
-        isFetching.current = false
         router.push('/login')
       }
       // ✅ SIGNED_IN و TOKEN_REFRESHED محذوفين عمداً

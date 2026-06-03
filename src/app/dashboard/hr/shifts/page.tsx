@@ -542,9 +542,8 @@ export default function ShiftsPage() {
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role||'')
   const hasAssignShifts = permissions?.assign_shifts === true
   const canAssignShifts = isAdmin || isBranchManager || isDeptManager || hasAssignShifts
-  console.log('DEBUG shifts:', { role: employee?.role, hasAssignShifts, canAssignShifts, permissions })
   const isManager = isAdmin || isBranchManager || isDeptManager
-  const isEmployee = !isManager
+  const isEmployee = !isManager && !hasAssignShifts
 
   // ── منع الوصول لغير المصرح لهم ──
   if (employee && !canAssignShifts) {
@@ -582,7 +581,7 @@ export default function ShiftsPage() {
 
   function refresh() { setTick(t=>t+1) }
 
-  useEffect(() => { setActiveTab(isEmployee?'my_schedule':'schedule') }, [isEmployee])
+  useEffect(() => { setActiveTab((isEmployee && !hasAssignShifts)?'my_schedule':'schedule') }, [isEmployee, hasAssignShifts])
 
   useEffect(() => {
     if (!employee?.id) return
@@ -607,7 +606,7 @@ export default function ShiftsPage() {
       else if (employee?.role === 'kitchen_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
       else if (employee?.role === 'hall_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['الصالة','Hall'])
       else if (employee?.role === 'bar_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['البار','Bar'])
-      else if (hasAssignShifts && isSupervisor) {
+      else if (isSupervisor && hasAssignShifts) {
         const deptMap: Record<string, string[]> = {
           kitchen_supervisor: ['المطبخ','Kitchen'],
           hall_supervisor: ['الصالة','Hall'],
@@ -766,6 +765,9 @@ export default function ShiftsPage() {
   const tabs = isEmployee ? [
     {key:'my_schedule',label:'جدولي',icon:'📅'},
     {key:'my_requests',label:'طلباتي',icon:'🔄',badge:myRequests.filter(r=>r.status==='pending').length},
+  ] : (hasAssignShifts && isSupervisor) ? [
+    {key:'schedule',label:'جدول قسمي',icon:'📅'},
+    {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
   ] : isAdmin ? [
     {key:'schedule',label:'الجدول الشهري',icon:'📅'},
     {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
@@ -898,8 +900,8 @@ export default function ShiftsPage() {
                         <tbody>
                           {branchEmployees.map((emp,ei)=>(
                             <tr key={emp.id} style={{borderBottom:`1px solid ${S.border}`,background:ei%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
-                              <td style={{padding:'8px 14px',background:ei%2===0?S.navy2:'#0d1b35',borderLeft:`1px solid ${S.border}`,cursor:isManager?'pointer':'default'}} title={isManager?'اضغط لتعيين الشيفت':''}>
-                                <div style={{display:'flex',alignItems:'center',gap:8}} onClick={()=>{ if(isManager){ setAssignEmpId(emp.id); setShowAssign(true) } }} title={isManager ? 'اضغط لتعيين الشيفت' : ''}>
+                              <td style={{padding:'8px 14px',background:ei%2===0?S.navy2:'#0d1b35',borderLeft:`1px solid ${S.border}`,cursor:canAssignShifts?'pointer':'default'}} title={canAssignShifts?'اضغط لتعيين الشيفت':''}>
+                                <div style={{display:'flex',alignItems:'center',gap:8}} onClick={()=>{ if(canAssignShifts){ setAssignEmpId(emp.id); setShowAssign(true) } }} title={canAssignShifts ? 'اضغط لتعيين الشيفت' : ''}>
                                   <div style={{width:26,height:26,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
                                   <div>
                                     <div style={{fontSize:12,fontWeight:700,color:S.white}}>{emp.name}{emp.name_en ? ' '+emp.name_en : ''}</div>

@@ -78,6 +78,8 @@ const ALL_PERMISSIONS = [
   { key: 'marketing',        label: 'التسويق',              group: 'التسويق',       icon: '📢' },
   { key: 'notifications',    label: 'الإشعارات',            group: 'الإعدادات',     icon: '🔔' },
   { key: 'settings',         label: 'الإعدادات',            group: 'الإعدادات',     icon: '⚙️' },
+  { key: 'violations',       label: 'المخالفات',             group: 'الموارد',       icon: '⚠️' },
+  { key: 'assign_shifts',    label: 'تعيين الشيفتات',        group: 'الموارد',       icon: '📅' },
   { key: 'permissions',      label: 'إدارة الصلاحيات',      group: 'الإعدادات',     icon: '🔐' },
 ]
 

@@ -539,6 +539,9 @@ export default function ShiftsPage() {
   const isAdmin = permissions?.all === true
   const isBranchManager = employee?.role === 'branch_manager'
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(employee?.role||'')
+  const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role||'')
+  const hasAssignShifts = permissions?.assign_shifts === true
+  const canAssignShifts = isAdmin || isBranchManager || isDeptManager || hasAssignShifts
   const isManager = isAdmin || isBranchManager || isDeptManager
   const isEmployee = !isManager
 

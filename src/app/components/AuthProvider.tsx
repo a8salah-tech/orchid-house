@@ -61,11 +61,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      // ✅ لو نفس اليوزر وماشي تحميل، ما تكملش
-      if (!forceReload && loadedUserId.current === user.id) {
-        return
-      }
-
       const { data: empData } = await supabase
         .from('employees')
         .select('id, name, name_en, role, department, branch_id, is_active')

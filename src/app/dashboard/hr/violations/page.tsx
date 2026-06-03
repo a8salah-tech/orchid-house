@@ -51,6 +51,7 @@ export default function ViolationsPage() {
   const [form, setForm] = useState({ employee_id: '', amount: '', reason: '', date: new Date().toISOString().split('T')[0] })
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
   const [attachmentUrl, setAttachmentUrl] = useState('')
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
 
   async function fetchAll() {
     setLoading(true)
@@ -63,7 +64,22 @@ export default function ViolationsPage() {
       else if (role === 'bar_manager') empQ = empQ.in('department', ['البار','Bar'])
     }
     const { data: empData } = await empQ
-    setEmployees(empData || [])
+
+    // جيب الموظفين اللي يعملون الآن (سجلوا حضور ولم يسجلوا انصراف)
+    const today = new Date().toISOString().split('T')[0]
+    const empIds = (empData || []).map((e: any) => e.id)
+    let workingNowEmps: any[] = []
+    if (empIds.length > 0) {
+      const { data: attData } = await sb.from('attendance')
+        .select('employee_id')
+        .eq('date', today)
+        .not('check_in_time', 'is', null)
+        .is('check_out_time', null)
+        .in('employee_id', empIds)
+      const workingIds = new Set((attData || []).map((a: any) => a.employee_id))
+      workingNowEmps = (empData || []).filter((e: any) => workingIds.has(e.id))
+    }
+    setEmployees(workingNowEmps.length > 0 ? workingNowEmps : (empData || []))
 
     // جيب المخالفات — فلتر حسب قسم المدير
     const [year, month] = filterMonth.split('-').map(Number)
@@ -223,7 +239,7 @@ export default function ViolationsPage() {
                   {v.attachment_url && (
                     <div style={{ marginTop: 8 }}>
                       {v.attachment_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                        <img src={v.attachment_url} alt="مرفق" style={{ maxWidth: 200, maxHeight: 120, borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => window.open(v.attachment_url, '_blank')} />
+                        <img src={v.attachment_url} alt="مرفق" style={{ maxWidth: 200, maxHeight: 120, borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setImagePreview(v.attachment_url)} />
                       ) : (
                         <a href={v.attachment_url} target="_blank" rel="noreferrer"
                           style={{ fontSize: 11, color: S.blue, display: 'inline-flex', alignItems: 'center', gap: 4, background: S.blueB, borderRadius: 8, padding: '4px 10px' }}>
@@ -269,6 +285,17 @@ export default function ViolationsPage() {
             style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.border}`, background: page >= totalPages-1 ? 'transparent' : S.card2, color: page >= totalPages-1 ? S.muted : S.white, cursor: page >= totalPages-1 ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
             {isAr ? 'التالي →' : 'Next →'}
           </button>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {imagePreview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setImagePreview(null)}>
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setImagePreview(null)}
+              style={{ position: 'absolute', top: -16, right: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>✕</button>
+            <img src={imagePreview} alt="مرفق" style={{ maxWidth: '85vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain', boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }} />
+          </div>
         </div>
       )}
 

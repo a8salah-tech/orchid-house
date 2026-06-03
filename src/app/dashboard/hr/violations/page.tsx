@@ -37,7 +37,8 @@ export default function ViolationsPage() {
   const role = employee?.role || ''
   const isBranchManager = role === 'branch_manager'
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
-  const canAdd = isAdmin || isBranchManager || isDeptManager || permissions?.violations === true
+  const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
+  const canAdd = isAdmin || isBranchManager || isDeptManager || isSupervisor || permissions?.violations === true
 
   const [violations, setViolations] = useState<any[]>([])
   const [employees, setEmployees] = useState<any[]>([])
@@ -93,7 +94,7 @@ export default function ViolationsPage() {
       .order('created_at', { ascending: false })
 
     // مدير القسم يشوف مخالفات قسمه فقط
-    if (!isAdmin && !isBranchManager && isDeptManager) {
+    if (!isAdmin && !isBranchManager && (isDeptManager || isSupervisor)) {
       const empIds = (empData || []).map((e: any) => e.id)
       if (empIds.length > 0) vQ = vQ.in('employee_id', empIds)
     } else if (isBranchManager) {

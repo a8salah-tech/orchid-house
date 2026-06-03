@@ -58,6 +58,7 @@ export default function MySchedulePage() {
   const [viewYear, setViewYear] = useState(now.getFullYear())
   const [schedules, setSchedules] = useState<any[]>([])
   const [attendance, setAttendance] = useState<any[]>([])
+  const [violations, setViolations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const monthStart = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-01`
@@ -83,9 +84,16 @@ export default function MySchedulePage() {
         .eq('employee_id', employee.id)
         .gte('date', monthStart)
         .lte('date', monthEnd),
-    ]).then(([schRes, attRes]) => {
+      sb.from('violations')
+        .select('*')
+        .eq('employee_id', employee.id)
+        .gte('date', monthStart)
+        .lte('date', monthEnd)
+        .order('date', { ascending: false }),
+    ]).then(([schRes, attRes, vioRes]) => {
       setSchedules(schRes.data || [])
       setAttendance(attRes.data || [])
+      setViolations(vioRes.data || [])
       setLoading(false)
     })
   }, [employee?.id, viewMonth, viewYear])
@@ -95,6 +103,9 @@ export default function MySchedulePage() {
   }
   function getAtt(dateStr: string) {
     return attendance.find(a => String(a.date).slice(0,10) === dateStr)
+  }
+  function getDayViolations(dateStr: string) {
+    return violations.filter(v => String(v.date).slice(0,10) === dateStr)
   }
 
   const todayStr = localDate(now)
@@ -119,6 +130,7 @@ export default function MySchedulePage() {
 
   const totalLateHours = Math.floor(totalLateMins / 60)
   const totalLateRemMins = totalLateMins % 60
+  const totalViolationsAmount = violations.filter(v => v.status === 'active').reduce((s, v) => s + (v.amount || 0), 0)
 
   const MONTHS = isAr ? MONTHS_AR : MONTHS_EN
   const DAYS = isAr ? DAYS_AR : DAYS_EN
@@ -251,6 +263,14 @@ export default function MySchedulePage() {
                             ⏰ {isAr ? `متأخر ${lateMins} دقيقة` : `Late ${lateMins} min`}
                           </div>
                         )}
+                        {getDayViolations(d.date).map((v, vi) => (
+                          <div key={vi} style={{ fontSize: 11, marginTop: 4, background: v.status === 'cancelled' ? 'rgba(255,255,255,0.04)' : S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${v.status === 'cancelled' ? 'rgba(255,255,255,0.1)' : S.red+'40'}`, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
+                            <span style={{ color: v.status === 'cancelled' ? S.muted : S.red, fontWeight: 700 }}>
+                              ⚠️ {v.status === 'cancelled' ? (isAr ? '(ملغاة) ' : '(Cancelled) ') : ''}{isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toFixed(2)}
+                            </span>
+                            <span style={{ color: S.muted, marginRight: 6 }}> — {v.reason}</span>
+                          </div>
+                        ))}
                         {!att?.check_in_time && d.date < todayStr && (
                           <div style={{ fontSize: 11, color: S.red }}>❌ {isAr ? 'لم يتم تسجيل الحضور' : 'No check-in recorded'}</div>
                         )}
@@ -282,6 +302,24 @@ export default function MySchedulePage() {
                 <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
                   <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalLateHours}:{String(totalLateRemMins).padStart(2,'0')}</div>
                   <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'الساعات:الدقائق' : 'Hours:Minutes'}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {totalViolationsAmount > 0 && (
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: `1px solid ${S.red}40`, borderRadius: 14, padding: '16px 20px', marginTop: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 8 }}>
+                ⚠️ {isAr ? 'ملخص المخالفات الشهرية' : 'Monthly Violations Summary'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{violations.filter(v => v.status === 'active').length}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'عدد المخالفات' : 'Total Violations'}</div>
+                </div>
+                <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>MYR {totalViolationsAmount.toFixed(2)}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'إجمالي الخصم' : 'Total Deductions'}</div>
                 </div>
               </div>
             </div>

@@ -46,7 +46,11 @@ export default function ViolationsPage() {
   const [filterEmp, setFilterEmp] = useState('all')
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
   const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 20
   const [form, setForm] = useState({ employee_id: '', amount: '', reason: '', date: new Date().toISOString().split('T')[0] })
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+  const [attachmentUrl, setAttachmentUrl] = useState('')
 
   async function fetchAll() {
     setLoading(true)
@@ -61,15 +65,27 @@ export default function ViolationsPage() {
     const { data: empData } = await empQ
     setEmployees(empData || [])
 
-    // جيب المخالفات بدون join معقد
+    // جيب المخالفات — فلتر حسب قسم المدير
     const [year, month] = filterMonth.split('-').map(Number)
     const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
     const monthEnd = new Date(year, month, 0).toISOString().split('T')[0]
-    const { data: vData, error } = await sb.from('violations')
+    // فلتر المخالفات حسب الموظفين المسموح لهم
+    let vQ = sb.from('violations')
       .select('*')
       .gte('date', monthStart)
       .lte('date', monthEnd)
-      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    // مدير القسم يشوف مخالفات قسمه فقط
+    if (!isAdmin && !isBranchManager && isDeptManager) {
+      const empIds = (empData || []).map((e: any) => e.id)
+      if (empIds.length > 0) vQ = vQ.in('employee_id', empIds)
+    } else if (isBranchManager) {
+      const empIds = (empData || []).map((e: any) => e.id)
+      if (empIds.length > 0) vQ = vQ.in('employee_id', empIds)
+    }
+
+    const { data: vData, error } = await vQ
 
     if (error) { console.error('violations error:', error.message); setLoading(false); return }
 
@@ -91,11 +107,24 @@ export default function ViolationsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { if (employee?.id) fetchAll() }, [employee?.id, filterMonth])
+  useEffect(() => { if (employee?.id) { setPage(0); fetchAll() } }, [employee?.id, filterMonth])
 
   async function save() {
     if (!form.employee_id || !form.amount || !form.reason) { alert('يرجى إكمال جميع الحقول'); return }
     setSaving(true)
+
+    // رفع المرفق لو موجود
+    let finalAttachment = attachmentUrl
+    if (attachmentFile) {
+      const ext = attachmentFile.name.split('.').pop()
+      const path = `violations/${Date.now()}.${ext}`
+      const { data: upData } = await sb.storage.from('employees').upload(path, attachmentFile, { upsert: true })
+      if (upData) {
+        const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path)
+        finalAttachment = urlData.publicUrl
+      }
+    }
+
     const { error } = await sb.from('violations').insert([{
       employee_id: form.employee_id,
       amount: parseFloat(form.amount),
@@ -103,11 +132,14 @@ export default function ViolationsPage() {
       date: form.date,
       created_by: employee?.id,
       status: 'active',
+      attachment_url: finalAttachment || null,
     }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
     setShowAdd(false)
     setForm({ employee_id: '', amount: '', reason: '', date: new Date().toISOString().split('T')[0] })
+    setAttachmentFile(null)
+    setAttachmentUrl('')
     fetchAll()
   }
 
@@ -126,6 +158,8 @@ export default function ViolationsPage() {
 
   const filtered = violations.filter(v => filterEmp === 'all' || v.employee_id === filterEmp)
   const totalAmount = filtered.filter(v => v.status === 'active').reduce((s, v) => s + (v.amount || 0), 0)
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
@@ -178,7 +212,7 @@ export default function ViolationsPage() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map(v => (
+          {paginated.map(v => (
             <div key={v.id} style={{ background: v.status === 'cancelled' ? S.card : S.navy2, borderRadius: 14, border: `1px solid ${v.status === 'cancelled' ? S.border : S.red+'30'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flex: 1 }}>
                 <div style={{ width: 44, height: 44, borderRadius: '50%', background: S.redB, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>⚠️</div>
@@ -186,6 +220,18 @@ export default function ViolationsPage() {
                   <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn} — {v.empDept}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{v.reason}</div>
                   <div style={{ fontSize: 11, color: S.muted }}>📅 {v.date} · {isAr ? 'بواسطة' : 'by'}: {v.creatorName}</div>
+                  {v.attachment_url && (
+                    <div style={{ marginTop: 8 }}>
+                      {v.attachment_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                        <img src={v.attachment_url} alt="مرفق" style={{ maxWidth: 200, maxHeight: 120, borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => window.open(v.attachment_url, '_blank')} />
+                      ) : (
+                        <a href={v.attachment_url} target="_blank" rel="noreferrer"
+                          style={{ fontSize: 11, color: S.blue, display: 'inline-flex', alignItems: 'center', gap: 4, background: S.blueB, borderRadius: 8, padding: '4px 10px' }}>
+                          📎 {isAr ? 'عرض المرفق' : 'View Attachment'}
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
@@ -203,6 +249,26 @@ export default function ViolationsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 20 }}>
+          <button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0}
+            style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.border}`, background: page === 0 ? 'transparent' : S.card2, color: page === 0 ? S.muted : S.white, cursor: page === 0 ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            {isAr ? '← السابق' : '← Prev'}
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => i).map(i => (
+            <button key={i} onClick={() => setPage(i)}
+              style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${i === page ? S.gold : S.border}`, background: i === page ? S.gold3 : 'transparent', color: i === page ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: i === page ? 800 : 400 }}>
+              {i + 1}
+            </button>
+          ))}
+          <button onClick={() => setPage(p => Math.min(totalPages-1, p+1))} disabled={page >= totalPages-1}
+            style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.border}`, background: page >= totalPages-1 ? 'transparent' : S.card2, color: page >= totalPages-1 ? S.muted : S.white, cursor: page >= totalPages-1 ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            {isAr ? 'التالي →' : 'Next →'}
+          </button>
         </div>
       )}
 
@@ -235,6 +301,12 @@ export default function ViolationsPage() {
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'سبب المخالفة *' : 'Reason *'}</label>
                 <textarea style={{ ...inp, minHeight: 80, resize: 'none' } as React.CSSProperties} value={form.reason} onChange={e => setForm(p => ({ ...p, reason: e.target.value }))} placeholder={isAr ? 'اشرح سبب المخالفة...' : 'Explain the violation reason...'} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'مرفق (صورة أو PDF)' : 'Attachment (image or PDF)'}</label>
+                <input type="file" accept="image/*,.pdf" onChange={e => setAttachmentFile(e.target.files?.[0] || null)}
+                  style={{ ...inp, cursor: 'pointer', fontSize: 12 }} />
+                {attachmentFile && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>✅ {attachmentFile.name}</div>}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>

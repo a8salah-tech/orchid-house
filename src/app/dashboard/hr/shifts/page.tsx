@@ -542,22 +542,12 @@ export default function ShiftsPage() {
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role||'')
   const hasAssignShifts = permissions?.assign_shifts === true
   const canAssignShifts = isAdmin || isBranchManager || isDeptManager || hasAssignShifts
+  console.log('DEBUG shifts:', { role: employee?.role, hasAssignShifts, canAssignShifts, permissions })
   const isManager = isAdmin || isBranchManager || isDeptManager
   const isEmployee = !isManager
 
   // ── منع الوصول لغير المصرح لهم ──
-  if (employee && !isAdmin && !isBranchManager && !isDeptManager) {
-    return (
-      <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontSize: 64 }}>🔒</div>
-        <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444' }}>غير مصرح بالوصول</div>
-        <div style={{ fontSize: 14, color: '#8A9BB5', textAlign: 'center' }}>هذه الصفحة متاحة فقط للمديرين</div>
-      </div>
-    )
-  }
-
-  // ── منع الوصول لغير المصرح لهم ──
-  if (employee && !isAdmin && !isBranchManager && !isDeptManager) {
+  if (employee && !canAssignShifts) {
     return (
       <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 64 }}>🔒</div>
@@ -566,6 +556,8 @@ export default function ShiftsPage() {
       </div>
     )
   }
+
+
 
   const [shifts, setShifts] = useState<any[]>([])
   const [employees, setEmployees] = useState<any[]>([])
@@ -615,7 +607,15 @@ export default function ShiftsPage() {
       else if (employee?.role === 'kitchen_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
       else if (employee?.role === 'hall_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['الصالة','Hall'])
       else if (employee?.role === 'bar_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['البار','Bar'])
-      // supervisors blocked — only admin/branch_manager/dept_managers reach here
+      else if (hasAssignShifts && isSupervisor) {
+        const deptMap: Record<string, string[]> = {
+          kitchen_supervisor: ['المطبخ','Kitchen'],
+          hall_supervisor: ['الصالة','Hall'],
+          bar_supervisor: ['البار','Bar'],
+        }
+        const depts = deptMap[employee?.role||''] || []
+        if (depts.length > 0) empQuery = empQuery.eq('branch_id', employee?.branch_id||'').in('department', depts)
+      }
       const {data: empData} = await empQuery
       setEmployees(empData||[])
 // جيب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50

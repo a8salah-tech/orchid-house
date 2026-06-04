@@ -720,7 +720,7 @@ const branchMap: Record<string, string> = {
         (e.phone || '').replace(/\s|-/g,'').includes(q.replace(/\s|-/g,'')) ||
         (e.department || '').toLowerCase().includes(q) ||
         (e.role || '').toLowerCase().includes(q) ||
-        (e.national_id || '').includes(q)
+        (e.national_id_url || '').includes(q)
       const matchRole   = filterRole === 'all'   || e.role === filterRole
       const matchDept   = filterDept === 'all'   || e.department === filterDept
       const matchBranch = filterBranch === 'all' || e.branch_id === filterBranch

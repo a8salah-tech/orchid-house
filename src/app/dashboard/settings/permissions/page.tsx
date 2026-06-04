@@ -79,6 +79,8 @@ const ALL_PERMISSIONS = [
   { key: 'notifications',    label: 'الإشعارات',            group: 'الإعدادات',     icon: '🔔' },
   { key: 'settings',         label: 'الإعدادات',            group: 'الإعدادات',     icon: '⚙️' },
   { key: 'violations',       label: 'المخالفات',             group: 'الموارد',       icon: '⚠️' },
+  { key: 'evaluations',      label: 'تقييم الموظفين',        group: 'الموارد',       icon: '⭐' },
+  { key: 'absences',         label: 'الغياب بدون عذر',       group: 'الموارد',       icon: '🚫' },
   { key: 'assign_shifts',    label: 'تعيين الشيفتات',        group: 'الموارد',       icon: '📅' },
   { key: 'permissions',      label: 'إدارة الصلاحيات',      group: 'الإعدادات',     icon: '🔐' },
 ]

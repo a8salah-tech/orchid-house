@@ -157,11 +157,19 @@ export default function ViolationsPage() {
   }
   useEffect(()=>{if(employee?.id&&activeTab==='evaluations')fetchEvaluations()},[employee?.id,activeTab,evalMonth,evalYear])
 
-  async function saveEval(empId:string,approve=false){
-    if(approve&&new Date().getDate()>20){alert(isAr?'انتهت فترة الاعتماد (حتى يوم 20)':'Approval period ended (day 20)');return}
+  async function saveEval(empId:string, action: 'draft'|'submit'|'approve' = 'draft'){
+    if(action==='approve' && new Date().getDate()>20){alert(isAr?'انتهت فترة الاعتماد (حتى يوم 20)':'Approval period ended (day 20)');return}
     setEvalSaving(empId)
     const sc=evalScores[empId]||{};const total=calcTotal(sc);const ex=evals.find(e=>e.employee_id===empId)
-    const payload={employee_id:empId,evaluator_id:employee?.id,month:evalMonth,year:evalYear,...CRITERIA.reduce((a:any,c)=>({...a,[c.key]:sc[c.key]||0}),{}),total_score:parseFloat(total.toFixed(2)),notes:evalNotes[empId]||null,status:approve?'approved':'draft',approved_at:approve?new Date().toISOString():null}
+    const newStatus = action==='approve' ? 'approved' : action==='submit' ? 'submitted' : 'draft'
+    const payload={
+      employee_id:empId, evaluator_id:employee?.id, month:evalMonth, year:evalYear,
+      ...CRITERIA.reduce((a:any,c)=>({...a,[c.key]:sc[c.key]||0}),{}),
+      total_score:parseFloat(total.toFixed(2)), notes:evalNotes[empId]||null,
+      status:newStatus,
+      submitted_at: action==='submit' ? new Date().toISOString() : (ex?.submitted_at||null),
+      approved_at: action==='approve' ? new Date().toISOString() : null,
+    }
     if(ex)await sb.from('employee_evaluations').update(payload).eq('id',ex.id)
     else await sb.from('employee_evaluations').insert([payload])
     setEvalSaving(null);fetchEvaluations()
@@ -200,11 +208,26 @@ export default function ViolationsPage() {
   async function saveAbsence(){
     if(!absForm.employee_id||!absForm.date){alert('يرجى اختيار الموظف والتاريخ');return}
     setAbsSaving(true)
-    const {error}=await sb.from('absences').insert([{employee_id:absForm.employee_id,created_by:employee?.id,date:absForm.date,notes:absForm.notes||null,status:'active'}])
+    const initStatus = isSupervisor ? 'submitted' : 'active'
+    const {error}=await sb.from('absences').insert([{
+      employee_id:absForm.employee_id, created_by:employee?.id,
+      date:absForm.date, notes:absForm.notes||null,
+      status:initStatus, submitted_at: isSupervisor ? new Date().toISOString() : null,
+    }])
     setAbsSaving(false)
     if(error){alert('خطأ: '+error.message);return}
     setShowAbsAdd(false)
     setAbsForm({employee_id:'',date:new Date().toISOString().split('T')[0],notes:''})
+    fetchAbsences()
+  }
+
+  async function approveAbsence(id:string){
+    await sb.from('absences').update({status:'active',manager_approved_by:employee?.id,manager_approved_at:new Date().toISOString()}).eq('id',id)
+    fetchAbsences()
+  }
+
+  async function returnAbsence(id:string){
+    await sb.from('absences').update({status:'draft'}).eq('id',id)
     fetchAbsences()
   }
 
@@ -224,12 +247,29 @@ export default function ViolationsPage() {
       const { data: upData } = await sb.storage.from('employees').upload(path, attachmentFile, { upsert: true })
       if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); finalAttachment = urlData.publicUrl }
     }
-    const { error } = await sb.from('violations').insert([{ employee_id: form.employee_id, amount: parseFloat(form.amount), reason: form.reason, date: form.date, created_by: employee?.id, status: 'active', attachment_url: finalAttachment || null }])
+    // المشرف يسجل بحالة submitted، المدير يسجل مباشرة بحالة active
+    const initStatus = isSupervisor ? 'submitted' : 'active'
+    const { error } = await sb.from('violations').insert([{
+      employee_id: form.employee_id, amount: parseFloat(form.amount),
+      reason: form.reason, date: form.date, created_by: employee?.id,
+      status: initStatus, attachment_url: finalAttachment || null,
+      submitted_at: isSupervisor ? new Date().toISOString() : null,
+    }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
     setShowAdd(false)
     setForm({ employee_id: '', amount: '', reason: '', date: new Date().toISOString().split('T')[0] })
     setAttachmentFile(null); setAttachmentUrl('')
+    fetchAll()
+  }
+
+  async function approveViolation(id: string) {
+    await sb.from('violations').update({ status: 'active', manager_approved_by: employee?.id, manager_approved_at: new Date().toISOString() }).eq('id', id)
+    fetchAll()
+  }
+
+  async function returnViolation(id: string) {
+    await sb.from('violations').update({ status: 'draft' }).eq('id', id)
     fetchAll()
   }
 
@@ -334,10 +374,20 @@ export default function ViolationsPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: v.status === 'cancelled' ? S.muted : S.red }}>MYR {(v.amount || 0).toFixed(2)}</div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: v.status === 'active' ? S.red : S.muted, background: v.status === 'active' ? S.redB : S.card, borderRadius: 20, padding: '2px 10px' }}>
-                    {v.status === 'active' ? (isAr ? 'نشطة' : 'Active') : (isAr ? 'ملغاة' : 'Cancelled')}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: v.status==='active'?S.red:v.status==='submitted'?S.amber:S.muted, background: v.status==='active'?S.redB:v.status==='submitted'?S.amberB:S.card, borderRadius: 20, padding: '2px 10px' }}>
+                    {v.status==='active'?(isAr?'نشطة':'Active'):v.status==='submitted'?(isAr?'بانتظار الاعتماد':'Pending Approval'):(isAr?'ملغاة':'Cancelled')}
                   </span>
                 </div>
+                {/* Submitted - waiting manager approval */}
+                {v.status === 'submitted' && isDeptManager && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => returnViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ {isAr?'إعادة':'Return'}</button>
+                    <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
+                  </div>
+                )}
+                {v.status === 'submitted' && (isAdmin || isBranchManager) && (
+                  <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
+                )}
                 {isAdmin && v.status === 'active' && (
                   <button onClick={() => cancelViolation(v.id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                 )}
@@ -434,12 +484,62 @@ export default function ViolationsPage() {
                   </div>
                 </div>
                 {canEdit && <textarea style={{width:'100%',background:'rgba(255,255,255,0.04)',border:`1px solid ${S.border}`,borderRadius:10,padding:'8px 12px',fontSize:12,color:S.white,outline:'none',fontFamily:'Tajawal, sans-serif',direction:'rtl',resize:'none',minHeight:60,boxSizing:'border-box',marginBottom:12} as React.CSSProperties} value={evalNotes[emp.id]||''} onChange={e=>setEvalNotes(p=>({...p,[emp.id]:e.target.value}))} placeholder={isAr?'ملاحظات...':'Notes...'}/>}
-                {ex?.status==='approved' && <div style={{background:S.greenB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.green,marginBottom:10}}>✅ {isAr?'تم الاعتماد':'Approved'} · {ex.approved_at?new Date(ex.approved_at).toLocaleDateString():''}</div>}
+                {ex?.status==='approved' && <div style={{background:S.greenB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.green,marginBottom:10}}>✅ {isAr?'تم الاعتماد النهائي':'Final Approved'} · {ex.approved_at?new Date(ex.approved_at).toLocaleDateString():''}</div>}
+                {ex?.status==='draft' && ex?.total_score > 0 && <div style={{background:S.blueB,borderRadius:10,padding:'6px 14px',fontSize:11,color:S.blue,marginBottom:10}}>📝 {isAr?'مسودة محفوظة':'Saved as draft'}</div>}
                 {!canEdit && ex?.status!=='approved' && <div style={{background:S.amberB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.amber,marginBottom:10}}>⚠️ {isAr?'انتهت فترة التقييم (حتى يوم 20)':'Evaluation period ended (until day 20)'}</div>}
-                {canEdit && (
+                {/* Supervisor buttons: Save Draft + Submit to Manager */}
+                {canEdit && isSupervisor && ex?.status !== 'submitted' && (
                   <div style={{display:'flex',gap:10}}>
-                    <button onClick={()=>saveEval(emp.id,false)} disabled={evalSaving===emp.id} style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>{evalSaving===emp.id?'⏳':(isAr?'💾 حفظ مسودة':'💾 Save Draft')}</button>
-                    <button onClick={()=>saveEval(emp.id,true)} disabled={evalSaving===emp.id||total===0} style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:total===0?'not-allowed':'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700,opacity:total===0?0.5:1}}>{evalSaving===emp.id?'⏳':(isAr?'✅ اعتماد':'✅ Approve')}</button>
+                    <button onClick={()=>saveEval(emp.id,'draft')} disabled={evalSaving===emp.id}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'💾 حفظ مسودة':'💾 Save Draft')}
+                    </button>
+                    <button onClick={()=>saveEval(emp.id,'submit')} disabled={evalSaving===emp.id||total===0}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.amber}`,background:S.amberB,color:S.amber,cursor:total===0?'not-allowed':'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700,opacity:total===0?0.5:1}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'📤 إرسال للمدير':'📤 Submit to Manager')}
+                    </button>
+                  </div>
+                )}
+                {/* Supervisor submitted - waiting */}
+                {isSupervisor && ex?.status === 'submitted' && (
+                  <div style={{background:S.amberB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.amber}}>
+                    ⏳ {isAr?'تم الإرسال — في انتظار اعتماد المدير':'Submitted — awaiting manager approval'}
+                    <button onClick={()=>saveEval(emp.id,'draft')} style={{marginRight:10,background:'transparent',border:`1px solid ${S.muted}`,borderRadius:6,color:S.muted,cursor:'pointer',fontSize:11,padding:'2px 8px',fontFamily:'Tajawal, sans-serif'}}>{isAr?'تعديل':'Edit'}</button>
+                  </div>
+                )}
+                {/* Manager buttons: Approve submitted evaluations */}
+                {canEdit && isDeptManager && ex?.status === 'submitted' && (
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>saveEval(emp.id,'draft')} disabled={evalSaving===emp.id}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.red}`,background:S.redB,color:S.red,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'↩️ إعادة للمشرف':'↩️ Return to Supervisor')}
+                    </button>
+                    <button onClick={()=>saveEval(emp.id,'approve')} disabled={evalSaving===emp.id}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'✅ اعتماد نهائي':'✅ Final Approve')}
+                    </button>
+                  </div>
+                )}
+                {/* Admin/Branch Manager: can approve directly */}
+                {canEdit && (isAdmin || isBranchManager) && ex?.status === 'submitted' && (
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>saveEval(emp.id,'approve')} disabled={evalSaving===emp.id}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'✅ اعتماد':'✅ Approve')}
+                    </button>
+                  </div>
+                )}
+                {/* Draft - manager can also write and approve directly */}
+                {canEdit && (isDeptManager||isAdmin||isBranchManager) && (!ex || ex?.status === 'draft') && (
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>saveEval(emp.id,'draft')} disabled={evalSaving===emp.id}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'💾 حفظ':'💾 Save')}
+                    </button>
+                    <button onClick={()=>saveEval(emp.id,'approve')} disabled={evalSaving===emp.id||total===0}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:total===0?'not-allowed':'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700,opacity:total===0?0.5:1}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'✅ اعتماد':'✅ Approve')}
+                    </button>
                   </div>
                 )}
               </div>
@@ -491,9 +591,18 @@ export default function ViolationsPage() {
                     </div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-                    <span style={{fontSize:11,fontWeight:700,color:a.status==='active'?'#8B5CF6':S.muted,background:a.status==='active'?'rgba(139,92,246,0.12)':S.card,borderRadius:20,padding:'3px 12px'}}>
-                      {a.status==='active'?(isAr?'غياب بدون عذر':'Unexcused'):(isAr?'ملغي':'Cancelled')}
+                    <span style={{fontSize:11,fontWeight:700,color:a.status==='active'?'#8B5CF6':a.status==='submitted'?S.amber:S.muted,background:a.status==='active'?'rgba(139,92,246,0.12)':a.status==='submitted'?S.amberB:S.card,borderRadius:20,padding:'3px 12px'}}>
+                      {a.status==='active'?(isAr?'غياب بدون عذر':'Unexcused'):a.status==='submitted'?(isAr?'بانتظار الاعتماد':'Pending Approval'):(isAr?'ملغي':'Cancelled')}
                     </span>
+                    {a.status==='submitted'&&isDeptManager&&(
+                      <div style={{display:'flex',gap:6}}>
+                        <button onClick={()=>returnAbsence(a.id)} style={{padding:'6px 10px',borderRadius:8,border:`1px solid ${S.amber}`,background:S.amberB,color:S.amber,cursor:'pointer',fontSize:11,fontFamily:'Tajawal, sans-serif'}}>↩️</button>
+                        <button onClick={()=>approveAbsence(a.id)} style={{padding:'6px 10px',borderRadius:8,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:11,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>✅ {isAr?'اعتماد':'Approve'}</button>
+                      </div>
+                    )}
+                    {a.status==='submitted'&&(isAdmin||isBranchManager)&&(
+                      <button onClick={()=>approveAbsence(a.id)} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:11,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>✅ {isAr?'اعتماد':'Approve'}</button>
+                    )}
                     {isAdmin&&a.status==='active'&&(
                       <button onClick={()=>cancelAbsence(a.id)} style={{padding:'7px 14px',borderRadius:8,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif'}}>{isAr?'إلغاء':'Cancel'}</button>
                     )}

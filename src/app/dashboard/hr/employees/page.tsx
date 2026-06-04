@@ -559,7 +559,7 @@ export default function EmployeesPage() {
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterHasAccount, setFilterHasAccount] = useState('all') // ⑤ فلتر الحساب
   const [view, setView] = useState<'grid' | 'list'>('grid')
-  const [sortBy, setSortBy] = useState<'name' | 'join_date' | 'salary'>('name') // ⑥ ترتيب
+  const [sortBy, setSortBy] = useState<'name' | 'join_date' | 'salary' | 'employee_number'>('name') // ⑥ ترتيب
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [showRegistrations, setShowRegistrations] = useState(false)
   const [showBirthdays, setShowBirthdays] = useState(false)   // ⑦ تنبيهات
@@ -730,6 +730,7 @@ const branchMap: Record<string, string> = {
     })
     if (sortBy === 'join_date') list = list.sort((a, b) => (b.join_date || '').localeCompare(a.join_date || ''))
     else if (sortBy === 'salary') list = list.sort((a, b) => (b.salary || 0) - (a.salary || 0))
+    else if (sortBy === 'employee_number') list = list.sort((a, b) => (a.employee_number || '').localeCompare(b.employee_number || '', undefined, { numeric: true }))
     else list = list.sort((a, b) => a.name.localeCompare(b.name, 'ar'))
     return list
   }, [employees, search, filterRole, filterDept, filterBranch, filterStatus, filterHasAccount, sortBy])
@@ -985,6 +986,7 @@ const branchMap: Record<string, string> = {
         {/* ⑥ ترتيب */}
         <select style={{ ...inp, width: 'auto', minWidth: 130 }} value={sortBy} onChange={e => setSortBy(e.target.value as any)}>
           <option value="name">ترتيب: الاسم</option>
+          <option value="employee_number">ترتيب: رقم الموظف</option>
           <option value="join_date">ترتيب: تاريخ الانضمام</option>
           <option value="salary">ترتيب: الراتب</option>
         </select>

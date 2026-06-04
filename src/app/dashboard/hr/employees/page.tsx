@@ -712,7 +712,15 @@ const branchMap: Record<string, string> = {
   // ⑥ فلترة وترتيب
   const filtered = useMemo(() => {
     let list = employees.filter(e => {
-      const matchSearch = !search || e.name.includes(search) || (e.name_en || '').toLowerCase().includes(search.toLowerCase()) || (e.employee_number || '').includes(search) || (e.phone || '').includes(search)
+      const q = search.trim().toLowerCase()
+      const matchSearch = !q ||
+        e.name?.toLowerCase().includes(q) ||
+        (e.name_en || '').toLowerCase().includes(q) ||
+        (e.employee_number || '').toLowerCase().includes(q) ||
+        (e.phone || '').replace(/\s|-/g,'').includes(q.replace(/\s|-/g,'')) ||
+        (e.department || '').toLowerCase().includes(q) ||
+        (e.role || '').toLowerCase().includes(q) ||
+        (e.national_id || '').includes(q)
       const matchRole   = filterRole === 'all'   || e.role === filterRole
       const matchDept   = filterDept === 'all'   || e.department === filterDept
       const matchBranch = filterBranch === 'all' || e.branch_id === filterBranch
@@ -945,7 +953,21 @@ const branchMap: Record<string, string> = {
 
       {/* ⑥ Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث بالاسم، رقم الموظف، أو الهاتف..." />
+        <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
+          <input
+            style={{ ...inp, paddingRight: search ? 36 : 14 }}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="🔍 بحث: اسم / رقم موظف / هاتف / قسم / رقم هوية..."
+            autoComplete="off"
+          />
+          {search && (
+            <button onClick={() => setSearch('')}
+              style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>
+              ✕
+            </button>
+          )}
+        </div>
         <select style={{ ...inp, width: 'auto', minWidth: 130 }} value={filterBranch} onChange={e => setFilterBranch(e.target.value)}>
           <option value="all">كل الفروع</option>
           {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}

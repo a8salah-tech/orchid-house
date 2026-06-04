@@ -29,6 +29,27 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'rtl',
 }
 
+const CRITERIA = [
+  { key: 'attendance',       weight: 15, label: 'الحضور والالتزام',          label_en: 'Attendance & Punctuality',       icon: '⏰' },
+  { key: 'work_quality',     weight: 20, label: 'جودة الأداء والإنتاجية',    label_en: 'Work Quality & Productivity',    icon: '⭐' },
+  { key: 'customer_service', weight: 15, label: 'التعامل مع العملاء',        label_en: 'Customer Service',               icon: '🤝' },
+  { key: 'hygiene',          weight: 10, label: 'النظافة الشخصية والمظهر',   label_en: 'Personal Hygiene & Appearance',  icon: '✨' },
+  { key: 'teamwork',         weight: 10, label: 'العمل الجماعي والتعاون',    label_en: 'Teamwork & Cooperation',         icon: '👥' },
+  { key: 'food_safety',      weight: 15, label: 'السلامة والنظافة الغذائية', label_en: 'Food Safety & Hygiene Standards', icon: '🍽️' },
+  { key: 'initiative',       weight: 10, label: 'المبادرة وحل المشكلات',    label_en: 'Initiative & Problem Solving',   icon: '💡' },
+  { key: 'discipline',       weight: 5,  label: 'الانضباط واحترام القوانين', label_en: 'Discipline & Rule Compliance',   icon: '📋' },
+]
+const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
+const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December']
+function calcTotal(sc: Record<string,number>) { return CRITERIA.reduce((s,c)=>s+((sc[c.key]||0)/10)*c.weight,0) }
+function getGrade(t: number, ar: boolean) {
+  if(t>=90) return {label:ar?'ممتاز':'Excellent',color:'#22C55E'}
+  if(t>=75) return {label:ar?'جيد جداً':'Very Good',color:'#14B8A6'}
+  if(t>=60) return {label:ar?'جيد':'Good',color:'#3B82F6'}
+  if(t>=50) return {label:ar?'مقبول':'Acceptable',color:'#F59E0B'}
+  return {label:ar?'ضعيف':'Poor',color:'#EF4444'}
+}
+
 export default function ViolationsPage() {
   const sb = createClient()
   const { employee, permissions } = useAuth()
@@ -53,10 +74,24 @@ export default function ViolationsPage() {
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
   const [attachmentUrl, setAttachmentUrl] = useState('')
   const [imagePreview, setImagePreview] = useState<string | null>(null)
-
+  const [activeTab, setActiveTab] = useState<'violations'|'evaluations'|'absences'>('violations')
+  const [evalEmps, setEvalEmps] = useState<any[]>([])
+  const [evals, setEvals] = useState<any[]>([])
+  const [evalMonth, setEvalMonth] = useState(new Date().getMonth()+1)
+  const [evalYear, setEvalYear] = useState(new Date().getFullYear())
+  const [evalLoading, setEvalLoading] = useState(false)
+  const [evalSaving, setEvalSaving] = useState<string|null>(null)
+  const [evalScores, setEvalScores] = useState<Record<string,Record<string,number>>>({})
+  const [evalNotes, setEvalNotes] = useState<Record<string,string>>({})
+  const [absEmps, setAbsEmps] = useState<any[]>([])
+  const [absences, setAbsences] = useState<any[]>([])
+  const [absLoading, setAbsLoading] = useState(false)
+  const [absFilterMonth, setAbsFilterMonth] = useState(new Date().toISOString().slice(0,7))
+  const [showAbsAdd, setShowAbsAdd] = useState(false)
+  const [absSaving, setAbsSaving] = useState(false)
+  const [absForm, setAbsForm] = useState({ employee_id: '', date: new Date().toISOString().split('T')[0], notes: '' })
   async function fetchAll() {
     setLoading(true)
-    // جيب الموظفين
     let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id').eq('is_active', true).order('name')
     if (!isAdmin) {
       if (isBranchManager) empQ = empQ.eq('branch_id', employee?.branch_id || '')
@@ -65,98 +100,136 @@ export default function ViolationsPage() {
       else if (role === 'bar_manager') empQ = empQ.in('department', ['البار','Bar'])
     }
     const { data: empData } = await empQ
-
-    // جيب الموظفين اللي يعملون الآن (سجلوا حضور ولم يسجلوا انصراف)
     const today = new Date().toISOString().split('T')[0]
     const empIds = (empData || []).map((e: any) => e.id)
     let workingNowEmps: any[] = []
     if (empIds.length > 0) {
-      const { data: attData } = await sb.from('attendance')
-        .select('employee_id')
-        .eq('date', today)
-        .not('check_in_time', 'is', null)
-        .is('check_out_time', null)
-        .in('employee_id', empIds)
+      const { data: attData } = await sb.from('attendance').select('employee_id').eq('date', today).not('check_in_time', 'is', null).is('check_out_time', null).in('employee_id', empIds)
       const workingIds = new Set((attData || []).map((a: any) => a.employee_id))
       workingNowEmps = (empData || []).filter((e: any) => workingIds.has(e.id))
     }
     setEmployees(workingNowEmps.length > 0 ? workingNowEmps : (empData || []))
-
-    // جيب المخالفات — فلتر حسب قسم المدير
     const [year, month] = filterMonth.split('-').map(Number)
     const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
     const monthEnd = new Date(year, month, 0).toISOString().split('T')[0]
-    // فلتر المخالفات حسب الموظفين المسموح لهم
-    let vQ = sb.from('violations')
-      .select('*')
-      .gte('date', monthStart)
-      .lte('date', monthEnd)
-      .order('created_at', { ascending: false })
-
-    // مدير القسم يشوف مخالفات قسمه فقط
+    let vQ = sb.from('violations').select('*').gte('date', monthStart).lte('date', monthEnd).order('created_at', { ascending: false })
     if (!isAdmin && !isBranchManager && (isDeptManager || isSupervisor)) {
-      const empIds = (empData || []).map((e: any) => e.id)
-      if (empIds.length > 0) vQ = vQ.in('employee_id', empIds)
+      const ids = (empData || []).map((e: any) => e.id)
+      if (ids.length > 0) vQ = vQ.in('employee_id', ids)
     } else if (isBranchManager) {
-      const empIds = (empData || []).map((e: any) => e.id)
-      if (empIds.length > 0) vQ = vQ.in('employee_id', empIds)
+      const ids = (empData || []).map((e: any) => e.id)
+      if (ids.length > 0) vQ = vQ.in('employee_id', ids)
     }
-
     const { data: vData, error } = await vQ
-
     if (error) { console.error('violations error:', error.message); setLoading(false); return }
-
-    // جيب أسماء الموظفين يدوياً
     if (vData && vData.length > 0) {
-      const empIds = [...new Set(vData.map(v => v.employee_id).concat(vData.map(v => v.created_by)).filter(Boolean))]
-      const { data: empNames } = await sb.from('employees').select('id,name,name_en,department').in('id', empIds)
+      const ids2 = [...new Set(vData.map(v => v.employee_id).concat(vData.map(v => v.created_by)).filter(Boolean))]
+      const { data: empNames } = await sb.from('employees').select('id,name,name_en,department').in('id', ids2 as string[])
       const empMap = Object.fromEntries((empNames || []).map(e => [e.id, e]))
-      setViolations(vData.map(v => ({
-        ...v,
-        empName: empMap[v.employee_id]?.name || '—',
-        empNameEn: empMap[v.employee_id]?.name_en || '',
-        empDept: empMap[v.employee_id]?.department || '',
-        creatorName: empMap[v.created_by]?.name || '—',
-      })))
-    } else {
-      setViolations([])
-    }
+      setViolations(vData.map(v => ({ ...v, empName: empMap[v.employee_id]?.name || '—', empNameEn: empMap[v.employee_id]?.name_en || '', empDept: empMap[v.employee_id]?.department || '', creatorName: empMap[v.created_by]?.name || '—' })))
+    } else { setViolations([]) }
     setLoading(false)
   }
 
   useEffect(() => { if (employee?.id) { setPage(0); fetchAll() } }, [employee?.id, filterMonth])
 
+  async function fetchEvaluations() {
+    setEvalLoading(true)
+    let q = sb.from('employees').select('id,name,name_en,department').eq('is_active',true).order('name')
+    if(!isAdmin){
+      if(isBranchManager) q=q.eq('branch_id',employee?.branch_id||'')
+      else if(role==='kitchen_manager'||role==='kitchen_supervisor') q=q.in('department',['المطبخ','Kitchen'])
+      else if(role==='hall_manager'||role==='hall_supervisor') q=q.in('department',['الصالة','Hall'])
+      else if(role==='bar_manager'||role==='bar_supervisor') q=q.in('department',['البار','Bar'])
+    }
+    const {data:empData}=await q
+    const list=(empData||[]).filter((e:any)=>e.id!==employee?.id)
+    setEvalEmps(list)
+    const ids=list.map((e:any)=>e.id)
+    if(ids.length>0){
+      const {data:evData}=await sb.from('employee_evaluations').select('*').in('employee_id',ids).eq('month',evalMonth).eq('year',evalYear)
+      setEvals(evData||[])
+      const sm:Record<string,Record<string,number>>={};const nm:Record<string,string>={}
+      for(const ev of(evData||[])){sm[ev.employee_id]=CRITERIA.reduce((a:any,c)=>({...a,[c.key]:ev[c.key]||0}),{});nm[ev.employee_id]=ev.notes||''}
+      setEvalScores(sm);setEvalNotes(nm)
+    } else{setEvals([]);setEvalScores({});setEvalNotes({})}
+    setEvalLoading(false)
+  }
+  useEffect(()=>{if(employee?.id&&activeTab==='evaluations')fetchEvaluations()},[employee?.id,activeTab,evalMonth,evalYear])
+
+  async function saveEval(empId:string,approve=false){
+    if(approve&&new Date().getDate()>20){alert(isAr?'انتهت فترة الاعتماد (حتى يوم 20)':'Approval period ended (day 20)');return}
+    setEvalSaving(empId)
+    const sc=evalScores[empId]||{};const total=calcTotal(sc);const ex=evals.find(e=>e.employee_id===empId)
+    const payload={employee_id:empId,evaluator_id:employee?.id,month:evalMonth,year:evalYear,...CRITERIA.reduce((a:any,c)=>({...a,[c.key]:sc[c.key]||0}),{}),total_score:parseFloat(total.toFixed(2)),notes:evalNotes[empId]||null,status:approve?'approved':'draft',approved_at:approve?new Date().toISOString():null}
+    if(ex)await sb.from('employee_evaluations').update(payload).eq('id',ex.id)
+    else await sb.from('employee_evaluations').insert([payload])
+    setEvalSaving(null);fetchEvaluations()
+  }
+
+  async function fetchAbsences() {
+    setAbsLoading(true)
+    let empQ = sb.from('employees').select('id,name,name_en,department,branch_id').eq('is_active',true).order('name')
+    if(!isAdmin){
+      if(isBranchManager) empQ=empQ.eq('branch_id',employee?.branch_id||'')
+      else if(role==='kitchen_manager'||role==='kitchen_supervisor') empQ=empQ.in('department',['المطبخ','Kitchen'])
+      else if(role==='hall_manager'||role==='hall_supervisor') empQ=empQ.in('department',['الصالة','Hall'])
+      else if(role==='bar_manager'||role==='bar_supervisor') empQ=empQ.in('department',['البار','Bar'])
+    }
+    const {data:empData}=await empQ
+    const list=(empData||[]).filter((e:any)=>e.id!==employee?.id)
+    setAbsEmps(list)
+    const ids=list.map((e:any)=>e.id)
+    const [year,month]=absFilterMonth.split('-').map(Number)
+    const monthStart=new Date(year,month-1,1).toISOString().split('T')[0]
+    const monthEnd=new Date(year,month,0).toISOString().split('T')[0]
+    let q=sb.from('absences').select('*').gte('date',monthStart).lte('date',monthEnd).order('date',{ascending:false})
+    if(ids.length>0&&!isAdmin&&!isBranchManager) q=q.in('employee_id',ids)
+    else if(isBranchManager&&ids.length>0) q=q.in('employee_id',ids)
+    const {data:absData}=await q
+    if(absData&&absData.length>0){
+      const allIds=[...new Set(absData.map((a:any)=>a.employee_id).concat(absData.map((a:any)=>a.created_by)).filter(Boolean))]
+      const {data:empNames}=await sb.from('employees').select('id,name,name_en,department').in('id',allIds as string[])
+      const empMap=Object.fromEntries((empNames||[]).map(e=>[e.id,e]))
+      setAbsences(absData.map((a:any)=>({...a,empName:empMap[a.employee_id]?.name||'—',empNameEn:empMap[a.employee_id]?.name_en||'',empDept:empMap[a.employee_id]?.department||'',creatorName:empMap[a.created_by]?.name||'—'})))
+    } else setAbsences([])
+    setAbsLoading(false)
+  }
+  useEffect(()=>{if(employee?.id&&activeTab==='absences')fetchAbsences()},[employee?.id,activeTab,absFilterMonth])
+
+  async function saveAbsence(){
+    if(!absForm.employee_id||!absForm.date){alert('يرجى اختيار الموظف والتاريخ');return}
+    setAbsSaving(true)
+    const {error}=await sb.from('absences').insert([{employee_id:absForm.employee_id,created_by:employee?.id,date:absForm.date,notes:absForm.notes||null,status:'active'}])
+    setAbsSaving(false)
+    if(error){alert('خطأ: '+error.message);return}
+    setShowAbsAdd(false)
+    setAbsForm({employee_id:'',date:new Date().toISOString().split('T')[0],notes:''})
+    fetchAbsences()
+  }
+
+  async function cancelAbsence(id:string){
+    if(!confirm('إلغاء هذا الغياب؟'))return
+    await sb.from('absences').update({status:'cancelled'}).eq('id',id)
+    fetchAbsences()
+  }
+
   async function save() {
     if (!form.employee_id || !form.amount || !form.reason) { alert('يرجى إكمال جميع الحقول'); return }
     setSaving(true)
-
-    // رفع المرفق لو موجود
     let finalAttachment = attachmentUrl
     if (attachmentFile) {
       const ext = attachmentFile.name.split('.').pop()
       const path = `violations/${Date.now()}.${ext}`
       const { data: upData } = await sb.storage.from('employees').upload(path, attachmentFile, { upsert: true })
-      if (upData) {
-        const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path)
-        finalAttachment = urlData.publicUrl
-      }
+      if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); finalAttachment = urlData.publicUrl }
     }
-
-    const { error } = await sb.from('violations').insert([{
-      employee_id: form.employee_id,
-      amount: parseFloat(form.amount),
-      reason: form.reason,
-      date: form.date,
-      created_by: employee?.id,
-      status: 'active',
-      attachment_url: finalAttachment || null,
-    }])
+    const { error } = await sb.from('violations').insert([{ employee_id: form.employee_id, amount: parseFloat(form.amount), reason: form.reason, date: form.date, created_by: employee?.id, status: 'active', attachment_url: finalAttachment || null }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
     setShowAdd(false)
     setForm({ employee_id: '', amount: '', reason: '', date: new Date().toISOString().split('T')[0] })
-    setAttachmentFile(null)
-    setAttachmentUrl('')
+    setAttachmentFile(null); setAttachmentUrl('')
     fetchAll()
   }
 
@@ -183,17 +256,27 @@ export default function ViolationsPage() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap');`}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>⚠️ {isAr ? 'المخالفات' : 'Violations'}</h1>
-          <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'إدارة مخالفات الموظفين' : 'Manage employee violations'}</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>⚠️ {isAr ? 'المخالفات والتقييمات' : 'Violations & Evaluations'}</h1>
+          <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'إدارة مخالفات وتقييمات الموظفين' : 'Manage violations and evaluations'}</p>
         </div>
-        {canAdd && (
+        {canAdd && activeTab === 'violations' && (
           <button onClick={() => setShowAdd(true)} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
             ➕ {isAr ? 'إضافة مخالفة' : 'Add Violation'}
           </button>
         )}
       </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <button onClick={() => setActiveTab('violations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='violations' ? S.red : S.border}`, background: activeTab==='violations' ? S.redB : 'transparent', color: activeTab==='violations' ? S.red : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='violations' ? 700 : 400 }}>⚠️ {isAr ? 'المخالفات' : 'Violations'}</button>
+        <button onClick={() => setActiveTab('evaluations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='evaluations' ? S.gold : S.border}`, background: activeTab==='evaluations' ? S.gold3 : 'transparent', color: activeTab==='evaluations' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='evaluations' ? 700 : 400 }}>⭐ {isAr ? 'التقييمات' : 'Evaluations'}</button>
+        <button onClick={() => setActiveTab('absences')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='absences' ? '#8B5CF6' : S.border}`, background: activeTab==='absences' ? 'rgba(139,92,246,0.12)' : 'transparent', color: activeTab==='absences' ? '#8B5CF6' : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='absences' ? 700 : 400 }}>🚫 {isAr ? 'الغياب' : 'Absences'}</button>
+      </div>
+
+      {/* ══ VIOLATIONS TAB ══ */}
+      {activeTab === 'violations' && <div>
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 20 }}>
@@ -242,10 +325,7 @@ export default function ViolationsPage() {
                       {v.attachment_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
                         <img src={v.attachment_url} alt="مرفق" style={{ maxWidth: 200, maxHeight: 120, borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setImagePreview(v.attachment_url)} />
                       ) : (
-                        <a href={v.attachment_url} target="_blank" rel="noreferrer"
-                          style={{ fontSize: 11, color: S.blue, display: 'inline-flex', alignItems: 'center', gap: 4, background: S.blueB, borderRadius: 8, padding: '4px 10px' }}>
-                          📎 {isAr ? 'عرض المرفق' : 'View Attachment'}
-                        </a>
+                        <a href={v.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: S.blue, display: 'inline-flex', alignItems: 'center', gap: 4, background: S.blueB, borderRadius: 8, padding: '4px 10px' }}>📎 {isAr ? 'عرض المرفق' : 'View Attachment'}</a>
                       )}
                     </div>
                   )}
@@ -259,9 +339,7 @@ export default function ViolationsPage() {
                   </span>
                 </div>
                 {isAdmin && v.status === 'active' && (
-                  <button onClick={() => cancelViolation(v.id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-                    {isAr ? 'إلغاء' : 'Cancel'}
-                  </button>
+                  <button onClick={() => cancelViolation(v.id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                 )}
               </div>
             </div>
@@ -272,20 +350,11 @@ export default function ViolationsPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 20 }}>
-          <button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0}
-            style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.border}`, background: page === 0 ? 'transparent' : S.card2, color: page === 0 ? S.muted : S.white, cursor: page === 0 ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-            {isAr ? '← السابق' : '← Prev'}
-          </button>
+          <button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.border}`, background: page === 0 ? 'transparent' : S.card2, color: page === 0 ? S.muted : S.white, cursor: page === 0 ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? '← السابق' : '← Prev'}</button>
           {Array.from({ length: totalPages }, (_, i) => i).map(i => (
-            <button key={i} onClick={() => setPage(i)}
-              style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${i === page ? S.gold : S.border}`, background: i === page ? S.gold3 : 'transparent', color: i === page ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: i === page ? 800 : 400 }}>
-              {i + 1}
-            </button>
+            <button key={i} onClick={() => setPage(i)} style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${i === page ? S.gold : S.border}`, background: i === page ? S.gold3 : 'transparent', color: i === page ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: i === page ? 800 : 400 }}>{i + 1}</button>
           ))}
-          <button onClick={() => setPage(p => Math.min(totalPages-1, p+1))} disabled={page >= totalPages-1}
-            style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.border}`, background: page >= totalPages-1 ? 'transparent' : S.card2, color: page >= totalPages-1 ? S.muted : S.white, cursor: page >= totalPages-1 ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-            {isAr ? 'التالي →' : 'Next →'}
-          </button>
+          <button onClick={() => setPage(p => Math.min(totalPages-1, p+1))} disabled={page >= totalPages-1} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.border}`, background: page >= totalPages-1 ? 'transparent' : S.card2, color: page >= totalPages-1 ? S.muted : S.white, cursor: page >= totalPages-1 ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'التالي →' : 'Next →'}</button>
         </div>
       )}
 
@@ -293,10 +362,181 @@ export default function ViolationsPage() {
       {imagePreview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setImagePreview(null)}>
           <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setImagePreview(null)}
-              style={{ position: 'absolute', top: -16, right: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>✕</button>
+            <button onClick={() => setImagePreview(null)} style={{ position: 'absolute', top: -16, right: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>✕</button>
             <img src={imagePreview} alt="مرفق" style={{ maxWidth: '85vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain', boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }} />
           </div>
+        </div>
+      )}
+
+      </div>}
+
+      {/* ══ EVALUATIONS TAB ══ */}
+      {activeTab === 'evaluations' && (
+        <div>
+          <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap',alignItems:'center'}}>
+            <select style={{...inp,width:'auto',cursor:'pointer',background:S.navy2}} value={evalMonth} onChange={e=>setEvalMonth(Number(e.target.value))}>
+              {(isAr?MONTHS_AR:MONTHS_EN).map((m,i)=><option key={i} value={i+1}>{m}</option>)}
+            </select>
+            <select style={{...inp,width:'auto',cursor:'pointer',background:S.navy2}} value={evalYear} onChange={e=>setEvalYear(Number(e.target.value))}>
+              {[2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
+            </select>
+            <span style={{fontSize:12,color:S.muted}}>⏰ {isAr?'الاعتماد حتى يوم 20':'Approve until day 20'}</span>
+            <span style={{fontSize:12,color:S.green,background:S.greenB,borderRadius:20,padding:'3px 10px'}}>✅ {evals.filter(e=>e.status==='approved').length} {isAr?'معتمد':'Approved'}</span>
+          </div>
+          {evalLoading ? <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳</div>
+          : evalEmps.length===0 ? (
+            <div style={{textAlign:'center',padding:60,background:S.navy2,borderRadius:16,border:`1px solid ${S.border}`}}>
+              <div style={{fontSize:40,marginBottom:12}}>👥</div>
+              <div style={{color:S.muted}}>{isAr?'لا يوجد موظفون':'No employees'}</div>
+            </div>
+          ) : evalEmps.map(emp => {
+            const ex = evals.find(e => e.employee_id === emp.id)
+            const sc = evalScores[emp.id] || {}
+            const total = calcTotal(sc)
+            const grade = getGrade(total, isAr)
+            const canEdit = ex?.status !== 'approved' && new Date().getDate() <= 20
+            return (
+              <div key={emp.id} style={{background:S.navy2,borderRadius:16,border:`1px solid ${ex?.status==='approved'?S.green+'40':S.border}`,padding:20,marginBottom:14}}>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,paddingBottom:14,borderBottom:`1px solid ${S.border}`}}>
+                  <div style={{width:42,height:42,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:800,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,fontWeight:700,color:S.white}}>{emp.name} {emp.name_en||''}</div>
+                    <div style={{fontSize:12,color:S.muted}}>{emp.department}</div>
+                  </div>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontSize:20,fontWeight:900,color:grade.color}}>{total.toFixed(1)}%</div>
+                    <div style={{fontSize:11,fontWeight:700,color:grade.color,background:grade.color+'20',borderRadius:20,padding:'2px 8px'}}>{grade.label}</div>
+                  </div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
+                  {CRITERIA.map(c => (
+                    <div key={c.key}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                        <span style={{fontSize:12,color:S.white}}>{c.icon} {isAr?c.label:c.label_en} <span style={{color:S.muted,fontSize:10}}>({c.weight}%)</span></span>
+                        <span style={{fontSize:12,fontWeight:800,color:(sc[c.key]||0)>=8?S.green:(sc[c.key]||0)>=6?S.blue:(sc[c.key]||0)>=4?S.amber:(sc[c.key]||0)>0?S.red:S.muted}}>{sc[c.key]||0}/10</span>
+                      </div>
+                      <div style={{display:'flex',gap:3}}>
+                        {[1,2,3,4,5,6,7,8,9,10].map(n=>(
+                          <button key={n} onClick={()=>canEdit&&setEvalScores(p=>({...p,[emp.id]:{...(p[emp.id]||{}),[c.key]:n}}))} disabled={!canEdit}
+                            style={{flex:1,padding:'5px 0',borderRadius:5,border:'none',background:(sc[c.key]||0)>=n?(n>=8?S.green:n>=6?S.blue:n>=4?S.amber:S.red):'rgba(255,255,255,0.06)',color:(sc[c.key]||0)>=n?'#fff':S.muted,cursor:canEdit?'pointer':'default',fontSize:10,fontWeight:700}}>{n}</button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{marginBottom:12}}>
+                  <div style={{height:6,borderRadius:3,background:'rgba(255,255,255,0.08)',overflow:'hidden',marginBottom:4}}>
+                    <div style={{height:'100%',width:`${total}%`,background:grade.color,borderRadius:3,transition:'width .3s'}}/>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between'}}>
+                    <span style={{fontSize:11,color:S.muted}}>{isAr?'الإجمالي':'Total'}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:grade.color}}>{total.toFixed(1)}% — {grade.label}</span>
+                  </div>
+                </div>
+                {canEdit && <textarea style={{width:'100%',background:'rgba(255,255,255,0.04)',border:`1px solid ${S.border}`,borderRadius:10,padding:'8px 12px',fontSize:12,color:S.white,outline:'none',fontFamily:'Tajawal, sans-serif',direction:'rtl',resize:'none',minHeight:60,boxSizing:'border-box',marginBottom:12} as React.CSSProperties} value={evalNotes[emp.id]||''} onChange={e=>setEvalNotes(p=>({...p,[emp.id]:e.target.value}))} placeholder={isAr?'ملاحظات...':'Notes...'}/>}
+                {ex?.status==='approved' && <div style={{background:S.greenB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.green,marginBottom:10}}>✅ {isAr?'تم الاعتماد':'Approved'} · {ex.approved_at?new Date(ex.approved_at).toLocaleDateString():''}</div>}
+                {!canEdit && ex?.status!=='approved' && <div style={{background:S.amberB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.amber,marginBottom:10}}>⚠️ {isAr?'انتهت فترة التقييم (حتى يوم 20)':'Evaluation period ended (until day 20)'}</div>}
+                {canEdit && (
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>saveEval(emp.id,false)} disabled={evalSaving===emp.id} style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>{evalSaving===emp.id?'⏳':(isAr?'💾 حفظ مسودة':'💾 Save Draft')}</button>
+                    <button onClick={()=>saveEval(emp.id,true)} disabled={evalSaving===emp.id||total===0} style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:total===0?'not-allowed':'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700,opacity:total===0?0.5:1}}>{evalSaving===emp.id?'⏳':(isAr?'✅ اعتماد':'✅ Approve')}</button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ══ ABSENCES TAB ══ */}
+      {activeTab === 'absences' && (
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
+            <input style={{...inp,width:'auto'}} type="month" value={absFilterMonth} onChange={e=>setAbsFilterMonth(e.target.value)} />
+            <button onClick={()=>setShowAbsAdd(true)} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #8B5CF6',background:'rgba(139,92,246,0.12)',color:'#8B5CF6',cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+              ➕ {isAr?'تسجيل غياب':'Add Absence'}
+            </button>
+          </div>
+
+          {/* Stats */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,marginBottom:20}}>
+            {[
+              {label:isAr?'إجمالي الغياب':'Total',value:absences.length,color:'#8B5CF6',bg:'rgba(139,92,246,0.12)'},
+              {label:isAr?'نشط':'Active',value:absences.filter(a=>a.status==='active').length,color:S.red,bg:S.redB},
+              {label:isAr?'ملغي':'Cancelled',value:absences.filter(a=>a.status==='cancelled').length,color:S.muted,bg:S.card},
+            ].map((s,i)=>(
+              <div key={i} style={{background:s.bg,borderRadius:12,padding:'14px 16px',border:`1px solid ${s.color}30`}}>
+                <div style={{fontSize:20,fontWeight:800,color:s.color}}>{s.value}</div>
+                <div style={{fontSize:11,color:S.muted,marginTop:2}}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {absLoading ? <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳</div>
+          : absences.length===0 ? (
+            <div style={{textAlign:'center',padding:60,background:S.navy2,borderRadius:16,border:`1px solid ${S.border}`}}>
+              <div style={{fontSize:40,marginBottom:12}}>✅</div>
+              <div style={{color:S.muted}}>{isAr?'لا يوجد غياب في هذه الفترة':'No absences in this period'}</div>
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {absences.map((a:any)=>(
+                <div key={a.id} style={{background:a.status==='cancelled'?S.card:S.navy2,borderRadius:14,border:`1px solid ${a.status==='cancelled'?S.border:'rgba(139,92,246,0.3)'}`,padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12,opacity:a.status==='cancelled'?0.6:1}}>
+                  <div style={{display:'flex',gap:14,alignItems:'center',flex:1}}>
+                    <div style={{width:44,height:44,borderRadius:'50%',background:'rgba(139,92,246,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🚫</div>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:S.white,marginBottom:2}}>{a.empName} {a.empNameEn} — {a.empDept}</div>
+                      {a.notes&&<div style={{fontSize:12,color:S.muted,marginBottom:4}}>{a.notes}</div>}
+                      <div style={{fontSize:11,color:S.muted}}>📅 {a.date} · {isAr?'بواسطة':'by'}: {a.creatorName}</div>
+                    </div>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+                    <span style={{fontSize:11,fontWeight:700,color:a.status==='active'?'#8B5CF6':S.muted,background:a.status==='active'?'rgba(139,92,246,0.12)':S.card,borderRadius:20,padding:'3px 12px'}}>
+                      {a.status==='active'?(isAr?'غياب بدون عذر':'Unexcused'):(isAr?'ملغي':'Cancelled')}
+                    </span>
+                    {isAdmin&&a.status==='active'&&(
+                      <button onClick={()=>cancelAbsence(a.id)} style={{padding:'7px 14px',borderRadius:8,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif'}}>{isAr?'إلغاء':'Cancel'}</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add Absence Modal */}
+          {showAbsAdd && (
+            <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+              <div style={{background:S.navy2,borderRadius:20,border:'1px solid rgba(139,92,246,0.4)',width:'100%',maxWidth:440,padding:28}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+                  <h2 style={{color:'#8B5CF6',fontSize:17,fontWeight:800}}>🚫 {isAr?'تسجيل غياب بدون عذر':'Add Unexcused Absence'}</h2>
+                  <button onClick={()=>setShowAbsAdd(false)} style={{background:'transparent',border:'none',color:S.muted,fontSize:20,cursor:'pointer'}}>✕</button>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                  <div>
+                    <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'الموظف *':'Employee *'}</label>
+                    <select style={{...inp,cursor:'pointer',background:S.navy3}} value={absForm.employee_id} onChange={e=>setAbsForm(p=>({...p,employee_id:e.target.value}))}>
+                      <option value="">{isAr?'-- اختر الموظف --':'-- Select Employee --'}</option>
+                      {absEmps.map(e=><option key={e.id} value={e.id}>{e.name} {e.name_en||''} — {e.department}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'التاريخ *':'Date *'}</label>
+                    <input style={inp} type="date" value={absForm.date} onChange={e=>setAbsForm(p=>({...p,date:e.target.value}))} />
+                  </div>
+                  <div>
+                    <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'ملاحظات (اختياري)':'Notes (optional)'}</label>
+                    <textarea style={{...inp,minHeight:70,resize:'none'} as React.CSSProperties} value={absForm.notes} onChange={e=>setAbsForm(p=>({...p,notes:e.target.value}))} placeholder={isAr?'أي ملاحظات...':'Any notes...'} />
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setShowAbsAdd(false)} style={{padding:'10px 20px',borderRadius:10,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif'}}>{isAr?'إلغاء':'Cancel'}</button>
+                  <button onClick={saveAbsence} disabled={absSaving} style={{padding:'10px 24px',borderRadius:10,border:'1px solid #8B5CF6',background:'rgba(139,92,246,0.12)',color:'#8B5CF6',cursor:absSaving?'not-allowed':'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                    {absSaving?'⏳':(isAr?'🚫 تسجيل الغياب':'🚫 Save Absence')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -332,8 +572,7 @@ export default function ViolationsPage() {
               </div>
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'مرفق (صورة أو PDF)' : 'Attachment (image or PDF)'}</label>
-                <input type="file" accept="image/*,.pdf" onChange={e => setAttachmentFile(e.target.files?.[0] || null)}
-                  style={{ ...inp, cursor: 'pointer', fontSize: 12 }} />
+                <input type="file" accept="image/*,.pdf" onChange={e => setAttachmentFile(e.target.files?.[0] || null)} style={{ ...inp, cursor: 'pointer', fontSize: 12 }} />
                 {attachmentFile && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>✅ {attachmentFile.name}</div>}
               </div>
             </div>

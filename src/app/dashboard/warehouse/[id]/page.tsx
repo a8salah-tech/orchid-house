@@ -648,6 +648,8 @@ export default function WarehouseDetailPage() {
   const [showStockIn, setShowStockIn] = useState(false)
   const [showStockOut, setShowStockOut] = useState(false)
   const [showAddCategory, setShowAddCategory] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<string | null>(null)
+  const [editCategoryName, setEditCategoryName] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showUnitConversion, setShowUnitConversion] = useState<Product | null>(null)
   const [showEditProduct, setShowEditProduct] = useState<Product | null>(null)
@@ -890,6 +892,11 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                     {catCounts[cat] || 0}
                   </span>
                 </span>
+                <span
+                    onClick={e => { e.stopPropagation(); setEditingCategory(cat); setEditCategoryName(cat) }}
+                    style={{ marginRight: 2, color: S.gold, fontSize: 11, cursor: 'pointer', padding: '0 2px' }}
+                    title="تعديل اسم القسم"
+                  >✏️</span>
                 {canDelete && (catCounts[cat] || 0) === 0 && (
                   <span
                     onClick={async e => {
@@ -1329,6 +1336,31 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
         <StockOutModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products}
           onClose={() => setShowStockOut(false)} onSaved={() => { setShowStockOut(false); fetchAll() }} />
       )}
+      {editingCategory && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.gold}40`, width: '100%', maxWidth: 380, padding: 28 }}>
+            <h3 style={{ color: S.gold, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>✏️ تعديل اسم القسم</h3>
+            <p style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>القسم الحالي: <strong style={{ color: S.white }}>{editingCategory}</strong></p>
+            <input style={{ ...inp, marginBottom: 16 }} value={editCategoryName} onChange={e => setEditCategoryName(e.target.value)} placeholder="الاسم الجديد..." autoFocus />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setEditingCategory(null)} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+              <button onClick={async () => {
+                const newName = editCategoryName.trim()
+                if (!newName || newName === editingCategory) { setEditingCategory(null); return }
+                await supabase.from('warehouse_categories').update({ name: newName }).eq('name', editingCategory)
+                await supabase.from('warehouse_products').update({ category: newName }).eq('category', editingCategory)
+                setCategories(prev => prev.map(c => c === editingCategory ? newName : c))
+                if (selectedCategory === editingCategory) setSelectedCategory(newName)
+                setEditingCategory(null)
+                fetchAll()
+              }} style={{ padding: '9px 22px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                💾 حفظ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showEditProduct && (
         <EditProductModal
           product={showEditProduct}

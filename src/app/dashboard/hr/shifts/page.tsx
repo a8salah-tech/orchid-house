@@ -978,16 +978,17 @@ export default function ShiftsPage() {
                         <span>🏷️</span><span>{dept}</span>
                         <span style={{fontSize:11,color:S.blue,background:S.blueB,borderRadius:20,padding:'1px 8px'}}>{deptEmps.length}</span>
                       </div>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10}}>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:10}}>
                         {deptEmps.map((s:any)=>(
-                          <div key={s.id} style={{background:S.navy2,borderRadius:14,border:`1px solid ${(s.shifts?.color||S.green)+'40'}`,padding:'12px 14px',display:'flex',gap:12,alignItems:'center'}}>
+                          <div key={s.id} style={{background:S.navy2,borderRadius:12,border:`1px solid ${(s.shifts?.color||S.green)+'40'}`,padding:'10px 12px',display:'flex',gap:8,alignItems:'center'}}>
                             <div style={{position:'relative',flexShrink:0}}>
-                              <div style={{width:38,height:38,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700,color:S.gold}}>{(s.employees?.name||'؟').charAt(0)}</div>
-                              <div style={{position:'absolute',bottom:0,right:0,width:10,height:10,borderRadius:'50%',background:S.green,border:`2px solid ${S.navy2}`}} />
+                              <div style={{width:34,height:34,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:S.gold}}>{(s.employees?.name||'؟').charAt(0)}</div>
+                              <div style={{position:'absolute',bottom:0,right:0,width:9,height:9,borderRadius:'50%',background:S.green,border:`2px solid ${S.navy2}`}} />
                             </div>
                             <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:700,color:S.white,marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.employees?.name} {s.employees?.name_en||''}</div>
-                              <div style={{fontSize:11,color:S.green}}>✅ دخل: {s.check_in_time ? new Date(s.check_in_time).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'}) : '—'}</div>
+                              <div style={{fontSize:12,fontWeight:700,color:S.white,marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.employees?.name}</div>
+                              {s.employees?.name_en && <div style={{fontSize:10,color:S.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.employees.name_en}</div>}
+                              <div style={{fontSize:10,color:S.green}}>✅ {s.check_in_time ? new Date(s.check_in_time).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'}) : '—'}</div>
                             </div>
                           </div>
                         ))}

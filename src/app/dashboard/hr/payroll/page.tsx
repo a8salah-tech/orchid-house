@@ -39,7 +39,7 @@ type Employee = {
   work_insurance?: number; branch_id?: string; branches?: { name: string } | any
 }
 type PayrollRecord = {
-  id?: string; payroll_month_id: string; employee_id: string
+  id?: string; created_at?: string; payroll_month_id: string; employee_id: string
   basic_salary: number; insurance: number; working_days: number; days_worked: number
   overtime_days: number; overtime_hours: number
   allowance_1: number; allowance_1_label: string
@@ -59,6 +59,8 @@ type PayrollRecord = {
 
 function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
   return {
+    id: crypto.randomUUID(),
+    created_at: new Date().toISOString(),
     payroll_month_id: monthId, employee_id: emp.id,
     basic_salary: emp.salary || 0, insurance: emp.insurance || 0,
     working_days: 30, days_worked: 30,
@@ -235,10 +237,64 @@ export default function PayrollPage() {
       .select('*, employees(id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name))')
       .eq('payroll_month_id', month.id)
 
+    // جيب المخالفات والغياب للشهر
+    const monthStart = `${month.year}-${String(month.month).padStart(2,'0')}-01`
+    const monthEnd   = new Date(month.year, month.month, 0).toISOString().split('T')[0]
+    const empIds = filteredEmps.map(e => e.id)
+
+    const [violRes, absRes] = await Promise.all([
+      empIds.length > 0
+        ? sb.from('violations').select('employee_id,amount').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
+        : Promise.resolve({ data: [] }),
+      empIds.length > 0
+        ? sb.from('absences').select('employee_id').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
+        : Promise.resolve({ data: [] }),
+    ])
+
+    // احسب خصم المخالفات والغياب لكل موظف
+    const violMap: Record<string, number> = {}
+    for (const v of (violRes.data || [])) {
+      violMap[v.employee_id] = (violMap[v.employee_id] || 0) + (v.amount || 0)
+    }
+    const absMap: Record<string, number> = {}
+    for (const a of (absRes.data || [])) {
+      absMap[a.employee_id] = (absMap[a.employee_id] || 0) + 1
+    }
+
     const existing    = (data || []).filter((r: any) => filteredEmps.some(e => e.id === r.employee_id))
     const existingIds = existing.map((r: any) => r.employee_id)
     const missing     = filteredEmps.filter(e => !existingIds.includes(e.id)).map(e => emptyRecord(month.id, e))
-    setRecords([...existing, ...missing])
+
+    // دمج المخالفات والغياب — دائماً بتحسب من الجداول مش من DB
+    const allRecords = [...existing, ...missing].map((r: any) => {
+      const emp = filteredEmps.find(e => e.id === r.employee_id)
+      const baseSalary = emp?.salary || r.basic_salary || 0
+      const dailyRate = baseSalary / 30
+      const violAmount = violMap[r.employee_id] || 0
+      const absDays = absMap[r.employee_id] || 0
+      const absAmount = parseFloat((absDays * dailyRate).toFixed(2))
+      return {
+        ...r,
+        basic_salary: baseSalary,
+        deduction_1: violAmount,
+        deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toFixed(2)} MYR)` : 'Violations',
+        deduction_2: absAmount,
+        deduction_2_label: absDays > 0 ? `غياب بدون عذر (${absDays} يوم)` : 'Absences',
+      }
+    })
+    setRecords(allRecords)
+
+    // Auto-save violations and absences deductions
+    const toAutoSave = allRecords
+      .filter((r: any) => violMap[r.employee_id] > 0 || absMap[r.employee_id] > 0)
+      .map((r: any) => {
+        const calc = calcRecord(r)
+        const { employees: _emp, ...cleanRecord } = r as any
+        return { ...cleanRecord, amount_due: calc.amountDue, updated_at: new Date().toISOString() }
+      })
+    if (toAutoSave.length > 0) {
+      await sb.from('payroll_records').upsert(toAutoSave, { onConflict: 'payroll_month_id,employee_id' })
+    }
   }
 
   async function createMonth() {
@@ -256,7 +312,8 @@ export default function PayrollPage() {
     setSaving(true)
     const toUpsert = records.map(r => {
       const calc = calcRecord(r)
-      return { ...r, amount_due: r.amount_due || calc.amountDue, updated_at: new Date().toISOString(), employees: undefined }
+      const { employees: _e, ...clean } = r as any
+      return { ...clean, amount_due: r.amount_due || calc.amountDue, updated_at: new Date().toISOString() }
     })
     const { error } = await sb.from('payroll_records').upsert(toUpsert, { onConflict: 'payroll_month_id,employee_id' })
     setSaving(false)

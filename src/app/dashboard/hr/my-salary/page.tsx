@@ -109,7 +109,7 @@ export default function MySalaryPage() {
         if (startTime) schMap[String(s.date).slice(0,10)] = startTime
       }
 
-      // احسب إجمالي التأخير بالدقائق
+      // احسب إجمالي التأخير بالدقائق — نفس طريقة my-schedule
       let totalLateMinutes = 0
       for (const att of attData) {
         const dateStr = String(att.date).slice(0,10)
@@ -117,11 +117,10 @@ export default function MySalaryPage() {
         if (!shiftStart) continue
         const checkIn = new Date(att.check_in_time)
         const [sh, sm] = shiftStart.split(':').map(Number)
-        // استخدم تاريخ الحضور مع وقت الشيفت
-        const attDate = new Date(att.check_in_time)
-        const scheduled = new Date(attDate)
-        scheduled.setUTCHours(sh, sm + 10, 0, 0)
-        const diffMs = attDate.getTime() - scheduled.getTime()
+        // وقت الشيفت بنفس يوم الحضور
+        const scheduled = new Date(`${dateStr}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00`)
+        const gracePeriod = 10 * 60 * 1000 // 10 دقائق
+        const diffMs = checkIn.getTime() - (scheduled.getTime() + gracePeriod)
         if (diffMs > 0) totalLateMinutes += Math.floor(diffMs / 60000)
       }
       const lateHours = parseFloat((totalLateMinutes / 60).toFixed(2))

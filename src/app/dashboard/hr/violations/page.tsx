@@ -126,7 +126,7 @@ export default function ViolationsPage() {
       const ids2 = [...new Set(vData.map(v => v.employee_id).concat(vData.map(v => v.created_by)).filter(Boolean))]
       const { data: empNames } = await sb.from('employees').select('id,name,name_en,department').in('id', ids2 as string[])
       const empMap = Object.fromEntries((empNames || []).map(e => [e.id, e]))
-      setViolations(vData.map(v => ({ ...v, empName: empMap[v.employee_id]?.name || '—', empNameEn: empMap[v.employee_id]?.name_en || '', empDept: empMap[v.employee_id]?.department || '', creatorName: empMap[v.created_by]?.name || '—' })))
+      setViolations(vData.map(v => ({ ...v, empName: empMap[v.employee_id]?.name || '—', empNameEn: empMap[v.employee_id]?.name_en || '', empDept: empMap[v.employee_id]?.department || '', creatorName: `${empMap[v.created_by]?.name || '—'} ${empMap[v.created_by]?.name_en || ''}`.trim() })))
     } else { setViolations([]) }
     setLoading(false)
   }
@@ -359,7 +359,7 @@ export default function ViolationsPage() {
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn} — {v.empDept}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{v.reason}</div>
-                  <div style={{ fontSize: 11, color: S.muted }}>📅 {v.date} · {isAr ? 'بواسطة' : 'by'}: {v.creatorName}</div>
+                  <div style={{ fontSize: 13, color: S.muted }}>📅 {v.date} · <span style={{ color: S.white, fontWeight: 600 }}>{isAr ? 'بواسطة' : 'by'}: {v.creatorName}</span></div>
                   {v.attachment_url && (
                     <div style={{ marginTop: 8 }}>
                       {v.attachment_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (

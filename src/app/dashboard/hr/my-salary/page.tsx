@@ -89,12 +89,50 @@ export default function MySalaryPage() {
   useEffect(() => {
     if (!selectedMonth || !myId) { setMyRecord(null); return }
     setLoadingRecord(true)
-    sb.from('payroll_records')
-      .select('*')
-      .eq('payroll_month_id', selectedMonth.id)
-      .eq('employee_id', myId)
-      .maybeSingle()
-      .then(({ data }) => { setMyRecord(data); setLoadingRecord(false) })
+
+    const monthStart = `${selectedMonth.year}-${String(selectedMonth.month).padStart(2,'0')}-01`
+    const monthEnd   = new Date(selectedMonth.year, selectedMonth.month, 0).toISOString().split('T')[0]
+
+    Promise.all([
+      sb.from('payroll_records').select('*').eq('payroll_month_id', selectedMonth.id).eq('employee_id', myId).maybeSingle(),
+      sb.from('attendance').select('check_in_time,date').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
+      sb.from('shift_schedules').select('date,shifts(start_time)').eq('employee_id', myId).gte('date', monthStart).lte('date', monthEnd),
+    ]).then(([recRes, attRes, schRes]) => {
+      const record = recRes.data
+      const attData = attRes.data || []
+      const schData = schRes.data || []
+
+      // map الشيفتات حسب التاريخ
+      const schMap: Record<string, string> = {}
+      for (const s of schData) {
+        const startTime = (s.shifts as any)?.start_time
+        if (startTime) schMap[String(s.date).slice(0,10)] = startTime
+      }
+
+      // احسب إجمالي التأخير بالدقائق
+      let totalLateMinutes = 0
+      for (const att of attData) {
+        const dateStr = String(att.date).slice(0,10)
+        const shiftStart = schMap[dateStr]
+        if (!shiftStart) continue
+        const checkIn = new Date(att.check_in_time)
+        const [sh, sm] = shiftStart.split(':').map(Number)
+        // استخدم تاريخ الحضور مع وقت الشيفت
+        const attDate = new Date(att.check_in_time)
+        const scheduled = new Date(attDate)
+        scheduled.setUTCHours(sh, sm + 10, 0, 0)
+        const diffMs = attDate.getTime() - scheduled.getTime()
+        if (diffMs > 0) totalLateMinutes += Math.floor(diffMs / 60000)
+      }
+      const lateHours = parseFloat((totalLateMinutes / 60).toFixed(2))
+
+      if (record) {
+        setMyRecord({ ...record, late_hours: lateHours })
+      } else {
+        setMyRecord(null)
+      }
+      setLoadingRecord(false)
+    })
   }, [selectedMonth, myId])
 
   const c = myRecord ? calcRecord(myRecord) : null

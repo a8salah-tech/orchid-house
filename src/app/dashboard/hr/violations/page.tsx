@@ -113,12 +113,18 @@ export default function ViolationsPage() {
     const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
     const monthEnd = new Date(year, month, 0).toISOString().split('T')[0]
     let vQ = sb.from('violations').select('*').gte('date', monthStart).lte('date', monthEnd).order('created_at', { ascending: false })
-    if (!isAdmin && !isBranchManager && (isDeptManager || isSupervisor)) {
-      const ids = (empData || []).map((e: any) => e.id)
-      if (ids.length > 0) vQ = vQ.in('employee_id', ids)
+    if (isAdmin) {
+      // admin يشوف الكل
     } else if (isBranchManager) {
       const ids = (empData || []).map((e: any) => e.id)
       if (ids.length > 0) vQ = vQ.in('employee_id', ids)
+    } else if (isDeptManager) {
+      // مدير القسم يشوف قسمه فقط
+      const ids = (empData || []).map((e: any) => e.id)
+      if (ids.length > 0) vQ = vQ.in('employee_id', ids)
+    } else if (isSupervisor) {
+      // المشرف يشوف اللي هو سجلها بس
+      vQ = vQ.eq('created_by', employee?.id || '')
     }
     const { data: vData, error } = await vQ
     if (error) { console.error('violations error:', error.message); setLoading(false); return }
@@ -388,7 +394,7 @@ export default function ViolationsPage() {
                 {v.status === 'submitted' && (isAdmin || isBranchManager) && (
                   <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                 )}
-                {isAdmin && v.status === 'active' && (
+                {(isAdmin || isBranchManager || isDeptManager) && (v.status === 'active' || v.status === 'submitted') && (
                   <button onClick={() => cancelViolation(v.id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                 )}
               </div>

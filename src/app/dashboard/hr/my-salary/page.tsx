@@ -50,7 +50,8 @@ function calcRecord(r: PayrollRecord) {
   const totalAllowances = r.allowance_1 + r.allowance_2 + r.allowance_3
   const totalEarnings   = earnedBase + overtimePay + totalAllowances
   const absenceDed  = dailyRate * r.absence_days
-  const lateDed     = hourlyRate * r.late_hours
+  const lateRate    = 20 // 20 MYR per late hour
+  const lateDed     = lateRate * r.late_hours
   const earlyDed    = hourlyRate * r.early_exit_hours
   const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
@@ -97,8 +98,11 @@ export default function MySalaryPage() {
       sb.from('payroll_records').select('*').eq('payroll_month_id', selectedMonth.id).eq('employee_id', myId).maybeSingle(),
       sb.from('attendance').select('check_in_time,date').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
       sb.from('shift_schedules').select('date,shifts(start_time)').eq('employee_id', myId).gte('date', monthStart).lte('date', monthEnd),
-    ]).then(([recRes, attRes, schRes]) => {
+      sb.from('violations').select('amount').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
+    ]).then(([recRes, attRes, schRes, violRes]) => {
       const record = recRes.data
+      // احسب المخالفات النشطة فقط
+      const activeViolationsTotal = (violRes.data || []).reduce((s: number, v: any) => s + (v.amount || 0), 0)
       const attData = attRes.data || []
       const schData = schRes.data || []
 
@@ -126,7 +130,12 @@ export default function MySalaryPage() {
       const lateHours = parseFloat((totalLateMinutes / 60).toFixed(2))
 
       if (record) {
-        setMyRecord({ ...record, late_hours: lateHours })
+        setMyRecord({ 
+          ...record, 
+          late_hours: lateHours,
+          deduction_1: activeViolationsTotal,
+          deduction_1_label: activeViolationsTotal > 0 ? `مخالفات (${activeViolationsTotal.toFixed(2)} MYR)` : 'Violations',
+        })
       } else {
         setMyRecord(null)
       }
@@ -235,7 +244,7 @@ export default function MySalaryPage() {
                 { label: 'أيام العمل', value: myRecord.working_days, color: S.blue },
                 { label: 'أيام الحضور', value: myRecord.days_worked, color: S.green },
                 { label: 'أيام الغياب', value: myRecord.absence_days, color: myRecord.absence_days > 0 ? S.red : S.muted },
-                { label: 'تأخير (ساعة)', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
+                { label: 'تأخير (ساعة) 20 MYR', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
                 { label: 'أوفر تايم', value: (myRecord.overtime_days || 0) + (myRecord.overtime_hours ? myRecord.overtime_hours / 8 : 0), color: S.purple },
                 { label: 'رصيد سلفة', value: myRecord.advance_balance || 0, color: S.amber },
               ].map((item, i) => (

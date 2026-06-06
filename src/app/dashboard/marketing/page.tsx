@@ -160,7 +160,6 @@ export default function MarketingPage() {
     { key: 'calendar',     label: '📅 التقويم',           badge: 0 },
     { key: 'suggestions',  label: '💡 اقتراحات الفريق',   badge: pendingSuggestions },
   ] : [
-    { key: 'suggestions',  label: '💡 اقتراح فكرة تسويقية', badge: 0 },
   ]
 
   return (

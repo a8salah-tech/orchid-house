@@ -112,9 +112,12 @@ export default function ViolationsPage() {
     let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id').eq('is_active', true).order('name')
     if (!isAdmin) {
       if (isBranchManager) empQ = empQ.eq('branch_id', employee?.branch_id || '')
-      else if (role === 'kitchen_manager') empQ = empQ.in('department', ['المطبخ','Kitchen','البار','Bar','الحلويات'])
-      else if (role === 'hall_manager') empQ = empQ.in('department', ['الصالة','Hall'])
-      else if (role === 'bar_manager') empQ = empQ.in('department', ['البار','Bar'])
+      else if (role === 'kitchen_manager') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['المطبخ','Kitchen','البار','Bar','الحلويات'])
+      else if (role === 'hall_manager') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['الصالة','Hall'])
+      else if (role === 'bar_manager') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['البار','Bar'])
+      else if (role === 'kitchen_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['المطبخ','Kitchen'])
+      else if (role === 'hall_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['الصالة','Hall'])
+      else if (role === 'bar_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['البار','Bar'])
     }
     const { data: empData } = await empQ
     const today = new Date().toISOString().split('T')[0]
@@ -161,9 +164,12 @@ export default function ViolationsPage() {
     let q = sb.from('employees').select('id,name,name_en,department').eq('is_active',true).order('name')
     if(!isAdmin){
       if(isBranchManager) q=q.eq('branch_id',employee?.branch_id||'')
-      else if(role==='kitchen_manager'||role==='kitchen_supervisor') q=q.in('department',['المطبخ','Kitchen'])
-      else if(role==='hall_manager'||role==='hall_supervisor') q=q.in('department',['الصالة','Hall'])
-      else if(role==='bar_manager'||role==='bar_supervisor') q=q.in('department',['البار','Bar'])
+      else if(role==='kitchen_manager') q=q.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
+      else if(role==='hall_manager') q=q.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
+      else if(role==='bar_manager') q=q.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
+      else if(role==='kitchen_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
+      else if(role==='hall_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
+      else if(role==='bar_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
     }
     const {data:empData}=await q
     const list=(empData||[]).filter((e:any)=>e.id!==employee?.id)
@@ -203,9 +209,12 @@ export default function ViolationsPage() {
     let empQ = sb.from('employees').select('id,name,name_en,department,branch_id').eq('is_active',true).order('name')
     if(!isAdmin){
       if(isBranchManager) empQ=empQ.eq('branch_id',employee?.branch_id||'')
-      else if(role==='kitchen_manager'||role==='kitchen_supervisor') empQ=empQ.in('department',['المطبخ','Kitchen'])
-      else if(role==='hall_manager'||role==='hall_supervisor') empQ=empQ.in('department',['الصالة','Hall'])
-      else if(role==='bar_manager'||role==='bar_supervisor') empQ=empQ.in('department',['البار','Bar'])
+      else if(role==='kitchen_manager') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
+      else if(role==='hall_manager') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
+      else if(role==='bar_manager') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
+      else if(role==='kitchen_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
+      else if(role==='hall_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
+      else if(role==='bar_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
     }
     const {data:empData}=await empQ
     const list=(empData||[]).filter((e:any)=>e.id!==employee?.id)

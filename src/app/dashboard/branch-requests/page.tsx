@@ -607,11 +607,18 @@ export default function BranchRequestsPage() {
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>📦 طلبات الفروع</h1>
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'نظام طلب المستلزمات من المستودع' : 'Branch supply request system'}</p>
         </div>
-        {canCreate && (
-          <button onClick={() => setShowNew(true)} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            ➕ {isAr ? 'طلب جديد' : 'New Request'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {isAdmin && (
+            <button onClick={() => window.open('/dashboard/settings/department-products', '_blank')} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              🏷️ {isAr ? 'مواد الأقسام' : 'Dept Products'}
+            </button>
+          )}
+          {canCreate && (
+            <button onClick={() => setShowNew(true)} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              ➕ {isAr ? 'طلب جديد' : 'New Request'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}

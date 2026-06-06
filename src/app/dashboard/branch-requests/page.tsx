@@ -64,14 +64,24 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [units, setUnits] = useState<any[]>([])
   const [branches, setBranches] = useState<any[]>([])
   const [items, setItems] = useState([{ product_id: '', qty: '', unit_id: '', notes: '' }])
-  const [search, setSearch] = useState<Record<number,string>>({})
-  const [dropdown, setDropdown] = useState<number|null>(null)
+  const [search, setSearch] = useState('')
+  const [deptProducts, setDeptProducts] = useState<string[]>([])
+  const [activeDeptTab, setActiveDeptTab] = useState('المطبخ')
   const role = currentEmployee?.role || ''
   const autoDept = role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : currentEmployee?.department || ''
   const [form, setForm] = useState({ branch_id: currentEmployee?.branch_id || '', department: autoDept, requested_by: currentEmployee?.name || '', notes: '' })
 
   useEffect(() => {
-    sb.from('warehouse_products').select('id,name,name_en,current_stock,units(symbol)').eq('is_active', true).order('name').then(({ data }) => setProducts(data || []))
+    sb.from('department_products').select('product_id').eq('department', activeDeptTab)
+      .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
+  }, [activeDeptTab])
+
+  useEffect(() => {
+    // load initial dept products on mount
+    sb.from('department_products').select('product_id').eq('department', 'المطبخ')
+      .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
+    sb.from('warehouse_products').select('id,name,name_en,current_stock,units(symbol)').eq('is_active', true).order('name')
+      .then(({ data }) => setProducts(data || []))
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
     sb.from('branches').select('*').order('name').then(({ data }) => setBranches(data || []))
   }, [])
@@ -122,46 +132,70 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
             <input style={inp} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="أي ملاحظات..." />
           </div>
         </div>
+        {/* تابات الأقسام */}
         <div style={{ background: S.navy3, borderRadius: 12, padding: 14, marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: S.gold }}>الأصناف</span>
-            <button onClick={() => setItems(p => [...p, { product_id: '', qty: '', unit_id: '', notes: '' }])} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>+ صنف</button>
+          <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 12 }}>📦 اختر الأصناف</div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            {['المطبخ','البار','الصالة'].map(dept => (
+              <button key={dept} onClick={() => {
+                setActiveDeptTab(dept)
+                sb.from('department_products').select('product_id').eq('department', dept)
+                  .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
+              }}
+                style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${activeDeptTab===dept ? S.gold : S.border}`, background: activeDeptTab===dept ? S.gold3 : 'transparent', color: activeDeptTab===dept ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: activeDeptTab===dept ? 700 : 400 }}>
+                {dept==='المطبخ'?'🍳':dept==='البار'?'🍹':'🪑'} {dept}
+              </button>
+            ))}
           </div>
-          {items.map((item, i) => (
-            <div key={i} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: 10, marginBottom: 8, border: `1px solid ${S.border}` }}>
-              <input style={{ ...inp, fontSize: 12, marginBottom: 6 }} value={item.notes} onChange={e => setItems(p => p.map((it, idx) => idx===i ? { ...it, notes: e.target.value } : it))} placeholder="ملاحظات الصنف..." />
-              <div style={{ position: 'relative', marginBottom: 6 }}>
-                <input style={{ ...inp, background: S.navy3, border: `1px solid ${dropdown===i ? S.gold : S.border}` }}
-                  value={search[i] !== undefined ? search[i] : (products.find(p => p.id===item.product_id)?.name || '')}
-                  onChange={e => { setSearch(p => ({ ...p, [i]: e.target.value })); setDropdown(i); if (!e.target.value) setItems(p => p.map((it,idx)=>idx===i?{...it,product_id:''}:it)) }}
-                  onFocus={() => setDropdown(i)} placeholder="🔍 ابحث عن صنف..." autoComplete="off" />
-                {dropdown === i && (
-                  <div onMouseDown={e => e.preventDefault()} style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, left: 0, zIndex: 999, background: S.navy, border: `1px solid ${S.gold}40`, borderRadius: 10, maxHeight: 220, overflowY: 'auto', boxShadow: '0 16px 40px rgba(0,0,0,0.8)' }}>
-                    {products.filter(p => { const q=(search[i]||'').toLowerCase(); return !q||p.name.toLowerCase().includes(q)||(p.name_en||'').toLowerCase().includes(q) }).slice(0,40).map(p => (
-                      <div key={p.id} onClick={() => { setItems(prev => prev.map((it,idx) => idx===i ? { ...it, product_id: p.id, unit_id: p.units ? units.find(u=>u.symbol===p.units?.symbol)?.id||'':'' } : it)); setSearch(prev => ({ ...prev, [i]: p.name })); setDropdown(null) }}
-                        style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ fontSize: 13, color: item.product_id===p.id ? S.gold : S.white }}>{p.name}</div>
-                          {p.name_en && <div style={{ fontSize: 10, color: S.muted }}>{p.name_en}</div>}
-                        </div>
-                        <div style={{ fontSize: 12, color: p.current_stock > 0 ? S.green : S.red, fontWeight: 700 }}>{p.current_stock} {p.units?.symbol}</div>
-                      </div>
-                    ))}
-                    <div style={{ padding: 8, textAlign: 'center' }}><button onClick={() => setDropdown(null)} style={{ fontSize: 11, color: S.muted, background: 'transparent', border: 'none', cursor: 'pointer' }}>إغلاق</button></div>
+          <input style={{ ...inp, marginBottom: 12, fontSize: 12 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث في الأصناف..." />
+          {deptProducts.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>لا توجد أصناف محددة لهذا القسم</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
+              {products.filter(p => deptProducts.includes(p.id) && (!search || p.name.toLowerCase().includes(search.toLowerCase()))).map(p => {
+                const isSelected = items.some(it => it.product_id === p.id)
+                return (
+                  <div key={p.id} onClick={() => {
+                    if (isSelected) setItems(prev => prev.filter(it => it.product_id !== p.id))
+                    else { const unitId = p.units ? units.find((u:any) => u.symbol === p.units?.symbol)?.id||'' : ''; setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, qty: '', unit_id: unitId, notes: '' }]) }
+                  }} style={{ background: isSelected ? S.gold3 : 'rgba(255,255,255,0.03)', borderRadius: 10, border: `1px solid ${isSelected ? S.gold : S.border}`, padding: '10px 12px', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? S.gold : S.white, flex: 1 }}>{p.name}</div>
+                      {isSelected && <span style={{ color: S.gold, fontSize: 13 }}>✓</span>}
+                    </div>
+                    <div style={{ fontSize: 10, color: p.current_stock > 0 ? S.green : S.red }}>{p.current_stock} {p.units?.symbol}</div>
                   </div>
-                )}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
-                <input type="number" style={{ ...inp, direction: 'ltr' }} value={item.qty} onChange={e => setItems(p => p.map((it,idx)=>idx===i?{...it,qty:e.target.value}:it))} placeholder="الكمية" />
-                <select style={{ ...inp, cursor: 'pointer', background: S.navy3 }} value={item.unit_id} onChange={e => setItems(p => p.map((it,idx)=>idx===i?{...it,unit_id:e.target.value}:it))}>
-                  <option value="">الوحدة</option>
-                  {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-                {items.length > 1 && <button onClick={() => setItems(p => p.filter((_,idx) => idx!==i))} style={{ padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer' }}>🗑️</button>}
-              </div>
+                )
+              })}
             </div>
-          ))}
+          )}
         </div>
+        {items.filter(it => it.product_id).length > 0 && (
+          <div style={{ background: S.navy3, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.blue, marginBottom: 12 }}>📋 الأصناف المختارة ({items.filter(it => it.product_id).length})</div>
+            {items.map((item, i) => {
+              if (!item.product_id) return null
+              const prod = products.find(p => p.id === item.product_id)
+              return (
+                <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, border: `1px solid ${S.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{prod?.name}</div>
+                    <button onClick={() => setItems(p => p.filter((_,idx) => idx!==i))} style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11 }}>🗑️</button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <input type="number" style={{ ...inp, direction: 'ltr', fontSize: 12 }} value={item.qty} onChange={e => setItems(p => p.map((it,idx) => idx===i ? { ...it, qty: e.target.value } : it))} placeholder="الكمية" />
+                    <select style={{ ...inp, cursor: 'pointer', background: S.navy3, fontSize: 12 }} value={item.unit_id} onChange={e => setItems(p => p.map((it,idx) => idx===i ? { ...it, unit_id: e.target.value } : it))}>
+                      <option value="">الوحدة</option>
+                      {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </div>
+                  <input style={{ ...inp, fontSize: 11, marginTop: 6 }} value={item.notes} onChange={e => setItems(p => p.map((it,idx) => idx===i ? { ...it, notes: e.target.value } : it))} placeholder="📝 ملاحظات للصنف..." />
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
           <button onClick={save} disabled={saving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -635,4 +669,5 @@ export default function BranchRequestsPage() {
       {selected && <RequestDetailModal request={selected} currentEmployee={employee} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
-}
+}        {/* ── تابات الأقسام ── */}
+

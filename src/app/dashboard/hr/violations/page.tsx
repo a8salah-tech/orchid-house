@@ -74,7 +74,7 @@ export default function ViolationsPage() {
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
   const [attachmentUrl, setAttachmentUrl] = useState('')
   const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'violations'|'evaluations'|'absences'>('violations')
+  const [activeTab, setActiveTab] = useState<'violations'|'evaluations'|'absences'|'dept_violations'>('violations')
   const [evalEmps, setEvalEmps] = useState<any[]>([])
   const [evals, setEvals] = useState<any[]>([])
   const [evalMonth, setEvalMonth] = useState(new Date().getMonth()+1)
@@ -90,6 +90,23 @@ export default function ViolationsPage() {
   const [showAbsAdd, setShowAbsAdd] = useState(false)
   const [absSaving, setAbsSaving] = useState(false)
   const [absForm, setAbsForm] = useState({ employee_id: '', date: new Date().toISOString().split('T')[0], notes: '' })
+
+  // ── مخالفة القسم ──
+  const canSubmitDeptViolation = isDeptManager || isSupervisor
+  const canViewDeptViolations  = isAdmin || isBranchManager
+  const [showDeptViolAdd, setShowDeptViolAdd]   = useState(false)
+  const [deptViolations, setDeptViolations]     = useState<any[]>([])
+  const [deptViolLoading, setDeptViolLoading]   = useState(false)
+  const [deptViolSaving, setDeptViolSaving]     = useState(false)
+  const [deptViolFile, setDeptViolFile]         = useState<File | null>(null)
+  const [deptViolPreview, setDeptViolPreview]   = useState<string | null>(null)
+  const [deptViolFilterMonth, setDeptViolFilterMonth] = useState(new Date().toISOString().slice(0,7))
+  const DEPARTMENTS = ['المطبخ','الصالة','البار','الحلويات','الكاشير','التوصيل','المستودع','الإدارة']
+  const [deptViolForm, setDeptViolForm] = useState({
+    department: '',
+    reason: '',
+    date: new Date().toISOString().split('T')[0],
+  })
   async function fetchAll() {
     setLoading(true)
     let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id').eq('is_active', true).order('name')
@@ -210,6 +227,7 @@ export default function ViolationsPage() {
     setAbsLoading(false)
   }
   useEffect(()=>{if(employee?.id&&activeTab==='absences')fetchAbsences()},[employee?.id,activeTab,absFilterMonth])
+  useEffect(()=>{if(employee?.id&&activeTab==='dept_violations')fetchDeptViolations()},[employee?.id,activeTab,deptViolFilterMonth])
 
   async function saveAbsence(){
     if(!absForm.employee_id||!absForm.date){alert('يرجى اختيار الموظف والتاريخ');return}
@@ -241,6 +259,50 @@ export default function ViolationsPage() {
     if(!confirm('إلغاء هذا الغياب؟'))return
     await sb.from('absences').update({status:'cancelled'}).eq('id',id)
     fetchAbsences()
+  }
+
+  async function fetchDeptViolations() {
+    setDeptViolLoading(true)
+    const [year, month] = deptViolFilterMonth.split('-').map(Number)
+    const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
+    const monthEnd   = new Date(year, month, 0).toISOString().split('T')[0]
+    const { data } = await sb.from('department_violations')
+      .select('*').gte('date', monthStart).lte('date', monthEnd)
+      .order('created_at', { ascending: false })
+    if (data && data.length > 0) {
+      const creatorIds = [...new Set(data.map((d:any) => d.created_by).filter(Boolean))]
+      const { data: names } = await sb.from('employees').select('id,name,name_en').in('id', creatorIds as string[])
+      const nameMap = Object.fromEntries((names||[]).map(e=>[e.id,e]))
+      setDeptViolations(data.map((d:any) => ({ ...d, creatorName: nameMap[d.created_by]?.name || '—' })))
+    } else { setDeptViolations([]) }
+    setDeptViolLoading(false)
+  }
+
+  async function saveDeptViolation() {
+    if (!deptViolForm.department || !deptViolForm.reason || !deptViolForm.date) {
+      alert('يرجى إكمال جميع الحقول'); return
+    }
+    setDeptViolSaving(true)
+    let attachUrl = ''
+    if (deptViolFile) {
+      const ext = deptViolFile.name.split('.').pop()
+      const path = `dept_violations/${Date.now()}.${ext}`
+      const { data: upData } = await sb.storage.from('employees').upload(path, deptViolFile, { upsert: true })
+      if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); attachUrl = urlData.publicUrl }
+    }
+    const { error } = await sb.from('department_violations').insert([{
+      department: deptViolForm.department,
+      reason: deptViolForm.reason,
+      date: deptViolForm.date,
+      created_by: employee?.id,
+      attachment_url: attachUrl || null,
+    }])
+    setDeptViolSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
+    setShowDeptViolAdd(false)
+    setDeptViolForm({ department: '', reason: '', date: new Date().toISOString().split('T')[0] })
+    setDeptViolFile(null)
+    fetchDeptViolations()
   }
 
   async function save() {
@@ -319,6 +381,9 @@ export default function ViolationsPage() {
         <button onClick={() => setActiveTab('violations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='violations' ? S.red : S.border}`, background: activeTab==='violations' ? S.redB : 'transparent', color: activeTab==='violations' ? S.red : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='violations' ? 700 : 400 }}>⚠️ {isAr ? 'المخالفات' : 'Violations'}</button>
         <button onClick={() => setActiveTab('evaluations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='evaluations' ? S.gold : S.border}`, background: activeTab==='evaluations' ? S.gold3 : 'transparent', color: activeTab==='evaluations' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='evaluations' ? 700 : 400 }}>⭐ {isAr ? 'التقييمات' : 'Evaluations'}</button>
         <button onClick={() => setActiveTab('absences')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='absences' ? '#8B5CF6' : S.border}`, background: activeTab==='absences' ? 'rgba(139,92,246,0.12)' : 'transparent', color: activeTab==='absences' ? '#8B5CF6' : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='absences' ? 700 : 400 }}>🚫 {isAr ? 'الغياب' : 'Absences'}</button>
+        {(canSubmitDeptViolation || canViewDeptViolations) && (
+          <button onClick={() => setActiveTab('dept_violations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='dept_violations' ? '#F97316' : S.border}`, background: activeTab==='dept_violations' ? 'rgba(249,115,22,0.12)' : 'transparent', color: activeTab==='dept_violations' ? '#F97316' : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='dept_violations' ? 700 : 400 }}>🏢 {isAr ? 'مخالفات الأقسام' : 'Dept Violations'}</button>
+        )}
       </div>
 
       {/* ══ VIOLATIONS TAB ══ */}
@@ -695,6 +760,128 @@ export default function ViolationsPage() {
               <button onClick={() => setShowAdd(false)} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
               <button onClick={save} disabled={saving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 {saving ? '⏳' : (isAr ? '⚠️ إضافة المخالفة' : '⚠️ Add Violation')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ══ DEPT VIOLATIONS TAB ══ */}
+      {activeTab === 'dept_violations' && (
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
+            <input style={{...inp,width:'auto'}} type="month" value={deptViolFilterMonth} onChange={e=>setDeptViolFilterMonth(e.target.value)} />
+            {canSubmitDeptViolation && (
+              <button onClick={()=>setShowDeptViolAdd(true)} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #F97316',background:'rgba(249,115,22,0.12)',color:'#F97316',cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                ➕ {isAr?'إضافة مخالفة قسم':'Add Dept Violation'}
+              </button>
+            )}
+          </div>
+
+          {/* Notice for non-viewers */}
+          {!canViewDeptViolations && canSubmitDeptViolation && (
+            <div style={{background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.3)',borderRadius:12,padding:'12px 18px',marginBottom:16,fontSize:13,color:'#F97316'}}>
+              ℹ️ {isAr?'يمكنك رفع مخالفة القسم — يراها مدير الفرع ومدير النظام فقط.':'You can submit a department violation — visible only to the branch manager and system admin.'}
+            </div>
+          )}
+
+          {/* Stats — visible only to branch manager / admin */}
+          {canViewDeptViolations && (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,marginBottom:20}}>
+              {[
+                {label:isAr?'إجمالي المخالفات':'Total',value:deptViolations.length,color:'#F97316',bg:'rgba(249,115,22,0.12)'},
+              ].map((s,i)=>(
+                <div key={i} style={{background:s.bg,borderRadius:12,padding:'14px 16px',border:`1px solid ${s.color}30`}}>
+                  <div style={{fontSize:20,fontWeight:800,color:s.color}}>{s.value}</div>
+                  <div style={{fontSize:11,color:S.muted,marginTop:2}}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* List — only for branch manager / admin */}
+          {canViewDeptViolations && (
+            deptViolLoading ? <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳</div>
+            : deptViolations.length === 0 ? (
+              <div style={{textAlign:'center',padding:60,background:S.navy2,borderRadius:16,border:`1px solid ${S.border}`}}>
+                <div style={{fontSize:40,marginBottom:12}}>✅</div>
+                <div style={{color:S.muted}}>{isAr?'لا توجد مخالفات أقسام في هذه الفترة':'No department violations this period'}</div>
+              </div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                {deptViolations.map((v:any)=>(
+                  <div key={v.id} style={{background:S.navy2,borderRadius:14,border:'1px solid rgba(249,115,22,0.25)',padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
+                    <div style={{display:'flex',gap:14,alignItems:'flex-start',flex:1}}>
+                      <div style={{width:44,height:44,borderRadius:'50%',background:'rgba(249,115,22,0.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🏢</div>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:700,color:'#F97316',marginBottom:4}}>{v.department}</div>
+                        <div style={{fontSize:13,color:S.white,marginBottom:6,lineHeight:1.5}}>{v.reason}</div>
+                        <div style={{fontSize:11,color:S.muted}}>📅 {v.date} · {isAr?'بواسطة':'by'}: {v.creatorName}</div>
+                        {v.attachment_url && (
+                          <div style={{marginTop:8}}>
+                            {v.attachment_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                              <img src={v.attachment_url} alt="مرفق" style={{maxWidth:200,maxHeight:120,borderRadius:8,border:`1px solid ${S.border}`,cursor:'pointer'}} onClick={()=>setDeptViolPreview(v.attachment_url)} />
+                            ) : (
+                              <a href={v.attachment_url} target="_blank" rel="noreferrer" style={{fontSize:11,color:S.blue,display:'inline-flex',alignItems:'center',gap:4,background:S.blueB,borderRadius:8,padding:'4px 10px'}}>📎 {isAr?'عرض المرفق':'View Attachment'}</a>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+
+          {/* Image Preview */}
+          {deptViolPreview && (
+            <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={()=>setDeptViolPreview(null)}>
+              <div style={{position:'relative',maxWidth:'90vw',maxHeight:'90vh'}} onClick={e=>e.stopPropagation()}>
+                <button onClick={()=>setDeptViolPreview(null)} style={{position:'absolute',top:-16,right:-16,width:36,height:36,borderRadius:'50%',background:'#F97316',border:'none',color:'#fff',fontSize:18,cursor:'pointer',fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',zIndex:10}}>✕</button>
+                <img src={deptViolPreview} alt="مرفق" style={{maxWidth:'85vw',maxHeight:'85vh',borderRadius:12,objectFit:'contain',boxShadow:'0 20px 60px rgba(0,0,0,0.8)'}} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add Dept Violation Modal */}
+      {showDeptViolAdd && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div style={{background:S.navy2,borderRadius:20,border:'1px solid rgba(249,115,22,0.4)',width:'100%',maxWidth:460,padding:28}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
+              <h2 style={{color:'#F97316',fontSize:17,fontWeight:800}}>🏢 {isAr?'إضافة مخالفة قسم':'Add Department Violation'}</h2>
+              <button onClick={()=>setShowDeptViolAdd(false)} style={{background:'transparent',border:'none',color:S.muted,fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.25)',borderRadius:10,padding:'10px 14px',marginBottom:18,fontSize:12,color:'#F97316'}}>
+              🔒 {isAr?'هذه المخالفة سرية — لا يراها سوى مدير الفرع ومدير النظام':'Confidential — visible only to branch manager and system admin'}
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div>
+                <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'القسم *':'Department *'}</label>
+                <select style={{...inp,cursor:'pointer',background:S.navy3}} value={deptViolForm.department} onChange={e=>setDeptViolForm(p=>({...p,department:e.target.value}))}>
+                  <option value="">{isAr?'-- اختر القسم --':'-- Select Department --'}</option>
+                  {DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'التاريخ *':'Date *'}</label>
+                <input style={inp} type="date" value={deptViolForm.date} onChange={e=>setDeptViolForm(p=>({...p,date:e.target.value}))} />
+              </div>
+              <div>
+                <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'وصف المخالفة *':'Violation Description *'}</label>
+                <textarea style={{...inp,minHeight:90,resize:'none'} as React.CSSProperties} value={deptViolForm.reason} onChange={e=>setDeptViolForm(p=>({...p,reason:e.target.value}))} placeholder={isAr?'اشرح المخالفة أو المشكلة بالتفصيل...':'Describe the violation in detail...'} />
+              </div>
+              <div>
+                <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'مرفق (صورة أو PDF) — اختياري':'Attachment (image or PDF) — optional'}</label>
+                <input type="file" accept="image/*,.pdf" onChange={e=>setDeptViolFile(e.target.files?.[0]||null)} style={{...inp,cursor:'pointer',fontSize:12}} />
+                {deptViolFile && <div style={{fontSize:11,color:S.green,marginTop:4}}>✅ {deptViolFile.name}</div>}
+              </div>
+            </div>
+            <div style={{display:'flex',gap:10,marginTop:22,justifyContent:'flex-end'}}>
+              <button onClick={()=>setShowDeptViolAdd(false)} style={{padding:'10px 20px',borderRadius:10,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif'}}>{isAr?'إلغاء':'Cancel'}</button>
+              <button onClick={saveDeptViolation} disabled={deptViolSaving} style={{padding:'10px 24px',borderRadius:10,border:'1px solid #F97316',background:'rgba(249,115,22,0.12)',color:'#F97316',cursor:deptViolSaving?'not-allowed':'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                {deptViolSaving?'⏳':(isAr?'🏢 حفظ المخالفة':'🏢 Save Violation')}
               </button>
             </div>
           </div>

@@ -53,6 +53,7 @@ export default function MarketingPage() {
   const isAdmin = permissions?.all === true
   const isBranchManager = employee?.role === 'branch_manager'
   const canManage = isAdmin || isBranchManager
+  const isRegularEmployee = !isAdmin && !isBranchManager
 
   const [activeTab, setActiveTab] = useState(canManage ? 'overview' : 'suggestions')
   const [suggestions, setSuggestions] = useState<any[]>([])
@@ -96,8 +97,9 @@ export default function MarketingPage() {
   async function saveSuggestion() {
     if (!suggestForm.title) { alert('يرجى إدخال عنوان الاقتراح'); return }
     setSaving(true)
-    await sb.from('marketing_suggestions').insert([{ ...suggestForm, employee_id: employee?.id, status: 'pending' }])
+    const { error } = await sb.from('marketing_suggestions').insert([{ ...suggestForm, employee_id: employee?.id, status: 'pending' }])
     setSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
     setShowSuggest(false)
     setSuggestForm({ title: '', description: '', platform: '' })
     fetchAll()
@@ -160,6 +162,7 @@ export default function MarketingPage() {
     { key: 'calendar',     label: '📅 التقويم',           badge: 0 },
     { key: 'suggestions',  label: '💡 اقتراحات الفريق',   badge: pendingSuggestions },
   ] : [
+    { key: 'suggestions',  label: '💡 اقتراح فكرة تسويقية', badge: 0 },
   ]
 
   return (

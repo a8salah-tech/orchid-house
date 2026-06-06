@@ -129,7 +129,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     description_en: item?.description_en || '',
     price: item?.price?.toString() || '',
     cost_price: item?.cost_price?.toString() || '',
-    discount_percent: String(item?.discount_percent ?? 0),
+    discount_percent: item?.discount_percent != null && item.discount_percent > 0 ? String(item.discount_percent) : '',
     is_active: item?.is_active !== false,
     is_available: item?.is_available !== false,
   })
@@ -179,7 +179,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
       category_id: form.category_id || null,
       price: parseFloat(form.price) || 0,
       cost_price: parseFloat(form.cost_price) || 0,
-      discount_percent: parseFloat(form.discount_percent) || 0,
+      discount_percent: form.discount_percent === '' || form.discount_percent === null ? 0 : (parseFloat(form.discount_percent) || 0),
       is_available: form.is_available !== false,
       is_active: (form as any).is_active !== false,
       image_url: finalImageUrl,
@@ -793,7 +793,7 @@ export default function MenuItemsPage() {
     setLoading(true)
     const [cats, itms] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,
@@ -1044,13 +1044,13 @@ export default function MenuItemsPage() {
 
                 <div style={{ flex: 1 }} />
                 {/* Actions */}
-<div style={{ display: 'flex', gap: 6 }}>
-  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>{isAr ? '✏️ تعديل' : '✏️ Edit'}</button>
-  <button onClick={() => setIngredientsItem(item)} style={{ padding: '7px 8px', borderRadius: 8, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 12 }}>🧪</button>
-  <button onClick={() => toggleAvailable(item)} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${item.is_available ? S.amber : S.green}`, background: item.is_available ? S.amberB : S.greenB, color: item.is_available ? S.amber : S.green, cursor: 'pointer', fontSize: 12 }}>
+<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 34 }}>{isAr ? '✏️ تعديل' : '✏️ Edit'}</button>
+  <button onClick={() => setIngredientsItem(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🧪</button>
+  <button onClick={() => toggleAvailable(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${item.is_available ? S.amber : S.green}`, background: item.is_available ? S.amberB : S.greenB, color: item.is_available ? S.amber : S.green, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
     {item.is_available ? '⏸' : '▶'}
   </button>
-  <button onClick={() => deleteItem(item.id)} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+  <button onClick={() => deleteItem(item.id)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🗑️</button>
 </div>
               </div>
             </div>

@@ -985,13 +985,13 @@ export default function MenuItemsPage() {
         </div>
       ) : view === 'grid' ? (
         /* Grid View */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, alignItems: 'stretch' }}>
           {paginated.map(item => (
             <div key={item.id} className="item-card" style={{
               background: S.navy2, borderRadius: 16,
               border: `1px solid ${item.is_available ? S.border : S.redB}`,
               overflow: 'hidden', position: 'relative',
-              display: 'flex', flexDirection: 'column',
+              display: 'flex', flexDirection: 'column', height: '100%',
             }}>
               {/* صورة */}
               <div style={{ aspectRatio: '4/3', background: S.navy3, position: 'relative', overflow: 'hidden' }}>
@@ -1044,13 +1044,13 @@ export default function MenuItemsPage() {
 
                 <div style={{ flex: 1 }} />
                 {/* Actions */}
-<div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 34 }}>{isAr ? '✏️ تعديل' : '✏️ Edit'}</button>
-  <button onClick={() => setIngredientsItem(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🧪</button>
-  <button onClick={() => toggleAvailable(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${item.is_available ? S.amber : S.green}`, background: item.is_available ? S.amberB : S.greenB, color: item.is_available ? S.amber : S.green, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-    {item.is_available ? '⏸' : '▶'}
-  </button>
-  <button onClick={() => deleteItem(item.id)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🗑️</button>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8 }}>
+                  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 34 }}>{isAr ? '✏️ تعديل' : '✏️ Edit'}</button>
+                  <button onClick={() => setIngredientsItem(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🧪</button>
+                  <button onClick={() => toggleAvailable(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${item.is_available ? S.amber : S.green}`, background: item.is_available ? S.amberB : S.greenB, color: item.is_available ? S.amber : S.green, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {item.is_available ? '⏸' : '▶'}
+                  </button>
+                  <button onClick={() => deleteItem(item.id)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🗑️</button>
 </div>
               </div>
             </div>

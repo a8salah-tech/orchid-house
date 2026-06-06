@@ -88,7 +88,7 @@ const ALL_MENU: MenuGroup[] = [
   { group: 'التسويق والنمو', items: [
     { label: 'كوبونات الخصم', label_en: 'Coupons',       icon: '🎫', path: '/dashboard/coupons',       permission: 'marketing' },
     { label: 'الإشعارات',     label_en: 'Notifications', icon: '📲', path: '/dashboard/notifications', permission: 'marketing' },
-    { label: 'التسويق', label_en: 'Marketing Hub', icon: '📣', path: '/dashboard/marketing', permission: 'all_employees' },
+   { label: 'التسويق', label_en: 'Marketing Hub', icon: '📣', path: '/dashboard/marketing', permission: null },
   ]},
   { group: 'المالية والحسابات', items: [
     { label: 'التقارير اليومية',      label_en: 'Daily Reports',    icon: '📊', path: '/dashboard/reports/daily',       permission: 'reports' },
@@ -177,7 +177,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     ALL_MENU.map(group => ({
       ...group,
       items: group.items.filter(item =>
-        item.permission === null || isAdmin || hasPermission(item.permission)
+        item.permission === null || item.permission === 'all_employees' || isAdmin || hasPermission(item.permission)
       )
     })).filter(group => group.items.length > 0)
   , [permissions, employee])

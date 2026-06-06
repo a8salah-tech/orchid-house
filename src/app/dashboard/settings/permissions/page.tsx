@@ -21,13 +21,12 @@ const S = {
   teal: '#14B8A6', tealB: 'rgba(20,184,166,0.12)',
 }
 
-// ✅ أدوار محدّثة — تشمل kitchen_manager و hall_manager
 const ROLES_INFO: Record<string, { label: string; icon: string; color: string; bg: string; desc: string }> = {
   admin:               { label: 'مدير النظام',    icon: '👑', color: S.gold,    bg: S.gold3,                        desc: 'صلاحية كاملة على كل النظام' },
   branch_manager:      { label: 'مدير الفرع',     icon: '🏪', color: S.purple,  bg: S.purpleB,                      desc: 'إدارة الفرع والتقارير والموظفين' },
   kitchen_manager:     { label: 'مدير المطبخ',    icon: '🍳', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'المطبخ والبار والحلويات والموظفين' },
   hall_manager:        { label: 'مدير الصالة',    icon: '🏛️', color: '#06B6D4', bg: 'rgba(6,182,212,0.12)',          desc: 'الصالة والحجوزات والعملاء' },
-  bar_manager: { label: 'مدير البار', icon: '🍹', color: '#6366F1', bg: 'rgba(99,102,241,0.12)',                desc: 'البار والمشروبات والموظفين' },
+  bar_manager:         { label: 'مدير البار',     icon: '🍹', color: '#6366F1', bg: 'rgba(99,102,241,0.12)',         desc: 'البار والمشروبات والموظفين' },
   kitchen_supervisor:  { label: 'مشرف المطبخ',    icon: '👨‍🍳', color: S.red,     bg: S.redB,                         desc: 'المطبخ والمخزون وطلبات الفروع' },
   hall_supervisor:     { label: 'مشرف الصالة',    icon: '🍽️', color: S.blue,    bg: S.blueB,                        desc: 'الصالة والحجوزات وخدمة العملاء' },
   bar_supervisor:      { label: 'مشرف البار',     icon: '☕', color: S.teal,    bg: S.tealB,                        desc: 'البار والمشروبات والمخزون' },
@@ -36,22 +35,20 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   employee:            { label: 'موظف',            icon: '👤', color: S.muted,   bg: S.card2,                        desc: 'طلباته الشخصية فقط' },
 }
 
-// ✅ الصلاحيات الافتراضية لكل دور
 const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   admin:              { all: true },
-  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, notifications: true },
-  kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, hr: true, my_requests: true, attendance: true, notifications: true },
-  hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, my_requests: true, attendance: true, notifications: true },
-  bar_manager: { bar: true, branch_requests: true, hr: true, my_requests: true, attendance: true, notifications: true },
-  kitchen_supervisor: { kitchen: true, branch_requests: true, my_requests: true, attendance: true },
-  hall_supervisor:    { hall: true, bookings: true, my_requests: true, attendance: true },
-  bar_supervisor:     { bar: true, my_requests: true, attendance: true },
-  cashier:            { sales: true, invoices: true, my_requests: true, attendance: true },
-  warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, suppliers: true, my_requests: true, attendance: true, notifications: true },
-  employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true },
+  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, notifications: true, marketing: true },
+  kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  bar_manager:        { bar: true, branch_requests: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  kitchen_supervisor: { kitchen: true, branch_requests: true, my_requests: true, attendance: true, marketing: true },
+  hall_supervisor:    { hall: true, bookings: true, my_requests: true, attendance: true, marketing: true },
+  bar_supervisor:     { bar: true, my_requests: true, attendance: true, marketing: true },
+  cashier:            { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
+  warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, suppliers: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true, marketing: true },
 }
 
-// ✅ كل الصلاحيات الموجودة — محتفظ بكل الأصلية + الجديدة
 const ALL_PERMISSIONS = [
   { key: 'all',              label: 'كل الصلاحيات',        group: 'عام',           icon: '🔓' },
   { key: 'warehouse',        label: 'المستودعات',           group: 'إدارة المخزون', icon: '🏭' },
@@ -107,7 +104,6 @@ export default function PermissionsPage() {
     setRoles(data || [])
     const permsMap: Record<string, Record<string, boolean>> = {}
     ;(data || []).forEach((r: RolePermission) => { permsMap[r.role] = r.permissions || {} })
-    // ✅ أضف الأدوار الجديدة لو مش موجودة في DB
     Object.keys(ROLES_INFO).forEach(role => {
       if (!permsMap[role]) permsMap[role] = DEFAULT_PERMISSIONS[role] || {}
     })
@@ -124,18 +120,14 @@ export default function PermissionsPage() {
     }))
   }
 
-  // ✅ يدعم إنشاء role جديد لو مش موجود
   async function saveRole(role: string) {
     setSaving(role)
     const existing = roles.find(r => r.role === role)
     let error
     if (existing) {
-      ;({ error } = await supabase.from('roles_permissions')
-        .update({ permissions: localPerms[role] })
-        .eq('role', role))
+      ;({ error } = await supabase.from('roles_permissions').update({ permissions: localPerms[role] }).eq('role', role))
     } else {
-      ;({ error } = await supabase.from('roles_permissions')
-        .insert([{ role, role_name_ar: ROLES_INFO[role]?.label || role, permissions: localPerms[role], is_active: true }]))
+      ;({ error } = await supabase.from('roles_permissions').insert([{ role, role_name_ar: ROLES_INFO[role]?.label || role, permissions: localPerms[role], is_active: true }]))
     }
     setSaving(null)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -144,7 +136,6 @@ export default function PermissionsPage() {
     fetchAll()
   }
 
-  // ✅ إعادة للافتراضي
   async function resetToDefault(role: string) {
     if (!confirm(`إعادة صلاحيات "${ROLES_INFO[role]?.label}" للافتراضي؟`)) return
     setLocalPerms(prev => ({ ...prev, [role]: DEFAULT_PERMISSIONS[role] || {} }))
@@ -157,27 +148,19 @@ export default function PermissionsPage() {
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
-      `}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');`}</style>
 
-      {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>🔐 إدارة الصلاحيات</h1>
         <p style={{ fontSize: 13, color: S.muted }}>تحديد صلاحيات الوصول لكل دور وظيفي</p>
       </div>
 
-      {/* Warning */}
       <div style={{ background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 12, padding: '12px 16px', marginBottom: 24, display: 'flex', gap: 10 }}>
         <span style={{ fontSize: 18 }}>⚠️</span>
-        <div style={{ fontSize: 13, color: S.amber }}>
-          هذه الصفحة خاصة بمدير النظام فقط. أي تغيير في الصلاحيات سيؤثر فوراً على وصول الموظفين للنظام.
-        </div>
+        <div style={{ fontSize: 13, color: S.amber }}>هذه الصفحة خاصة بمدير النظام فقط. أي تغيير في الصلاحيات سيؤثر فوراً على وصول الموظفين للنظام.</div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20 }}>
-
-        {/* Roles List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 12, color: S.muted, fontWeight: 700, marginBottom: 4, letterSpacing: 1 }}>الأدوار الوظيفية</div>
           {Object.entries(ROLES_INFO).map(([key, info]) => {
@@ -189,9 +172,7 @@ export default function PermissionsPage() {
                 <span style={{ fontSize: 20 }}>{info.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: isSelected ? info.color : S.white, marginBottom: 2 }}>{info.label}</div>
-                  <div style={{ fontSize: 10, color: S.muted }}>
-                    {key === 'admin' ? 'كل الصلاحيات' : `${permCount} صلاحية`}
-                  </div>
+                  <div style={{ fontSize: 10, color: S.muted }}>{key === 'admin' ? 'كل الصلاحيات' : `${permCount} صلاحية`}</div>
                 </div>
                 {saved === key && <span style={{ color: S.green, fontSize: 14 }}>✓</span>}
               </button>
@@ -199,19 +180,12 @@ export default function PermissionsPage() {
           })}
         </div>
 
-        {/* Permissions Panel */}
         <div>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
-          ) : (
+          {loading ? <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div> : (
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-
-              {/* Role Header */}
               <div style={{ padding: '20px 24px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: roleInfo.bg, border: `2px solid ${roleInfo.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>
-                    {roleInfo.icon}
-                  </div>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: roleInfo.bg, border: `2px solid ${roleInfo.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>{roleInfo.icon}</div>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 800, color: S.white, marginBottom: 4 }}>{roleInfo.label}</div>
                     <div style={{ fontSize: 12, color: S.muted }}>{roleInfo.desc}</div>
@@ -219,19 +193,14 @@ export default function PermissionsPage() {
                 </div>
                 {!isAdmin && (
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => resetToDefault(selectedRole)}
-                      style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                      🔄 إعادة للافتراضي
-                    </button>
-                    <button onClick={() => saveRole(selectedRole)} disabled={saving === selectedRole}
-                      style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    <button onClick={() => resetToDefault(selectedRole)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 إعادة للافتراضي</button>
+                    <button onClick={() => saveRole(selectedRole)} disabled={saving === selectedRole} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                       {saving === selectedRole ? '⏳ جاري الحفظ...' : saved === selectedRole ? '✅ تم الحفظ' : '💾 حفظ التغييرات'}
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* Admin notice */}
               {isAdmin ? (
                 <div style={{ padding: 40, textAlign: 'center' }}>
                   <div style={{ fontSize: 48, marginBottom: 16 }}>👑</div>
@@ -240,25 +209,13 @@ export default function PermissionsPage() {
                 </div>
               ) : (
                 <div style={{ padding: 20 }}>
-
-                  {/* Summary */}
                   <div style={{ background: S.navy3, borderRadius: 12, padding: '12px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 13, color: S.muted }}>الصلاحيات المفعّلة: <strong style={{ color: S.gold }}>{enabledCount}</strong> / {ALL_PERMISSIONS.length - 1}</span>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => {
-                        const all: Record<string, boolean> = {}
-                        ALL_PERMISSIONS.filter(p => p.key !== 'all').forEach(p => { all[p.key] = true })
-                        setLocalPerms(prev => ({ ...prev, [selectedRole]: all }))
-                      }} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
-                        تفعيل الكل
-                      </button>
-                      <button onClick={() => setLocalPerms(prev => ({ ...prev, [selectedRole]: {} }))}
-                        style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
-                        إلغاء الكل
-                      </button>
+                      <button onClick={() => { const all: Record<string, boolean> = {}; ALL_PERMISSIONS.filter(p => p.key !== 'all').forEach(p => { all[p.key] = true }); setLocalPerms(prev => ({ ...prev, [selectedRole]: all })) }} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>تفعيل الكل</button>
+                      <button onClick={() => setLocalPerms(prev => ({ ...prev, [selectedRole]: {} }))} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>إلغاء الكل</button>
                     </div>
                   </div>
-
                   {GROUPS.filter(g => g !== 'عام').map(group => {
                     const groupPerms = ALL_PERMISSIONS.filter(p => p.group === group)
                     const enabledInGroup = groupPerms.filter(p => currentPerms[p.key]).length
@@ -268,20 +225,9 @@ export default function PermissionsPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div style={{ fontSize: 13, color: S.gold, fontWeight: 700 }}>{group}</div>
-                            <div style={{ fontSize: 11, color: S.muted, background: S.card, borderRadius: 20, padding: '2px 8px' }}>
-                              {enabledInGroup}/{groupPerms.length}
-                            </div>
+                            <div style={{ fontSize: 11, color: S.muted, background: S.card, borderRadius: 20, padding: '2px 8px' }}>{enabledInGroup}/{groupPerms.length}</div>
                           </div>
-                          <button onClick={() => {
-                            const newVal = !allEnabled
-                            setLocalPerms(prev => ({
-                              ...prev,
-                              [selectedRole]: {
-                                ...prev[selectedRole],
-                                ...groupPerms.reduce((acc, p) => ({ ...acc, [p.key]: newVal }), {})
-                              }
-                            }))
-                          }} style={{ fontSize: 11, color: allEnabled ? S.red : S.green, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
+                          <button onClick={() => { const newVal = !allEnabled; setLocalPerms(prev => ({ ...prev, [selectedRole]: { ...prev[selectedRole], ...groupPerms.reduce((acc, p) => ({ ...acc, [p.key]: newVal }), {}) } })) }} style={{ fontSize: 11, color: allEnabled ? S.red : S.green, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
                             {allEnabled ? 'إلغاء الكل' : 'تفعيل الكل'}
                           </button>
                         </div>
@@ -290,12 +236,9 @@ export default function PermissionsPage() {
                             const enabled = !!currentPerms[perm.key]
                             return (
                               <label key={perm.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${enabled ? S.green + '50' : S.border}`, background: enabled ? S.greenB : S.card, cursor: 'pointer', transition: 'all .15s' }}>
-                                <input type="checkbox" checked={enabled} onChange={() => togglePerm(selectedRole, perm.key)}
-                                  style={{ accentColor: S.green, width: 16, height: 16, flexShrink: 0 }} />
+                                <input type="checkbox" checked={enabled} onChange={() => togglePerm(selectedRole, perm.key)} style={{ accentColor: S.green, width: 16, height: 16, flexShrink: 0 }} />
                                 <span style={{ fontSize: 16 }}>{perm.icon}</span>
-                                <div>
-                                  <div style={{ fontSize: 12, fontWeight: 600, color: enabled ? S.white : S.muted }}>{perm.label}</div>
-                                </div>
+                                <div><div style={{ fontSize: 12, fontWeight: 600, color: enabled ? S.white : S.muted }}>{perm.label}</div></div>
                               </label>
                             )
                           })}

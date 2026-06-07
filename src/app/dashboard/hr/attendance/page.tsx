@@ -199,6 +199,12 @@ function MyAttendanceCard() {
       const dist = myBranch?.latitude && myBranch?.longitude
         ? getDistance(lat, lng, myBranch.latitude, myBranch.longitude) : 0
 
+      const radius = myBranch?.radius_meters || 150
+      if (dist > radius) {
+        setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check out.`)
+        setChecking(false); return
+      }
+
       const today_date = new Date().toISOString().split('T')[0]
 
       // ✅ Fix: استخدم employee_id + date مش id فقط

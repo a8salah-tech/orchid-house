@@ -60,8 +60,8 @@ interface Movement { id: string; created_at: string; movement_type: string; quan
 interface Invoice { id: string; invoice_number: string; invoice_date: string; total_amount: number; status: string; notes: string; image_url: string; warehouse_suppliers?: { name: string }; warehouses?: { name: string } }
 
 // ══ Modal إضافة صنف ══
-function AddProductModal({ units, categories, onClose, onSaved }: {
-  units: Unit[]; categories: string[]; onClose: () => void; onSaved: () => void
+function AddProductModal({ units, categories, warehouseId, onClose, onSaved }: {
+  units: Unit[]; categories: string[]; warehouseId: string; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
@@ -74,6 +74,7 @@ function AddProductModal({ units, categories, onClose, onSaved }: {
       name: form.name, name_en: form.name_en, category: form.category,
       unit_id: form.unit_id, min_stock: parseFloat(form.min_stock) || 0,
       current_stock: parseFloat(form.current_stock) || 0, is_active: true,
+      warehouse_id: warehouseId,
     }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -659,7 +660,7 @@ export default function WarehouseDetailPage() {
     setLoading(true)
     const [wh, pr, un, mv, inv] = await Promise.all([
       supabase.from('warehouses').select('*').eq('id', warehouseId).single(),
-      supabase.from('warehouse_products').select('*, units(id,name,symbol)').order('name'),
+      supabase.from('warehouse_products').select('*, units(id,name,symbol)').eq('warehouse_id', warehouseId).order('name'),
       supabase.from('units').select('*').order('name'),
       supabase.from('stock_movements').select('*, warehouse_products(name, units(symbol)), warehouses(name)').eq('warehouse_id', warehouseId).order('created_at', { ascending: false }).limit(100),
       supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name)').eq('warehouse_id', warehouseId).order('created_at', { ascending: false }).limit(50),
@@ -1312,7 +1313,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
       {/* ══ Modals ══ */}
       {showAddProduct && (
         <AddProductModal
-          units={units} categories={categories}
+          units={units} categories={categories} warehouseId={warehouseId}
           onClose={() => setShowAddProduct(false)}
           onSaved={() => { setShowAddProduct(false); fetchAll() }}
         />

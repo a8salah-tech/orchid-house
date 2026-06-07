@@ -275,18 +275,31 @@ export default function WarehousesPage() {
     
     if (data) {
       const withCounts = await Promise.all(data.map(async (w) => {
+        if (w.is_default) {
+          // المستودع الافتراضي يجيب مجموع كل المستودعات
+          const { count: productCount } = await supabase
+            .from('warehouse_products')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_active', true)
+          const { data: products } = await supabase
+            .from('warehouse_products')
+            .select('current_stock, min_stock')
+            .eq('is_active', true)
+          const lowStock = (products || []).filter(p => p.current_stock <= p.min_stock && p.min_stock > 0).length
+          return { ...w, product_count: productCount || 0, low_stock_count: lowStock }
+        }
+        // باقي المستودعات بتجيب منتجاتها فقط
         const { count: productCount } = await supabase
           .from('warehouse_products')
           .select('*', { count: 'exact', head: true })
+          .eq('warehouse_id', w.id)
           .eq('is_active', true)
-        
         const { data: products } = await supabase
           .from('warehouse_products')
           .select('current_stock, min_stock')
+          .eq('warehouse_id', w.id)
           .eq('is_active', true)
-        
         const lowStock = (products || []).filter(p => p.current_stock <= p.min_stock && p.min_stock > 0).length
-
         return { ...w, product_count: productCount || 0, low_stock_count: lowStock }
       }))
       setWarehouses(withCounts)

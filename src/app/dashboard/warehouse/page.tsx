@@ -34,6 +34,8 @@ interface Warehouse {
   created_at: string
   product_count?: number
   low_stock_count?: number
+  has_stock_count?: number
+  low_stock_items?: { name: string; name_en?: string; current_stock: number; min_stock: number; units?: { symbol: string } }[]
 }
 
 function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -276,19 +278,18 @@ export default function WarehousesPage() {
     if (data) {
       const withCounts = await Promise.all(data.map(async (w) => {
         if (w.is_default) {
-          // المستودع الافتراضي يجيب مجموع كل المستودعات
           const { count: productCount } = await supabase
             .from('warehouse_products')
             .select('*', { count: 'exact', head: true })
             .eq('is_active', true)
           const { data: products } = await supabase
             .from('warehouse_products')
-            .select('current_stock, min_stock')
+            .select('current_stock, min_stock, name, name_en, units(symbol)')
             .eq('is_active', true)
-          const lowStock = (products || []).filter(p => p.current_stock <= p.min_stock && p.min_stock > 0).length
-          return { ...w, product_count: productCount || 0, low_stock_count: lowStock }
+          const lowItems = (products || []).filter(p => p.current_stock <= p.min_stock && p.min_stock > 0)
+          const hasStock = (products || []).filter(p => p.current_stock > 0).length
+          return { ...w, product_count: productCount || 0, low_stock_count: lowItems.length, has_stock_count: hasStock, low_stock_items: lowItems.slice(0, 5) }
         }
-        // باقي المستودعات بتجيب منتجاتها فقط
         const { count: productCount } = await supabase
           .from('warehouse_products')
           .select('*', { count: 'exact', head: true })
@@ -296,11 +297,12 @@ export default function WarehousesPage() {
           .eq('is_active', true)
         const { data: products } = await supabase
           .from('warehouse_products')
-          .select('current_stock, min_stock')
+          .select('current_stock, min_stock, name, name_en, units(symbol)')
           .eq('warehouse_id', w.id)
           .eq('is_active', true)
-        const lowStock = (products || []).filter(p => p.current_stock <= p.min_stock && p.min_stock > 0).length
-        return { ...w, product_count: productCount || 0, low_stock_count: lowStock }
+        const lowItems = (products || []).filter(p => p.current_stock <= p.min_stock && p.min_stock > 0)
+        const hasStock = (products || []).filter(p => p.current_stock > 0).length
+        return { ...w, product_count: productCount || 0, low_stock_count: lowItems.length, has_stock_count: hasStock, low_stock_items: lowItems.slice(0, 5) }
       }))
       setWarehouses(withCounts)
     }
@@ -374,7 +376,11 @@ export default function WarehousesPage() {
                   <div style={{ display: 'flex', gap: 16 }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 24, fontWeight: 800, color: S.white }}>{defaultWarehouse.product_count}</div>
-                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Items'}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Total'}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: S.green }}>{defaultWarehouse.has_stock_count ?? 0}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'متوفر' : 'In Stock'}</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 24, fontWeight: 800, color: defaultWarehouse.low_stock_count! > 0 ? S.amber : S.green }}>{defaultWarehouse.low_stock_count}</div>
@@ -415,7 +421,11 @@ export default function WarehousesPage() {
                   <div style={{ display: 'flex', gap: 16 }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 24, fontWeight: 800, color: S.white }}>{mainWarehouse.product_count}</div>
-                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Items'}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Total'}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: S.green }}>{mainWarehouse.has_stock_count ?? 0}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'متوفر' : 'In Stock'}</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 24, fontWeight: 800, color: mainWarehouse.low_stock_count! > 0 ? S.amber : S.green }}>{mainWarehouse.low_stock_count}</div>
@@ -461,10 +471,18 @@ export default function WarehousesPage() {
                     <h3 style={{ fontSize: 16, fontWeight: 700, color: S.white, marginBottom: 4 }}>{isAr ? w.name : (w.name_en || w.name)}</h3>
                     {w.description && <p style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>{w.description}</p>}
                     {w.location && <p style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>📍 {w.location}</p>}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: `1px solid ${S.border}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: `1px solid ${S.border}` }}>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 18, fontWeight: 700, color: S.white }}>{w.product_count}</div>
-                        <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Items'}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'صنف' : 'Total'}</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: S.green }}>{w.has_stock_count ?? 0}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'متوفر' : 'In Stock'}</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: w.low_stock_count! > 0 ? S.amber : S.green }}>{w.low_stock_count}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'منخفض' : 'Low'}</div>
                       </div>
                       <div style={{ fontSize: 20, color: S.muted }}>←</div>
                     </div>

@@ -60,6 +60,7 @@ export default function ViolationsPage() {
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
   const canAdd = isAdmin || isBranchManager || isDeptManager || isSupervisor || permissions?.violations === true
+  const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
 
   const [violations, setViolations] = useState<any[]>([])
   const [employees, setEmployees] = useState<any[]>([])
@@ -388,7 +389,9 @@ export default function ViolationsPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <button onClick={() => setActiveTab('violations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='violations' ? S.red : S.border}`, background: activeTab==='violations' ? S.redB : 'transparent', color: activeTab==='violations' ? S.red : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='violations' ? 700 : 400 }}>⚠️ {isAr ? 'المخالفات' : 'Violations'}</button>
-        <button onClick={() => setActiveTab('evaluations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='evaluations' ? S.gold : S.border}`, background: activeTab==='evaluations' ? S.gold3 : 'transparent', color: activeTab==='evaluations' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='evaluations' ? 700 : 400 }}>⭐ {isAr ? 'التقييمات' : 'Evaluations'}</button>
+        {canViewEvaluations && (
+          <button onClick={() => setActiveTab('evaluations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='evaluations' ? S.gold : S.border}`, background: activeTab==='evaluations' ? S.gold3 : 'transparent', color: activeTab==='evaluations' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='evaluations' ? 700 : 400 }}>⭐ {isAr ? 'التقييمات' : 'Evaluations'}</button>
+        )}
         <button onClick={() => setActiveTab('absences')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='absences' ? '#8B5CF6' : S.border}`, background: activeTab==='absences' ? 'rgba(139,92,246,0.12)' : 'transparent', color: activeTab==='absences' ? '#8B5CF6' : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='absences' ? 700 : 400 }}>🚫 {isAr ? 'الغياب' : 'Absences'}</button>
         {(canSubmitDeptViolation || canViewDeptViolations) && (
           <button onClick={() => setActiveTab('dept_violations')} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${activeTab==='dept_violations' ? '#F97316' : S.border}`, background: activeTab==='dept_violations' ? 'rgba(249,115,22,0.12)' : 'transparent', color: activeTab==='dept_violations' ? '#F97316' : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab==='dept_violations' ? 700 : 400 }}>🏢 {isAr ? 'مخالفات الأقسام' : 'Dept Violations'}</button>

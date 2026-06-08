@@ -65,11 +65,12 @@ const ALL_MENU: MenuGroup[] = [
   { group: 'الرئيسية', items: [
     { label: 'لوحة التحكم', label_en: 'Dashboard', icon: '◉', path: '/dashboard', permission: null },
   ]},
-  { group: 'إدارة المخزون', items: [
+{ group: 'إدارة المخزون', items: [
     { label: 'المستودعات',   label_en: 'Warehouses',      icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },
     { label: 'المشتريات',    label_en: 'Purchases',       icon: '🛒', path: '/dashboard/purchases',       permission: 'purchases' },
     { label: 'طلبات الفروع', label_en: 'Branch Requests', icon: '📦', path: '/dashboard/branch-requests', permission: 'branch_requests' },
-  ]},
+    { label: 'سجل الهدر',   label_en: 'Waste Log',       icon: '🗑️', path: '/dashboard/waste',           permission: 'waste' },
+]},
   { group: 'العمليات', items: [
     { label: 'المطبخ',   label_en: 'Kitchen',  icon: '👨‍🍳', path: '/dashboard/kitchen',  permission: 'kitchen' },
     { label: 'الحلويات', label_en: 'Desserts', icon: '🍰',  path: '/dashboard/desserts', permission: 'desserts' },

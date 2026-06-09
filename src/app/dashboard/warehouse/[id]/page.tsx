@@ -48,6 +48,7 @@ const CATEGORY_ICONS: Record<string, string> = {
 const PAGE_SIZE = 20
 
 type Tab = 'overview' | 'in' | 'out' | 'daily' | 'monthly'
+type UnitConversion = { id: string; product_id: string; from_unit_id: string; to_unit_id: string; factor: number; notes: string; from_unit?: Unit; to_unit?: Unit }
 
 interface Warehouse { id: string; name: string; description: string; location: string; is_main: boolean }
 interface Unit { id: string; name: string; symbol: string }
@@ -654,6 +655,12 @@ export default function WarehouseDetailPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showUnitConversion, setShowUnitConversion] = useState<Product | null>(null)
   const [showEditProduct, setShowEditProduct] = useState<Product | null>(null)
+  const [showConversionModal, setShowConversionModal] = useState<Product | null>(null)
+  const [conversions, setConversions] = useState<UnitConversion[]>([])
+  const [convLoading, setConvLoading] = useState(false)
+  const [convSaving, setConvSaving] = useState(false)
+  const [convForm, setConvForm] = useState({ from_unit_id: '', to_unit_id: '', factor: '', notes: '' })
+  const [convPreview, setConvPreview] = useState<{qty: string}>({ qty: '' })
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7))
 
   const fetchAll = useCallback(async () => {
@@ -1028,6 +1035,12 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                           >
                             ✏️ تعديل
                           </button>
+                          <button
+                            onClick={() => setShowUnitConversion(p)}
+                            style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple }}
+                          >
+                            ⚖️ تحويل
+                          </button>
                           {canDelete && (
                             <button
                               onClick={async () => { if(confirm('حذف هذا الصنف نهائياً؟')) { await supabase.from('warehouse_products').delete().eq('id', p.id); fetchAll() } }}
@@ -1369,6 +1382,13 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
           units={units}
           onClose={() => setShowEditProduct(null)}
           onSaved={() => { setShowEditProduct(null); fetchAll() }}
+        />
+      )}
+      {showUnitConversion && (
+        <UnitConversionModal
+          product={showUnitConversion}
+          units={units}
+          onClose={() => setShowUnitConversion(null)}
         />
       )}
     </div>

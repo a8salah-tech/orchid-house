@@ -30,7 +30,7 @@ const AuthContext = createContext<AuthContextType>({
 
 export function useAuth() { return useContext(AuthContext) }
 
-const PUBLIC_PATHS = ['/login', '/unauthorized', '/register', '/menu']
+const PUBLIC_PATHS = ['/login', '/unauthorized', '/register', '/menu', '/bookings']
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()

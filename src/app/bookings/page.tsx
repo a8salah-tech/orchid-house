@@ -21,13 +21,15 @@ const C = {
 }
 
 const SECTIONS = [
-  { key: 'outdoor', label: 'Outdoor Hall',  labelAr: 'الصالة الخارجية',      icon: '🌿', color: C.green },
+  { key: 'outdoor', label: 'Outdoor Hall',  labelAr: 'الصالة الخارجية',         icon: '🌿', color: C.green },
   { key: 'indoor',  label: 'Indoor Hall',   labelAr: 'الصالة الداخلية المكيفة', icon: '❄️', color: C.blue1 },
-  { key: 'terrace', label: 'Terrace',       labelAr: 'التراس',              icon: '🌅', color: C.amber },
-  { key: 'vip',     label: 'VIP',           labelAr: 'VIP',               icon: '👑', color: '#C9A84C' },
+  { key: 'upstairs',label: 'Upstairs',      labelAr: 'الطابق العلوي',           icon: '🌅', color: C.amber },
 ]
 
-// موضع كل طاولة على الخريطة (x, y من أصل 640x780)
+const BRANCH_NAMES: Record<string, { ar: string; en: string; location: string }> = {
+  '783bc0ec-16f5-4e6c-9148-9c30b12d42c2': { ar: 'اوركيد هاوس', en: 'Orchid House', location: 'Lorong Raja Uda' },
+  '9375998c-0a98-48c8-be7a-485e0c616ae1': { ar: 'اوركيد  KLCC', en: 'Orchid KLCC ', location: 'Lorong Yap Kwan Seng' },
+}
 const TABLE_POSITIONS: Record<number, { x: number; y: number }> = {
   1:  { x: 84,  y: 68  },
   2:  { x: 320, y: 68  },
@@ -61,14 +63,18 @@ const TABLE_POSITIONS: Record<number, { x: number; y: number }> = {
   30: { x: 470, y: 620 },
 }
 
-type Phase = 'section' | 'table' | 'details' | 'done'
+type Phase = 'branch' | 'date' | 'section' | 'table' | 'details' | 'done'
 type Table = { id: string; number: number; name: string; status: string; section: string }
+type Branch = { id: string; name: string; location: string }
 
 export default function BookingPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
 
-  const [phase, setPhase] = useState<Phase>('section')
+  const [phase, setPhase] = useState<Phase>('branch')
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null)
+  const [bookingDate, setBookingDate] = useState('')
   const [section, setSection] = useState('')
   const [tables, setTables] = useState<Table[]>([])
   const [loadingTables, setLoadingTables] = useState(false)
@@ -77,7 +83,31 @@ export default function BookingPage() {
   const [submitting, setSubmitting] = useState(false)
   const [bookingRef, setBookingRef] = useState('')
   const [form, setForm] = useState({ name: '', email: '', phone: '', date: '', time: '', guests: '2', notes: '' })
+
+  useEffect(() => { if (bookingDate) setForm(p => ({ ...p, date: bookingDate })) }, [bookingDate])
   const [errors, setErrors] = useState<Record<string, string>>({})
+
+  async function fetchBranches() {
+    const { data } = await sb.from('branches').select('id,name,location').eq('is_active', true).order('name', { ascending: false })
+    setBranches(data || [])
+  }
+
+  useEffect(() => { fetchBranches() }, [])
+
+  // دعم زر الرجوع في المتصفح
+  useEffect(() => {
+    window.history.pushState({ phase }, '', window.location.pathname)
+  }, [phase])
+
+  useEffect(() => {
+    const handlePop = (e: PopStateEvent) => {
+      const prev = e.state?.phase
+      if (prev) setPhase(prev as Phase)
+      else setPhase('branch')
+    }
+    window.addEventListener('popstate', handlePop)
+    return () => window.removeEventListener('popstate', handlePop)
+  }, [])
 
   async function loadTables(sec: string) {
     setLoadingTables(true)
@@ -119,6 +149,7 @@ export default function BookingPage() {
       booking_date: form.date,
       booking_time: form.time,
       guests: parseInt(form.guests) || 2,
+      branch_id: selectedBranch?.id || null,
       section,
       table_id: selectedTable.id,
       table_number: selectedTable.number,
@@ -292,28 +323,83 @@ export default function BookingPage() {
 
         {/* Progress */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 28 }}>
-          {['Section', 'Table', 'Details'].map((s, i) => {
-            const phases = ['section', 'table', 'details', 'done']
+          {['Branch', 'Date', 'Section', 'Table', 'Details'].map((s, i) => {
+            const phases = ['branch', 'date', 'section', 'table', 'details', 'done']
             const currentIdx = phases.indexOf(phase)
             const done = currentIdx > i
             const active = currentIdx === i
             return (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, flex: i > 0 ? 1 : 'none' }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, flex: i > 0 ? 1 : 'none' }}>
                 {i > 0 && <div style={{ flex: 1, height: 1, background: done ? C.blue1 : C.border }} />}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: done || active ? C.blue1 : C.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: C.white, flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: done || active ? C.blue1 : C.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: C.white, flexShrink: 0 }}>
                     {done ? '✓' : i + 1}
                   </div>
-                  <span style={{ fontSize: 11, color: active ? C.white : C.silver2, whiteSpace: 'nowrap' }}>{s}</span>
+                  <span style={{ fontSize: 10, color: active ? C.white : C.silver2, whiteSpace: 'nowrap' }}>{s}</span>
                 </div>
               </div>
             )
           })}
         </div>
 
-        {/* ══ Step 1: Section ══ */}
+        {/* ══ Step 0: Branch ══ */}
+        {phase === 'branch' && (
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Choose Your Branch</h2>
+            <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select the branch you'd like to visit · اختر الفرع</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {branches.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: C.silver2 }}>⏳ Loading branches...</div>
+              ) : branches.map(b => (
+                <div key={b.id} onClick={() => { setSelectedBranch(b); setPhase('date') }}
+                  style={{ background: C.bg2, border: `1.5px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16 }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${C.blue1}`; (e.currentTarget as HTMLElement).style.background = C.blue1 + '10' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${C.border}`; (e.currentTarget as HTMLElement).style.background = C.bg2 }}>
+                  <div style={{ width: 52, height: 52, borderRadius: 14, background: C.blue1 + '20', border: `1.5px solid ${C.blue1}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>🏪</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 800, fontSize: 16, color: C.white, marginBottom: 2 }}>{BRANCH_NAMES[b.id]?.ar || b.name}</div>
+                    <div style={{ fontSize: 13, color: C.silver2, marginBottom: 2 }}>{BRANCH_NAMES[b.id]?.en || ''}</div>
+                    {(BRANCH_NAMES[b.id]?.location || b.location) && <div style={{ fontSize: 11, color: C.silver2 }}>📍 {BRANCH_NAMES[b.id]?.location || b.location}</div>}
+                  </div>
+                  <div style={{ color: C.silver2, fontSize: 20 }}>›</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ══ Step 1: Date ══ */}
+        {phase === 'date' && (
+          <div>
+            <button onClick={() => setPhase('branch')} style={{ background: 'transparent', border: 'none', color: C.blue1, cursor: 'pointer', fontSize: 14, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>← Back</button>
+            <div style={{ background: C.blue1 + '15', border: `1px solid ${C.blue1}40`, borderRadius: 14, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 22 }}>🏪</span>
+              <div style={{ fontWeight: 700, color: C.white }}>{selectedBranch?.name}</div>
+              {selectedBranch?.location && <div style={{ fontSize: 12, color: C.silver2 }}>📍 {selectedBranch.location}</div>}
+            </div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Choose a Date</h2>
+            <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred visit date · اختر تاريخ الزيارة</p>
+            <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 16, padding: 24 }}>
+              <label style={{ fontSize: 13, color: C.silver2, display: 'block', marginBottom: 10 }}>Date · التاريخ</label>
+              <input type="date" style={{ width: '100%', background: 'rgba(255,255,255,.06)', border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', fontSize: 16, color: C.white, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'system-ui', caretColor: C.blue1 }}
+                value={bookingDate} min={new Date().toISOString().split('T')[0]}
+                onChange={e => setBookingDate(e.target.value)} />
+              <button onClick={() => { if (!bookingDate) { alert('Please select a date'); return } setPhase('section') }}
+                style={{ width: '100%', background: bookingDate ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : '#333', border: 'none', borderRadius: 14, padding: '14px', cursor: bookingDate ? 'pointer' : 'not-allowed', fontWeight: 800, fontSize: 15, color: C.white, marginTop: 16, boxShadow: bookingDate ? `0 6px 20px ${C.glow}` : 'none' }}>
+                Continue → Choose Section
+              </button>
+            </div>
+          </div>
+        )}
+        {/* ══ Step 2: Section ══ */}
         {phase === 'section' && (
           <div>
+            <button onClick={() => setPhase('date')} style={{ background: 'transparent', border: 'none', color: C.blue1, cursor: 'pointer', fontSize: 14, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>← Back</button>
+            <div style={{ background: C.blue1 + '15', border: `1px solid ${C.blue1}40`, borderRadius: 14, padding: '10px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span>🏪</span><span style={{ color: C.white, fontWeight: 700, fontSize: 13 }}>{selectedBranch?.name}</span>
+              <span style={{ color: C.silver2 }}>·</span>
+              <span>📅</span><span style={{ color: C.silver2, fontSize: 13 }}>{bookingDate && new Date(bookingDate).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
+            </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Choose Your Section</h2>
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred dining area</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -339,9 +425,13 @@ export default function BookingPage() {
           <div>
             <button onClick={() => { setPhase('section'); setSelectedTable(null) }} style={{ background: 'transparent', border: 'none', color: C.blue1, cursor: 'pointer', fontSize: 14, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>← Back</button>
 
-            <div style={{ background: selectedSection?.color + '15', border: `1px solid ${selectedSection?.color}40`, borderRadius: 14, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 22 }}>{selectedSection?.icon}</span>
-              <div style={{ fontWeight: 700, color: C.white }}>{selectedSection?.label} · {selectedSection?.labelAr}</div>
+            <div style={{ background: selectedSection?.color + '15', border: `1px solid ${selectedSection?.color}40`, borderRadius: 14, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 18 }}>{selectedSection?.icon}</span>
+              <span style={{ fontWeight: 700, color: C.white, fontSize: 13 }}>{selectedSection?.label}</span>
+              <span style={{ color: C.silver2 }}>·</span>
+              <span style={{ fontSize: 13, color: C.silver2 }}>🏪 {selectedBranch?.name}</span>
+              <span style={{ color: C.silver2 }}>·</span>
+              <span style={{ fontSize: 13, color: C.silver2 }}>📅 {bookingDate && new Date(bookingDate).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })}</span>
             </div>
 
             <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 16 }}>Choose a Table</h2>

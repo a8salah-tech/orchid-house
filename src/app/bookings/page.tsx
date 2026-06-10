@@ -30,41 +30,8 @@ const BRANCH_NAMES: Record<string, { ar: string; en: string; location: string }>
   '783bc0ec-16f5-4e6c-9148-9c30b12d42c2': { ar: 'اوركيد هاوس', en: 'Orchid House', location: 'Lorong Raja Uda' },
   '9375998c-0a98-48c8-be7a-485e0c616ae1': { ar: 'اوركيد  KLCC', en: 'Orchid KLCC ', location: 'Lorong Yap Kwan Seng' },
 }
-const TABLE_POSITIONS: Record<number, { x: number; y: number }> = {
-  1:  { x: 84,  y: 68  },
-  2:  { x: 320, y: 68  },
-  3:  { x: 390, y: 680 },
-  4:  { x: 84,  y: 140 },
-  5:  { x: 530, y: 58  },
-  6:  { x: 530, y: 120 },
-  7:  { x: 160, y: 68  },
-  8:  { x: 240, y: 68  },
-  9:  { x: 84,  y: 210 },
-  10: { x: 530, y: 210 },
-  11: { x: 428, y: 315 },
-  12: { x: 320, y: 178 },
-  13: { x: 196, y: 315 },
-  14: { x: 320, y: 420 },
-  15: { x: 390, y: 68  },
-  16: { x: 170, y: 68  },
-  17: { x: 455, y: 68  },
-  18: { x: 84,  y: 490 },
-  19: { x: 160, y: 490 },
-  20: { x: 84,  y: 560 },
-  21: { x: 160, y: 560 },
-  22: { x: 260, y: 470 },
-  23: { x: 340, y: 470 },
-  24: { x: 420, y: 470 },
-  25: { x: 260, y: 540 },
-  26: { x: 196, y: 375 },
-  27: { x: 84,  y: 620 },
-  28: { x: 160, y: 620 },
-  29: { x: 310, y: 680 },
-  30: { x: 470, y: 620 },
-}
-
 type Phase = 'branch' | 'date' | 'section' | 'table' | 'details' | 'done'
-type Table = { id: string; number: number; name: string; status: string; section: string }
+type Table = { id: string; number: number; name: string; status: string; section: string; pos_x?: number; pos_y?: number }
 type Branch = { id: string; name: string; location: string }
 
 export default function BookingPage() {
@@ -111,12 +78,26 @@ export default function BookingPage() {
 
   async function loadTables(sec: string) {
     setLoadingTables(true)
-    const { data } = await sb.from('tables')
-      .select('id,number,name,status,section')
+    const { data: allTables } = await sb.from('tables')
+      .select('id,number,name,status,section,pos_x,pos_y')
       .eq('section', sec)
       .eq('is_active', true)
       .order('number')
-    setTables(data || [])
+
+    const { data: dayBookings } = await sb.from('bookings')
+      .select('table_id')
+      .eq('booking_date', bookingDate)
+      .eq('section', sec)
+      .in('status', ['pending', 'confirmed'])
+
+    const bookedTableIds = new Set((dayBookings || []).map((b: any) => b.table_id))
+
+    const tablesWithStatus = (allTables || []).map(t => ({
+      ...t,
+      status: bookedTableIds.has(t.id) ? 'reserved' : t.status === 'occupied' ? 'occupied' : 'available'
+    }))
+
+    setTables(tablesWithStatus)
     setLoadingTables(false)
   }
 
@@ -210,49 +191,17 @@ export default function BookingPage() {
     </div>
   )
 
-  // ══ Outdoor Map Component ══
-  const OutdoorMap = () => {
-    const tableMap = Object.fromEntries(tables.map(t => [t.number, t]))
-
-    const TableNode = ({ num }: { num: number }) => {
-      const t = tableMap[num]
-      if (!t) return null
-      const pos = TABLE_POSITIONS[num]
-      if (!pos) return null
-      const isAvail = t.status === 'available'
-      const isOcc   = t.status === 'occupied'
-      const isSel   = selectedTable?.id === t.id
-      const isHov   = hoveredTable === num
-      const color   = isOcc ? C.red : isAvail ? C.green : C.amber
-      const bgOp    = isSel ? '.5' : isHov ? '.35' : '.2'
-      return (
-        <g
-          style={{ cursor: isOcc ? 'not-allowed' : 'pointer' }}
-          onClick={() => { if (!isOcc) setSelectedTable(isSel ? null : t) }}
-          onMouseEnter={() => setHoveredTable(num)}
-          onMouseLeave={() => setHoveredTable(null)}
-        >
-          <rect
-            x={pos.x - 26} y={pos.y - 18} width={52} height={36} rx={7}
-            fill={color} fillOpacity={bgOp}
-            stroke={color} strokeWidth={isSel ? 2.5 : 1.5}
-            strokeOpacity={isSel ? 1 : .7}
-          />
-          {/* chairs top */}
-          <rect x={pos.x - 14} y={pos.y - 26} width={10} height={8} rx={2} fill={color} fillOpacity={.5}/>
-          <rect x={pos.x + 4}  y={pos.y - 26} width={10} height={8} rx={2} fill={color} fillOpacity={.5}/>
-          {/* chairs bottom */}
-          <rect x={pos.x - 14} y={pos.y + 18} width={10} height={8} rx={2} fill={color} fillOpacity={.5}/>
-          <rect x={pos.x + 4}  y={pos.y + 18} width={10} height={8} rx={2} fill={color} fillOpacity={.5}/>
-          <text x={pos.x} y={pos.y + 5} textAnchor="middle" fill={color} fontSize={12} fontWeight={isSel ? '700' : '500'} fontFamily="system-ui">{num}</text>
-          {isSel && <rect x={pos.x - 28} y={pos.y - 20} width={56} height={40} rx={8} fill="none" stroke={C.white} strokeWidth={1.5} strokeDasharray="4,3" opacity={.7}/>}
-        </g>
-      )
-    }
+  // ══ Dynamic Map Component (pos_x/pos_y from DB) ══
+  const DynamicMap = () => {
+    const CANVAS_W = 640
+    const CANVAS_H = 500
+    const TABLE_W = 52
+    const TABLE_H = 36
+    const sec = SECTIONS.find(s => s.key === section)
+    const hasPosData = tables.some(t => (t.pos_x ?? 0) > 0 || (t.pos_y ?? 0) > 0)
 
     return (
       <div>
-        {/* Legend */}
         <div style={{ display: 'flex', gap: 14, justifyContent: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           {[
             { color: C.green, label: 'Available · متاحة' },
@@ -266,38 +215,76 @@ export default function BookingPage() {
           ))}
         </div>
 
-        {/* SVG Map */}
-        <div style={{ background: '#0a1a0a', borderRadius: 16, border: `1px solid #1a3a1a`, overflow: 'hidden', position: 'relative' }}>
-          <svg viewBox="0 0 640 760" style={{ width: '100%', height: 'auto', display: 'block' }}>
-            {/* Background */}
-            <rect width={640} height={760} fill="#0d1a0d"/>
-            <rect width={640} height={760} fill="#0f200f" opacity=".5"/>
-            {/* Border */}
-            <rect x={20} y={20} width={600} height={720} rx={14} fill="none" stroke="#1e3a1e" strokeWidth={1.5} strokeDasharray="6,4"/>
+        {!hasPosData ? (
+          <div style={{ background: C.bg2, borderRadius: 14, border: `1px solid ${C.border}`, padding: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 10 }}>
+              {tables.map(t => {
+                const isAvail = t.status === 'available'
+                const isOcc = t.status === 'occupied'
+                const isSel = selectedTable?.id === t.id
+                const color = isOcc ? C.red : isAvail ? C.green : C.amber
+                const bg = isOcc ? C.redB : isAvail ? C.greenB : C.amberB
+                return (
+                  <div key={t.id}
+                    onClick={() => { if (!isOcc) setSelectedTable(isSel ? null : t) }}
+                    style={{ background: isSel ? color + '30' : bg, border: `2px solid ${isSel ? color : color + '50'}`, borderRadius: 14, padding: '14px 8px', textAlign: 'center', cursor: isOcc ? 'not-allowed' : 'pointer', opacity: isAvail || isSel ? 1 : 0.6, transform: isSel ? 'scale(1.05)' : 'scale(1)', transition: 'all .15s' }}>
+                    <div style={{ fontSize: 20, marginBottom: 4 }}>🪑</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.white }}>{t.number}</div>
+                    <div style={{ fontSize: 10, color, marginTop: 2, fontWeight: 600 }}>{isAvail ? 'Free' : t.status === 'reserved' ? 'Reserved' : 'Busy'}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: '#0a180a', borderRadius: 16, border: `1px solid ${sec?.color || '#22C55E'}30`, overflow: 'hidden' }}>
+            <svg viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+              <rect width={CANVAS_W} height={CANVAS_H} fill="#0d1a0d"/>
+              <defs>
+                <pattern id="pgrid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a3a1a" strokeWidth="0.5"/>
+                </pattern>
+              </defs>
+              <rect width={CANVAS_W} height={CANVAS_H} fill="url(#pgrid)" opacity="0.4"/>
+              <text x={CANVAS_W/2} y={CANVAS_H/2} textAnchor="middle" fill="#1a3a1a" fontSize="18" fontFamily="system-ui">{sec?.icon} {sec?.label}</text>
+              {tables.map(t => {
+                const px = t.pos_x ?? 0
+                const py = t.pos_y ?? 0
+                const isAvail = t.status === 'available'
+                const isOcc   = t.status === 'occupied'
+                const isSel   = selectedTable?.id === t.id
+                const isHov   = hoveredTable === t.number
+                const color   = isOcc ? C.red : isAvail ? C.green : C.amber
+                const bgOp    = isSel ? 0.5 : isHov ? 0.35 : 0.2
+                return (
+                  <g key={t.id}
+                    style={{ cursor: isOcc ? 'not-allowed' : 'pointer' }}
+                    onClick={() => { if (!isOcc) setSelectedTable(isSel ? null : t) }}
+                    onMouseEnter={() => setHoveredTable(t.number)}
+                    onMouseLeave={() => setHoveredTable(null)}
+                  >
+                    <rect x={px + 6}  y={py - 8}  width={10} height={8} rx={2} fill={color} fillOpacity={0.5}/>
+                    <rect x={px + 22} y={py - 8}  width={10} height={8} rx={2} fill={color} fillOpacity={0.5}/>
+                    <rect x={px + 6}  y={py + TABLE_H} width={10} height={8} rx={2} fill={color} fillOpacity={0.5}/>
+                    <rect x={px + 22} y={py + TABLE_H} width={10} height={8} rx={2} fill={color} fillOpacity={0.5}/>
+                    <rect x={px} y={py} width={TABLE_W} height={TABLE_H} rx={7}
+                      fill={color} fillOpacity={bgOp}
+                      stroke={color} strokeWidth={isSel ? 2.5 : 1.5} strokeOpacity={isSel ? 1 : 0.7}
+                    />
+                    <text x={px + TABLE_W/2} y={py + TABLE_H/2 + 5} textAnchor="middle" fill={color} fontSize={12} fontWeight={isSel ? "700" : "500"} fontFamily="system-ui">{t.number}</text>
+                    {isSel && <rect x={px - 2} y={py - 2} width={TABLE_W + 4} height={TABLE_H + 4} rx={9} fill="none" stroke={C.white} strokeWidth={1.5} strokeDasharray="4,3" opacity={0.7}/>}
+                  </g>
+                )
+              })}
+            </svg>
+          </div>
+        )}
 
-            {/* Label */}
-            <text x={320} y={44} textAnchor="middle" fill="#3a6a3a" fontSize={11} fontFamily="system-ui">🌿 الصالة الخارجية · Outdoor Hall</text>
-
-            {/* Gazebo octagon */}
-            <polygon points="320,230 375,248 395,303 375,358 320,376 265,358 245,303 265,248" fill="#122212" stroke="#1e4a1e" strokeWidth={1.5}/>
-            <text x={320} y={308} textAnchor="middle" fill="#3a7a3a" fontSize={13} fontFamily="system-ui">شلال</text>
-            <text x={320} y={326} textAnchor="middle" fill="#2a5a2a" fontSize={10} fontFamily="system-ui">Gazebo</text>
-
-            {/* Garden area */}
-            <rect x={220} y={520} width={200} height={100} rx={10} fill="#111d11" stroke="#1a3a1a" strokeWidth={1}/>
-            <text x={320} y={575} textAnchor="middle" fill="#2a5a2a" fontSize={12} fontFamily="system-ui">حديقة · Garden</text>
-
-            {/* All 30 tables */}
-            {Array.from({length: 30}, (_, i) => i + 1).map(n => <TableNode key={n} num={n}/>)}
-          </svg>
-        </div>
-
-        {/* Selected table popup */}
         {selectedTable && (
           <div style={{ background: C.greenB, border: `1px solid ${C.green}40`, borderRadius: 14, padding: '14px 18px', marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>✅ Table {selectedTable.number} Selected</div>
-              <div style={{ fontSize: 11, color: C.silver2 }}>Outdoor Hall · الصالة الخارجية</div>
+              <div style={{ fontSize: 11, color: C.silver2 }}>{sec?.label}</div>
             </div>
             <button onClick={() => setPhase('details')}
               style={{ background: `linear-gradient(135deg,${C.blue1},${C.blue2})`, border: 'none', borderRadius: 12, padding: '10px 20px', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: C.white, whiteSpace: 'nowrap' }}>
@@ -308,6 +295,7 @@ export default function BookingPage() {
       </div>
     )
   }
+
 
   return (
     <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'system-ui', color: C.white, paddingBottom: 40 }}>
@@ -440,42 +428,8 @@ export default function BookingPage() {
               <div style={{ textAlign: 'center', padding: 60, color: C.silver2 }}>⏳ Loading tables...</div>
             ) : tables.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 40, color: C.silver2 }}>No tables found in this section</div>
-            ) : section === 'outdoor' ? (
-              <OutdoorMap />
             ) : (
-              <>
-                <p style={{ color: C.silver2, fontSize: 13, marginBottom: 20 }}>
-                  <span style={{ background: C.greenB, color: C.green, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700, marginLeft: 6 }}>✅ Available</span>
-                  <span style={{ background: C.amberB, color: C.amber, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700, marginLeft: 6 }}>⏳ Reserved</span>
-                  <span style={{ background: C.redB, color: C.red, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>🔴 Occupied</span>
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 10, marginBottom: 20 }}>
-                  {tables.map(t => {
-                    const isAvail = t.status === 'available'
-                    const isSelected = selectedTable?.id === t.id
-                    const color = isAvail ? C.green : t.status === 'reserved' ? C.amber : C.red
-                    const bg = isAvail ? C.greenB : t.status === 'reserved' ? C.amberB : C.redB
-                    return (
-                      <div key={t.id}
-                        onClick={() => isAvail && setSelectedTable(isSelected ? null : t)}
-                        style={{ background: isSelected ? color + '30' : bg, border: `2px solid ${isSelected ? color : color + '50'}`, borderRadius: 14, padding: '14px 8px', textAlign: 'center', cursor: isAvail ? 'pointer' : 'not-allowed', opacity: isAvail ? 1 : 0.5, transition: 'all .15s', transform: isSelected ? 'scale(1.05)' : 'scale(1)' }}>
-                        <div style={{ fontSize: 20, marginBottom: 4 }}>🪑</div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: C.white }}>{t.number}</div>
-                        <div style={{ fontSize: 10, color, marginTop: 2, fontWeight: 600 }}>{isAvail ? 'Free' : t.status === 'reserved' ? 'Reserved' : 'Busy'}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-                {selectedTable && (
-                  <div style={{ background: C.greenB, border: `1px solid ${C.green}40`, borderRadius: 14, padding: '14px 18px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>✅ Table {selectedTable.number} Selected</div>
-                      <div style={{ fontSize: 11, color: C.silver2 }}>{selectedSection?.label}</div>
-                    </div>
-                    <button onClick={() => setPhase('details')} style={{ background: `linear-gradient(135deg,${C.blue1},${C.blue2})`, border: 'none', borderRadius: 12, padding: '10px 20px', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: C.white }}>Continue →</button>
-                  </div>
-                )}
-              </>
+              <DynamicMap />
             )}
           </div>
         )}

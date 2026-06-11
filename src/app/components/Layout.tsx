@@ -105,7 +105,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'المخالفات', label_en: 'Violations', icon: '⚠️', path: '/dashboard/hr/violations', permission: 'violations' },
     { label: 'طلبات الموظفين',  label_en: 'Staff Requests',icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
     { label: 'إدارة الشيفتات',  label_en: 'Shifts',        icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },
-    { label: 'الرواتب والأجور', label_en: 'Payroll',       icon: '💰', path: '/dashboard/hr/payroll',   permission: 'my_payroll' },
+    { label: 'الرواتب والأجور', label_en: 'Payroll', icon: '💰', path: '/dashboard/hr/payroll', permission: 'payroll' },
     { label: 'الحضور والانصراف',label_en: 'Attendance',    icon: '⏰', path: '/dashboard/hr/attendance', permission: 'attendance' },
   ]},
   { group: 'التقارير', items: [

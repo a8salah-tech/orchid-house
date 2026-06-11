@@ -63,22 +63,11 @@ export default function LoginPage() {
     if (!resetEmail) { setError('يرجى إدخال البريد الإلكتروني'); return }
     setResetLoading(true)
     setError('')
-    // ✅ Fix: use email_account not email
-    const { data: emp } = await supabase
-      .from('employees').select('id, is_active').eq('email_account', resetEmail.trim().toLowerCase()).single()
-    if (!emp) {
-      setResetLoading(false)
-      setError('هذا البريد الإلكتروني غير مسجل في النظام')
-      return
-    }
-    if (!emp.is_active) {
-      setResetLoading(false)
-      setError('هذا الحساب موقوف. تواصل مع مدير النظام')
-      return
-    }
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(resetEmail.trim().toLowerCase(), {
       redirectTo: `${window.location.origin}/reset-password`,
     })
+
     setResetLoading(false)
     if (resetError) { setError('حدث خطأ: ' + resetError.message); return }
     setResetSent(true)

@@ -276,9 +276,11 @@ export default function ViolationsPage() {
     const [year, month] = deptViolFilterMonth.split('-').map(Number)
     const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
     const monthEnd   = new Date(year, month, 0).toISOString().split('T')[0]
-    const { data } = await sb.from('department_violations')
+    let dQ = sb.from('department_violations')
       .select('*').gte('date', monthStart).lte('date', monthEnd)
       .order('created_at', { ascending: false })
+    if (isSupervisor) dQ = dQ.eq('created_by', employee?.id || '')
+    const { data } = await dQ
     if (data && data.length > 0) {
       const creatorIds = [...new Set(data.map((d:any) => d.created_by).filter(Boolean))]
       const { data: names } = await sb.from('employees').select('id,name,name_en').in('id', creatorIds as string[])

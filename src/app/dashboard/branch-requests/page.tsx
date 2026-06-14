@@ -521,6 +521,8 @@ export default function BranchRequestsPage() {
   const [requests, setRequests] = useState<BranchRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
+  const [showRepeat, setShowRepeat] = useState(false)
+  const [repeatRequests, setRepeatRequests] = useState<BranchRequest[]>([])
   const [selected, setSelected] = useState<BranchRequest|null>(null)
   const [activeTab, setActiveTab] = useState(0)
   const [search, setSearch] = useState('')
@@ -596,6 +598,7 @@ export default function BranchRequestsPage() {
   })
 
   const canCreate = [...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role)
+  const canSeeDeptProducts = isAdmin || isWarehouse
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
@@ -608,9 +611,22 @@ export default function BranchRequestsPage() {
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'نظام طلب المستلزمات من المستودع' : 'Branch supply request system'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {isAdmin && (
+          {canSeeDeptProducts && (
             <button onClick={() => window.open('/dashboard/settings/department-products', '_blank')} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               🏷️ {isAr ? 'مواد الأقسام' : 'Dept Products'}
+            </button>
+          )}
+          {canCreate && (
+            <button onClick={async () => {
+              const { data } = await sb.from('branch_requests')
+                .select('*, branch_request_items(*, warehouse_products(name,name_en), units(symbol))')
+                .eq('requested_by', employee?.id)
+                .order('created_at', { ascending: false })
+                .limit(10)
+              setRepeatRequests(data || [])
+              setShowRepeat(true)
+            }} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              🔁 {isAr ? 'طلب متكرر' : 'Repeat'}
             </button>
           )}
           {canCreate && (
@@ -674,6 +690,66 @@ export default function BranchRequestsPage() {
 
       {showNew && <NewRequestModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployee={employee} />}
       {selected && <RequestDetailModal request={selected} currentEmployee={employee} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} />}
+
+      {/* Repeat Request Modal */}
+      {showRepeat && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.teal}40`, width: '100%', maxWidth: 500, maxHeight: '85vh', overflow: 'auto', padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h2 style={{ color: S.teal, fontSize: 16, fontWeight: 800 }}>🔁 {isAr ? 'طلباتي السابقة' : 'Previous Requests'}</h2>
+              <button onClick={() => setShowRepeat(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <p style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>{isAr ? 'اضغط على أي طلب لإعادة إرساله بنفس المنتجات' : 'Tap any request to resubmit with the same items'}</p>
+            {repeatRequests.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>لا توجد طلبات سابقة</div>
+            ) : repeatRequests.map(r => (
+              <div key={r.id} style={{ background: S.navy3, borderRadius: 12, border: `1px solid ${S.border}`, padding: 14, marginBottom: 10, cursor: 'pointer', transition: 'border .2s' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.border = `1px solid ${S.teal}`}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.border = `1px solid ${S.border}`}
+                onClick={async () => {
+                  if (!r.branch_request_items?.length) { alert('الطلب لا يحتوي على منتجات'); return }
+                  const { data: newReq, error } = await sb.from('branch_requests').insert([{
+                    branch_id: r.branch_id,
+                    department: r.department,
+                    requested_by: employee?.id,
+                    status: 'pending',
+                    notes: r.notes,
+                  }]).select('id').single()
+                  if (error || !newReq) { alert('خطأ: ' + error?.message); return }
+                  await sb.from('branch_request_items').insert(
+                    r.branch_request_items!.map(item => ({
+                      request_id: newReq.id,
+                      product_id: item.warehouse_products ? (item as any).product_id : undefined,
+                      quantity_requested: item.quantity_requested,
+                      unit_id: (item as any).unit_id || undefined,
+                    }))
+                  )
+                  setShowRepeat(false)
+                  fetchAll()
+                  alert('✅ تم إنشاء الطلب بنجاح')
+                }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, color: S.white, fontSize: 13 }}>طلب #{r.request_number} · {r.department}</span>
+                  <span style={{ fontSize: 11, color: S.muted }}>{new Date(r.created_at).toLocaleDateString('ar-SA')}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {r.branch_request_items?.slice(0, 3).map((item, i) => (
+                    <div key={i} style={{ fontSize: 12, color: S.muted }}>
+                      • {item.warehouse_products?.name} — {item.quantity_requested} {item.units?.symbol || ''}
+                    </div>
+                  ))}
+                  {(r.branch_request_items?.length || 0) > 3 && (
+                    <div style={{ fontSize: 11, color: S.muted }}>+ {(r.branch_request_items?.length || 0) - 3} منتج آخر</div>
+                  )}
+                </div>
+                <div style={{ marginTop: 10, textAlign: 'center' }}>
+                  <span style={{ fontSize: 12, color: S.teal, fontWeight: 700 }}>🔁 إعادة إرسال هذا الطلب</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }        {/* ── تابات الأقسام ── */}

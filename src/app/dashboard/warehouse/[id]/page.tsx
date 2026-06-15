@@ -245,18 +245,48 @@ function StockInModal({ warehouseId, warehouseName, products, units, onClose, on
             <button onClick={() => setItems(p => [...p, { product_id: '', quantity: '', unit_price: '', unit_id: '' }])} style={{ background: S.greenB, border: `1px solid ${S.green}`, borderRadius: 8, color: S.green, cursor: 'pointer', padding: '5px 12px', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>+ إضافة صنف</button>
           </div>
           {items.map((item, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-              <select style={{ ...inp }} value={item.product_id} onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, product_id: e.target.value } : it))}>
-                <option value="">اختر الصنف</option>
-                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input style={inp} type="number" placeholder="الكمية" value={item.quantity} onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, quantity: e.target.value } : it))} />
-              <input style={inp} type="number" placeholder="سعر الوحدة" value={item.unit_price} onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, unit_price: e.target.value } : it))} />
-              <select style={{ ...inp }} value={item.unit_id} onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, unit_id: e.target.value } : it))}>
-                <option value="">الوحدة</option>
-                {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
-              </select>
-              {items.length > 1 && <button onClick={() => setItems(p => p.filter((_, idx) => idx !== i))} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '8px 10px' }}>✕</button>}
+            <div key={i} style={{ marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    style={{ ...inp }}
+                    placeholder="🔍 ابحث عن الصنف..."
+                    value={item.product_id ? products.find(p => p.id === item.product_id)?.name || '' : (item as any)._search || ''}
+                    onChange={e => {
+                      const val = e.target.value
+                      setItems(p => p.map((it, idx) => idx === i ? { ...it, product_id: '', _search: val } as any : it))
+                    }}
+                  />
+                  {!(item.product_id) && (item as any)._search && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 50, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                      {products
+                        .filter(p => p.name.toLowerCase().includes(((item as any)._search || '').toLowerCase()) || (p.name_en || '').toLowerCase().includes(((item as any)._search || '').toLowerCase()))
+                        .slice(0, 15)
+                        .map(p => (
+                          <div key={p.id}
+                            onClick={() => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, product_id: p.id, _search: undefined } as any : it))}
+                            style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: S.white, borderBottom: `1px solid ${S.border}` }}
+                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = S.card2}
+                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                          >
+                            <div>{p.name}</div>
+                            {p.name_en && <div style={{ fontSize: 10, color: S.muted }}>{p.name_en}</div>}
+                          </div>
+                        ))}
+                      {products.filter(p => p.name.toLowerCase().includes(((item as any)._search || '').toLowerCase())).length === 0 && (
+                        <div style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>لا توجد نتائج</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <input style={inp} type="number" placeholder="الكمية" value={item.quantity} onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, quantity: e.target.value } : it))} />
+                <input style={inp} type="number" placeholder="سعر الوحدة" value={item.unit_price} onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, unit_price: e.target.value } : it))} />
+                <select style={{ ...inp }} value={item.unit_id} onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, unit_id: e.target.value } : it))}>
+                  <option value="">الوحدة</option>
+                  {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
+                </select>
+                {items.length > 1 && <button onClick={() => setItems(p => p.filter((_, idx) => idx !== i))} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '8px 10px' }}>✕</button>}
+              </div>
             </div>
           ))}
         </div>
@@ -654,6 +684,10 @@ export default function WarehouseDetailPage() {
   const [editCategoryName, setEditCategoryName] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showUnitConversion, setShowUnitConversion] = useState<Product | null>(null)
+  const [showInventory, setShowInventory] = useState(false)
+  const [inventoryData, setInventoryData] = useState<Record<string, { units: string; pieces: string }>>({})
+  const [inventorySaving, setInventorySaving] = useState(false)
+  const [inventorySearch, setInventorySearch] = useState('')
   const [showEditProduct, setShowEditProduct] = useState<Product | null>(null)
   const [showConversionModal, setShowConversionModal] = useState<Product | null>(null)
   const [conversions, setConversions] = useState<UnitConversion[]>([])
@@ -662,6 +696,8 @@ export default function WarehouseDetailPage() {
   const [convForm, setConvForm] = useState({ from_unit_id: '', to_unit_id: '', factor: '', notes: '' })
   const [convPreview, setConvPreview] = useState<{qty: string}>({ qty: '' })
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7))
+
+  const MAIN_WAREHOUSE_ID = 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8'
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -673,7 +709,25 @@ export default function WarehouseDetailPage() {
       supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name)').eq('warehouse_id', warehouseId).order('created_at', { ascending: false }).limit(50),
     ])
     setWarehouse(wh.data)
-    setProducts(pr.data || [])
+
+    // لو المستودع فرعي، أضف منتجات المستودع الرئيسي كمان
+    let allProducts = pr.data || []
+    if (warehouseId !== MAIN_WAREHOUSE_ID && !wh.data?.is_main && !wh.data?.is_default) {
+      const { data: mainProducts } = await supabase
+        .from('warehouse_products')
+        .select('*, units(id,name,symbol)')
+        .eq('warehouse_id', MAIN_WAREHOUSE_ID)
+        .order('name')
+      if (mainProducts) {
+        // أضف منتجات الرئيسي اللي مش موجودة في الفرعي
+        const existingIds = new Set(allProducts.map((p: Product) => p.id))
+        const newFromMain = mainProducts.filter((p: Product) => !existingIds.has(p.id))
+          .map((p: Product) => ({ ...p, _fromMain: true }))
+        allProducts = [...allProducts, ...newFromMain]
+      }
+    }
+
+    setProducts(allProducts)
     // Merge categories from DB with defaults
     const dbCats = [...new Set((pr.data || []).map((p: Product) => p.category).filter(Boolean))]
     const merged = [...new Set([...DEFAULT_CATEGORIES, ...dbCats])]
@@ -859,8 +913,16 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
         ))}
       </div>
 
-      {/* ── Print Button ── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      {/* ── Print + Inventory Buttons ── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 16 }}>
+        <button onClick={() => {
+          const init: Record<string, { units: string; pieces: string }> = {}
+          products.forEach(p => { init[p.id] = { units: '', pieces: '' } })
+          setInventoryData(init)
+          setShowInventory(true)
+        }} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          📋 {isAr ? 'بدء الجرد' : 'Start Inventory'}
+        </button>
         <button onClick={printWarehouseReport} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
           🖨️ طباعة تقرير المخزون
         </button>
@@ -994,6 +1056,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
                           <div style={{ fontWeight: 700, color: S.white, fontSize: 13, marginBottom: 3 }}>{p.name}</div>
                           {p.name_en && <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{p.name_en}</div>}
+                          {(p as any)._fromMain && <div style={{ fontSize: 10, color: S.amber, background: S.amberB, borderRadius: 6, padding: '1px 6px', display: 'inline-block', marginTop: 3 }}>🏭 من الرئيسي</div>}
                         </td>
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ background: S.card2, borderRadius: 20, padding: '3px 10px', fontSize: 11, color: S.muted }}>
@@ -1390,6 +1453,117 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
           units={units}
           onClose={() => setShowUnitConversion(null)}
         />
+      )}
+
+      {/* ══ INVENTORY MODAL ══ */}
+      {showInventory && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}40`, width: '100%', maxWidth: 720, maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div>
+                <h2 style={{ color: S.amber, fontSize: 17, fontWeight: 800 }}>📋 {isAr ? 'جرد المخزون' : 'Inventory Count'}</h2>
+                <p style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{isAr ? 'أدخل الكمية الفعلية لكل صنف' : 'Enter actual quantity for each item'}</p>
+              </div>
+              <button onClick={() => setShowInventory(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            {/* Search */}
+            <div style={{ padding: '12px 24px', borderBottom: `1px solid ${S.border}`, flexShrink: 0 }}>
+              <input style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }}
+                placeholder="🔍 بحث..." value={inventorySearch} onChange={e => setInventorySearch(e.target.value)} />
+            </div>
+
+            {/* Products List */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                {/* Header Row */}
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, padding: '8px 12px', background: S.navy3, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>الصنف</div>
+                  <div style={{ fontSize: 11, color: S.muted, fontWeight: 700, textAlign: 'center' }}>كرتون/علبة</div>
+                  <div style={{ fontSize: 11, color: S.muted, fontWeight: 700, textAlign: 'center' }}>قطعة/كيس</div>
+                  <div style={{ fontSize: 11, color: S.muted, fontWeight: 700, textAlign: 'center' }}>الإجمالي</div>
+                </div>
+
+                {products
+                  .filter(p => !inventorySearch || p.name.toLowerCase().includes(inventorySearch.toLowerCase()) || (p.name_en||'').toLowerCase().includes(inventorySearch.toLowerCase()))
+                  .map(p => {
+                    const inv = inventoryData[p.id] || { units: '', pieces: '' }
+                    const contents = (p as any).unit_contents || 1
+                    const bigQty = parseFloat(inv.units) || 0
+                    const smallQty = parseFloat(inv.pieces) || 0
+                    const total = bigQty * contents + smallQty
+                    const hasValue = inv.units !== '' || inv.pieces !== ''
+                    return (
+                      <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, padding: '10px 12px', background: hasValue ? 'rgba(245,158,11,0.06)' : S.card, borderRadius: 10, border: `1px solid ${hasValue ? S.amber + '40' : S.border}`, alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{p.name}</div>
+                          {p.name_en && <div style={{ fontSize: 10, color: S.muted }}>{p.name_en}</div>}
+                          <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
+                            {(p as any).unit_contents && (p as any).unit_contents > 1
+                              ? `1 وحدة = ${(p as any).unit_contents} ${p.units?.symbol || ''}`
+                              : `الوحدة: ${p.units?.symbol || '—'}`}
+                          </div>
+                        </div>
+                        <input
+                          type="number" min="0"
+                          placeholder="0"
+                          value={inv.units}
+                          onChange={e => setInventoryData(prev => ({ ...prev, [p.id]: { ...prev[p.id], units: e.target.value } }))}
+                          style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: S.white, outline: 'none', width: '100%', textAlign: 'center', fontFamily: 'system-ui' }}
+                        />
+                        <input
+                          type="number" min="0"
+                          placeholder="0"
+                          value={inv.pieces}
+                          onChange={e => setInventoryData(prev => ({ ...prev, [p.id]: { ...prev[p.id], pieces: e.target.value } }))}
+                          style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: S.white, outline: 'none', width: '100%', textAlign: 'center', fontFamily: 'system-ui' }}
+                        />
+                        <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: hasValue ? S.amber : S.muted }}>
+                          {hasValue ? total : p.current_stock}
+                          <div style={{ fontSize: 10, color: S.muted, fontWeight: 400 }}>{p.units?.symbol || ''}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '16px 24px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 12 }}>
+              <div style={{ fontSize: 13, color: S.muted }}>
+                {Object.values(inventoryData).filter(v => v.units !== '' || v.pieces !== '').length} صنف تم جرده
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setShowInventory(false)} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+                <button onClick={async () => {
+                  setInventorySaving(true)
+                  const updates = Object.entries(inventoryData)
+                    .filter(([, v]) => v.units !== '' || v.pieces !== '')
+                  for (const [productId, inv] of updates) {
+                    const p = products.find(x => x.id === productId)
+                    if (!p) continue
+                    const contents = (p as any).unit_contents || 1
+                    const total = (parseFloat(inv.units) || 0) * contents + (parseFloat(inv.pieces) || 0)
+                    await supabase.from('warehouse_products').update({ current_stock: total }).eq('id', productId)
+                    await supabase.from('stock_movements').insert([{
+                      product_id: productId, warehouse_id: warehouseId,
+                      movement_type: 'in', quantity: total - p.current_stock,
+                      movement_date: new Date().toISOString().split('T')[0],
+                      notes: `جرد مخزون — ${parseFloat(inv.units)||0} وحدة + ${parseFloat(inv.pieces)||0} قطعة`,
+                    }])
+                  }
+                  setInventorySaving(false)
+                  setShowInventory(false)
+                  fetchAll()
+                  alert(`✅ تم حفظ الجرد — ${updates.length} صنف`)
+                }} disabled={inventorySaving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: inventorySaving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  {inventorySaving ? '⏳ جاري الحفظ...' : '💾 حفظ الجرد'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

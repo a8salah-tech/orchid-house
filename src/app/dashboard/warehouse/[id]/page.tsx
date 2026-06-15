@@ -1540,25 +1540,46 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                   setInventorySaving(true)
                   const updates = Object.entries(inventoryData)
                     .filter(([, v]) => v.units !== '' || v.pieces !== '')
-                  for (const [productId, inv] of updates) {
-                    const p = products.find(x => x.id === productId)
-                    if (!p) continue
-                    const contents = (p as any).unit_contents || 1
-                    const total = (parseFloat(inv.units) || 0) * contents + (parseFloat(inv.pieces) || 0)
-                    await supabase.from('warehouse_products').update({ current_stock: total }).eq('id', productId)
-                    await supabase.from('stock_movements').insert([{
-                      product_id: productId, warehouse_id: warehouseId,
-                      movement_type: 'in', quantity: total - p.current_stock,
-                      movement_date: new Date().toISOString().split('T')[0],
-                      notes: `جرد مخزون — ${parseFloat(inv.units)||0} وحدة + ${parseFloat(inv.pieces)||0} قطعة`,
-                    }])
+                  if (updates.length === 0) { alert('يرجى إدخال كمية لصنف واحد على الأقل'); setInventorySaving(false); return }
+
+                  // إنشاء سجل جرد جديد بحالة pending
+                  const { data: countRecord, error: countErr } = await supabase
+                    .from('inventory_counts')
+                    .insert([{
+                      warehouse_id: warehouseId,
+                      counted_by: employee?.id,
+                      status: 'pending',
+                      count_date: new Date().toISOString().split('T')[0],
+                    }]).select('id').single()
+
+                  if (countErr || !countRecord) {
+                    alert('خطأ في إنشاء سجل الجرد: ' + countErr?.message)
+                    setInventorySaving(false); return
                   }
+
+                  // حفظ تفاصيل كل صنف
+                  const items = updates.map(([productId, inv]) => {
+                    const p = products.find(x => x.id === productId)
+                    const contents = (p as any)?.unit_contents || 1
+                    const actual = (parseFloat(inv.units) || 0) * contents + (parseFloat(inv.pieces) || 0)
+                    return {
+                      count_id: countRecord.id,
+                      product_id: productId,
+                      system_stock: p?.current_stock || 0,
+                      actual_stock: actual,
+                      unit_id: p?.units?.id || null,
+                    }
+                  })
+
+                  const { error: itemsErr } = await supabase.from('inventory_count_items').insert(items)
+                  if (itemsErr) { alert('خطأ في حفظ التفاصيل: ' + itemsErr.message); setInventorySaving(false); return }
+
                   setInventorySaving(false)
                   setShowInventory(false)
                   fetchAll()
-                  alert(`✅ تم حفظ الجرد — ${updates.length} صنف`)
+                  alert(`✅ تم رفع الجرد — ${updates.length} صنف\n⏳ في انتظار اعتماد مدير الفرع أو مدير النظام`)
                 }} disabled={inventorySaving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: inventorySaving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                  {inventorySaving ? '⏳ جاري الحفظ...' : '💾 حفظ الجرد'}
+                  {inventorySaving ? '⏳ جاري الرفع...' : '📤 رفع الجرد للاعتماد'}
                 </button>
               </div>
             </div>

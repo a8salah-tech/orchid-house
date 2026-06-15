@@ -118,7 +118,8 @@ export default function WastePage() {
       .order('created_at', { ascending: false })
 
     if (!isAdmin) q = q.eq('branch_id', employee?.branch_id || '')
-    if (isDeptManager || isSupervisor) q = q.eq('department', employee?.department || '')
+    if (role === 'kitchen_manager') q = q.in('department', ['المطبخ', 'البار', 'الحلويات', 'Kitchen', 'Bar', 'Desserts'])
+    else if (isDeptManager || isSupervisor) q = q.eq('department', employee?.department || '')
     if (filterType !== 'all') q = q.eq('waste_type', filterType)
 
     const { data } = await q

@@ -216,11 +216,12 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
 // ══════════════════════════════════════════
 // AddProductModal — إضافة صنف جديد سريع
 // ══════════════════════════════════════════
-function AddProductModal({ initialName, onClose, onSaved, units: allUnits }: {
+function AddProductModal({ initialName, onClose, onSaved, units: allUnits, warehouseId }: {
   initialName: string
   onClose: () => void
   onSaved: (p: Product) => void
   units?: { id: string; name: string; symbol: string }[]
+  warehouseId?: string
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
@@ -253,6 +254,7 @@ function AddProductModal({ initialName, onClose, onSaved, units: allUnits }: {
         min_stock: parseFloat(form.min_stock) || 0,
         unit_id: form.unit_id || null,
         is_active: true,
+        warehouse_id: warehouseId || null,
       }])
       .select('*, units(symbol)')
       .single()
@@ -513,9 +515,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
           unit_id: item.unit_id || null,
           notes: item.contents_manual ? `محتويات الوحدة: ${item.contents_manual}` : null,
         }])
-        const conv = unitConversions.find(c => c.product_id === item.product_id && c.from_unit_id === item.unit_id)
-        const contentsPerUnit = item.contents_manual ? parseFloat(item.contents_manual) : conv ? conv.factor : 1
-        const actualQty = parseFloat(item.quantity) * contentsPerUnit
+        const actualQty = parseFloat(item.quantity)
         await supabase.from('stock_movements').insert([{
           movement_type: 'in', product_id: item.product_id,
           warehouse_id: form.warehouse_id, quantity: actualQty,
@@ -749,6 +749,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
         <AddProductModal
           initialName={newProductName}
           units={units}
+          warehouseId={form.warehouse_id}
           onClose={() => { setShowAddProduct(false); setNewProductName(''); setAddingForIndex(-1) }}
           onSaved={(p) => {
             setLocalProducts(prev => [...prev, p])

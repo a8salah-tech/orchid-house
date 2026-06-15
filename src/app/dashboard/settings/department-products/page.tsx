@@ -36,8 +36,9 @@ const DEPTS = [
 
 export default function DepartmentProductsPage() {
   const sb = createClient()
-  const { permissions } = useAuth()
+  const { permissions, employee } = useAuth()
   const isAdmin = permissions?.all === true
+  const isWarehouse = employee?.role === 'warehouse_keeper'
 
   const [products,  setProducts]  = useState<any[]>([])
   const [mapping,   setMapping]   = useState<Record<string, string[]>>({ المطبخ: [], البار: [], الصالة: [] })
@@ -98,20 +99,21 @@ export default function DepartmentProductsPage() {
 
   async function save() {
     setSaving(true)
-    const { error: delErr } = await sb.from('department_products').delete().eq('department', activeDept)
-    if (delErr) { alert('خطأ في الحذف: ' + delErr.message); setSaving(false); return }
-    const ids = mapping[activeDept] || []
-    console.log('Saving dept:', activeDept, 'ids:', ids.length)
-    if (ids.length > 0) {
-      const { error: insErr } = await sb.from('department_products').insert(ids.map(pid => ({ department: activeDept, product_id: pid })))
-      if (insErr) { alert('خطأ في الحفظ: ' + insErr.message); setSaving(false); return }
+    for (const dept of ['المطبخ', 'البار', 'الصالة']) {
+      const { error: delErr } = await sb.from('department_products').delete().eq('department', dept)
+      if (delErr) { alert('خطأ في الحذف: ' + delErr.message); setSaving(false); return }
+      const ids = mapping[dept] || []
+      if (ids.length > 0) {
+        const { error: insErr } = await sb.from('department_products').insert(ids.map(pid => ({ department: dept, product_id: pid })))
+        if (insErr) { alert('خطأ في الحفظ: ' + insErr.message); setSaving(false); return }
+      }
     }
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
   }
 
-  if (!isAdmin) return (
+  if (!isAdmin && !isWarehouse) return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
       <div style={{ fontSize: 64 }}>🔒</div>
       <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444' }}>غير مصرح بالوصول</div>

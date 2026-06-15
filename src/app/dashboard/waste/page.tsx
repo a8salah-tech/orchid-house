@@ -79,6 +79,8 @@ export default function WastePage() {
   const isAdmin = role === 'admin' || (employee as any)?.permissions?.all === true
   const canRecord = isAdmin || ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager'].includes(role)
   const isBranchManager = role === 'branch_manager'
+  const isDeptManager   = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
+  const isSupervisor    = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
 
   const [logs, setLogs] = useState<WasteLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -116,6 +118,7 @@ export default function WastePage() {
       .order('created_at', { ascending: false })
 
     if (!isAdmin) q = q.eq('branch_id', employee?.branch_id || '')
+    if (isDeptManager || isSupervisor) q = q.eq('department', employee?.department || '')
     if (filterType !== 'all') q = q.eq('waste_type', filterType)
 
     const { data } = await q

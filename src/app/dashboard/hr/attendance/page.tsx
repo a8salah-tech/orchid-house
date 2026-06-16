@@ -523,17 +523,6 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <thead><tr><th>Date</th><th>{isAr ? 'تسجيل حضور' : 'Check In'}</th><th>{isAr ? 'تسجيل انصراف' : 'Check Out'}</th><th>In Distance</th><th>Out Distance</th><th>Duration</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    ${reportEmployee.salary ? `
-    <div class="salary-box">
-      <h3 style="color:#C9A84C;margin-bottom:12px">💰 Salary Summary</h3>
-      <table style="width:100%">
-        <tr><td>Basic Salary</td><td style="font-weight:bold">MYR ${reportEmployee.salary.toLocaleString('en-MY', { minimumFractionDigits: 2 })}</td></tr>
-        <tr><td>Daily Rate (salary ÷ 30)</td><td>MYR ${dailyRate.toFixed(2)}</td></tr>
-        <tr><td style="color:green">✅ Earned (${presentDays} days × MYR ${dailyRate.toFixed(2)})</td><td style="color:green;font-weight:bold">MYR ${earnedSalary.toFixed(2)}</td></tr>
-        <tr><td style="color:red">❌ Deductions (${absentDays} absent days)</td><td style="color:red;font-weight:bold">- MYR ${deductions.toFixed(2)}</td></tr>
-        <tr style="background:#fff8e1"><td style="font-weight:bold">💵 Net Salary</td><td style="font-weight:bold;font-size:16px;color:#C9A84C">MYR ${(earnedSalary - deductions).toFixed(2)}</td></tr>
-      </table>
-    </div>` : ''}
     <div style="margin-top:24px;display:flex;justify-content:space-between;font-size:11px;color:#666">
       <div>Prepared by: _______________</div>
       <div>Date: ${new Date().toLocaleDateString()}</div>
@@ -732,35 +721,6 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   </div>
                 ))}
               </div>
-
-              {/* Salary Summary */}
-              {reportEmployee.salary && (
-                <div style={{ background: S.gold3, border: `1px solid rgba(201,168,76,0.3)`, borderRadius: 14, padding: 20, marginBottom: 20 }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 14 }}>💰 Salary Summary</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-                    <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>Basic Salary</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: S.white }}>MYR {reportEmployee.salary.toLocaleString('en-MY', { minimumFractionDigits: 2 })}</div>
-                    </div>
-                    <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>Daily Rate (÷30)</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: S.white }}>MYR {dailyRate.toFixed(2)}</div>
-                    </div>
-                    <div style={{ background: S.greenB, borderRadius: 10, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>✅ Earned ({presentDays} days)</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: S.green }}>MYR {earnedSalary.toFixed(2)}</div>
-                    </div>
-                    <div style={{ background: S.redB, borderRadius: 10, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>❌ Deductions ({absentDays} absent)</div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: S.red }}>- MYR {deductions.toFixed(2)}</div>
-                    </div>
-                    <div style={{ background: 'rgba(201,168,76,0.2)', borderRadius: 10, padding: '12px 14px', border: `1px solid rgba(201,168,76,0.4)` }}>
-                      <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>💵 Net Salary</div>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: S.gold }}>MYR {(earnedSalary - deductions).toFixed(2)}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Print Button */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>

@@ -59,10 +59,13 @@ export default function InventoryReportsPage() {
   const canApprove = isAdmin || isBranchManager
 
   const [counts, setCounts] = useState<InventoryCount[]>([])
+  const [unitConversions, setUnitConversions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<InventoryCount | null>(null)
   const [approving, setApproving] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
+  const [editingItems, setEditingItems] = useState<Record<string, number>>({})
+  const [isEditing, setIsEditing] = useState(false)
 
   const fetchCounts = useCallback(async () => {
     setLoading(true)
@@ -86,8 +89,12 @@ export default function InventoryReportsPage() {
       if (warehouses) q = q.in('warehouse_id', warehouses.map(w => w.id))
     }
 
-    const { data } = await q
+    const [{ data }, convRes] = await Promise.all([
+      q,
+      sb.from('unit_conversions').select('*, from_unit:units!unit_conversions_from_unit_id_fkey(symbol), to_unit:units!unit_conversions_to_unit_id_fkey(symbol)'),
+    ])
     setCounts((data as any) || [])
+    setUnitConversions(convRes.data || [])
     setLoading(false)
   }, [employee])
 
@@ -134,6 +141,79 @@ export default function InventoryReportsPage() {
     await sb.from('inventory_counts').update({ status: 'rejected' }).eq('id', countId)
     setSelected(null)
     fetchCounts()
+  }
+
+  function formatStockDisplay(productId: string, stock: number, unitSymbol: string) {
+    const conv = unitConversions.find((c: any) => c.product_id === productId)
+    if (!conv || !conv.factor || conv.factor <= 1) return `${stock} ${unitSymbol}`
+    const bigQty = Math.floor(stock / conv.factor)
+    const smallQty = stock % conv.factor
+    const parts = []
+    if (bigQty > 0) parts.push(`${bigQty} ${conv.from_unit?.symbol || ''}`)
+    if (smallQty > 0) parts.push(`${smallQty} ${conv.to_unit?.symbol || unitSymbol}`)
+    return parts.length > 0 ? parts.join(' + ') : `0 ${unitSymbol}`
+  }
+
+  async function saveEdits() {
+    if (!selected) return
+    for (const [itemId, actual] of Object.entries(editingItems)) {
+      await sb.from('inventory_count_items').update({ actual_stock: actual }).eq('id', itemId)
+    }
+    setIsEditing(false)
+    setEditingItems({})
+    fetchCounts()
+  }
+
+  function printReport(count: InventoryCount) {
+    const items = count.inventory_count_items || []
+    const deficit = items.filter(i => i.difference < 0)
+    const surplus = items.filter(i => i.difference > 0)
+    const match = items.filter(i => i.difference === 0)
+    const win = window.open('', '_blank')
+    if (!win) return
+    const rows = items.map((item, i) => {
+      const diff = item.difference
+      const diffColor = diff < 0 ? '#EF4444' : diff > 0 ? '#22C55E' : '#8A9BB5'
+      return `<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">
+        <td>${item.warehouse_products?.name || '—'}</td>
+        <td>${formatStockDisplay(item.product_id, item.system_stock, item.units?.symbol || '')}</td>
+        <td style="font-weight:700">${formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '')}</td>
+        <td style="color:${diffColor};font-weight:700">${diff > 0 ? '+' : ''}${diff} ${item.units?.symbol || ''}</td>
+        <td style="color:${diffColor}">${diff < 0 ? '📉 عجز' : diff > 0 ? '📈 زيادة' : '✅ مطابق'}</td>
+      </tr>`
+    }).join('')
+    win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>تقرير الجرد</title>
+<style>
+  body{font-family:Arial,sans-serif;font-size:12px;margin:20px;direction:rtl;}
+  h1{font-size:18px;color:#0A1628;margin-bottom:4px;}
+  .sub{font-size:12px;color:#666;margin-bottom:16px;}
+  .summary{display:flex;gap:16px;margin-bottom:20px;}
+  .box{border:1px solid #ddd;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;}
+  .box .val{font-size:22px;font-weight:bold;}
+  table{width:100%;border-collapse:collapse;font-size:11px;}
+  th{background:#0A1628;color:#fff;padding:8px 10px;text-align:right;}
+  td{padding:7px 10px;border-bottom:1px solid #eee;}
+  @media print{@page{size:A4;margin:10mm;}}
+</style></head><body>
+<h1>📋 تقرير جرد المخزون</h1>
+<div class="sub">
+  🏭 ${(count.warehouses as any)?.name} · 
+  👤 ${(count.employees as any)?.name} · 
+  📅 ${new Date(count.count_date).toLocaleDateString('ar-SA')} · 
+  ${items.length} صنف
+</div>
+<div class="summary">
+  <div class="box"><div class="val" style="color:#22C55E">${match.length}</div><div>✅ مطابق</div></div>
+  <div class="box"><div class="val" style="color:#EF4444">${deficit.length}</div><div>📉 عجز</div></div>
+  <div class="box"><div class="val" style="color:#F59E0B">${surplus.length}</div><div>📈 زيادة</div></div>
+</div>
+<table>
+  <thead><tr><th>الصنف</th><th>النظام</th><th>الفعلي</th><th>الفرق</th><th>الحالة</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<script>window.onload=()=>window.print()<\/script>
+</body></html>`)
+    win.document.close()
   }
 
   const filtered = counts.filter(c => statusFilter === 'all' || c.status === statusFilter)
@@ -298,8 +378,16 @@ export default function InventoryReportsPage() {
                             <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{item.warehouse_products?.name}</div>
                             {item.warehouse_products?.name_en && <div style={{ fontSize: 10, color: S.muted }}>{item.warehouse_products.name_en}</div>}
                           </td>
-                          <td style={{ padding: '10px 14px', fontSize: 13, color: S.muted }}>{item.system_stock} {item.units?.symbol || ''}</td>
-                          <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: S.white }}>{item.actual_stock} {item.units?.symbol || ''}</td>
+                          <td style={{ padding: '10px 14px', fontSize: 13, color: S.muted }}>{formatStockDisplay(item.product_id, item.system_stock, item.units?.symbol || '')}</td>
+                          <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: S.white }}>
+                            {isEditing ? (
+                              <input type="number" min="0"
+                                value={editingItems[item.id] ?? item.actual_stock}
+                                onChange={e => setEditingItems(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) || 0 }))}
+                                style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid ${S.amber}`, borderRadius: 6, padding: '4px 8px', fontSize: 12, color: S.white, outline: 'none', width: 80, textAlign: 'center' }}
+                              />
+                            ) : formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '')}
+                          </td>
                           <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: diffColor }}>
                             {diff > 0 ? '+' : ''}{diff} {item.units?.symbol || ''}
                           </td>
@@ -317,19 +405,32 @@ export default function InventoryReportsPage() {
             </div>
 
             {/* Footer Actions */}
-            <div style={{ padding: '16px 24px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ padding: '16px 24px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', gap: 10 }}>
               <div style={{ fontSize: 12, color: S.muted }}>
                 {selected.status === 'pending' ? '⏳ في انتظار الاعتماد' :
                  selected.status === 'approved' ? `✅ معتمد · ${new Date(selected.approved_at!).toLocaleDateString('ar-SA')}` :
                  '❌ مرفوض'}
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setSelected(null)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
-                {canApprove && selected.status === 'pending' && (
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={() => printReport(selected)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة PDF</button>
+                {canApprove && selected.status === 'pending' && !isEditing && (
+                  <button onClick={() => {
+                    const init: Record<string, number> = {}
+                    selected.inventory_count_items?.forEach(i => { init[i.id] = i.actual_stock })
+                    setEditingItems(init)
+                    setIsEditing(true)
+                  }} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✏️ تعديل</button>
+                )}
+                {isEditing && (
                   <>
-                    <button onClick={() => rejectCount(selected.id)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                      ❌ رفض
-                    </button>
+                    <button onClick={() => { setIsEditing(false); setEditingItems({}) }} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+                    <button onClick={saveEdits} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💾 حفظ التعديلات</button>
+                  </>
+                )}
+                <button onClick={() => { setSelected(null); setIsEditing(false); setEditingItems({}) }} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+                {canApprove && selected.status === 'pending' && !isEditing && (
+                  <>
+                    <button onClick={() => rejectCount(selected.id)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>❌ رفض</button>
                     <button onClick={() => approveCount(selected.id)} disabled={approving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: approving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                       {approving ? '⏳ جاري الاعتماد...' : '✅ اعتماد وتحديث المخزون'}
                     </button>

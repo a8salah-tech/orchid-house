@@ -209,7 +209,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <button onClick={() => setSidebarOpen(p => !p)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 20, padding: 4 }}>☰</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <img src="/logo.png" alt="Orchid" style={{ width: 36, height: 36, borderRadius: 10, objectFit: 'contain' }} />
+            <img src="/logo.png" alt="Orchid" style={{ width: 100, height: 100, borderRadius: 12, objectFit: 'contain' }} />
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
               <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>

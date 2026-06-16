@@ -124,6 +124,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    function checkMobile() {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (mobile) setSidebarOpen(false)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
   const [lang, setLang] = useState<'ar' | 'en'>('en')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set()
@@ -229,6 +241,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* ══ BODY ══ */}
       <div style={{ display: 'flex', marginTop: 60, minHeight: 'calc(100vh - 60px)' }}>
 
+        {/* Mobile overlay */}
+        {isMobile && sidebarOpen && (
+          <div onClick={() => setSidebarOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 89 }} />
+        )}
+
         {/* ══ SIDEBAR ══ */}
         <aside ref={sidebarRef} style={{ position: 'fixed', top: 60, [isAr ? 'right' : 'left']: 0, bottom: 0, width: sidebarOpen ? 230 : 0, background: S.navy3, [isAr ? 'borderLeft' : 'borderRight']: `1px solid ${S.border}`, overflowY: 'auto', overflowX: 'hidden', transition: 'width 0.25s ease', zIndex: 90 }}>
           <div style={{ width: 230, padding: '12px 0' }}>
@@ -263,7 +280,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   {!isCollapsed && group.items.map((item, ii) => {
                     const active = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path))
                     return (
-                      <button key={ii} onClick={() => router.push(item.path)}
+                      <button key={ii} onClick={() => { router.push(item.path); if (isMobile) setSidebarOpen(false) }}
                         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: active ? S.gold3 : 'transparent', border: 'none',
                         borderRight: isAr && active ? `3px solid ${S.gold}` : 'none',
                         borderLeft: !isAr && active ? `3px solid ${S.gold}` : 'none',

@@ -66,6 +66,10 @@ interface WasteLog {
   department: string
   created_at: string
   image_url?: string
+  status?: string
+  estimated_cost?: number
+  approved_by?: string
+  approved_at?: string
   employees?: { name: string; name_en: string }
 }
 
@@ -90,7 +94,13 @@ export default function WastePage() {
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
   const [imgFile, setImgFile] = useState<File | null>(null)
   const [imgPreview, setImgPreview] = useState<string | null>(null)
+  const [previewImg, setPreviewImg] = useState<string | null>(null)
+  const [approvalModal, setApprovalModal] = useState<any | null>(null)
+  const [estimatedCost, setEstimatedCost] = useState('')
+  const [approvingSaving, setApprovingSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const canApprove = isAdmin || isBranchManager || isDeptManager
 
   const [form, setForm] = useState({
     waste_date: new Date().toISOString().split('T')[0],
@@ -105,29 +115,30 @@ export default function WastePage() {
   })
 
   async function fetchLogs() {
+    if (!employee?.id) return
     setLoading(true)
     const [year, month] = filterMonth.split('-').map(Number)
     const start = new Date(year, month - 1, 1).toISOString().split('T')[0]
     const end   = new Date(year, month, 0).toISOString().split('T')[0]
+    console.log('fetchLogs:', { isAdmin, start, end, employeeId: employee?.id })
 
     let q = sb.from('waste_logs')
-      .select('*, employees(name,name_en)')
+      .select('*, employees!waste_logs_recorded_by_fkey(name,name_en)')
       .gte('waste_date', start)
       .lte('waste_date', end)
       .order('waste_date', { ascending: false })
       .order('created_at', { ascending: false })
 
     if (!isAdmin) q = q.eq('branch_id', employee?.branch_id || '')
-    if (role === 'kitchen_manager') q = q.in('department', ['المطبخ', 'البار', 'الحلويات', 'Kitchen', 'Bar', 'Desserts'])
-    else if (isDeptManager || isSupervisor) q = q.eq('department', employee?.department || '')
     if (filterType !== 'all') q = q.eq('waste_type', filterType)
 
-    const { data } = await q
+    const { data, error } = await q
+    console.log('waste_logs result:', data?.length, 'error:', error, 'isAdmin:', isAdmin, 'branch_id:', employee?.branch_id)
     setLogs(data || [])
     setLoading(false)
   }
 
-  useEffect(() => { if (employee?.id) fetchLogs() }, [employee?.id, filterMonth, filterType])
+  useEffect(() => { if (employee?.id) fetchLogs() }, [employee?.id, filterMonth, filterType, isAdmin])
 
   async function save() {
     if (!form.waste_type || !form.item_name || !form.quantity) {
@@ -265,7 +276,17 @@ export default function WastePage() {
                   </div>
                   {log.notes && <div style={{ marginTop: 6, fontSize: 12, color: S.muted, background: S.card, borderRadius: 8, padding: '6px 10px' }}>💬 {log.notes}</div>}
                   {log.image_url && (
-                    <img src={log.image_url} alt="مرفق" style={{ marginTop: 8, maxWidth: 160, maxHeight: 100, borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => window.open(log.image_url, '_blank')} />
+                    <img src={log.image_url} alt="مرفق" style={{ marginTop: 8, maxWidth: 160, maxHeight: 100, borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setPreviewImg(log.image_url!)} />
+                  )}
+                  {/* زر الاعتماد */}
+                  {canApprove && !log.approved_by && (
+                    <button onClick={() => { setApprovalModal(log); setEstimatedCost(log.estimated_cost ? String(log.estimated_cost) : '') }}
+                      style={{ marginTop: 8, padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      ✅ اعتماد الهدر
+                    </button>
+                  )}
+                  {log.approved_by && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: S.green }}>✅ معتمد {log.estimated_cost ? `· تقدير: ${log.estimated_cost} MYR` : ''}</div>
                   )}
                 </div>
               </div>
@@ -385,6 +406,52 @@ export default function WastePage() {
                   {saving ? '⏳' : `🗑️ ${isAr ? 'حفظ السجل' : 'Save Log'}`}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Lightbox */}
+      {previewImg && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setPreviewImg(null)}>
+          <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setPreviewImg(null)} style={{ position: 'absolute', top: -16, right: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>✕</button>
+            <img src={previewImg} alt="مرفق" style={{ maxWidth: '85vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain', boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Approval Modal */}
+      {approvalModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.green}40`, width: '100%', maxWidth: 420, padding: 28 }}>
+            <h2 style={{ color: S.green, fontSize: 16, fontWeight: 800, marginBottom: 16 }}>✅ اعتماد سجل الهدر</h2>
+            <div style={{ background: S.card, borderRadius: 12, padding: '12px 16px', marginBottom: 20, fontSize: 13 }}>
+              <div style={{ color: S.white, fontWeight: 700 }}>{approvalModal.item_name}</div>
+              <div style={{ color: S.muted, marginTop: 4 }}>{approvalModal.quantity} {approvalModal.unit} · {approvalModal.department}</div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>التقدير المالي (MYR) — اختياري</label>
+              <input type="number" style={{ width: '100%', background: '#0F2040', border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }}
+                placeholder="0.00" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setApprovalModal(null)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+              <button disabled={approvingSaving} onClick={async () => {
+                setApprovingSaving(true)
+                await sb.from('waste_logs').update({
+                  status: 'approved',
+                  approved_by: employee?.id,
+                  approved_at: new Date().toISOString(),
+                  estimated_cost: parseFloat(estimatedCost) || 0,
+                }).eq('id', approvalModal.id)
+                setApprovingSaving(false)
+                setApprovalModal(null)
+                await fetchLogs()
+              }} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: approvingSaving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                {approvingSaving ? '⏳...' : '✅ اعتماد'}
+              </button>
             </div>
           </div>
         </div>

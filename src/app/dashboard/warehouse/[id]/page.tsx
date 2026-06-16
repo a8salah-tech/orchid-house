@@ -667,6 +667,7 @@ export default function WarehouseDetailPage() {
   const [warehouse, setWarehouse] = useState<Warehouse | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [units, setUnits] = useState<Unit[]>([])
+  const [unitConversionsAll, setUnitConversionsAll] = useState<any[]>([])
   const [movements, setMovements] = useState<Movement[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
@@ -701,14 +702,16 @@ export default function WarehouseDetailPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [wh, pr, un, mv, inv] = await Promise.all([
+    const [wh, pr, un, mv, inv, convRes] = await Promise.all([
       supabase.from('warehouses').select('*').eq('id', warehouseId).single(),
       supabase.from('warehouse_products').select('*, units(id,name,symbol)').eq('warehouse_id', warehouseId).order('name'),
       supabase.from('units').select('*').order('name'),
       supabase.from('stock_movements').select('*, warehouse_products(name, units(symbol)), warehouses(name)').eq('warehouse_id', warehouseId).order('created_at', { ascending: false }).limit(100),
       supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name)').eq('warehouse_id', warehouseId).order('created_at', { ascending: false }).limit(50),
+      supabase.from('unit_conversions').select('*, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)'),
     ])
     setWarehouse(wh.data)
+    setUnitConversionsAll(convRes.data || [])
 
     // لو المستودع فرعي، أضف منتجات المستودع الرئيسي كمان
     let allProducts = pr.data || []
@@ -852,6 +855,22 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
 </body></html>`
     win.document.write(html)
     win.document.close()
+  }
+
+  // تنسيق المخزون بالوحدتين الكبيرة والصغيرة
+  function formatStock(product: Product) {
+    const conv = unitConversionsAll.find((c: any) => c.product_id === product.id)
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return { big: null, bigUnit: '', small: product.current_stock, smallUnit: product.units?.symbol || '' }
+    }
+    const bigQty = Math.floor(product.current_stock / conv.factor)
+    const smallQty = product.current_stock % conv.factor
+    return {
+      big: bigQty > 0 ? bigQty : null,
+      bigUnit: conv.from_unit?.symbol || '',
+      small: smallQty,
+      smallUnit: conv.to_unit?.symbol || product.units?.symbol || '',
+    }
   }
 
   return (
@@ -1034,7 +1053,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
                 <thead>
                   <tr style={{ background: S.navy3 }}>
-                    {['الصنف (عربي / English)', 'الفئة', 'المخزون', 'الحد الأدنى', 'آخر سعر', 'الحالة', 'إجراء'].map(h => (
+                    {['الصنف (عربي / English)', 'الفئة', 'الوحدة الكبيرة', 'القطع / كيس', 'الحد الأدنى', 'آخر سعر', 'الحالة', 'إجراء'].map(h => (
                       <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                     ))}
                   </tr>
@@ -1064,8 +1083,17 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                           </span>
                         </td>
                         <td style={{ padding: '12px 16px', fontWeight: 700, color: isEmpty ? S.red : isLow ? S.amber : S.green, fontSize: 14 }}>
-                          {p.current_stock}
-                          <span style={{ fontSize: 11, fontWeight: 400, color: S.muted, marginRight: 3 }}>{(p as any).units?.symbol}</span>
+                          {(() => {
+                            const s = formatStock(p)
+                            if (s.big !== null) return <div>{s.big} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.bigUnit}</span></div>
+                            return <div style={{ color: S.muted, fontSize: 12 }}>—</div>
+                          })()}
+                        </td>
+                        <td style={{ padding: '12px 16px', fontWeight: 700, color: isEmpty ? S.red : isLow ? S.amber : S.green, fontSize: 14 }}>
+                          {(() => {
+                            const s = formatStock(p)
+                            return <div>{s.small} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.smallUnit}</span></div>
+                          })()}
                         </td>
                         <td style={{ padding: '12px 16px', fontSize: 13, color: S.muted }}>{p.min_stock} {(p as any).units?.symbol}</td>
                         <td style={{ padding: '12px 16px', fontSize: 13, color: S.gold }}>{p.last_purchase_price ? p.last_purchase_price + ' MYR' : '—'}</td>

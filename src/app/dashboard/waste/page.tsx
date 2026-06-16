@@ -123,13 +123,16 @@ export default function WastePage() {
     console.log('fetchLogs:', { isAdmin, start, end, employeeId: employee?.id })
 
     let q = sb.from('waste_logs')
-      .select('*, employees!waste_logs_recorded_by_fkey(name,name_en)')
+      .select('*, employees!waste_logs_recorded_by_fkey(name,name_en), approver:employees!waste_logs_approved_by_fkey(name)')
       .gte('waste_date', start)
       .lte('waste_date', end)
       .order('waste_date', { ascending: false })
       .order('created_at', { ascending: false })
 
     if (!isAdmin) q = q.eq('branch_id', employee?.branch_id || '')
+    if (role === 'kitchen_manager') q = q.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts','مطبخ','بار','حلويات'])
+    else if (isDeptManager) q = q.eq('department', employee?.department || '')
+    if (isSupervisor) q = q.eq('recorded_by', employee?.id || '')
     if (filterType !== 'all') q = q.eq('waste_type', filterType)
 
     const { data, error } = await q
@@ -272,21 +275,21 @@ export default function WastePage() {
                   <div style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: S.muted }}>
                     {log.reason && <span>📌 {log.reason}</span>}
                     <span>📅 {log.waste_date}</span>
-                    {log.employees?.name && <span>👤 {log.employees.name}</span>}
+                    {log.employees?.name && <span>👤 {log.employees.name} {log.employees.name_en ? `(${log.employees.name_en})` : ''}</span>}
                   </div>
                   {log.notes && <div style={{ marginTop: 6, fontSize: 12, color: S.muted, background: S.card, borderRadius: 8, padding: '6px 10px' }}>💬 {log.notes}</div>}
                   {log.image_url && (
                     <img src={log.image_url} alt="مرفق" style={{ marginTop: 8, maxWidth: 160, maxHeight: 100, borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setPreviewImg(log.image_url!)} />
                   )}
                   {/* زر الاعتماد */}
-                  {canApprove && !log.approved_by && (
+                  {(isAdmin || isBranchManager || (isDeptManager && ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'].includes(log.department))) && !log.approved_by && (
                     <button onClick={() => { setApprovalModal(log); setEstimatedCost(log.estimated_cost ? String(log.estimated_cost) : '') }}
                       style={{ marginTop: 8, padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                       ✅ اعتماد الهدر
                     </button>
                   )}
                   {log.approved_by && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: S.green }}>✅ معتمد {log.estimated_cost ? `· تقدير: ${log.estimated_cost} MYR` : ''}</div>
+                    <div style={{ marginTop: 6, fontSize: 11, color: S.green }}>✅ معتمد بواسطة: {(log as any).approver?.name || '—'} {log.estimated_cost ? `· تقدير: ${log.estimated_cost} MYR` : ''}</div>
                   )}
                 </div>
               </div>

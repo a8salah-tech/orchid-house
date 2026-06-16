@@ -261,6 +261,7 @@ export default function TablesPage() {
   const [newSection, setNewSection] = useState('outdoor')
   const [saving, setSaving]   = useState(false)
   const [filter, setFilter]   = useState<TableStatus | 'all'>('all')
+  const [activeBranch, setActiveBranch] = useState<string>('all')
 
   const fetchTables = useCallback(async () => {
     const [{ data: tablesData }, { data: branchesData }] = await Promise.all([
@@ -379,7 +380,65 @@ export default function TablesPage() {
     outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box', width: '100%',
   }
 
-  const filtered = filter === 'all' ? tables : tables.filter(t => t.status === filter)
+  function printAll() {
+    const branchTables = activeBranch === 'all' ? tables : tables.filter(t => t.branch_id === activeBranch)
+    const readyTables = branchTables.filter(t => qrUrls[t.id])
+    if (!readyTables.length) { alert('الباركودات لم تتحمل بعد، انتظر قليلاً'); return }
+    const win = window.open('', '_blank')
+    if (!win) return
+    const cards = readyTables.map(table => `
+      <div class="card">
+        <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div><div class="corner corner-br"></div>
+        <div class="top">
+          <div class="group-name">Orchid Group</div>
+          <div class="brand-name">Orchid House</div>
+          <div class="brand-sub">Fine Dining Restaurant</div>
+        </div>
+        <div class="qr-section">
+          <div class="qr-frame"><img src="${qrUrls[table.id]}" /></div>
+          <div class="table-pill">${table.name || 'Table ' + table.number}</div>
+          <div class="scan-row"><span style="font-size:12px">📱</span><div class="scan-text">Scan to view menu &amp; order</div></div>
+        </div>
+        <div class="bottom">
+          <div class="footer-text">All prices subject to 6% SST &amp; 10% service charge</div>
+        </div>
+      </div>`).join('')
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>All QR Codes</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'Montserrat',sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .page{display:flex;flex-wrap:wrap;gap:8px;padding:8px;justify-content:center;}
+  .card{width:9cm;height:14cm;border:2px solid #4BB8F0;border-radius:20px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:24px 20px 18px;background:#fff;position:relative;overflow:hidden;page-break-inside:avoid;margin:4px;}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);}
+  .card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);}
+  .top,.bottom{text-align:center;width:100%;}
+  .group-name{font-size:9px;font-weight:600;color:#4BB8F0;letter-spacing:5px;text-transform:uppercase;margin-bottom:2px;}
+  .brand-name{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#1E6FA8;letter-spacing:3px;text-transform:uppercase;line-height:1;}
+  .brand-sub{font-size:9px;color:#8A9BB5;letter-spacing:3px;text-transform:uppercase;margin-top:4px;}
+  .qr-section{display:flex;flex-direction:column;align-items:center;}
+  .qr-frame{padding:10px;border:2px solid #0A1628;border-radius:14px;background:#fff;margin-bottom:14px;box-shadow:inset 0 0 0 3px #4BB8F0,inset 0 0 0 5px #fff,inset 0 0 0 6px #0A1628;}
+  .qr-frame img{width:160px;height:160px;display:block;}
+  .table-pill{background:linear-gradient(135deg,#0A1628,#0F2040);color:#4BB8F0;border-radius:40px;padding:8px 28px;font-size:16px;font-weight:700;letter-spacing:2px;font-family:'Cormorant Garamond',serif;border:1.5px solid #4BB8F0;}
+  .scan-row{display:flex;align-items:center;gap:6px;margin-top:10px;}
+  .scan-text{font-size:8px;color:#8A9BB5;letter-spacing:2px;text-transform:uppercase;}
+  .footer-text{font-size:7px;color:#ccc;}
+  .corner{position:absolute;width:16px;height:16px;border-color:#4BB8F0;border-style:solid;}
+  .corner-tl{top:10px;left:10px;border-width:2px 0 0 2px;border-radius:3px 0 0 0;}
+  .corner-tr{top:10px;right:10px;border-width:2px 2px 0 0;border-radius:0 3px 0 0;}
+  .corner-bl{bottom:10px;left:10px;border-width:0 0 2px 2px;border-radius:0 0 0 3px;}
+  .corner-br{bottom:10px;right:10px;border-width:0 2px 2px 0;border-radius:0 0 3px 0;}
+  @media print{@page{size:A4;margin:5mm;}body{margin:0;}}
+</style></head><body>
+<div class="page">\${cards}</div>
+<script>window.onload=()=>window.print()<\/script>
+</body></html>`)
+    win.document.close()
+  }
+
+  const branchFiltered = activeBranch === 'all' ? tables : tables.filter(t => t.branch_id === activeBranch)
+  const filtered = filter === 'all' ? branchFiltered : branchFiltered.filter(t => t.status === filter)
   const counts = {
     available: tables.filter(t => t.status === 'available').length,
     reserved:  tables.filter(t => t.status === 'reserved').length,
@@ -403,6 +462,9 @@ export default function TablesPage() {
           <p style={{ fontSize: 13, color: S.muted }}>Manage tables and print QR codes</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={printAll} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            🖨️ طباعة الكل
+          </button>
           <button onClick={() => setShowLayout(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
             🗺️ Layout Editor
           </button>
@@ -410,6 +472,20 @@ export default function TablesPage() {
             ➕ Add Table
           </button>
         </div>
+      </div>
+
+      {/* Branch Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        <button onClick={() => setActiveBranch('all')}
+          style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${activeBranch === 'all' ? S.gold : S.border}`, background: activeBranch === 'all' ? S.gold3 : 'transparent', color: activeBranch === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === 'all' ? 700 : 400 }}>
+          🏪 الكل
+        </button>
+        {branches.map(b => (
+          <button key={b.id} onClick={() => setActiveBranch(b.id)}
+            style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${activeBranch === b.id ? S.blue : S.border}`, background: activeBranch === b.id ? S.blueB : 'transparent', color: activeBranch === b.id ? S.blue : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === b.id ? 700 : 400 }}>
+            🏪 {b.name}
+          </button>
+        ))}
       </div>
 
       {/* Stats Bar */}

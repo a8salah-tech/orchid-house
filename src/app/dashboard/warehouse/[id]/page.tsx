@@ -1537,11 +1537,10 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         </div>
                         <input
                           type="number" min="0"
-                          placeholder={contents > 1 ? "0" : "—"}
-                          disabled={contents <= 1}
-                          value={contents > 1 ? inv.units : ''}
-                          onChange={e => contents > 1 && setInventoryData(prev => ({ ...prev, [p.id]: { ...prev[p.id], units: e.target.value } }))}
-                          style={{ background: contents > 1 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: contents > 1 ? S.white : S.muted, outline: 'none', width: '100%', textAlign: 'center', fontFamily: 'system-ui', cursor: contents <= 1 ? 'not-allowed' : 'auto' }}
+                          placeholder="0"
+                          value={inv.units}
+                          onChange={e => setInventoryData(prev => ({ ...prev, [p.id]: { ...prev[p.id], units: e.target.value } }))}
+                          style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: S.white, outline: 'none', width: '100%', textAlign: 'center', fontFamily: 'system-ui' }}
                         />
                         <input
                           type="number" min="0"
@@ -1553,10 +1552,15 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: hasValue ? S.amber : S.muted }}>
                           {hasValue ? (
                             <div>
-                              {bigQty > 0 && contents > 1 && <div>{bigQty} <span style={{ fontSize: 10, fontWeight: 400 }}>وحدة كبيرة</span></div>}
-                              {smallQty > 0 && <div>{smallQty} <span style={{ fontSize: 10, fontWeight: 400 }}>{p.units?.symbol || ''}</span></div>}
+                              {bigQty > 0 && (
+                                <div>{bigQty} <span style={{ fontSize: 10, fontWeight: 400 }}>
+                                  {unitConversionsAll.find((c: any) => c.product_id === p.id)?.from_unit?.symbol || 'وحدة'}
+                                </span></div>
+                              )}
+                              {smallQty > 0 && (
+                                <div>{smallQty} <span style={{ fontSize: 10, fontWeight: 400 }}>{p.units?.symbol || ''}</span></div>
+                              )}
                               {bigQty === 0 && smallQty === 0 && <div style={{ color: S.muted }}>0</div>}
-                              {contents <= 1 && smallQty > 0 && bigQty === 0 && null}
                             </div>
                           ) : (
                             <div style={{ color: S.muted, fontSize: 12 }}>{p.current_stock} <span style={{ fontSize: 10 }}>{p.units?.symbol || ''}</span></div>

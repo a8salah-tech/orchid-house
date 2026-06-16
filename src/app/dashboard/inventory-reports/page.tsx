@@ -75,7 +75,7 @@ export default function InventoryReportsPage() {
         inventory_count_items(
           *,
           warehouse_products(name, name_en),
-          units(symbol)
+          units!inventory_count_items_unit_id_fkey(symbol)
         )
       `)
       .order('created_at', { ascending: false })

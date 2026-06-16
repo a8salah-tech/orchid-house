@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { useAuth } from '../../../components/AuthProvider'
-import { useLang } from '../../../components/LanguageContext'
+import { useAuth } from '../../components/AuthProvider'
+import { useLang } from '../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -1519,28 +1519,32 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                   .filter(p => !inventorySearch || p.name.toLowerCase().includes(inventorySearch.toLowerCase()) || (p.name_en||'').toLowerCase().includes(inventorySearch.toLowerCase()))
                   .map(p => {
                     const inv = inventoryData[p.id] || { units: '', pieces: '' }
-                    const contents = (p as any).unit_contents || 1
+                    const conv = unitConversionsAll.find((c: any) => c.product_id === p.id)
+                    const contents = conv?.factor || 1
+                    const hasConv = conv && contents > 1
                     const bigQty = parseFloat(inv.units) || 0
                     const smallQty = parseFloat(inv.pieces) || 0
-                    const total = bigQty * contents + smallQty
                     const hasValue = inv.units !== '' || inv.pieces !== ''
+                    const smallUnitName = conv?.to_unit?.symbol || p.units?.symbol || ''
+                    const bigUnitName = conv?.from_unit?.symbol || p.units?.symbol || ''
                     return (
                       <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, padding: '10px 12px', background: hasValue ? 'rgba(245,158,11,0.06)' : S.card, borderRadius: 10, border: `1px solid ${hasValue ? S.amber + '40' : S.border}`, alignItems: 'center' }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{p.name}</div>
                           {p.name_en && <div style={{ fontSize: 10, color: S.muted }}>{p.name_en}</div>}
                           <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
-                            {(p as any).unit_contents && (p as any).unit_contents > 1
-                              ? `1 وحدة = ${(p as any).unit_contents} ${p.units?.symbol || ''}`
+                            {hasConv
+                              ? `1 ${bigUnitName} = ${contents} ${smallUnitName}`
                               : `الوحدة: ${p.units?.symbol || '—'}`}
                           </div>
                         </div>
                         <input
                           type="number" min="0"
-                          placeholder="0"
-                          value={inv.units}
-                          onChange={e => setInventoryData(prev => ({ ...prev, [p.id]: { ...prev[p.id], units: e.target.value } }))}
-                          style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: S.white, outline: 'none', width: '100%', textAlign: 'center', fontFamily: 'system-ui' }}
+                          placeholder={hasConv ? "0" : "—"}
+                          disabled={!hasConv}
+                          value={hasConv ? inv.units : ''}
+                          onChange={e => hasConv && setInventoryData(prev => ({ ...prev, [p.id]: { ...prev[p.id], units: e.target.value } }))}
+                          style={{ background: hasConv ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: hasConv ? S.white : S.muted, outline: 'none', width: '100%', textAlign: 'center', fontFamily: 'system-ui', cursor: hasConv ? 'auto' : 'not-allowed' }}
                         />
                         <input
                           type="number" min="0"
@@ -1549,17 +1553,20 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                           onChange={e => setInventoryData(prev => ({ ...prev, [p.id]: { ...prev[p.id], pieces: e.target.value } }))}
                           style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: S.white, outline: 'none', width: '100%', textAlign: 'center', fontFamily: 'system-ui' }}
                         />
+                        {/* label for small unit */}
+                        <div style={{ fontSize: 10, color: S.muted, textAlign: 'center', marginTop: 2 }}>{smallUnitName}</div>
                         <div style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: hasValue ? S.amber : S.muted }}>
                           {hasValue ? (
                             <div>
-                              {bigQty > 0 && (
-                                <div>{bigQty} <span style={{ fontSize: 10, fontWeight: 400 }}>
-                                  {unitConversionsAll.find((c: any) => c.product_id === p.id)?.from_unit?.symbol || 'وحدة'}
-                                </span></div>
+                              {hasConv && bigQty > 0 && (
+                                <div>{bigQty} <span style={{ fontSize: 10, fontWeight: 400 }}>{bigUnitName}</span></div>
                               )}
-                              {smallQty > 0 && (
-                                <div>{smallQty} <span style={{ fontSize: 10, fontWeight: 400 }}>{p.units?.symbol || ''}</span></div>
-                              )}
+                              {(() => {
+                                const totalPieces = hasConv ? smallQty : bigQty + smallQty
+                                return totalPieces > 0 ? (
+                                  <div>{totalPieces} <span style={{ fontSize: 10, fontWeight: 400 }}>{smallUnitName}</span></div>
+                                ) : null
+                              })()}
                               {bigQty === 0 && smallQty === 0 && <div style={{ color: S.muted }}>0</div>}
                             </div>
                           ) : (
@@ -1603,8 +1610,9 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                   // حفظ تفاصيل كل صنف
                   const items = updates.map(([productId, inv]) => {
                     const p = products.find(x => x.id === productId)
-                    const contents = (p as any)?.unit_contents || 1
-                    const actual = (parseFloat(inv.units) || 0) * contents + (parseFloat(inv.pieces) || 0)
+                    const conv = unitConversionsAll.find((c: any) => c.product_id === productId)
+                    const factor = conv?.factor || 1
+                    const actual = (parseFloat(inv.units) || 0) * factor + (parseFloat(inv.pieces) || 0)
                     return {
                       count_id: countRecord.id,
                       product_id: productId,

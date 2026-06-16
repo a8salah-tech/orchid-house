@@ -130,8 +130,9 @@ export default function WastePage() {
       .order('created_at', { ascending: false })
 
     if (!isAdmin) q = q.eq('branch_id', employee?.branch_id || '')
-    if (role === 'kitchen_manager') q = q.in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts','مطبخ','بار','حلويات'])
-    else if (isDeptManager) q = q.eq('department', employee?.department || '')
+    // مدير الصالة يشوف الصالة فقط
+    if (role === 'hall_manager') q = q.in('department', ['الصالة', 'Hall', 'hall'])
+    // المشرف يشوف هدره هو فقط
     if (isSupervisor) q = q.eq('recorded_by', employee?.id || '')
     if (filterType !== 'all') q = q.eq('waste_type', filterType)
 

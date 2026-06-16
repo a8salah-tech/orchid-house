@@ -291,6 +291,15 @@ export default function WastePage() {
                   {log.approved_by && (
                     <div style={{ marginTop: 6, fontSize: 11, color: S.green }}>✅ معتمد بواسطة: {(log as any).approver?.name || '—'} {log.estimated_cost ? `· تقدير: ${log.estimated_cost} MYR` : ''}</div>
                   )}
+                  {isAdmin && (
+                    <button onClick={async () => {
+                      if (!confirm('حذف هذا السجل؟')) return
+                      await sb.from('waste_logs').delete().eq('id', log.id)
+                      fetchLogs()
+                    }} style={{ marginTop: 6, padding: '4px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      🗑️ حذف
+                    </button>
+                  )}
                 </div>
               </div>
             )

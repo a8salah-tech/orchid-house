@@ -67,7 +67,7 @@ const ALL_MENU: MenuGroup[] = [
   ]},
 { group: 'إدارة المخزون', items: [
     { label: 'المستودعات',   label_en: 'Warehouses',      icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },
-    { label: 'تقارير الجرد', label_en: 'Inventory Reports', icon: '📋', path: '/dashboard/warehouse/inventory-reports', permission: 'inventory_reports' },
+    { label: 'تقارير الجرد', label_en: 'Inventory Reports', icon: '📋', path: '/dashboard/inventory-reports', permission: 'inventory_reports' },
     { label: 'المشتريات',    label_en: 'Purchases',       icon: '🛒', path: '/dashboard/purchases',       permission: 'purchases' },
     { label: 'طلبات الفروع', label_en: 'Branch Requests', icon: '📦', path: '/dashboard/branch-requests', permission: 'branch_requests' },
     { label: 'سجل الهدر',   label_en: 'Waste Log',       icon: '🗑️', path: '/dashboard/waste',           permission: 'waste' },

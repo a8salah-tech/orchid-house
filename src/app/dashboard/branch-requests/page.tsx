@@ -251,6 +251,34 @@ function RequestCard({ req, role, onOpen }: { req: BranchRequest; role: string; 
 }
 
 // ══ Request Detail Modal ══
+function AddItemSearch({ products, editedItems, onAdd }: { products: {id:string;name:string}[]; editedItems: any[]; onAdd: (p:{id:string;name:string}) => void }) {
+  const [search, setSearch] = useState('')
+  const available = products.filter(p => !editedItems.some(i => i.product_id === p.id && !i._delete))
+  const filtered = available.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()))
+  return (
+    <div style={{ position: 'relative' }}>
+      <input style={{ ...inp }} placeholder="🔍 ابحث عن صنف للإضافة..." value={search} onChange={e => setSearch(e.target.value)} />
+      {search && filtered.length > 0 && (
+        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: '#0C1A32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, zIndex: 50, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', marginTop: 4 }}>
+          {filtered.map(p => (
+            <div key={p.id} onClick={() => { onAdd(p); setSearch('') }}
+              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#FAFAF8', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+              {p.name}
+            </div>
+          ))}
+        </div>
+      )}
+      {search && filtered.length === 0 && (
+        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: '#0C1A32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, zIndex: 50, padding: '10px 14px', fontSize: 12, color: '#8A9BB5', marginTop: 4 }}>
+          لا توجد نتائج
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { request: BranchRequest; currentEmployee: any; onClose: () => void; onUpdate: () => void }) {
   const sb = createClient()
   const { isAr } = useLang()
@@ -261,6 +289,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const [receiveImg, setReceiveImg] = useState<File|null>(null)
   const [receiveImgPreview, setReceiveImgPreview] = useState('')
   const [receiveItems, setReceiveItems] = useState<Record<string,{received:number;returned:number;reason:string;imgFile?:File;imgPreview:string}>>({})
+  const [editingItems, setEditingItems] = useState(false)
+  const [editedItems, setEditedItems] = useState<{id:string;product_id:string;product_name:string;quantity_requested:number;unit_id:string;unit_symbol:string;_delete?:boolean}[]>([])
+  const [deptProducts, setDeptProducts] = useState<{id:string;name:string}[]>([])
+  const [savingItems, setSavingItems] = useState(false)
   const role = currentEmployee?.role || ''
 
   async function doAction(status: string, extra: Record<string,string> = {}) {
@@ -306,7 +338,38 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   }
 
   const canApprove = [...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && request.status === 'pending'
+  const canEditItems = MANAGER_ROLES.includes(role) && request.status === 'pending'
   const canWarehouse = (role === 'warehouse_keeper' || SENIOR_ROLES.includes(role)) && ['manager_approved','branch_approved'].includes(request.status)
+
+  async function startEditItems() {
+    setEditedItems((request.branch_request_items || []).map(i => ({
+      id: i.id, product_id: (i as any).product_id || '',
+      product_name: i.warehouse_products?.name || '',
+      quantity_requested: i.quantity_requested,
+      unit_id: (i as any).unit_id || '',
+      unit_symbol: i.units?.symbol || '',
+    })))
+    // جيب منتجات القسم
+    const dept = request.department
+    const { data } = await sb.from('department_products')
+      .select('product_id, warehouse_products(id,name)')
+      .eq('department', dept)
+    setDeptProducts((data || []).map((d: any) => ({ id: d.warehouse_products?.id, name: d.warehouse_products?.name })).filter(Boolean))
+    setEditingItems(true)
+  }
+
+  async function saveEditedItems() {
+    setSavingItems(true)
+    const toDelete = editedItems.filter(i => i._delete && i.id)
+    const toUpdate = editedItems.filter(i => !i._delete && i.id)
+    const toAdd    = editedItems.filter(i => !i._delete && !i.id)
+    for (const i of toDelete) await sb.from('branch_request_items').delete().eq('id', i.id)
+    for (const i of toUpdate) await sb.from('branch_request_items').update({ quantity_requested: i.quantity_requested }).eq('id', i.id)
+    if (toAdd.length > 0) await sb.from('branch_request_items').insert(toAdd.map(i => ({ request_id: request.id, product_id: i.product_id, quantity_requested: i.quantity_requested, unit_id: i.unit_id || null })))
+    setSavingItems(false)
+    setEditingItems(false)
+    onUpdate()
+  }
   const canReceive = ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role)) && request.status === 'warehouse_processing'
   const canConfirmManager = [...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && request.status === 'supervisor_received'
   const canReject = [...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && ['pending','manager_approved'].includes(request.status)
@@ -347,32 +410,68 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
 
         {/* Items */}
         <div style={{ background: S.navy3, borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.gold }}>
-            الأصناف ({request.branch_request_items?.length || 0})
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.gold, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>الأصناف ({request.branch_request_items?.length || 0})</span>
+            {canEditItems && !editingItems && (
+              <button onClick={startEditItems} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ✏️ تعديل الأصناف
+              </button>
+            )}
           </div>
-          {(request.branch_request_items || []).map((item, i) => (
-            <div key={i} style={{ padding: '12px 14px', borderBottom: i < (request.branch_request_items?.length||0)-1 ? `1px solid ${S.border}` : 'none' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{item.warehouse_products?.name}</div>
-                  {item.warehouse_products?.name_en && <div style={{ fontSize: 11, color: S.muted }}>{item.warehouse_products.name_en}</div>}
-                  {item.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 3 }}>📝 {item.notes}</div>}
+
+          {/* وضع التعديل */}
+          {editingItems ? (
+            <div style={{ padding: 14 }}>
+              {editedItems.map((item, i) => !item._delete && (
+                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                  <div style={{ flex: 1, fontSize: 13, color: S.white, background: S.card, borderRadius: 8, padding: '8px 12px' }}>{item.product_name}</div>
+                  <input type="number" min="0" value={item.quantity_requested}
+                    onChange={e => setEditedItems(p => p.map((it, idx) => idx === i ? { ...it, quantity_requested: parseFloat(e.target.value) || 0 } : it))}
+                    style={{ ...inp, width: 80, textAlign: 'center' }} />
+                  <span style={{ fontSize: 11, color: S.muted, width: 30 }}>{item.unit_symbol}</span>
+                  <button onClick={() => setEditedItems(p => p.map((it, idx) => idx === i ? { ...it, _delete: true } : it))}
+                    style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
                 </div>
-                <div style={{ textAlign: 'left', flexShrink: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: S.blue }}>{item.quantity_requested} {item.units?.symbol}</div>
-                  {(item.quantity_approved||0) > 0 && <div style={{ fontSize: 11, color: S.green }}>معتمد: {item.quantity_approved}</div>}
-                  {(item.quantity_received||0) > 0 && <div style={{ fontSize: 11, color: S.teal }}>مستلم: {item.quantity_received}</div>}
-                  {(item.quantity_returned||0) > 0 && <div style={{ fontSize: 11, color: S.red }}>مرجع: {item.quantity_returned}</div>}
-                </div>
+              ))}
+
+              {/* إضافة صنف جديد */}
+              <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 12, marginTop: 8 }}>
+                <div style={{ fontSize: 12, color: S.gold, marginBottom: 8, fontWeight: 700 }}>➕ إضافة صنف</div>
+                <AddItemSearch products={deptProducts} editedItems={editedItems} onAdd={p => setEditedItems(prev => [...prev, { id: '', product_id: p.id, product_name: p.name, quantity_requested: 1, unit_id: '', unit_symbol: '' }])} />
               </div>
-              {item.return_reason && (
-                <div style={{ marginTop: 6, fontSize: 11, color: S.red, background: S.redB, borderRadius: 6, padding: '4px 8px' }}>
-                  ↩️ سبب الإرجاع: {item.return_reason}
-                  {item.return_image_url && <a href={item.return_image_url} target="_blank" rel="noreferrer" style={{ color: S.blue, marginRight: 8 }}>📎 صورة</a>}
-                </div>
-              )}
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button onClick={() => setEditingItems(false)} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+                <button onClick={saveEditedItems} disabled={savingItems} style={{ padding: '8px 20px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  {savingItems ? '⏳...' : '💾 حفظ التعديلات'}
+                </button>
+              </div>
             </div>
-          ))}
+          ) : (
+            (request.branch_request_items || []).map((item, i) => (
+              <div key={i} style={{ padding: '12px 14px', borderBottom: i < (request.branch_request_items?.length||0)-1 ? `1px solid ${S.border}` : 'none' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{item.warehouse_products?.name}</div>
+                    {item.warehouse_products?.name_en && <div style={{ fontSize: 11, color: S.muted }}>{item.warehouse_products.name_en}</div>}
+                    {item.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 3 }}>📝 {item.notes}</div>}
+                  </div>
+                  <div style={{ textAlign: 'left', flexShrink: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: S.blue }}>{item.quantity_requested} {item.units?.symbol}</div>
+                    {(item.quantity_approved||0) > 0 && <div style={{ fontSize: 11, color: S.green }}>معتمد: {item.quantity_approved}</div>}
+                    {(item.quantity_received||0) > 0 && <div style={{ fontSize: 11, color: S.teal }}>مستلم: {item.quantity_received}</div>}
+                    {(item.quantity_returned||0) > 0 && <div style={{ fontSize: 11, color: S.red }}>مرجع: {item.quantity_returned}</div>}
+                  </div>
+                </div>
+                {item.return_reason && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: S.red, background: S.redB, borderRadius: 6, padding: '4px 8px' }}>
+                    ↩️ سبب الإرجاع: {item.return_reason}
+                    {item.return_image_url && <a href={item.return_image_url} target="_blank" rel="noreferrer" style={{ color: S.blue, marginRight: 8 }}>📎 صورة</a>}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
 
         {/* صورة الاستلام لو موجودة */}

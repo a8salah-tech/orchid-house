@@ -47,7 +47,7 @@ const CATEGORY_ICONS: Record<string, string> = {
 
 const PAGE_SIZE = 20
 
-type Tab = 'overview' | 'in' | 'out' | 'daily' | 'monthly'
+type Tab = 'overview' | 'in' | 'out' | 'transfer' | 'daily' | 'monthly'
 type UnitConversion = { id: string; product_id: string; from_unit_id: string; to_unit_id: string; factor: number; notes: string; from_unit?: Unit; to_unit?: Unit }
 
 interface Warehouse { id: string; name: string; description: string; location: string; is_main: boolean }
@@ -393,6 +393,137 @@ function StockOutModal({ warehouseId, warehouseName, products, onClose, onSaved 
   )
 }
 
+// ══ Modal تحويل بين المستودعات ══
+function TransferModal({ warehouseId, warehouseName, products, onClose, onSaved }: {
+  warehouseId: string; warehouseName: string; products: Product[]
+  onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [saving, setSaving] = useState(false)
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [form, setForm] = useState({ product_id: '', quantity: '', target_warehouse_id: '', movement_date: new Date().toISOString().split('T')[0], notes: '' })
+  const selectedProduct = products.find(p => p.id === form.product_id)
+  const targetWarehouses = warehouses.filter(w => w.id !== warehouseId)
+
+  useEffect(() => {
+    supabase.from('warehouses').select('*').order('name').then(({ data }) => setWarehouses(data || []))
+  }, [])
+
+  async function save() {
+    if (!form.product_id || !form.quantity || !form.target_warehouse_id) { alert('يرجى إكمال الحقول المطلوبة'); return }
+    if (selectedProduct && parseFloat(form.quantity) > selectedProduct.current_stock) { alert('الكمية أكبر من المخزون المتاح!'); return }
+    setSaving(true)
+
+    const qty = parseFloat(form.quantity)
+    const transferId = crypto.randomUUID()
+    const targetWarehouseName = warehouses.find(w => w.id === form.target_warehouse_id)?.name || ''
+
+    // هل يوجد نفس الصنف بالاسم في المستودع الهدف؟
+    const { data: targetProduct } = await supabase.from('warehouse_products')
+      .select('id, current_stock')
+      .eq('warehouse_id', form.target_warehouse_id)
+      .eq('name', selectedProduct?.name)
+      .maybeSingle()
+
+    if (!targetProduct) {
+      alert(`الصنف "${selectedProduct?.name}" غير موجود في مستودع "${targetWarehouseName}". يرجى إضافته أولاً في المستودع الهدف.`)
+      setSaving(false)
+      return
+    }
+
+    // خصم من المصدر
+    const { error: outError } = await supabase.from('warehouse_products')
+      .update({ current_stock: (selectedProduct!.current_stock - qty) })
+      .eq('id', form.product_id)
+    if (outError) { alert('خطأ في الخصم من المصدر: ' + outError.message); setSaving(false); return }
+
+    // إضافة للهدف
+    const { error: inError } = await supabase.from('warehouse_products')
+      .update({ current_stock: (targetProduct.current_stock + qty) })
+      .eq('id', targetProduct.id)
+    if (inError) {
+      // تراجع عن الخصم لو فشلت الإضافة
+      await supabase.from('warehouse_products').update({ current_stock: selectedProduct!.current_stock }).eq('id', form.product_id)
+      alert('خطأ في الإضافة للهدف: ' + inError.message); setSaving(false); return
+    }
+
+    // تسجيل حركة الخروج من المصدر
+    await supabase.from('stock_movements').insert([{
+      movement_type: 'out', product_id: form.product_id, warehouse_id: warehouseId,
+      quantity: qty, destination: 'مستودع آخر', destination_custom: `تحويل إلى ${targetWarehouseName}`,
+      movement_date: form.movement_date, notes: form.notes, transfer_id: transferId,
+    }])
+
+    // تسجيل حركة الدخول في الهدف
+    await supabase.from('stock_movements').insert([{
+      movement_type: 'in', product_id: targetProduct.id, warehouse_id: form.target_warehouse_id,
+      quantity: qty, notes: `تحويل من ${warehouseName}${form.notes ? ' — ' + form.notes : ''}`,
+      movement_date: form.movement_date, transfer_id: transferId,
+    }])
+
+    setSaving(false)
+    onSaved()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 500, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+          <h3 style={{ color: S.purple, fontSize: 16, fontWeight: 700 }}>🔄 تحويل بين المستودعات — {warehouseName}</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف *</label>
+            <select style={{ ...inp }} value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))}>
+              <option value="">اختر الصنف</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name} (متاح: {p.current_stock} {p.units?.symbol})</option>)}
+            </select>
+          </div>
+          {selectedProduct && (
+            <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: S.muted }}>المخزون المتاح</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green }}>
+                {selectedProduct.current_stock} {selectedProduct.units?.symbol}
+              </span>
+            </div>
+          )}
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المستودع الهدف *</label>
+            <select style={{ ...inp }} value={form.target_warehouse_id} onChange={e => setForm(p => ({ ...p, target_warehouse_id: e.target.value }))}>
+              <option value="">اختر المستودع</option>
+              {targetWarehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الكمية *</label>
+              <input style={inp} type="number" value={form.quantity} onChange={e => setForm(p => ({ ...p, quantity: e.target.value }))} placeholder="0" />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التاريخ</label>
+              <input style={inp} type="date" value={form.movement_date} onChange={e => setForm(p => ({ ...p, movement_date: e.target.value }))} />
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>ملاحظات</label>
+            <input style={inp} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="أي ملاحظات..." />
+          </div>
+          <div style={{ background: S.purpleB, borderRadius: 10, padding: '10px 14px', fontSize: 11, color: S.purple }}>
+            ℹ️ سيتم خصم الكمية من "{warehouseName}" وإضافتها تلقائياً للمستودع الهدف، بشرط وجود الصنف بنفس الاسم هناك.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {saving ? '⏳...' : '🔄 تأكيد التحويل'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ══ الصفحة الرئيسية ══
 // ══ Unit Conversion Modal ══
 function UnitConversionModal({ product, units, onClose }: { product: any; units: any[]; onClose: () => void }) {
@@ -680,6 +811,7 @@ export default function WarehouseDetailPage() {
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [showStockIn, setShowStockIn] = useState(false)
   const [showStockOut, setShowStockOut] = useState(false)
+  const [showTransfer, setShowTransfer] = useState(false)
   const [showAddCategory, setShowAddCategory] = useState(false)
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
   const [editCategoryName, setEditCategoryName] = useState('')
@@ -880,6 +1012,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
           <button onClick={() => setShowAddProduct(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ صنف جديد</button>
           <button onClick={() => setShowStockIn(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📥 دخول بضاعة</button>
           <button onClick={() => setShowStockOut(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📤 خروج بضاعة</button>
+          <button onClick={() => setShowTransfer(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 تحويل مستودعات</button>
         </div>
       </div>
 
@@ -1425,6 +1558,10 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
       {showStockOut && warehouse && (
         <StockOutModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products}
           onClose={() => setShowStockOut(false)} onSaved={() => { setShowStockOut(false); fetchAll() }} />
+      )}
+      {showTransfer && warehouse && (
+        <TransferModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products}
+          onClose={() => setShowTransfer(false)} onSaved={() => { setShowTransfer(false); fetchAll() }} />
       )}
       {editingCategory && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>

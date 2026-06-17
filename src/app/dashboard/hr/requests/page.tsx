@@ -33,7 +33,6 @@ const inp: React.CSSProperties = {
 }
 
 const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: string; color: string; bg: string; hasAmount?: boolean; hasDates?: boolean }> = {
-  leave_annual:  { label: 'إجازة سنوية', label_en: 'Annual Leave',     icon: '🏖️', color: S.blue,   bg: S.blueB,   hasDates: true },
   leave_sick:    { label: 'إجازة مرضية', label_en: 'Sick Leave',     icon: '🏥', color: S.red,    bg: S.redB,    hasDates: true },
   leave_emergency:{ label: 'إجازة طارئة', label_en: 'Emergency Leave',    icon: '🚨', color: S.amber,  bg: S.amberB,  hasDates: true },
   overtime:      { label: 'طلب أوفر تايم', label_en: 'Overtime Request',   icon: '⏰', color: S.purple, bg: S.purpleB, hasDates: true },
@@ -322,14 +321,14 @@ Reason: ${form.reason}`
 }
 
 // ══ New Request Modal ══
-function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initialType }: {
-  employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string; initialType?: string
+function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initialType, canRequestSalary }: {
+  employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string; initialType?: string; canRequestSalary?: boolean
 }) {
   const supabase = createClient()
   const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    employee_id: currentEmployeeId || '', request_type: initialType || 'leave_annual',
+    employee_id: currentEmployeeId || '', request_type: initialType || 'leave_sick',
     title: '', description: '', amount: '',
     start_date: '', end_date: '',
     correct_checkin: '', correct_checkout: '',
@@ -743,7 +742,7 @@ export default function EmployeeRequestsPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
-  const [showNewType, setShowNewType] = useState('leave_annual')
+  const [showNewType, setShowNewType] = useState('leave_sick')
   const [showSalaryIncrease, setShowSalaryIncrease] = useState(false)
   const [showSalaryAdvance, setShowSalaryAdvance] = useState(false)
   const [selected, setSelected] = useState<EmployeeRequest | null>(null)
@@ -805,7 +804,9 @@ export default function EmployeeRequestsPage() {
   }, {} as Record<string, number>)
 
   // Filter
+  const canSeeSalaryRequests = isAdmin || isBranchManager
   const filtered = requests.filter(r => {
+    if (!canSeeSalaryRequests && (r.request_type === 'salary_increase' || r.request_type === 'salary_advance')) return false
     const matchStatus = filterStatus === 'all' || r.status === filterStatus
     const matchType = filterType === 'all' || r.request_type === filterType
     const matchEmp = filterEmp === 'all' || r.employee_id === filterEmp
@@ -865,9 +866,9 @@ export default function EmployeeRequestsPage() {
       {/* Type filter chips */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button onClick={() => setFilterType('all')} style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filterType === 'all' ? S.gold : S.border}`, background: filterType === 'all' ? S.gold3 : 'transparent', color: filterType === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-          الكل ({requests.length})
+          الكل ({requests.filter(r => canSeeSalaryRequests || (r.request_type !== 'salary_increase' && r.request_type !== 'salary_advance')).length})
         </button>
-        {Object.entries(REQUEST_TYPES).map(([key, cfg]) => {
+        {Object.entries(REQUEST_TYPES).filter(([key]) => canSeeSalaryRequests || (key !== 'salary_increase' && key !== 'salary_advance')).map(([key, cfg]) => {
           const count = requests.filter(r => r.request_type === key).length
           if (count === 0) return null
           return (
@@ -970,7 +971,7 @@ export default function EmployeeRequestsPage() {
         </div>
       )}
 
-     {showNew && <NewRequestModal employees={employees} initialType={showNewType} onClose={() => { setShowNew(false); setShowNewType('leave_annual') }} onSaved={() => { setShowNew(false); setShowNewType('leave_annual'); fetchAll() }} currentEmployeeId={currentUser?.id} />}
+     {showNew && <NewRequestModal employees={employees} initialType={showNewType} onClose={() => { setShowNew(false); setShowNewType('leave_sick') }} onSaved={() => { setShowNew(false); setShowNewType('leave_sick'); fetchAll() }} currentEmployeeId={currentUser?.id} canRequestSalary={isAdmin || isBranchManager} />}
       {showSalaryIncrease && employees.find(e => e.id === currentUser?.id) && (
   <SalaryIncreaseModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryIncrease(false)} onSaved={() => { setShowSalaryIncrease(false); fetchAll() }} />
 )}

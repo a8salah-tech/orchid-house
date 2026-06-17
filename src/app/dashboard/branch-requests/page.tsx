@@ -67,6 +67,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [search, setSearch] = useState('')
   const [deptProducts, setDeptProducts] = useState<string[]>([])
   const [activeDeptTab, setActiveDeptTab] = useState('المطبخ')
+  const [monthlyConsumption, setMonthlyConsumption] = useState<Record<string, number>>({})
   const role = currentEmployee?.role || ''
   const autoDept = role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : currentEmployee?.department || ''
   const [form, setForm] = useState({ branch_id: currentEmployee?.branch_id || '', department: autoDept, requested_by: currentEmployee?.name || '', notes: '' })
@@ -84,6 +85,16 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
       .then(({ data }) => setProducts(data || []))
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
     sb.from('branches').select('*').order('name').then(({ data }) => setBranches(data || []))
+    // متوسط الاستهلاك الشهري لكل صنف من حركات الصرف (out) خلال آخر 30 يوم
+    const since = new Date(); since.setDate(since.getDate() - 30)
+    sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since.toISOString().slice(0,10))
+      .then(({ data }) => {
+        const totals: Record<string, number> = {}
+        for (const m of (data || [])) {
+          totals[m.product_id] = (totals[m.product_id] || 0) + (m.quantity || 0)
+        }
+        setMonthlyConsumption(totals)
+      })
   }, [])
 
   async function save() {
@@ -163,7 +174,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                       <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? S.gold : S.white, flex: 1 }}>{p.name}</div>
                       {isSelected && <span style={{ color: S.gold, fontSize: 13 }}>✓</span>}
                     </div>
-                    <div style={{ fontSize: 10, color: p.current_stock > 0 ? S.green : S.red }}>{p.current_stock} {p.units?.symbol}</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>📊 استهلاك شهري: {(monthlyConsumption[p.id] || 0).toFixed(0)} {p.units?.symbol}</div>
                   </div>
                 )
               })}

@@ -259,6 +259,7 @@ export default function TablesPage() {
   const [newNum, setNewNum]   = useState('')
   const [newName, setNewName] = useState('')
   const [newSection, setNewSection] = useState('outdoor')
+  const [newBranch, setNewBranch] = useState('')
   const [saving, setSaving]   = useState(false)
   const [filter, setFilter]   = useState<TableStatus | 'all'>('all')
   const [activeBranch, setActiveBranch] = useState<string>('all')
@@ -293,7 +294,7 @@ export default function TablesPage() {
   }, [tables])
 
   async function addTable() {
-    if (!newNum) return
+    if (!newNum || !newBranch) return
     setSaving(true)
     const { error } = await sb.from('tables').insert([{
       number: parseInt(newNum),
@@ -301,6 +302,7 @@ export default function TablesPage() {
       is_active: true,
       status: 'available',
       section: newSection,
+      branch_id: newBranch,
     }])
     setSaving(false)
     if (error) { alert('Error adding table: ' + error.message); return }
@@ -322,6 +324,7 @@ export default function TablesPage() {
   function printQR(table: Table) {
     const img = qrUrls[table.id]
     if (!img) { alert('QR not ready yet, please wait...'); return }
+    const branchName = branches.find(b => b.id === table.branch_id)?.name || 'Orchid House'
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html>
@@ -357,7 +360,7 @@ export default function TablesPage() {
   <div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
   <div class="top">
     <div class="group-name">Orchid Group</div>
-    <div class="brand-name">Orchid House</div>
+    <div class="brand-name">${branchName}</div>
     <div class="brand-sub">Fine Dining Restaurant</div>
   </div>
   <div class="qr-section">
@@ -386,13 +389,15 @@ export default function TablesPage() {
     if (!readyTables.length) { alert('الباركودات لم تتحمل بعد، انتظر قليلاً'); return }
     const win = window.open('', '_blank')
     if (!win) return
-    const cards = readyTables.map(table => `
+    const cards = readyTables.map(table => {
+      const branchName = branches.find(b => b.id === table.branch_id)?.name || 'Orchid House'
+      return `
       <div class="card">
         <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
         <div class="corner corner-bl"></div><div class="corner corner-br"></div>
         <div class="top">
           <div class="group-name">Orchid Group</div>
-          <div class="brand-name">Orchid House</div>
+          <div class="brand-name">${branchName}</div>
           <div class="brand-sub">Fine Dining Restaurant</div>
         </div>
         <div class="qr-section">
@@ -403,7 +408,8 @@ export default function TablesPage() {
         <div class="bottom">
           <div class="footer-text">All prices subject to 6% SST &amp; 10% service charge</div>
         </div>
-      </div>`).join('')
+      </div>`
+    }).join('')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>All QR Codes</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -431,7 +437,7 @@ export default function TablesPage() {
   .corner-br{bottom:10px;right:10px;border-width:0 2px 2px 0;border-radius:0 0 3px 0;}
   @media print{@page{size:A4;margin:5mm;}body{margin:0;}}
 </style></head><body>
-<div class="page">\${cards}</div>
+<div class="page">${cards}</div>
 <script>window.onload=()=>window.print()<\/script>
 </body></html>`)
     win.document.close()
@@ -440,9 +446,9 @@ export default function TablesPage() {
   const branchFiltered = activeBranch === 'all' ? tables : tables.filter(t => t.branch_id === activeBranch)
   const filtered = filter === 'all' ? branchFiltered : branchFiltered.filter(t => t.status === filter)
   const counts = {
-    available: tables.filter(t => t.status === 'available').length,
-    reserved:  tables.filter(t => t.status === 'reserved').length,
-    occupied:  tables.filter(t => t.status === 'occupied').length,
+    available: branchFiltered.filter(t => t.status === 'available').length,
+    reserved:  branchFiltered.filter(t => t.status === 'reserved').length,
+    occupied:  branchFiltered.filter(t => t.status === 'occupied').length,
   }
 
   return (
@@ -468,7 +474,7 @@ export default function TablesPage() {
           <button onClick={() => setShowLayout(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
             🗺️ Layout Editor
           </button>
-          <button onClick={() => setShowAdd(true)} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          <button onClick={() => { setNewBranch(activeBranch !== 'all' ? activeBranch : ''); setShowAdd(true) }} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
             ➕ Add Table
           </button>
         </div>
@@ -490,7 +496,7 @@ export default function TablesPage() {
 
       {/* Stats Bar */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        {([['all', 'All Tables', tables.length, S.white, S.card], ['available', 'Available', counts.available, STATUS.available.color, STATUS.available.bg], ['reserved', 'Reserved', counts.reserved, STATUS.reserved.color, STATUS.reserved.bg], ['occupied', 'Occupied', counts.occupied, STATUS.occupied.color, STATUS.occupied.bg]] as const).map(([key, label, count, color, bg]) => (
+        {([['all', 'All Tables', branchFiltered.length, S.white, S.card], ['available', 'Available', counts.available, STATUS.available.color, STATUS.available.bg], ['reserved', 'Reserved', counts.reserved, STATUS.reserved.color, STATUS.reserved.bg], ['occupied', 'Occupied', counts.occupied, STATUS.occupied.color, STATUS.occupied.bg]] as const).map(([key, label, count, color, bg]) => (
           <div key={key} onClick={() => setFilter(key as any)}
             style={{ flex: '1 1 120px', background: filter === key ? bg : S.navy2, border: `1px solid ${filter === key ? color + '80' : S.border}`, borderRadius: 14, padding: '14px 18px', cursor: 'pointer', transition: 'all .2s' }}>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{label}</div>
@@ -505,6 +511,13 @@ export default function TablesPage() {
           <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 28, width: 360 }}>
             <h2 style={{ color: S.white, fontSize: 16, fontWeight: 700, marginBottom: 20 }}>➕ Add New Table</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 4 }}>Branch *</label>
+                <select style={{ ...inp, cursor: 'pointer', background: S.navy3 }} value={newBranch} onChange={e => setNewBranch(e.target.value)}>
+                  <option value="">اختر الفرع...</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 4 }}>Table Number *</label>
                 <input type="number" style={inp} placeholder="1" value={newNum} onChange={e => setNewNum(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTable()} />
@@ -521,7 +534,7 @@ export default function TablesPage() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={addTable} disabled={saving || !newNum} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              <button onClick={addTable} disabled={saving || !newNum || !newBranch} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 {saving ? '⏳' : '✅ Add'}
               </button>
               <button onClick={() => setShowAdd(false)} style={{ padding: '11px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>

@@ -325,6 +325,10 @@ export default function TablesPage() {
     const img = qrUrls[table.id]
     if (!img) { alert('QR not ready yet, please wait...'); return }
     const branchName = branches.find(b => b.id === table.branch_id)?.name || 'Orchid House'
+    const isKLCC = branchName.toLowerCase().includes('klcc')
+    const accent = isKLCC ? '#C9A84C' : '#4BB8F0'
+    const accentDark = isKLCC ? '#9C7A2E' : '#1E6FA8'
+    const accentRgb = isKLCC ? '201,168,76' : '75,184,240'
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`<!DOCTYPE html><html>
@@ -333,22 +337,22 @@ export default function TablesPage() {
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { width:10cm; height:15cm; display:flex; align-items:center; justify-content:center; background:#fff; font-family:'Montserrat',sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .card { width:9cm; height:14cm; border:2px solid #4BB8F0; border-radius:20px; display:flex; flex-direction:column; align-items:center; justify-content:space-between; padding:24px 20px 18px; background:#fff; position:relative; overflow:hidden; box-shadow: 0 4px 24px rgba(75,184,240,0.15); }
-  .card::before { content:''; position:absolute; top:0; left:0; right:0; height:5px; background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628); }
-  .card::after { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628); }
+  .card { width:9cm; height:14cm; border:2px solid ${accent}; border-radius:20px; display:flex; flex-direction:column; align-items:center; justify-content:space-between; padding:24px 20px 18px; background:#fff; position:relative; overflow:hidden; box-shadow: 0 4px 24px rgba(${accentRgb},0.15); }
+  .card::before { content:''; position:absolute; top:0; left:0; right:0; height:5px; background:linear-gradient(90deg,#0A1628,${accentDark},${accent},${accentDark},#0A1628); }
+  .card::after { content:''; position:absolute; bottom:0; left:0; right:0; height:5px; background:linear-gradient(90deg,#0A1628,${accentDark},${accent},${accentDark},#0A1628); }
   .top { text-align:center; width:100%; }
-  .group-name { font-family:'Montserrat',sans-serif; font-size:9px; font-weight:600; color:#4BB8F0; letter-spacing:5px; text-transform:uppercase; margin-bottom:2px; }
-  .brand-name { font-family:'Cormorant Garamond',serif; font-size:30px; font-weight:700; color:#1E6FA8; letter-spacing:3px; text-transform:uppercase; line-height:1; }
+  .group-name { font-family:'Montserrat',sans-serif; font-size:9px; font-weight:600; color:${accent}; letter-spacing:5px; text-transform:uppercase; margin-bottom:2px; }
+  .brand-name { font-family:'Cormorant Garamond',serif; font-size:30px; font-weight:700; color:${accentDark}; letter-spacing:3px; text-transform:uppercase; line-height:1; }
   .brand-sub { font-size:9px; color:#8A9BB5; letter-spacing:3px; text-transform:uppercase; margin-top:4px; font-weight:500; }
   .qr-section { display:flex; flex-direction:column; align-items:center; }
-  .qr-frame { padding:10px; border:2px solid #0A1628; border-radius:14px; background:#fff; margin-bottom:14px; box-shadow: inset 0 0 0 3px #4BB8F0, inset 0 0 0 5px #fff, inset 0 0 0 6px #0A1628; }
+  .qr-frame { padding:10px; border:2px solid #0A1628; border-radius:14px; background:#fff; margin-bottom:14px; box-shadow: inset 0 0 0 3px ${accent}, inset 0 0 0 5px #fff, inset 0 0 0 6px #0A1628; }
   .qr-frame img { width:160px; height:160px; display:block; }
-  .table-pill { background:linear-gradient(135deg,#0A1628,#0F2040); color:#4BB8F0; border-radius:40px; padding:8px 28px; font-size:16px; font-weight:700; letter-spacing:2px; font-family:'Cormorant Garamond',serif; border: 1.5px solid #4BB8F0; box-shadow: 0 4px 16px rgba(75,184,240,0.25); }
+  .table-pill { background:linear-gradient(135deg,#0A1628,#0F2040); color:${accent}; border-radius:40px; padding:8px 28px; font-size:16px; font-weight:700; letter-spacing:2px; font-family:'Cormorant Garamond',serif; border: 1.5px solid ${accent}; box-shadow: 0 4px 16px rgba(${accentRgb},0.25); }
   .scan-row { display:flex; align-items:center; gap:6px; margin-top:10px; }
   .scan-text { font-size:8px; color:#8A9BB5; letter-spacing:2px; text-transform:uppercase; font-weight:500; }
   .bottom { text-align:center; width:100%; }
   .footer-text { font-size:7px; color:#ccc; letter-spacing:0.5px; }
-  .corner { position:absolute; width:16px; height:16px; border-color:#4BB8F0; border-style:solid; }
+  .corner { position:absolute; width:16px; height:16px; border-color:${accent}; border-style:solid; }
   .corner-tl { top:10px; left:10px; border-width:2px 0 0 2px; border-radius:3px 0 0 0; }
   .corner-tr { top:10px; right:10px; border-width:2px 2px 0 0; border-radius:0 3px 0 0; }
   .corner-bl { bottom:10px; left:10px; border-width:0 0 2px 2px; border-radius:0 0 0 3px; }
@@ -391,18 +395,24 @@ export default function TablesPage() {
     if (!win) return
     const cards = readyTables.map(table => {
       const branchName = branches.find(b => b.id === table.branch_id)?.name || 'Orchid House'
+      const isKLCC = branchName.toLowerCase().includes('klcc')
+      const accent = isKLCC ? '#C9A84C' : '#4BB8F0'
+      const accentDark = isKLCC ? '#9C7A2E' : '#1E6FA8'
+      const accentRgb = isKLCC ? '201,168,76' : '75,184,240'
       return `
-      <div class="card">
-        <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
-        <div class="corner corner-bl"></div><div class="corner corner-br"></div>
+      <div class="card" style="border-color:${accent};box-shadow:0 4px 24px rgba(${accentRgb},0.15);">
+        <div class="corner corner-tl" style="border-color:${accent}"></div><div class="corner corner-tr" style="border-color:${accent}"></div>
+        <div class="corner corner-bl" style="border-color:${accent}"></div><div class="corner corner-br" style="border-color:${accent}"></div>
+        <div class="grad-top" style="background:linear-gradient(90deg,#0A1628,${accentDark},${accent},${accentDark},#0A1628);"></div>
+        <div class="grad-bottom" style="background:linear-gradient(90deg,#0A1628,${accentDark},${accent},${accentDark},#0A1628);"></div>
         <div class="top">
-          <div class="group-name">Orchid Group</div>
-          <div class="brand-name">${branchName}</div>
+          <div class="group-name" style="color:${accent}">Orchid Group</div>
+          <div class="brand-name" style="color:${accentDark}">${branchName}</div>
           <div class="brand-sub">Fine Dining Restaurant</div>
         </div>
         <div class="qr-section">
-          <div class="qr-frame"><img src="${qrUrls[table.id]}" /></div>
-          <div class="table-pill">${table.name || 'Table ' + table.number}</div>
+          <div class="qr-frame" style="box-shadow:inset 0 0 0 3px ${accent},inset 0 0 0 5px #fff,inset 0 0 0 6px #0A1628;"><img src="${qrUrls[table.id]}" /></div>
+          <div class="table-pill" style="color:${accent};border-color:${accent};">${table.name || 'Table ' + table.number}</div>
           <div class="scan-row"><span style="font-size:12px">📱</span><div class="scan-text">Scan to view menu &amp; order</div></div>
         </div>
         <div class="bottom">
@@ -417,8 +427,8 @@ export default function TablesPage() {
   body{font-family:'Montserrat',sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   .page{display:flex;flex-wrap:wrap;gap:8px;padding:8px;justify-content:center;}
   .card{width:9cm;height:14cm;border:2px solid #4BB8F0;border-radius:20px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:24px 20px 18px;background:#fff;position:relative;overflow:hidden;page-break-inside:avoid;margin:4px;}
-  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);}
-  .card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);}
+  .grad-top{content:'';position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);}
+  .grad-bottom{content:'';position:absolute;bottom:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#0A1628,#1E6FA8,#4BB8F0,#1E6FA8,#0A1628);}
   .top,.bottom{text-align:center;width:100%;}
   .group-name{font-size:9px;font-weight:600;color:#4BB8F0;letter-spacing:5px;text-transform:uppercase;margin-bottom:2px;}
   .brand-name{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;color:#1E6FA8;letter-spacing:3px;text-transform:uppercase;line-height:1;}

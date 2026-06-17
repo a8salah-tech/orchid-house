@@ -41,6 +41,9 @@ const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: str
   suggestion:    { label: 'اقتراح', label_en: 'Suggestion',           icon: '💡', color: S.green,  bg: S.greenB },
   other:           { label: 'طلب آخر', label_en: 'Other Request',               icon: '📋', color: S.muted,  bg: S.card2 },
   attendance_correction: { label: 'تصحيح حضور', label_en: 'Attendance Correction', icon: '🕐', color: S.teal, bg: S.tealB, hasDates: true },
+  salary_increase: { label: 'زيادة راتب', label_en: 'Salary Increase', icon: '📈', color: S.green, bg: S.greenB, hasAmount: true },
+  salary_advance:  { label: 'سلفة راتب', label_en: 'Salary Advance',   icon: '💸', color: S.gold,  bg: S.gold3,  hasAmount: true },
+  shift_assigned:  { label: 'تعيين شيفت', label_en: 'Shift Assigned',  icon: '🗓️', color: S.blue,  bg: S.blueB },
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
@@ -50,7 +53,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   completed:{ label: 'مكتمل',        color: S.teal,   bg: S.tealB,   icon: '🏁' },
 }
 
-interface Employee { id: string; name: string; name_en?: string; employee_number?: string; role: string; department: string; salary?: number; join_date?: string }
+interface Employee { id: string; name: string; name_en?: string; employee_number?: string; role: string; department: string; salary?: number; join_date?: string; branch_id?: string }
 interface EmployeeRequest {
   id: string; created_at: string; request_number: number
   employee_id: string; request_type: string; status: string
@@ -489,13 +492,13 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
 }
 
 // ══ Request Detail Modal ══
-function RequestDetailModal({ request, onClose, onUpdate, onDelete }: {
-  request: EmployeeRequest; onClose: () => void; onUpdate: () => void; onDelete: () => void
+function RequestDetailModal({ request, currentUser, onClose, onUpdate, onDelete }: {
+  request: EmployeeRequest; currentUser?: { name?: string; name_en?: string }; onClose: () => void; onUpdate: () => void; onDelete: () => void
 }) {
   const supabase = createClient()
   const { isAr } = useLang()
   const [updating, setUpdating] = useState(false)
-  const [approvedBy, setApprovedBy] = useState('')
+  const approvedBy = currentUser?.name ? `${currentUser.name}${currentUser.name_en ? ' (' + currentUser.name_en + ')' : ''}` : ''
   const [rejectionReason, setRejectionReason] = useState('')
   const [showReject, setShowReject] = useState(false)
 
@@ -677,7 +680,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             {!showReject ? (
               <>
                 <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>اسم المعتمد</div>
-                <input style={{ ...inp, marginBottom: 12 }} value={approvedBy} onChange={e => setApprovedBy(e.target.value)} placeholder="أدخل اسمك..." />
+                <input style={{ ...inp, marginBottom: 12, opacity: 0.8, cursor: 'not-allowed' }} value={approvedBy} readOnly placeholder="..." />
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => updateStatus('approved')} disabled={updating}
                     style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -753,6 +756,8 @@ export default function EmployeeRequestsPage() {
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
   const [filterEmp, setFilterEmp] = useState('all')
+  const [filterBranch, setFilterBranch] = useState('all')
+  const [branches, setBranches] = useState<{id:string;name:string}[]>([])
   const [search, setSearch] = useState('')
 
   const fetchAll = useCallback(async () => {
@@ -770,28 +775,31 @@ export default function EmployeeRequestsPage() {
       reqQuery = reqQuery.eq('employee_id', myId)
     }
 
-    const [req, emp] = await Promise.all([
+    const [req, emp, br] = await Promise.all([
       reqQuery,
-      supabase.from('employees').select('id,name,name_en,employee_number,role,department,salary,join_date').eq('is_active', true).order('name'),
+      supabase.from('employees').select('id,name,name_en,employee_number,role,department,salary,join_date,branch_id').eq('is_active', true).order('name'),
+      supabase.from('branches').select('id,name').order('name'),
     ])
     setRequests(req.data || [])
     setEmployees(emp.data || [])
+    setBranches(br.data || [])
     setLoading(false)
   }, [isEmployee, currentUser?.id])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // Stats
+  // Stats — تُحسب بناءً على الفرع المختار فقط
+  const branchScopedRequests = filterBranch === 'all' ? requests : requests.filter(r => r.employees?.branch_id === filterBranch)
   const thisMonth = new Date().toISOString().slice(0, 7)
-  const monthReqs = requests.filter(r => r.created_at?.startsWith(thisMonth))
+  const monthReqs = branchScopedRequests.filter(r => r.created_at?.startsWith(thisMonth))
   const statusCounts = Object.keys(STATUS_CONFIG).reduce((acc, s) => {
-    acc[s] = requests.filter(r => r.status === s).length
+    acc[s] = branchScopedRequests.filter(r => r.status === s).length
     return acc
   }, {} as Record<string, number>)
 
   // Filter
   const canSeeSalaryRequests = isAdmin || isBranchManager
-  const filtered = requests.filter(r => {
+  const filtered = branchScopedRequests.filter(r => {
     if (!canSeeSalaryRequests && (r.request_type === 'salary_increase' || r.request_type === 'salary_advance')) return false
     const matchStatus = filterStatus === 'all' || r.status === filterStatus
     const matchType = filterType === 'all' || r.request_type === filterType
@@ -852,10 +860,10 @@ export default function EmployeeRequestsPage() {
       {/* Type filter chips */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button onClick={() => setFilterType('all')} style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filterType === 'all' ? S.gold : S.border}`, background: filterType === 'all' ? S.gold3 : 'transparent', color: filterType === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-          الكل ({requests.filter(r => canSeeSalaryRequests || (r.request_type !== 'salary_increase' && r.request_type !== 'salary_advance')).length})
+          الكل ({branchScopedRequests.filter(r => canSeeSalaryRequests || (r.request_type !== 'salary_increase' && r.request_type !== 'salary_advance')).length})
         </button>
         {Object.entries(REQUEST_TYPES).filter(([key]) => canSeeSalaryRequests || (key !== 'salary_increase' && key !== 'salary_advance')).map(([key, cfg]) => {
-          const count = requests.filter(r => r.request_type === key).length
+          const count = branchScopedRequests.filter(r => r.request_type === key).length
           if (count === 0) return null
           return (
             <button key={key} onClick={() => setFilterType(filterType === key ? 'all' : key)}
@@ -870,13 +878,19 @@ export default function EmployeeRequestsPage() {
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder={isAr ? "🔍 بحث بالاسم أو رقم الطلب..." : "🔍 Search by name or request number..."} />
         {!isEmployee && (
+          <select style={{ ...inp, width: 'auto', minWidth: 150 }} value={filterBranch} onChange={e => setFilterBranch(e.target.value)}>
+            <option value="all">🏪 كل الفروع</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
+        {!isEmployee && (
           <select style={{ ...inp, width: 'auto', minWidth: 160 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
             <option value="all">كل الموظفين</option>
             {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         )}
-        {(search || filterStatus !== 'all' || filterType !== 'all' || filterEmp !== 'all') && (
-          <button onClick={() => { setSearch(''); setFilterStatus('all'); setFilterType('all'); setFilterEmp('all') }}
+        {(search || filterStatus !== 'all' || filterType !== 'all' || filterEmp !== 'all' || filterBranch !== 'all') && (
+          <button onClick={() => { setSearch(''); setFilterStatus('all'); setFilterType('all'); setFilterEmp('all'); setFilterBranch('all') }}
             style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
             ✕ مسح
           </button>
@@ -966,7 +980,7 @@ export default function EmployeeRequestsPage() {
 {showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
   <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />
 )}
-      {selected && <RequestDetailModal request={selected} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
+      {selected && <RequestDetailModal request={selected} currentUser={currentUser} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
 }

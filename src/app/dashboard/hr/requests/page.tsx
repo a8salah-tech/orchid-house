@@ -983,4 +983,5 @@ export default function EmployeeRequestsPage() {
       {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
-}
+} 
+    

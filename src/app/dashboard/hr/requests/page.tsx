@@ -735,8 +735,8 @@ export default function EmployeeRequestsPage() {
   const isAdmin = permissions?.all === true
   const isBranchManager = currentUser?.role === 'branch_manager'
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
-  const isManager = isAdmin || isBranchManager || isDeptManager
-  const isEmployee = !isManager
+  const isManager = isAdmin
+  const isEmployee = !isAdmin
 
   const [requests, setRequests] = useState<EmployeeRequest[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -757,30 +757,12 @@ export default function EmployeeRequestsPage() {
       .select('*, employees(name, role, department)')
       .order('created_at', { ascending: false })
 
-    const role = currentUser?.role || ''
     const myId = currentUser?.id || ''
 
     if (isAdmin) {
       // admin يشوف كل شيء
-    } else if (isBranchManager) {
-      // مدير الفرع يشوف طلبات فرعه
-      const { data: branchEmps } = await supabase.from('employees').select('id').eq('branch_id', currentUser?.branch_id || '').eq('is_active', true)
-      const empIds = (branchEmps || []).map((e: any) => e.id)
-      if (empIds.length > 0) reqQuery = reqQuery.in('employee_id', empIds)
-      else reqQuery = reqQuery.eq('employee_id', myId)
-    } else if (isDeptManager) {
-      // مدير القسم يشوف طلبات قسمه + طلباته
-      const deptMap: Record<string, string[]> = {
-        kitchen_manager: ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'],
-        hall_manager: ['الصالة','Hall'],
-        bar_manager: ['البار','Bar'],
-      }
-      const { data: deptEmps } = await supabase.from('employees').select('id').in('department', deptMap[role] || []).eq('is_active', true)
-      const empIds = (deptEmps || []).map((e: any) => e.id)
-      if (empIds.length > 0) reqQuery = reqQuery.in('employee_id', empIds)
-      else reqQuery = reqQuery.eq('employee_id', myId)
     } else {
-      // كل الباقيين (supervisor, employee, cashier, warehouse) يشوفوا طلباتهم فقط
+      // كل الباقيين يشوفوا طلباتهم فقط
       reqQuery = reqQuery.eq('employee_id', myId)
     }
 

@@ -713,24 +713,7 @@ export default function WarehouseDetailPage() {
     setWarehouse(wh.data)
     setUnitConversionsAll(convRes.data || [])
 
-    // لو المستودع فرعي، أضف منتجات المستودع الرئيسي كمان
-    let allProducts = pr.data || []
-    if (warehouseId !== MAIN_WAREHOUSE_ID && !wh.data?.is_main && !wh.data?.is_default) {
-      const { data: mainProducts } = await supabase
-        .from('warehouse_products')
-        .select('*, units(id,name,symbol)')
-        .eq('warehouse_id', MAIN_WAREHOUSE_ID)
-        .order('name')
-      if (mainProducts) {
-        // أضف منتجات الرئيسي اللي مش موجودة في الفرعي
-        const existingIds = new Set(allProducts.map((p: Product) => p.id))
-        const newFromMain = mainProducts.filter((p: Product) => !existingIds.has(p.id))
-          .map((p: Product) => ({ ...p, _fromMain: true }))
-        allProducts = [...allProducts, ...newFromMain]
-      }
-    }
-
-    setProducts(allProducts)
+    setProducts(pr.data || [])
     // Merge categories from DB with defaults
     const dbCats = [...new Set((pr.data || []).map((p: Product) => p.category).filter(Boolean))]
     const merged = [...new Set([...DEFAULT_CATEGORIES, ...dbCats])]
@@ -1077,7 +1060,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
                           <div style={{ fontWeight: 700, color: S.white, fontSize: 13, marginBottom: 3 }}>{p.name}</div>
                           {p.name_en && <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{p.name_en}</div>}
-                          {(p as any)._fromMain && <div style={{ fontSize: 10, color: S.amber, background: S.amberB, borderRadius: 6, padding: '1px 6px', display: 'inline-block', marginTop: 3 }}>🏭 من الرئيسي</div>}
+
                         </td>
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ background: S.card2, borderRadius: 20, padding: '3px 10px', fontSize: 11, color: S.muted }}>

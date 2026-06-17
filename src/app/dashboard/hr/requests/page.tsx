@@ -57,7 +57,7 @@ interface EmployeeRequest {
   title: string; description: string; amount: number
   start_date: string; end_date: string; days_count: number
   approved_by: string; approved_at: string; rejection_reason: string
-  employees?: { name: string; role: string; department: string }
+  employees?: { name: string; name_en?: string; role: string; department: string; employee_number?: string; branch_id?: string; branches?: { name: string } }
 }
 
 // ══ Salary Increase Request Modal ══
@@ -567,7 +567,9 @@ function printRequest() {
 </div>
 <p class="section-title">Employee Information</p>
 <table>
-  <tr><td>Employee Name</td><td>${request.employees?.name || '—'}</td></tr>
+  <tr><td>Employee Name</td><td>${request.employees?.name || '—'}${request.employees?.name_en ? ' (' + request.employees.name_en + ')' : ''}</td></tr>
+  <tr><td>Employee ID</td><td>${request.employees?.employee_number || '—'}</td></tr>
+  <tr><td>Branch</td><td>${request.employees?.branches?.name || '—'}</td></tr>
   <tr><td>Department</td><td>${request.employees?.department || '—'}</td></tr>
   <tr><td>Status</td><td>${request.status.toUpperCase()}</td></tr>
   <tr><td>Date Submitted</td><td>${new Date(request.created_at).toLocaleDateString('en-GB')}</td></tr>
@@ -616,7 +618,9 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         {/* Info */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
           {[
-            { label: 'الموظف', value: request.employees?.name || '—', icon: '👤' },
+            { label: 'الموظف', value: `${request.employees?.name || '—'}${request.employees?.name_en ? ' (' + request.employees.name_en + ')' : ''}`, icon: '👤' },
+            { label: 'رقم الموظف', value: request.employees?.employee_number || '—', icon: '🆔' },
+            { label: 'الفرع', value: request.employees?.branches?.name || '—', icon: '🏪' },
             { label: 'القسم', value: request.employees?.department || '—', icon: '🏷️' },
             { label: 'عنوان الطلب', value: request.title || '—', icon: '📋' },
             request.amount ? { label: 'المبلغ المطلوب', value: `MYR ${request.amount.toFixed(2)}`, icon: '💰' } : null,
@@ -754,7 +758,7 @@ export default function EmployeeRequestsPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     let reqQuery = supabase.from('employee_requests')
-      .select('*, employees(name, role, department)')
+      .select('*, employees(name, name_en, role, department, employee_number, branch_id, branches(name))')
       .order('created_at', { ascending: false })
 
     const myId = currentUser?.id || ''
@@ -792,7 +796,7 @@ export default function EmployeeRequestsPage() {
     const matchStatus = filterStatus === 'all' || r.status === filterStatus
     const matchType = filterType === 'all' || r.request_type === filterType
     const matchEmp = filterEmp === 'all' || r.employee_id === filterEmp
-    const matchSearch = !search || r.employees?.name?.includes(search) || String(r.request_number).includes(search)
+    const matchSearch = !search || r.employees?.name?.includes(search) || r.employees?.name_en?.toLowerCase().includes(search.toLowerCase()) || r.employees?.employee_number?.includes(search) || String(r.request_number).includes(search)
     return matchStatus && matchType && matchEmp && matchSearch
   })
 
@@ -920,7 +924,9 @@ export default function EmployeeRequestsPage() {
                             {req.employees?.name?.charAt(0) || '?'}
                           </div>
                           <div>
-                            <div style={{ fontSize: 13, color: S.white, fontWeight: 600 }}>{req.employees?.name || '—'}</div>
+                            <div style={{ fontSize: 13, color: S.white, fontWeight: 600 }}>
+                              {req.employees?.name || '—'}{req.employees?.name_en ? ` (${req.employees.name_en})` : ''}
+                            </div>
                             <div style={{ fontSize: 11, color: S.muted }}>{req.employees?.department || ''}</div>
                           </div>
                         </div>

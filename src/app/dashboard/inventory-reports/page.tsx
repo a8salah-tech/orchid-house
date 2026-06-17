@@ -178,7 +178,7 @@ export default function InventoryReportsPage() {
         <td>${item.warehouse_products?.name || '—'}</td>
         <td>${formatStockDisplay(item.product_id, item.system_stock, item.units?.symbol || '')}</td>
         <td style="font-weight:700">${formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '')}</td>
-        <td style="color:${diffColor};font-weight:700">${diff > 0 ? '+' : ''}${diff} ${item.units?.symbol || ''}</td>
+        <td style="color:${diffColor};font-weight:700">${diff !== 0 ? (diff > 0 ? '+' : '−') : ''}${formatStockDisplay(item.product_id, Math.abs(diff), item.units?.symbol || '')}</td>
         <td style="color:${diffColor}">${diff < 0 ? '📉 عجز' : diff > 0 ? '📈 زيادة' : '✅ مطابق'}</td>
       </tr>`
     }).join('')
@@ -389,7 +389,7 @@ export default function InventoryReportsPage() {
                             ) : formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '')}
                           </td>
                           <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: diffColor }}>
-                            {diff > 0 ? '+' : ''}{diff} {item.units?.symbol || ''}
+                            {diff !== 0 && (diff > 0 ? '+' : '−')}{formatStockDisplay(item.product_id, Math.abs(diff), item.units?.symbol || '')}
                           </td>
                           <td style={{ padding: '10px 14px' }}>
                             <span style={{ background: diff < 0 ? S.redB : diff > 0 ? S.greenB : S.card, color: diff < 0 ? S.red : diff > 0 ? S.green : S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>

@@ -555,6 +555,6 @@ export default function InternalWarehouseRequestsPage() {
 
       {showNew && <NewRequestModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployee={employee} />}
       {selected && <RequestDetailModal request={selected} currentEmployee={employee} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} />}
-    </div>
-  )
-}
+    </div> 
+  ) 
+} 

@@ -37,7 +37,7 @@ function formatMYR(amount: number | null | undefined): string {
   }).format(amount)
 }
 
-interface Product { id: string; name: string; name_en?: string; category: string; current_stock: number; last_purchase_price: number; units?: { symbol: string } }
+interface Product { id: string; name: string; name_en?: string; category: string; current_stock: number; last_purchase_price: number; units?: { symbol: string }; warehouse_id?: string }
 interface Supplier { id: string; name: string; phone?: string }
 interface Unit { id: string; name: string; symbol: string }
 interface Invoice {
@@ -70,13 +70,14 @@ async function scanInvoiceWithAI(base64Image: string, products: Product[]): Prom
 // ══════════════════════════════════════════
 // ProductSearchInput — بحث ذكي للأصناف
 // ══════════════════════════════════════════
-function ProductSearchInput({ products, value, productName, matched, onChange, onAddNew }: {
+function ProductSearchInput({ products, value, productName, matched, onChange, onAddNew, loading }: {
   products: Product[]
   value: string
   productName: string
   matched: boolean
   onChange: (id: string, name: string, lastPrice: number) => void
   onAddNew: (name: string) => void
+  loading?: boolean
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -148,6 +149,12 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
           maxHeight: 260, overflowY: 'auto',
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
+          {loading ? (
+            <div style={{ padding: '14px 16px', fontSize: 12, color: S.muted, textAlign: 'center' }}>
+              ⏳ جاري تحميل أصناف المستودع...
+            </div>
+          ) : (
+          <>
           {query.trim() === '' && (
             <div style={{ padding: '7px 12px', borderBottom: `1px solid ${S.border}`, fontSize: 11, color: S.muted }}>
               اكتب للبحث — {products.length} صنف متاح
@@ -207,6 +214,8 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
               إضافة "<strong>{query.trim()}</strong>" كصنف جديد
             </div>
           )}
+          </>
+          )}
         </div>
       )}
     </div>
@@ -235,7 +244,7 @@ function AddProductModal({ initialName, onClose, onSaved, units: allUnits, wareh
   useEffect(() => {
     // جيب الكاتيجوريز الموجودة
     supabase.from('warehouse_products').select('category').eq('is_active', true).then(({ data }) => {
-      const cats = [...new Set((data || []).map((p: any) => p.category).filter(Boolean))].sort()
+      const cats = Array.from(new Set<string>((data || []).map((p: any) => p.category).filter(Boolean))).sort()
       setCategories(cats)
     })
   }, [])
@@ -416,14 +425,50 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
   const [addingForIndex, setAddingForIndex] = useState<number>(-1)
   const [localSuppliers, setLocalSuppliers] = useState(suppliers)
   const [localProducts, setLocalProducts] = useState(initialProducts)
+
+  // مزامنة localProducts مع initialProducts كل ما تتحدث (مثلاً بعد اكتمال التحميل من الصفحة الأب)
+  useEffect(() => {
+    setLocalProducts(initialProducts)
+  }, [initialProducts])
+
+  const [warehouseProducts, setWarehouseProducts] = useState<Product[]>([])
+  const [loadingWarehouseProducts, setLoadingWarehouseProducts] = useState(false)
+
   const [items, setItems] = useState<InvoiceItem[]>([{
     product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: ''
   }])
   const [form, setForm] = useState({
-    supplier_id: '', warehouse_id: warehouses[0]?.id || '',
+    supplier_id: '', warehouse_id: '',
     supplier_invoice_number: '',
     invoice_date: new Date().toISOString().split('T')[0], notes: '',
   })
+
+  // جلب أصناف المستودع المختار مباشرة من قاعدة البيانات (مصدر موثوق 100%، بدل الاعتماد على البيانات الممررة من الصفحة الأب)
+  useEffect(() => {
+    if (!form.warehouse_id) {
+      setWarehouseProducts([])
+      return
+    }
+    let cancelled = false
+    setLoadingWarehouseProducts(true)
+    supabase
+      .from('warehouse_products')
+      .select('*, units(symbol)')
+      .eq('is_active', true)
+      .eq('warehouse_id', form.warehouse_id)
+      .order('name')
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (!error && data) {
+          setWarehouseProducts(data as Product[])
+        }
+        setLoadingWarehouseProducts(false)
+      })
+    return () => { cancelled = true }
+  }, [form.warehouse_id])
+
+  // فقط أصناف المستودع المختار حالياً في الفورم — مجلوبة مباشرة من قاعدة البيانات
+  const availableProducts = form.warehouse_id ? warehouseProducts : localProducts
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
@@ -441,7 +486,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     setScanProgress('🔍 جاري تحليل الفاتورة بالذكاء الاصطناعي...')
     try {
       setScanProgress('📷 استخراج البيانات من الصورة...')
-      const result = await scanInvoiceWithAI(base64, localProducts)
+      const result = await scanInvoiceWithAI(base64, availableProducts)
       setScanProgress('🔗 مطابقة الأصناف مع قاعدة البيانات...')
       if (result.invoice_number) setForm(p => ({ ...p, supplier_invoice_number: result.invoice_number }))
       if (result.invoice_date) setForm(p => ({ ...p, invoice_date: result.invoice_date }))
@@ -452,7 +497,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
       }
       if (result.items?.length) {
         const matchedItems: InvoiceItem[] = result.items.map(item => {
-          const match = localProducts.find(p =>
+          const match = availableProducts.find(p =>
             p.name.includes(item.name) || item.name.includes(p.name) ||
             (p.name_en && (p.name_en.toLowerCase().includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(p.name_en.toLowerCase())))
           )
@@ -483,7 +528,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     setItems(p => p.map((it, idx) => {
       if (idx !== i) return it
       if (k === 'product_id') {
-        const prod = localProducts.find(p => p.id === v)
+        const prod = availableProducts.find(p => p.id === v)
         return { ...it, product_id: v, product_name: prod?.name || '', matched: !!prod, unit_price: prod?.last_purchase_price ? String(prod.last_purchase_price) : it.unit_price }
       }
       return { ...it, [k]: v }
@@ -610,7 +655,15 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
               </div>
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المستودع *</label>
-                <select style={inp} value={form.warehouse_id} onChange={e => setForm(p => ({ ...p, warehouse_id: e.target.value }))}>
+                <select style={inp} value={form.warehouse_id} onChange={e => {
+                  const newWh = e.target.value
+                  const hasSelectedItems = items.some(it => it.product_id)
+                  if (hasSelectedItems && newWh !== form.warehouse_id) {
+                    if (!confirm('تغيير المستودع سيؤدي لمسح الأصناف المختارة حالياً، هل تريد الاستمرار؟')) return
+                    setItems([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }])
+                  }
+                  setForm(p => ({ ...p, warehouse_id: newWh }))
+                }}>
                   <option value="">اختر المستودع</option>
                   {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
@@ -635,9 +688,16 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
           </div>
 
           {/* الأصناف */}
+          {!form.warehouse_id ? (
+            <div style={{ marginTop: 20, borderTop: `1px solid ${S.border}`, paddingTop: 16 }}>
+              <div style={{ background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 10, padding: '14px 16px', color: S.amber, fontSize: 13, textAlign: 'center' }}>
+                ⚠️ يرجى اختيار المستودع أولاً لعرض أصنافه وإضافتها للفاتورة
+              </div>
+            </div>
+          ) : (
           <div style={{ marginTop: 20, borderTop: `1px solid ${S.border}`, paddingTop: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div style={{ fontSize: 14, color: S.gold, fontWeight: 700 }}>📦 أصناف الفاتورة</div>
+              <div style={{ fontSize: 14, color: S.gold, fontWeight: 700 }}>📦 أصناف الفاتورة — {warehouses.find(w => w.id === form.warehouse_id)?.name}</div>
               <button onClick={addItem} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>+ إضافة صنف</button>
             </div>
 
@@ -647,10 +707,11 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                 <div style={{ marginBottom: 8 }}>
                   <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الصنف</label>
                   <ProductSearchInput
-                    products={localProducts}
+                    products={availableProducts}
                     value={item.product_id}
                     productName={item.product_name}
                     matched={item.matched}
+                    loading={loadingWarehouseProducts}
                     onChange={(id, name, lastPrice) => {
                       setItems(p => p.map((it, idx) => idx === i ? {
                         ...it, product_id: id, product_name: name, matched: true,
@@ -728,6 +789,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
               <span style={{ color: S.gold, fontSize: 22, fontWeight: 800 }}>{formatMYR(total)}</span>
             </div>
           </div>
+          )}
 
           <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
@@ -753,6 +815,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
           onClose={() => { setShowAddProduct(false); setNewProductName(''); setAddingForIndex(-1) }}
           onSaved={(p) => {
             setLocalProducts(prev => [...prev, p])
+            setWarehouseProducts(prev => p.warehouse_id === form.warehouse_id ? [...prev, p] : prev)
             if (addingForIndex >= 0) {
               setItems(prev => prev.map((it, idx) => idx === addingForIndex ? {
                 ...it, product_id: p.id, product_name: p.name, matched: true,

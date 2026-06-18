@@ -54,7 +54,9 @@ export default function DepartmentProductsPage() {
       const [prodRes, mapRes] = await Promise.all([
         sb.from('warehouse_products')
           .select('id,name,name_en,current_stock,category,units(symbol)')
-          .eq('is_active', true).order('name'),
+          .eq('is_active', true)
+          .eq('warehouse_id', 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8') // المستودع الرئيسي فقط
+          .order('name'),
         sb.from('department_products').select('department,product_id'),
       ])
       // جيب الفئات بشكل منفصل

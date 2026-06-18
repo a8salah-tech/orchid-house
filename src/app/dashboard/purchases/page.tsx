@@ -1259,6 +1259,7 @@ export default function PurchasesPage() {
           onSaved={() => { setShowNew(false); fetchAll() }}
         />
       )}
-    </div>
+    </div> 
   )
-}
+}   
+ 

@@ -53,7 +53,7 @@ export default function DepartmentProductsPage() {
     async function load() {
       const [prodRes, mapRes] = await Promise.all([
         sb.from('warehouse_products')
-          .select('id,name,name_en,current_stock,category,units(symbol)')
+          .select('id,name,name_en,product_code,current_stock,category,units(symbol)')
           .eq('is_active', true)
           .eq('warehouse_id', 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8') // المستودع الرئيسي فقط
           .order('name'),
@@ -124,7 +124,7 @@ export default function DepartmentProductsPage() {
 
   const q = search.toLowerCase()
   const filteredProducts = products.filter(p =>
-    (!q || p.name.toLowerCase().includes(q) || (p.name_en||'').toLowerCase().includes(q)) &&
+    (!q || p.name.toLowerCase().includes(q) || (p.name_en||'').toLowerCase().includes(q) || (p.product_code||'').toLowerCase().includes(q)) &&
     (activeCategory === 'الكل' || p.category_name === activeCategory)
   )
   const categories = ['الكل', ...new Set(products.map(p => p.category_name))]
@@ -171,7 +171,7 @@ export default function DepartmentProductsPage() {
 
       {/* Search + Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث في المنتجات..." />
+        <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث بالاسم أو الكود (مثال: OR001)..." />
         <button onClick={() => selectAll(filteredIds)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ تحديد الكل</button>
         <button onClick={() => deselectAll(filteredIds)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>❌ إلغاء الكل</button>
       </div>
@@ -197,7 +197,12 @@ export default function DepartmentProductsPage() {
               <div key={p.id} onClick={() => toggle(p.id)}
                 style={{ background: selected ? S.gold3 : S.card, borderRadius: 12, border: `1px solid ${selected ? S.gold : S.border}`, padding: '12px 14px', cursor: 'pointer', transition: 'all .15s', userSelect: 'none' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: selected ? S.gold : S.white, flex: 1, lineHeight: 1.4 }}>{p.name}</div>
+                  <div style={{ flex: 1 }}>
+                    {p.product_code && (
+                      <span style={{ display: 'inline-block', background: S.gold3, color: S.gold, borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 700, fontFamily: 'system-ui', marginBottom: 3 }}>{p.product_code}</span>
+                    )}
+                    <div style={{ fontSize: 12, fontWeight: 700, color: selected ? S.gold : S.white, lineHeight: 1.4 }}>{p.name}</div>
+                  </div>
                   <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${selected ? S.gold : S.muted}`, background: selected ? S.gold : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: S.navy, fontWeight: 800, flexShrink: 0 }}>
                     {selected ? '✓' : ''}
                   </div>

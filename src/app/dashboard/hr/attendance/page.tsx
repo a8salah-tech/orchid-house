@@ -90,13 +90,18 @@ function MyAttendanceCard() {
     if (!employee?.id) return
     setLoading(true)
     const today_date = new Date().toISOString().split('T')[0]
-    const [brs, att, hist] = await Promise.all([
+    const [brs, openAtt, todayAtt, hist] = await Promise.all([
       sb.from('branches').select('id,name,latitude,longitude,radius_meters').eq('is_active', true),
+      // أولاً: هل فيه شيفت مفتوح (دخول بدون خروج) من اليوم أو من يوم سابق (شيفت ليلي عابر لمنتصف الليل)؟
+      sb.from('attendance').select('*').eq('employee_id', employee.id)
+        .not('check_in_time', 'is', null).is('check_out_time', null)
+        .order('date', { ascending: false }).limit(1).maybeSingle(),
       sb.from('attendance').select('*').eq('employee_id', employee.id).eq('date', today_date).maybeSingle(),
       sb.from('attendance').select('*').eq('employee_id', employee.id).order('date', { ascending: false }).limit(14),
     ])
     setBranches(brs.data || [])
-    setToday(att.data)
+    // لو فيه شيفت مفتوح (من اليوم أو من يوم سابق)، اعرضه كالحالة الحالية. غير ذلك اعرض صف اليوم (سواء فاضي أو مكتمل)
+    setToday(openAtt.data || todayAtt.data)
     setHistory(hist.data || [])
     setLoading(false)
   }, [employee?.id, sb])
@@ -144,22 +149,64 @@ function MyAttendanceCard() {
         setChecking(false); return
       }
 
+      // ✅ Fix v2: منع تسجيل دخول جديد لو لسه فيه شيفت مفتوح (لم يسجل خروج منه)
+      const { data: stillOpen } = await sb.from('attendance')
+        .select('id, date')
+        .eq('employee_id', employee.id)
+        .not('check_in_time', 'is', null)
+        .is('check_out_time', null)
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (stillOpen) {
+        setLocError('You already have an open check-in. Please check out first before checking in again.')
+        setChecking(false); return
+      }
+
       const today_date = new Date().toISOString().split('T')[0]
+      const yesterday_date = new Date(Date.now() - 86400000).toISOString().split('T')[0]
       const now        = new Date().toISOString()
       // حساب التأخير بناءً على جدول الشيفت
       const now_time = new Date()
       let shiftStart = null
-      // جيب شيفت الموظف من قاعدة البيانات
-      const { data: schData } = await sb.from('shift_schedules')
-        .select('*, shifts(start_time), custom_start')
+      // جيب شيفت الموظف من قاعدة البيانات — اليوم الحالي أو الأمس (لو شيفت ليلي عابر لمنتصف الليل ولسه في وقته)
+      const { data: schToday } = await sb.from('shift_schedules')
+        .select('*, shifts(start_time,end_time), custom_start, custom_end')
         .eq('employee_id', employee.id)
         .eq('date', today_date)
         .maybeSingle()
+      const { data: schYesterday } = await sb.from('shift_schedules')
+        .select('*, shifts(start_time,end_time), custom_start, custom_end')
+        .eq('employee_id', employee.id)
+        .eq('date', yesterday_date)
+        .maybeSingle()
+
+      let schData = schToday
+      // لو فيه شيفت أمس بيعدي منتصف الليل (end_time < start_time) ولسه الوقت الحالي قبل وقت انتهائه، يعتبر هو الشيفت الفعلي الحالي
+      if (schYesterday) {
+        const endStr = schYesterday.custom_end || schYesterday.shifts?.end_time
+        const startStr = schYesterday.custom_start || schYesterday.shifts?.start_time
+        if (endStr && startStr) {
+          const [sh] = startStr.split(':').map(Number)
+          const [eh, em] = endStr.split(':').map(Number)
+          const crossesMidnight = (eh * 60 + (em||0)) <= (sh * 60)
+          if (crossesMidnight) {
+            const endToday = new Date(); endToday.setHours(eh, em || 0, 0, 0)
+            // لو لسه قبل وقت انتهاء شيفت أمس (يعني نحن في الجزء الممتد لما بعد منتصف الليل)، استخدم شيفت أمس بدل اليوم
+            if (now_time.getTime() < endToday.getTime() && !schToday) {
+              schData = schYesterday
+            }
+          }
+        }
+      }
+
       if (schData) {
         const startStr = schData.custom_start || schData.shifts?.start_time
         if (startStr) {
           const [h, m] = startStr.split(':').map(Number)
           shiftStart = new Date()
+          // لو استخدمنا شيفت الأمس، وقت البداية يكون أمس فعليًا
+          if (schData === schYesterday) shiftStart.setDate(shiftStart.getDate() - 1)
           shiftStart.setHours(h, m, 0, 0)
         }
       }
@@ -169,10 +216,12 @@ function MyAttendanceCard() {
       // grace period 10 دقيقة — لو أتأخر أكتر من 10 دقائق يحتسب متأخر
       const status = diffMins > 10 ? 'late' : 'present'
       const late_minutes = status === 'late' ? diffMins : 0
+      // لو استخدمنا شيفت الأمس، صف الحضور يُسجَّل بتاريخ الأمس (نفس منطق تسجيل الشيفتات الليلية في الجدول)
+      const attendance_date = (schData === schYesterday) ? yesterday_date : today_date
 
       const { error } = await sb.from('attendance').upsert({
         employee_id: employee.id,
-        date: today_date,
+        date: attendance_date,
         check_in_time: now,
         check_in_lat: lat,
         check_in_lng: lng,
@@ -205,9 +254,23 @@ function MyAttendanceCard() {
         setChecking(false); return
       }
 
-      const today_date = new Date().toISOString().split('T')[0]
+      // ✅ Fix v2: البحث عن آخر صف حضور "مفتوح" (فيه check_in بدون check_out)
+      // بدل الاعتماد على تاريخ اليوم الحالي — ضروري للشيفتات التي تعبر منتصف الليل
+      const { data: openRecord, error: findError } = await sb.from('attendance')
+        .select('id, date')
+        .eq('employee_id', employee.id)
+        .not('check_in_time', 'is', null)
+        .is('check_out_time', null)
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-      // ✅ Fix: استخدم employee_id + date مش id فقط
+      if (findError) { setLocError('Error: ' + findError.message); setChecking(false); return }
+      if (!openRecord) {
+        setLocError('No open check-in found. Please check in first.')
+        setChecking(false); return
+      }
+
       const { error } = await sb.from('attendance')
         .update({
           check_out_time:     new Date().toISOString(),
@@ -216,8 +279,7 @@ function MyAttendanceCard() {
           check_out_distance: Math.round(dist),
           updated_at:         new Date().toISOString(),
         })
-        .eq('employee_id', employee.id)
-        .eq('date', today_date)
+        .eq('id', openRecord.id)
 
       if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
       setDistance(Math.round(dist))

@@ -81,7 +81,9 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
     // load initial dept products on mount
     sb.from('department_products').select('product_id').eq('department', 'المطبخ')
       .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
-    sb.from('warehouse_products').select('id,name,name_en,product_code,current_stock,units(symbol)').eq('is_active', true).order('name')
+    sb.from('warehouse_products').select('id,name,name_en,product_code,current_stock,units(symbol)').eq('is_active', true)
+      .eq('warehouse_id', 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8') // المستودع الرئيسي فقط — منع تكرار الصنف من مستودعات متعددة
+      .order('name')
       .then(({ data }) => setProducts(data || []))
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
     sb.from('branches').select('*').order('name').then(({ data }) => setBranches(data || []))
@@ -371,8 +373,9 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // جيب منتجات القسم
     const dept = request.department
     const { data } = await sb.from('department_products')
-      .select('product_id, warehouse_products(id,name,product_code)')
+      .select('product_id, warehouse_products!inner(id,name,product_code,warehouse_id)')
       .eq('department', dept)
+      .eq('warehouse_products.warehouse_id', 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8') // المستودع الرئيسي فقط
     setDeptProducts((data || []).map((d: any) => ({ id: d.warehouse_products?.id, name: d.warehouse_products?.name, product_code: d.warehouse_products?.product_code })).filter(Boolean))
     setEditingItems(true)
   }

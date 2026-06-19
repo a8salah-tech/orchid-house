@@ -90,11 +90,11 @@ function RequestCard({ req, role, onOpen }: { req: InternalRequest; role: string
 function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () => void; onSaved: () => void; currentEmployee: any }) {
   const sb = createClient()
   const [saving, setSaving] = useState(false)
-  const [products, setProducts] = useState<any[]>([])
+  const [allDeptProducts, setAllDeptProducts] = useState<Record<string, any[]>>({ المطبخ: [], البار: [], الصالة: [] })
+  const [branchWarehouseProductIds, setBranchWarehouseProductIds] = useState<Set<string>>(new Set())
   const [units, setUnits] = useState<any[]>([])
-  const [items, setItems] = useState([{ product_id: '', qty: '', unit_id: '', notes: '' }])
+  const [items, setItems] = useState([{ product_id: '', product_name: '', available_locally: true, qty: '', unit_id: '', notes: '' }])
   const [search, setSearch] = useState('')
-  const [deptProducts, setDeptProducts] = useState<string[]>([])
   const [activeDeptTab, setActiveDeptTab] = useState('المطبخ')
   const [monthlyConsumption, setMonthlyConsumption] = useState<Record<string, number>>({})
   const role = currentEmployee?.role || ''
@@ -102,25 +102,44 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [form, setForm] = useState({ department: autoDept, requested_by: currentEmployee?.name || '', notes: '' })
 
   useEffect(() => {
-    sb.from('department_products').select('product_id').eq('department', activeDeptTab)
-      .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
-  }, [activeDeptTab])
-
-  useEffect(() => {
-    // جلب أصناف مستودع الفرع نفسه فقط (مباشرة من قاعدة البيانات، مصدر موثوق)
     const branchId = currentEmployee?.branch_id
-    if (branchId) {
-      sb.from('warehouses').select('id').eq('branch_id', branchId).maybeSingle()
-        .then(({ data: wh }) => {
-          if (wh?.id) {
-            sb.from('warehouse_products').select('id,name,name_en,current_stock,warehouse_id,units(symbol)').eq('is_active', true).eq('warehouse_id', wh.id).order('name')
-              .then(({ data }) => setProducts(data || []))
+    if (!branchId) return
+
+    // 1) جلب id مستودع الفرع، ثم أصنافه (لتحديد ما هو متوفر محليًا)
+    sb.from('warehouses').select('id').eq('branch_id', branchId).maybeSingle()
+      .then(({ data: wh }) => {
+        if (wh?.id) {
+          sb.from('warehouse_products').select('id').eq('is_active', true).eq('warehouse_id', wh.id)
+            .then(({ data }) => setBranchWarehouseProductIds(new Set((data || []).map((p: any) => p.id))))
+        }
+      })
+
+    // 2) جلب كل أصناف كل الأقسام (من أي مستودع)، موحدة بالاسم بدون تكرار
+    Promise.all(['المطبخ', 'البار', 'الصالة'].map(dept =>
+      sb.from('department_products')
+        .select('product_id, warehouse_products(id,name,name_en,product_code,current_stock,unit_id,units(symbol))')
+        .eq('department', dept)
+        .then(({ data }) => ({ dept, data: data || [] }))
+    )).then(results => {
+      const grouped: Record<string, any[]> = { المطبخ: [], البار: [], الصالة: [] }
+      for (const { dept, data } of results) {
+        const seen = new Map<string, any>() // مفتاح: الاسم بعد التنظيف، قيمة: أول نسخة من الصنف
+        for (const row of data) {
+          const wp = (row as any).warehouse_products
+          if (!wp) continue
+          const cleanName = (wp.name || '').trim()
+          if (!cleanName) continue
+          if (!seen.has(cleanName)) {
+            seen.set(cleanName, wp)
           }
-        })
-    }
-    sb.from('department_products').select('product_id').eq('department', 'المطبخ')
-      .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
+        }
+        grouped[dept] = Array.from(seen.values()).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'))
+      }
+      setAllDeptProducts(grouped)
+    })
+
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
+
     // متوسط الاستهلاك الشهري لكل صنف من حركات الصرف (out) خلال آخر 30 يوم
     const since = new Date(); since.setDate(since.getDate() - 30)
     sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since.toISOString().slice(0,10))
@@ -132,6 +151,8 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
         setMonthlyConsumption(totals)
       })
   }, [])
+
+  const currentDeptProducts = allDeptProducts[activeDeptTab] || []
 
   async function save() {
     const branchId = currentEmployee?.branch_id
@@ -177,36 +198,48 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
         </div>
         {/* تابات الأقسام */}
         <div style={{ background: S.navy3, borderRadius: 12, padding: 14, marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 12 }}>📦 اختر الأصناف من مستودع الفرع</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 12 }}>📦 اختر الأصناف من القسم</div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
             {['المطبخ','البار','الصالة'].map(dept => (
-              <button key={dept} onClick={() => {
-                setActiveDeptTab(dept)
-                sb.from('department_products').select('product_id').eq('department', dept)
-                  .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
-              }}
+              <button key={dept} onClick={() => setActiveDeptTab(dept)}
                 style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${activeDeptTab===dept ? S.gold : S.border}`, background: activeDeptTab===dept ? S.gold3 : 'transparent', color: activeDeptTab===dept ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: activeDeptTab===dept ? 700 : 400 }}>
                 {dept==='المطبخ'?'🍳':dept==='البار'?'🍹':'🪑'} {dept}
               </button>
             ))}
           </div>
-          <input style={{ ...inp, marginBottom: 12, fontSize: 12 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث في الأصناف..." />
-          {deptProducts.length === 0 ? (
+          <input style={{ ...inp, marginBottom: 12, fontSize: 12 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث بالاسم أو الكود (مثال: OR001)..." />
+          {currentDeptProducts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>لا توجد أصناف محددة لهذا القسم</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
-              {products.filter(p => deptProducts.includes(p.id) && (!search || p.name.toLowerCase().includes(search.toLowerCase()))).map(p => {
+              {currentDeptProducts
+                .filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.product_code || '').toLowerCase().includes(search.toLowerCase()))
+                .map(p => {
                 const isSelected = items.some(it => it.product_id === p.id)
+                const availableLocally = branchWarehouseProductIds.has(p.id)
                 return (
                   <div key={p.id} onClick={() => {
                     if (isSelected) setItems(prev => prev.filter(it => it.product_id !== p.id))
-                    else { const unitId = p.units ? units.find((u:any) => u.symbol === p.units?.symbol)?.id||'' : ''; setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, qty: '', unit_id: unitId, notes: '' }]) }
-                  }} style={{ background: isSelected ? S.gold3 : 'rgba(255,255,255,0.03)', borderRadius: 10, border: `1px solid ${isSelected ? S.gold : S.border}`, padding: '10px 12px', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? S.gold : S.white, flex: 1 }}>{p.name}</div>
+                    else {
+                      const unitId = p.unit_id || (p.units ? units.find((u:any) => u.symbol === p.units?.symbol)?.id||'' : '')
+                      setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, product_name: p.name, available_locally: availableLocally, qty: '', unit_id: unitId, notes: '' }])
+                    }
+                  }} style={{ background: isSelected ? S.gold3 : 'rgba(255,255,255,0.03)', borderRadius: 10, border: `1px solid ${isSelected ? S.gold : !availableLocally ? S.amber+'40' : S.border}`, padding: '10px 12px', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                      <div style={{ flex: 1 }}>
+                        {p.product_code && (
+                          <span style={{ display: 'inline-block', background: S.gold3, color: S.gold, borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 700, fontFamily: 'system-ui', marginBottom: 3 }}>{p.product_code}</span>
+                        )}
+                        <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? S.gold : S.white }}>{p.name}</div>
+                      </div>
                       {isSelected && <span style={{ color: S.gold, fontSize: 13 }}>✓</span>}
                     </div>
-                    <div style={{ fontSize: 10, color: S.muted }}>📦 المخزون: {p.current_stock ?? 0} {p.units?.symbol} · 📊 استهلاك شهري: {(monthlyConsumption[p.id] || 0).toFixed(0)} {p.units?.symbol}</div>
+                    {!availableLocally && (
+                      <div style={{ fontSize: 9, color: S.amber, fontWeight: 700, marginBottom: 3 }}>⚠️ غير متوفر محليًا</div>
+                    )}
+                    <div style={{ fontSize: 10, color: S.muted }}>
+                      📦 المخزون: {availableLocally ? (p.current_stock ?? 0) : '—'} {p.units?.symbol} · 📊 استهلاك شهري: {(monthlyConsumption[p.id] || 0).toFixed(0)} {p.units?.symbol}
+                    </div>
                   </div>
                 )
               })}
@@ -218,11 +251,13 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
             <div style={{ fontSize: 13, fontWeight: 700, color: S.blue, marginBottom: 12 }}>📋 الأصناف المختارة ({items.filter(it => it.product_id).length})</div>
             {items.map((item, i) => {
               if (!item.product_id) return null
-              const prod = products.find(p => p.id === item.product_id)
               return (
-                <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, border: `1px solid ${S.border}` }}>
+                <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, border: `1px solid ${item.available_locally ? S.border : S.amber+'40'}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{prod?.name}</div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{item.product_name}</div>
+                      {!item.available_locally && <div style={{ fontSize: 10, color: S.amber, fontWeight: 700 }}>⚠️ غير متوفر محليًا — يحتاج تأكيد من أمين المستودع</div>}
+                    </div>
                     <button onClick={() => setItems(p => p.filter((_,idx) => idx!==i))} style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11 }}>🗑️</button>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

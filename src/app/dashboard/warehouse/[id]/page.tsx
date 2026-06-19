@@ -53,7 +53,7 @@ type UnitConversion = { id: string; product_id: string; from_unit_id: string; to
 interface Warehouse { id: string; name: string; description: string; location: string; is_main: boolean }
 interface Unit { id: string; name: string; symbol: string }
 interface Product {
-  id: string; name: string; name_en?: string; category: string
+  id: string; name: string; name_en?: string; category: string; product_code?: string
   current_stock: number; min_stock: number; last_purchase_price: number
   unit_id: string; units?: Unit; is_active: boolean
 }
@@ -882,7 +882,8 @@ export default function WarehouseDetailPage() {
   // Filtering
   const filteredProducts = products.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.name_en || '').toLowerCase().includes(search.toLowerCase())
+      (p.name_en || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.product_code || '').toLowerCase().includes(search.toLowerCase())
     const matchCat = selectedCategory === 'all' || p.category === selectedCategory
     const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? p.is_active !== false : p.is_active === false)
     const matchStock = stockFilter === 'all' ||
@@ -1133,7 +1134,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
               style={{ ...inp, flex: 1, minWidth: 200 }}
               value={search}
               onChange={e => { setSearch(e.target.value); setCurrentPage(1) }}
-              placeholder="🔍 بحث بالاسم عربي أو إنجليزي..."
+              placeholder="🔍 بحث بالاسم أو الكود (مثال: OR001)..."
             />
             <select style={{ ...inp, width: 'auto', minWidth: 130 }} value={statusFilter} onChange={e => { setStatusFilter(e.target.value as 'all' | 'active' | 'inactive'); setCurrentPage(1) }}>
               <option value="all">كل الحالات</option>
@@ -1171,14 +1172,14 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
                 <thead>
                   <tr style={{ background: S.navy3 }}>
-                    {['الصنف (عربي / English)', 'الفئة', 'الوحدة الكبيرة', 'القطع / كيس', 'الحد الأدنى', 'آخر سعر', 'الحالة', 'إجراء'].map(h => (
+                    {['الكود', 'الصنف (عربي / English)', 'الفئة', 'الوحدة الكبيرة', 'القطع / كيس', 'الحد الأدنى', 'آخر سعر', 'الحالة', 'إجراء'].map(h => (
                       <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedProducts.length === 0 ? (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: S.muted }}>
+                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40, color: S.muted }}>
                       {search ? `لا توجد نتائج لـ "${search}"` : 'لا توجد أصناف — اضغط "صنف جديد" للبدء'}
                     </td></tr>
                   ) : paginatedProducts.map(p => {
@@ -1189,6 +1190,12 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                       <tr key={p.id} className="prod-row"
                         style={{ borderBottom: `1px solid ${S.border}`, opacity: isInactive ? 0.55 : 1, transition: 'background .15s' }}
                       >
+                        {/* كود الصنف */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{ background: S.gold3, color: S.gold, borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, fontFamily: 'system-ui', letterSpacing: 0.5 }}>
+                            {p.product_code || '—'}
+                          </span>
+                        </td>
                         {/* اسم المنتج */}
                         <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
                           <div style={{ fontWeight: 700, color: S.white, fontSize: 13, marginBottom: 3 }}>{p.name}</div>
@@ -1497,6 +1504,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
+                { label: 'الكود', value: selectedProduct.product_code || '—', color: S.gold },
                 { label: 'الفئة', value: selectedProduct.category || '—' },
                 { label: 'المخزون الحالي', value: `${selectedProduct.current_stock} ${(selectedProduct as any).units?.symbol || ''}`, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green },
                 { label: 'الحد الأدنى', value: `${selectedProduct.min_stock} ${(selectedProduct as any).units?.symbol || ''}` },

@@ -37,7 +37,7 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
 
 const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   admin:              { all: true },
-  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, prep_warehouse: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, notifications: true, marketing: true },
+  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, prep_warehouse: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, salary_increase_requests: true, salary_advance_requests: true, notifications: true, marketing: true },
   kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
@@ -72,6 +72,8 @@ const ALL_PERMISSIONS = [
   { key: 'payroll',          label: 'الرواتب والأجور',       group: 'المالية',       icon: '💰' },
   { key: 'hr',               label: 'الموارد البشرية',      group: 'الموارد',       icon: '👷' },
   { key: 'my_requests',      label: 'طلباتي الشخصية',       group: 'الموارد',       icon: '📋' },
+  { key: 'salary_increase_requests', label: '📈 طلبات زيادة الراتب', group: 'الموارد', icon: '📈' },
+  { key: 'salary_advance_requests',  label: '💸 طلبات سلفة الراتب',  group: 'الموارد', icon: '💸' },
   { key: 'attendance',       label: 'الحضور والانصراف',     group: 'الموارد',       icon: '⏰' },
   { key: 'my_payroll',       label: 'راتبي',                group: 'الموارد',       icon: '💵' },
   { key: 'marketing',        label: 'التسويق',              group: 'التسويق',       icon: '📢' },

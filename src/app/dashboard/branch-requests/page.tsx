@@ -81,7 +81,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
     // load initial dept products on mount
     sb.from('department_products').select('product_id').eq('department', 'المطبخ')
       .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
-    sb.from('warehouse_products').select('id,name,name_en,current_stock,units(symbol)').eq('is_active', true).order('name')
+    sb.from('warehouse_products').select('id,name,name_en,product_code,current_stock,units(symbol)').eq('is_active', true).order('name')
       .then(({ data }) => setProducts(data || []))
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
     sb.from('branches').select('*').order('name').then(({ data }) => setBranches(data || []))
@@ -158,20 +158,25 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
               </button>
             ))}
           </div>
-          <input style={{ ...inp, marginBottom: 12, fontSize: 12 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث في الأصناف..." />
+          <input style={{ ...inp, marginBottom: 12, fontSize: 12 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث بالاسم أو الكود (مثال: OR001)..." />
           {deptProducts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>لا توجد أصناف محددة لهذا القسم</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
-              {products.filter(p => deptProducts.includes(p.id) && (!search || p.name.toLowerCase().includes(search.toLowerCase()))).map(p => {
+              {products.filter(p => deptProducts.includes(p.id) && (!search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.product_code || '').toLowerCase().includes(search.toLowerCase()))).map(p => {
                 const isSelected = items.some(it => it.product_id === p.id)
                 return (
                   <div key={p.id} onClick={() => {
                     if (isSelected) setItems(prev => prev.filter(it => it.product_id !== p.id))
                     else { const unitId = p.units ? units.find((u:any) => u.symbol === p.units?.symbol)?.id||'' : ''; setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, qty: '', unit_id: unitId, notes: '' }]) }
                   }} style={{ background: isSelected ? S.gold3 : 'rgba(255,255,255,0.03)', borderRadius: 10, border: `1px solid ${isSelected ? S.gold : S.border}`, padding: '10px 12px', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? S.gold : S.white, flex: 1 }}>{p.name}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                      <div style={{ flex: 1 }}>
+                        {p.product_code && (
+                          <span style={{ display: 'inline-block', background: S.gold3, color: S.gold, borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 700, fontFamily: 'system-ui', marginBottom: 3 }}>{p.product_code}</span>
+                        )}
+                        <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? S.gold : S.white }}>{p.name}</div>
+                      </div>
                       {isSelected && <span style={{ color: S.gold, fontSize: 13 }}>✓</span>}
                     </div>
                     <div style={{ fontSize: 10, color: S.muted }}>📊 استهلاك شهري: {(monthlyConsumption[p.id] || 0).toFixed(0)} {p.units?.symbol}</div>
@@ -262,21 +267,24 @@ function RequestCard({ req, role, onOpen }: { req: BranchRequest; role: string; 
 }
 
 // ══ Request Detail Modal ══
-function AddItemSearch({ products, editedItems, onAdd }: { products: {id:string;name:string}[]; editedItems: any[]; onAdd: (p:{id:string;name:string}) => void }) {
+function AddItemSearch({ products, editedItems, onAdd }: { products: {id:string;name:string;product_code?:string}[]; editedItems: any[]; onAdd: (p:{id:string;name:string}) => void }) {
   const [search, setSearch] = useState('')
   const available = products.filter(p => !editedItems.some(i => i.product_id === p.id && !i._delete))
-  const filtered = available.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()))
+  const filtered = available.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.product_code || '').toLowerCase().includes(search.toLowerCase()))
   return (
     <div style={{ position: 'relative' }}>
-      <input style={{ ...inp }} placeholder="🔍 ابحث عن صنف للإضافة..." value={search} onChange={e => setSearch(e.target.value)} />
+      <input style={{ ...inp }} placeholder="🔍 ابحث بالاسم أو الكود (مثال: OR001)..." value={search} onChange={e => setSearch(e.target.value)} />
       {search && filtered.length > 0 && (
         <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: '#0C1A32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, zIndex: 50, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', marginTop: 4 }}>
           {filtered.map(p => (
             <div key={p.id} onClick={() => { onAdd(p); setSearch('') }}
-              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#FAFAF8', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+              style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#FAFAF8', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}
               onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
-              {p.name}
+              {p.product_code && (
+                <span style={{ background: 'rgba(201,168,76,0.12)', color: S.gold, borderRadius: 6, padding: '1px 6px', fontSize: 10, fontWeight: 700, fontFamily: 'system-ui', flexShrink: 0 }}>{p.product_code}</span>
+              )}
+              <span>{p.name}</span>
             </div>
           ))}
         </div>
@@ -302,7 +310,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const [receiveItems, setReceiveItems] = useState<Record<string,{received:number;returned:number;reason:string;imgFile?:File;imgPreview:string}>>({})
   const [editingItems, setEditingItems] = useState(false)
   const [editedItems, setEditedItems] = useState<{id:string;product_id:string;product_name:string;quantity_requested:number;unit_id:string;unit_symbol:string;_delete?:boolean}[]>([])
-  const [deptProducts, setDeptProducts] = useState<{id:string;name:string}[]>([])
+  const [deptProducts, setDeptProducts] = useState<{id:string;name:string;product_code?:string}[]>([])
   const [savingItems, setSavingItems] = useState(false)
   const role = currentEmployee?.role || ''
 
@@ -363,9 +371,9 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // جيب منتجات القسم
     const dept = request.department
     const { data } = await sb.from('department_products')
-      .select('product_id, warehouse_products(id,name)')
+      .select('product_id, warehouse_products(id,name,product_code)')
       .eq('department', dept)
-    setDeptProducts((data || []).map((d: any) => ({ id: d.warehouse_products?.id, name: d.warehouse_products?.name })).filter(Boolean))
+    setDeptProducts((data || []).map((d: any) => ({ id: d.warehouse_products?.id, name: d.warehouse_products?.name, product_code: d.warehouse_products?.product_code })).filter(Boolean))
     setEditingItems(true)
   }
 

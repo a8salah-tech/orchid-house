@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
+import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +44,8 @@ interface Unit { id: string; name: string; symbol: string }
 interface Invoice {
   id: string; sys_number?: number; invoice_number: string; invoice_date: string
   total_amount: number; status: string; image_url: string; notes: string
-  warehouse_suppliers?: { name: string }; warehouses?: { name: string }; created_at: string
+  warehouse_id?: string
+  warehouse_suppliers?: { name: string }; warehouses?: { name: string; branch_id?: string }; created_at: string
 }
 interface InvoiceItem {
   product_id: string; product_name: string
@@ -1090,12 +1092,17 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
 // ══════════════════════════════════════════
 export default function PurchasesPage() {
   const supabase = createClient()
+  const { employee, permissions } = useAuth()
+  const isAdmin = permissions?.all === true
+  const myBranchId = employee?.branch_id || ''
+
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [units, setUnits] = useState<Unit[]>([])
   const [unitConversions, setUnitConversions] = useState<any[]>([])
-  const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([])
+  const [warehouses, setWarehouses] = useState<{ id: string; name: string; branch_id?: string }[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [search, setSearch] = useState('')
@@ -1103,16 +1110,19 @@ export default function PurchasesPage() {
   const [filterMonth, setFilterMonth] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [viewerImage, setViewerImage] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
+  const [showReport, setShowReport] = useState(false)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [inv, prod, sup, un, wh, uc] = await Promise.all([
-      supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name)').order('created_at', { ascending: false }),
+    const [inv, prod, sup, un, wh, uc, brs] = await Promise.all([
+      supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name,branch_id)').order('created_at', { ascending: false }),
       supabase.from('warehouse_products').select('*, units(symbol)').eq('is_active', true).order('name'),
       supabase.from('warehouse_suppliers').select('*').order('name'),
       supabase.from('units').select('*').order('name'),
-      supabase.from('warehouses').select('id,name').eq('is_active', true),
+      supabase.from('warehouses').select('id,name,branch_id').eq('is_active', true),
       supabase.from('unit_conversions').select('*, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)'),
+      supabase.from('branches').select('id,name').eq('is_active', true),
     ])
     setInvoices(inv.data || [])
     setProducts(prod.data || [])
@@ -1120,24 +1130,62 @@ export default function PurchasesPage() {
     setUnits(un.data || [])
     setWarehouses(wh.data || [])
     setUnitConversions(uc.data || [])
+    setBranches(brs.data || [])
     setLoading(false)
   }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const thisMonth = new Date().toISOString().slice(0, 7)
-  const monthInvoices = invoices.filter(i => i.created_at?.startsWith(thisMonth))
-  const monthTotal = monthInvoices.reduce((s, i) => s + (i.total_amount || 0), 0)
-  const totalAll = invoices.reduce((s, i) => s + (i.total_amount || 0), 0)
+  // تحديد التاب الافتراضي بناءً على الدور:
+  // admin يبدأ بـ"الإجمالي" ويشوف الكل بحرية.
+  // غيره يتقفل على فرعه (لو عنده branch_id)، أو على "المستودع الرئيسي" لو مالوش فرع (أمين مستودع رئيسي مستقبلاً)
+  useEffect(() => {
+    if (!isAdmin) setActiveTab(myBranchId || 'main')
+  }, [isAdmin, myBranchId])
 
-  const filtered = invoices.filter(inv => {
+  const thisMonth = new Date().toISOString().slice(0, 7)
+
+  // خريطة سريعة: warehouse_id → branch_id (أو 'main' لو المستودع غير مرتبط بفرع — المستودع الرئيسي)
+  const warehouseBranchMap = Object.fromEntries(
+    warehouses.map(w => [w.id, w.branch_id || 'main'])
+  )
+  function invoiceBranchKey(inv: Invoice): string {
+    if (inv.warehouses?.branch_id) return inv.warehouses.branch_id
+    if (inv.warehouse_id && warehouseBranchMap[inv.warehouse_id]) return warehouseBranchMap[inv.warehouse_id]
+    return 'main'
+  }
+
+  // التابات: تاب لكل فرع له مستودع، بالإضافة لتاب "المستودع الرئيسي" دائمًا
+  const branchTabs = branches.map(b => ({ key: b.id, label: `🏪 ${b.name}` }))
+  const allTabs = [{ key: 'main', label: '🏭 المستودع الرئيسي' }, ...branchTabs]
+  // الأدوار غير admin تشوف بس تاب فرعها (أو المستودع الرئيسي لو مالهاش فرع)
+  const visibleTabs = isAdmin ? allTabs : allTabs.filter(t => t.key === (myBranchId || 'main'))
+
+  const tabInvoices = activeTab ? invoices.filter(inv => invoiceBranchKey(inv) === activeTab) : invoices
+  const monthInvoices = tabInvoices.filter(i => i.created_at?.startsWith(thisMonth))
+  const monthTotal = monthInvoices.reduce((s, i) => s + (i.total_amount || 0), 0)
+  const totalAll = tabInvoices.reduce((s, i) => s + (i.total_amount || 0), 0)
+
+  const filtered = tabInvoices.filter(inv => {
     const matchSearch = !search || inv.invoice_number?.includes(search) || inv.warehouse_suppliers?.name?.includes(search)
     const matchSupplier = !filterSupplier || inv.warehouse_suppliers?.name === filterSupplier
     const matchMonth = !filterMonth || inv.invoice_date?.startsWith(filterMonth)
     return matchSearch && matchSupplier && matchMonth
   })
 
-  const invoiceSuppliers = [...new Set(invoices.map(i => i.warehouse_suppliers?.name).filter(Boolean))]
+  const invoiceSuppliers = [...new Set(tabInvoices.map(i => i.warehouse_suppliers?.name).filter(Boolean))]
+
+  // تقرير مقارن لكل فرع (admin فقط)
+  const comparisonReport = allTabs.map(t => {
+    const tabInvs = invoices.filter(inv => invoiceBranchKey(inv) === t.key)
+    return {
+      key: t.key, label: t.label,
+      count: tabInvs.length,
+      total: tabInvs.reduce((s, i) => s + (i.total_amount || 0), 0),
+      monthTotal: tabInvs.filter(i => i.created_at?.startsWith(thisMonth)).reduce((s, i) => s + (i.total_amount || 0), 0),
+    }
+  })
+  const grandTotal = comparisonReport.reduce((s, r) => s + r.total, 0)
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
@@ -1150,20 +1198,46 @@ export default function PurchasesPage() {
       `}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>🛒 المشتريات</h1>
           <p style={{ fontSize: 13, color: S.muted }}>إدارة فواتير المشتريات ومسح ذكي بالذكاء الاصطناعي</p>
         </div>
-        <button onClick={() => setShowNew(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-          ✨ فاتورة جديدة
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {isAdmin && (
+            <button onClick={() => setShowReport(true)} style={{ padding: '11px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              📊 تقرير مقارن
+            </button>
+          )}
+          <button onClick={() => setShowNew(true)} style={{ padding: '11px 22px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+            ✨ فاتورة جديدة
+          </button>
+        </div>
       </div>
+
+      {/* Branch Tabs */}
+      {visibleTabs.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          {/* تاب "الإجمالي" يظهر لـ admin فقط، لرؤية كل الفروع مجتمعة */}
+          {isAdmin && (
+            <button onClick={() => setActiveTab('')}
+              style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${activeTab === '' ? S.gold : S.border}`, background: activeTab === '' ? S.gold3 : 'transparent', color: activeTab === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab === '' ? 700 : 400 }}>
+              🌐 الإجمالي (الكل)
+            </button>
+          )}
+          {visibleTabs.map(t => (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${activeTab === t.key ? S.gold : S.border}`, background: activeTab === t.key ? S.gold3 : 'transparent', color: activeTab === t.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab === t.key ? 700 : 400 }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
         {[
-          { label: 'إجمالي الفواتير', value: invoices.length, icon: '🧾', color: S.blue, bg: S.blueB },
+          { label: 'إجمالي الفواتير', value: tabInvoices.length, icon: '🧾', color: S.blue, bg: S.blueB },
           { label: 'مشتريات هذا الشهر', value: monthInvoices.length, icon: '📅', color: S.green, bg: S.greenB },
           { label: 'إجمالي هذا الشهر', value: formatMYR(monthTotal), icon: '💰', color: S.gold, bg: S.gold3 },
           { label: 'إجمالي كل الفواتير', value: formatMYR(totalAll), icon: '📊', color: S.purple, bg: S.purpleB },
@@ -1253,11 +1327,51 @@ export default function PurchasesPage() {
 
       {showNew && (
         <NewInvoiceModal
-          products={products} suppliers={suppliers} units={units} warehouses={warehouses}
+          products={products} suppliers={suppliers} units={units}
+          warehouses={isAdmin ? warehouses : warehouses.filter(w => (w.branch_id || 'main') === (myBranchId || 'main'))}
           unitConversions={unitConversions}
           onClose={() => setShowNew(false)}
           onSaved={() => { setShowNew(false); fetchAll() }}
         />
+      )}
+
+      {showReport && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 640, padding: 28, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>📊 تقرير مقارن — كل الفروع</h2>
+              <button onClick={() => setShowReport(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ background: S.navy3, borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: S.card2 }}>
+                    {['الفرع/المستودع', 'عدد الفواتير', 'إجمالي هذا الشهر', 'الإجمالي الكلي'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparisonReport.map(r => (
+                    <tr key={r.key} style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.white, fontWeight: 700 }}>{r.label}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.blue }}>{r.count}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.green }}>{formatMYR(r.monthTotal)}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 700 }}>{formatMYR(r.total)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: S.gold3 }}>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>🌐 الإجمالي الكلي</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{invoices.length}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{formatMYR(comparisonReport.reduce((s,r)=>s+r.monthTotal,0))}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 14, color: S.gold, fontWeight: 800 }}>{formatMYR(grandTotal)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button onClick={() => setShowReport(false)} style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+          </div>
+        </div>
       )}
     </div> 
   )

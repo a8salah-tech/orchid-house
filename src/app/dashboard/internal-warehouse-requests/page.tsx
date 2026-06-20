@@ -37,6 +37,17 @@ const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervis
 const MANAGER_ROLES = ['kitchen_manager', 'hall_manager', 'bar_manager']
 const SENIOR_ROLES = ['admin', 'branch_manager']
 
+// ✅ بعض الموظفين القدامى مسجل قسمهم بالإنجليزي في قاعدة البيانات (Hall/Kitchen/Bar)
+// بدل العربي (الصالة/المطبخ/البار) — هذه الدالة توحّد القيمتين كمتساويتين
+function normalizeDept(dept: string | null | undefined): string {
+  const map: Record<string, string> = {
+    'hall': 'الصالة', 'kitchen': 'المطبخ', 'bar': 'البار',
+    'desserts': 'الحلويات', 'cleaning': 'النظافة', 'admin': 'الإدارة',
+  }
+  const key = (dept || '').trim().toLowerCase()
+  return map[key] || (dept || '').trim()
+}
+
 interface InternalRequest {
   id: string; created_at: string; request_number: number
   branch_id: string; department: string; status: string
@@ -98,7 +109,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [activeDeptTab, setActiveDeptTab] = useState('المطبخ')
   const [monthlyConsumption, setMonthlyConsumption] = useState<Record<string, number>>({})
   const role = currentEmployee?.role || ''
-  const autoDept = role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : currentEmployee?.department || ''
+  const autoDept = role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : normalizeDept(currentEmployee?.department)
   const [form, setForm] = useState({ department: autoDept, requested_by: currentEmployee?.name || '', notes: '' })
 
   useEffect(() => {
@@ -474,37 +485,47 @@ export default function InternalWarehouseRequestsPage() {
   const { employee } = useAuth()
   const { isAr } = useLang()
   const [requests, setRequests] = useState<InternalRequest[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [selected, setSelected] = useState<InternalRequest|null>(null)
   const [activeTab, setActiveTab] = useState(0)
+  const [activeBranch, setActiveBranch] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
+  const [showReport, setShowReport] = useState(false)
   const [search, setSearch] = useState('')
 
   const role = employee?.role || ''
   const myBranchId = employee?.branch_id || ''
+  const isAdmin = role === 'admin'
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const { data } = await sb.from('internal_warehouse_requests')
       .select('*, branches(name), internal_warehouse_request_items(id,product_id,quantity_requested,quantity_approved,unit_id,notes,warehouse_products(name,name_en),units(symbol))')
       .order('created_at', { ascending: false })
-    let reqs = data || []
-    // كل مستخدم يشوف طلبات فرعه فقط (إلا مدير النظام يشوف الكل)
-    if (role !== 'admin') {
-      reqs = reqs.filter((r: any) => r.branch_id === myBranchId)
-    }
-    setRequests(reqs)
+    setRequests(data || [])
     setLoading(false)
-  }, [role, myBranchId])
+  }, [])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    sb.from('branches').select('id,name').eq('is_active', true).then(({ data }) => setBranches(data || []))
+  }, [])
+  useEffect(() => {
+    // الأدوار غير admin تتقفل على فرعها تلقائيًا
+    if (!isAdmin && myBranchId) setActiveBranch(myBranchId)
+  }, [isAdmin, myBranchId])
 
-  const isAdmin = role === 'admin'
   const isBranchManager = role === 'branch_manager'
   const isWarehouseKeeper = role === 'warehouse_keeper'
   const canCreate = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, ...SENIOR_ROLES].includes(role)
 
-  // تعريف التابات
+  // طلبات الفرع النشط (أو كل الفروع لو activeBranch فاضي و admin)
+  const branchRequests = activeBranch ? requests.filter(r => r.branch_id === activeBranch) : requests
+  // الأدوار غير admin تشوف بس تاب فرعها
+  const visibleBranches = isAdmin ? branches : branches.filter(b => b.id === myBranchId)
+
+  // تعريف التابات (الحالة: قيد الانتظار/معتمدة/مرفوضة)
   const allTabs = [
     { label: isAr ? 'قيد الانتظار' : 'Pending', icon: '⏳', show: true, filter: (r: InternalRequest) => r.status === 'pending' },
     { label: isAr ? 'معتمدة' : 'Approved', icon: '✅', show: true, filter: (r: InternalRequest) => r.status === 'approved' },
@@ -513,10 +534,22 @@ export default function InternalWarehouseRequestsPage() {
   const visibleTabs = allTabs.filter(t => t.show)
   const currentTab = visibleTabs[activeTab] || visibleTabs[0]
 
-  const filtered = requests.filter(r => {
+  const filtered = branchRequests.filter(r => {
     const tabMatch = currentTab?.filter(r) || false
     const searchMatch = !search || r.requested_by?.includes(search) || String(r.request_number).includes(search) || r.department?.includes(search)
     return tabMatch && searchMatch
+  })
+
+  // تقرير مقارن لكل فرع (admin فقط)
+  const comparisonReport = branches.map(b => {
+    const brReqs = requests.filter(r => r.branch_id === b.id)
+    return {
+      id: b.id, name: b.name,
+      total: brReqs.length,
+      pending: brReqs.filter(r => r.status === 'pending').length,
+      approved: brReqs.filter(r => r.status === 'approved').length,
+      rejected: brReqs.filter(r => r.status === 'rejected').length,
+    }
   })
 
   return (
@@ -530,6 +563,11 @@ export default function InternalWarehouseRequestsPage() {
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'طلب مستلزمات مباشرة من مستودع الفرع — يحتاج موافقة أمين المستودع' : 'Direct requests from the branch internal warehouse'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {isAdmin && (
+            <button onClick={() => setShowReport(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              📊 {isAr ? 'تقرير مقارن' : 'Comparison Report'}
+            </button>
+          )}
           {canCreate && (
             <button onClick={() => setShowNew(true)} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               ➕ {isAr ? 'طلب جديد' : 'New Request'}
@@ -538,12 +576,30 @@ export default function InternalWarehouseRequestsPage() {
         </div>
       </div>
 
+      {/* Branch Tabs */}
+      {visibleBranches.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button onClick={() => setActiveBranch('')}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === '' ? S.gold : S.border}`, background: activeBranch === '' ? S.gold3 : 'transparent', color: activeBranch === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === '' ? 700 : 400 }}>
+              🌐 {isAr ? 'الإجمالي (الكل)' : 'All Branches'}
+            </button>
+          )}
+          {visibleBranches.map(b => (
+            <button key={b.id} onClick={() => setActiveBranch(b.id)}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === b.id ? S.gold : S.border}`, background: activeBranch === b.id ? S.gold3 : 'transparent', color: activeBranch === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === b.id ? 700 : 400 }}>
+              🏪 {b.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10, marginBottom: 20 }}>
         {[
-          { label: isAr ? 'قيد الانتظار' : 'Pending', count: requests.filter(r=>r.status==='pending').length, color: S.amber, bg: S.amberB, icon: '⏳' },
-          { label: isAr ? 'معتمدة' : 'Approved', count: requests.filter(r=>r.status==='approved').length, color: S.green, bg: S.greenB, icon: '✅' },
-          { label: isAr ? 'مرفوضة' : 'Rejected', count: requests.filter(r=>r.status==='rejected').length, color: S.red, bg: S.redB, icon: '❌' },
+          { label: isAr ? 'قيد الانتظار' : 'Pending', count: branchRequests.filter(r=>r.status==='pending').length, color: S.amber, bg: S.amberB, icon: '⏳' },
+          { label: isAr ? 'معتمدة' : 'Approved', count: branchRequests.filter(r=>r.status==='approved').length, color: S.green, bg: S.greenB, icon: '✅' },
+          { label: isAr ? 'مرفوضة' : 'Rejected', count: branchRequests.filter(r=>r.status==='rejected').length, color: S.red, bg: S.redB, icon: '❌' },
         ].map((s, i) => (
           <div key={i} style={{ background: s.bg, borderRadius: 12, padding: '12px 14px', border: `1px solid ${s.color}30` }}>
             <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
@@ -556,7 +612,7 @@ export default function InternalWarehouseRequestsPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {visibleTabs.map((tab, i) => {
-          const count = requests.filter(tab.filter).length
+          const count = branchRequests.filter(tab.filter).length
           return (
             <button key={i} onClick={() => setActiveTab(i)}
               style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${activeTab===i ? S.gold : S.border}`, background: activeTab===i ? S.gold3 : 'transparent', color: activeTab===i ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab===i ? 700 : 400, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -589,6 +645,48 @@ export default function InternalWarehouseRequestsPage() {
       )} 
       {showNew && <NewRequestModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployee={employee} />}
       {selected && <RequestDetailModal request={selected} currentEmployee={employee} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} />}
+
+      {/* Comparison Report Modal */}
+      {showReport && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 600, padding: 28, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>📊 {isAr ? 'تقرير مقارن — كل الفروع' : 'Comparison Report — All Branches'}</h2>
+              <button onClick={() => setShowReport(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ background: S.navy3, borderRadius: 14, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: S.card2 }}>
+                    {[isAr ? 'الفرع' : 'Branch', isAr ? 'الإجمالي' : 'Total', isAr ? 'قيد الانتظار' : 'Pending', isAr ? 'معتمدة' : 'Approved', isAr ? 'مرفوضة' : 'Rejected'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparisonReport.map(r => (
+                    <tr key={r.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.white, fontWeight: 700 }}>🏪 {r.name}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.blue, fontWeight: 700 }}>{r.total}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.amber }}>{r.pending}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.green }}>{r.approved}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.red }}>{r.rejected}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: S.gold3 }}>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>🌐 {isAr ? 'الإجمالي الكلي' : 'Grand Total'}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 14, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.total,0)}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.pending,0)}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.approved,0)}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.rejected,0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button onClick={() => setShowReport(false)} style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إغلاق' : 'Close'}</button>
+          </div>
+        </div>
+      )}
     </div> 
   )  
 }  

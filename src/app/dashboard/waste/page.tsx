@@ -70,7 +70,9 @@ interface WasteLog {
   estimated_cost?: number
   approved_by?: string
   approved_at?: string
+  branch_id?: string
   employees?: { name: string; name_en: string }
+  branches?: { name: string }
 }
 
 export default function WastePage() {
@@ -81,12 +83,17 @@ export default function WastePage() {
 
   const role = employee?.role || ''
   const isAdmin = role === 'admin' || (employee as any)?.permissions?.all === true
-  const canRecord = isAdmin || ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager'].includes(role)
+  const canRecord = isAdmin || ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager','warehouse_keeper'].includes(role)
   const isBranchManager = role === 'branch_manager'
   const isDeptManager   = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
   const isSupervisor    = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
 
   const [logs, setLogs] = useState<WasteLog[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [activeTab, setActiveTab] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
+  const [showReport, setShowReport] = useState(false)
+  const [comparisonReport, setComparisonReport] = useState<{ id: string; name: string; count: number; total: number }[]>([])
+  const [loadingReport, setLoadingReport] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -120,16 +127,20 @@ export default function WastePage() {
     const [year, month] = filterMonth.split('-').map(Number)
     const start = new Date(year, month - 1, 1).toISOString().split('T')[0]
     const end   = new Date(year, month, 0).toISOString().split('T')[0]
-    console.log('fetchLogs:', { isAdmin, start, end, employeeId: employee?.id })
 
     let q = sb.from('waste_logs')
-      .select('*, employees!waste_logs_recorded_by_fkey(name,name_en), approver:employees!waste_logs_approved_by_fkey(name)')
+      .select('*, employees!waste_logs_recorded_by_fkey(name,name_en), approver:employees!waste_logs_approved_by_fkey(name), branches(name)')
       .gte('waste_date', start)
       .lte('waste_date', end)
       .order('waste_date', { ascending: false })
       .order('created_at', { ascending: false })
 
-    if (!isAdmin) q = q.eq('branch_id', employee?.branch_id || '')
+    if (!isAdmin) {
+      q = q.eq('branch_id', employee?.branch_id || '')
+    } else if (activeTab) {
+      // admin اختار تاب فرع محدد — فلترة بهذا الفرع بس. لو activeTab فاضي ('') يشوف كل الفروع مجتمعة
+      q = q.eq('branch_id', activeTab)
+    }
     // مدير الصالة يشوف الصالة فقط
     if (role === 'hall_manager') q = q.in('department', ['الصالة', 'Hall', 'hall'])
     // المشرف يشوف هدره هو فقط
@@ -137,12 +148,21 @@ export default function WastePage() {
     if (filterType !== 'all') q = q.eq('waste_type', filterType)
 
     const { data, error } = await q
-    console.log('waste_logs result:', data?.length, 'error:', error, 'isAdmin:', isAdmin, 'branch_id:', employee?.branch_id)
     setLogs(data || [])
     setLoading(false)
   }
 
-  useEffect(() => { if (employee?.id) fetchLogs() }, [employee?.id, filterMonth, filterType, isAdmin])
+  async function fetchBranches() {
+    const { data } = await sb.from('branches').select('id,name').eq('is_active', true)
+    setBranches(data || [])
+  }
+
+  useEffect(() => { fetchBranches() }, [])
+  useEffect(() => {
+    // الأدوار غير admin تتقفل على فرعها تلقائيًا
+    if (!isAdmin && employee?.branch_id) setActiveTab(employee.branch_id)
+  }, [isAdmin, employee?.branch_id])
+  useEffect(() => { if (employee?.id) fetchLogs() }, [employee?.id, filterMonth, filterType, isAdmin, activeTab])
 
   async function save() {
     if (!form.waste_type || !form.item_name || !form.quantity) {
@@ -186,6 +206,23 @@ export default function WastePage() {
 
   const wt = (key: string) => WASTE_TYPES.find(t => t.key === key)
 
+  // التابات: تاب لكل فرع، الأدوار غير admin تشوف بس تاب فرعها
+  const visibleTabs = isAdmin ? branches : branches.filter(b => b.id === employee?.branch_id)
+
+  async function loadComparisonReport() {
+    setLoadingReport(true)
+    const [year, month] = filterMonth.split('-').map(Number)
+    const start = new Date(year, month - 1, 1).toISOString().split('T')[0]
+    const end   = new Date(year, month, 0).toISOString().split('T')[0]
+    const { data } = await sb.from('waste_logs').select('branch_id, cost').gte('waste_date', start).lte('waste_date', end)
+    const rows = branches.map(b => {
+      const branchLogs = (data || []).filter(l => l.branch_id === b.id)
+      return { id: b.id, name: b.name, count: branchLogs.length, total: branchLogs.reduce((s, l) => s + (l.cost || 0), 0) }
+    })
+    setComparisonReport(rows)
+    setLoadingReport(false)
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, padding: '24px' }}>
 
@@ -195,12 +232,37 @@ export default function WastePage() {
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>🗑️ {isAr ? 'سجل الهدر' : 'Waste Log'}</h1>
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'تتبع وتحليل الهدر في المطعم' : 'Track and analyze restaurant waste'}</p>
         </div>
-        {canRecord && (
-          <button onClick={() => setShowAdd(true)} style={{ padding: '10px 20px', borderRadius: 12, border: '1px solid ' + S.red, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-            ➕ {isAr ? 'تسجيل هدر' : 'Log Waste'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 10 }}>
+          {isAdmin && (
+            <button onClick={() => { setShowReport(true); loadComparisonReport() }} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+              📊 {isAr ? 'تقرير مقارن' : 'Comparison Report'}
+            </button>
+          )}
+          {canRecord && (
+            <button onClick={() => setShowAdd(true)} style={{ padding: '10px 20px', borderRadius: 12, border: '1px solid ' + S.red, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+              ➕ {isAr ? 'تسجيل هدر' : 'Log Waste'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Branch Tabs */}
+      {visibleTabs.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button onClick={() => setActiveTab('')}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeTab === '' ? S.gold : S.border}`, background: activeTab === '' ? S.gold3 : 'transparent', color: activeTab === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab === '' ? 700 : 400 }}>
+              🌐 {isAr ? 'الإجمالي (الكل)' : 'All Branches'}
+            </button>
+          )}
+          {visibleTabs.map(b => (
+            <button key={b.id} onClick={() => setActiveTab(b.id)}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeTab === b.id ? S.gold : S.border}`, background: activeTab === b.id ? S.gold3 : 'transparent', color: activeTab === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab === b.id ? 700 : 400 }}>
+              🏪 {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -266,6 +328,7 @@ export default function WastePage() {
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, background: type?.bg, color: type?.color, borderRadius: 8, padding: '2px 8px', fontWeight: 600 }}>{isAr ? type?.labelAr : type?.labelEn}</span>
                         {log.department && <span style={{ fontSize: 11, background: S.card, color: S.muted, borderRadius: 8, padding: '2px 8px' }}>{log.department}</span>}
+                        {isAdmin && !activeTab && log.branches?.name && <span style={{ fontSize: 11, background: S.blueB, color: S.blue, borderRadius: 8, padding: '2px 8px' }}>🏪 {log.branches.name}</span>}
                       </div>
                     </div>
                     <div style={{ textAlign: 'left' }}>
@@ -466,6 +529,49 @@ export default function WastePage() {
                 {approvingSaving ? '⏳...' : '✅ اعتماد'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comparison Report Modal */}
+      {showReport && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, padding: 28, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>📊 {isAr ? 'تقرير مقارن — كل الفروع' : 'Comparison Report — All Branches'}</h2>
+              <button onClick={() => setShowReport(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>📅 {filterMonth}</div>
+            {loadingReport ? (
+              <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳...</div>
+            ) : (
+              <div style={{ background: S.navy3, borderRadius: 14, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: S.card }}>
+                      {[isAr ? 'الفرع' : 'Branch', isAr ? 'عدد السجلات' : 'Records', isAr ? 'إجمالي الخسائر' : 'Total Loss'].map(h => (
+                        <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonReport.map(r => (
+                      <tr key={r.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                        <td style={{ padding: '12px 14px', fontSize: 13, color: S.white, fontWeight: 700 }}>🏪 {r.name}</td>
+                        <td style={{ padding: '12px 14px', fontSize: 13, color: S.amber }}>{r.count}</td>
+                        <td style={{ padding: '12px 14px', fontSize: 13, color: S.red, fontWeight: 700 }}>MYR {r.total.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: S.gold3 }}>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>🌐 {isAr ? 'الإجمالي الكلي' : 'Grand Total'}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s, r) => s + r.count, 0)}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 14, color: S.gold, fontWeight: 800 }}>MYR {comparisonReport.reduce((s, r) => s + r.total, 0).toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <button onClick={() => setShowReport(false)} style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إغلاق' : 'Close'}</button>
           </div>
         </div>
       )}

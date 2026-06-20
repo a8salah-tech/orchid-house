@@ -206,7 +206,6 @@ function SalaryAdvanceModal({ employee, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     amount_requested: '',
-    repayment_months: '1',
     reason: '',
     date_of_request: new Date().toISOString().split('T')[0],
   })
@@ -218,10 +217,6 @@ function SalaryAdvanceModal({ employee, onClose, onSaved }: {
     color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
     boxSizing: 'border-box', direction: 'ltr',
   }
-
-  const monthlyDeduction = form.amount_requested && form.repayment_months
-    ? (parseFloat(form.amount_requested) / parseInt(form.repayment_months)).toFixed(2)
-    : null
 
   async function save() {
     if (!form.amount_requested || !form.reason) { alert('Please fill in all required fields'); return }
@@ -235,8 +230,7 @@ Department: ${employee.department || '—'}
 Date of Request: ${form.date_of_request}
 
 Amount Requested: MYR ${form.amount_requested}
-Repayment Period: ${form.repayment_months} month(s)
-Monthly Deduction: MYR ${monthlyDeduction || '—'}
+Repayment: Full amount deducted from next month's salary
 
 Reason: ${form.reason}`
 
@@ -283,25 +277,14 @@ Reason: ${form.reason}`
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Amount Requested (MYR) *</label>
-              <input style={inp2} type="number" value={form.amount_requested} onChange={e => setForm(p => ({ ...p, amount_requested: e.target.value }))} placeholder="0.00" />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Repayment Period (Months)</label>
-              <select style={{ ...inp2, cursor: 'pointer' }} value={form.repayment_months} onChange={e => setForm(p => ({ ...p, repayment_months: e.target.value }))}>
-                {[1,2,3,4,5,6].map(m => <option key={m} value={m}>{m} month{m > 1 ? 's' : ''}</option>)}
-              </select>
-            </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Amount Requested (MYR) *</label>
+            <input style={inp2} type="number" value={form.amount_requested} onChange={e => setForm(p => ({ ...p, amount_requested: e.target.value }))} placeholder="0.00" />
           </div>
 
-          {monthlyDeduction && (
-            <div style={{ background: S.gold3, border: `1px solid rgba(201,168,76,0.3)`, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: S.muted }}>Monthly Deduction</span>
-              <span style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>MYR {monthlyDeduction} / month</span>
-            </div>
-          )}
+          <div style={{ background: S.gold3, border: `1px solid rgba(201,168,76,0.3)`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: S.gold }}>
+            ℹ️ سيتم خصم المبلغ بالكامل من راتب الشهر القادم
+          </div>
 
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Reason for Request *</label>

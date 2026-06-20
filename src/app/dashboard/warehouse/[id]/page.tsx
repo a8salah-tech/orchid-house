@@ -431,35 +431,33 @@ function TransferModal({ warehouseId, warehouseName, products, onClose, onSaved 
       return
     }
 
-    // خصم من المصدر
-    const { error: outError } = await supabase.from('warehouse_products')
-      .update({ current_stock: (selectedProduct!.current_stock - qty) })
-      .eq('id', form.product_id)
-    if (outError) { alert('خطأ في الخصم من المصدر: ' + outError.message); setSaving(false); return }
+    // ✅ Fix: لا نحدّث current_stock يدويًا هنا — الـ trigger (trigger_update_stock)
+    // يقوم بهذا تلقائيًا عند إدراج حركة stock_movements. التحديث اليدوي السابق كان يتسبب
+    // في خصم/إضافة الكمية مرتين (مرة يدويًا، ومرة أخرى عبر الـ trigger).
 
-    // إضافة للهدف
-    const { error: inError } = await supabase.from('warehouse_products')
-      .update({ current_stock: (targetProduct.current_stock + qty) })
-      .eq('id', targetProduct.id)
-    if (inError) {
-      // تراجع عن الخصم لو فشلت الإضافة
-      await supabase.from('warehouse_products').update({ current_stock: selectedProduct!.current_stock }).eq('id', form.product_id)
-      alert('خطأ في الإضافة للهدف: ' + inError.message); setSaving(false); return
-    }
-
-    // تسجيل حركة الخروج من المصدر
-    await supabase.from('stock_movements').insert([{
+    // تسجيل حركة الخروج من المصدر — الـ trigger سيخصم الكمية تلقائيًا
+    const { error: outError } = await supabase.from('stock_movements').insert([{
       movement_type: 'out', product_id: form.product_id, warehouse_id: warehouseId,
       quantity: qty, destination: 'مستودع آخر', destination_custom: `تحويل إلى ${targetWarehouseName}`,
       movement_date: form.movement_date, notes: form.notes, transfer_id: transferId,
     }])
+    if (outError) { alert('خطأ في تسجيل الخروج من المصدر: ' + outError.message); setSaving(false); return }
 
-    // تسجيل حركة الدخول في الهدف
-    await supabase.from('stock_movements').insert([{
+    // تسجيل حركة الدخول في الهدف — الـ trigger سيضيف الكمية تلقائيًا
+    const { error: inError } = await supabase.from('stock_movements').insert([{
       movement_type: 'in', product_id: targetProduct.id, warehouse_id: form.target_warehouse_id,
       quantity: qty, notes: `تحويل من ${warehouseName}${form.notes ? ' — ' + form.notes : ''}`,
       movement_date: form.movement_date, transfer_id: transferId,
     }])
+    if (inError) {
+      // تراجع عن حركة الخروج لو فشلت حركة الدخول، بتسجيل حركة 'in' معاكسة بنفس الكمية في المصدر
+      await supabase.from('stock_movements').insert([{
+        movement_type: 'in', product_id: form.product_id, warehouse_id: warehouseId,
+        quantity: qty, notes: `تراجع تلقائي عن تحويل فاشل (${transferId})`,
+        movement_date: form.movement_date, transfer_id: transferId,
+      }])
+      alert('خطأ في تسجيل الدخول للهدف، تم التراجع عن الخصم: ' + inError.message); setSaving(false); return
+    }
 
     setSaving(false)
     onSaved()

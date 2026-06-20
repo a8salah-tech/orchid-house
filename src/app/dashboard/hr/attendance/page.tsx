@@ -31,6 +31,14 @@ function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
+// ✅ كل فروع المطعم بتوقيت ماليزيا دائمًا (UTC+8) — نحسب "تاريخ اليوم" بهذا التوقيت بدقة
+// بدل الاعتماد على toISOString() التي تعطي التاريخ بصيغة UTC وتُسبب أخطاء قرب منتصف الليل
+function getMalaysiaDateString(d: Date = new Date()): string {
+  const malaysiaMs = d.getTime() + 8 * 60 * 60 * 1000
+  const malaysiaDate = new Date(malaysiaMs)
+  return malaysiaDate.toISOString().split('T')[0]
+}
+
 function formatTime(iso?: string) {
   if (!iso) return '—'
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -80,6 +88,7 @@ function MyAttendanceCard() {
   const [locError,  setLocError]  = useState('')
   const [history,   setHistory]   = useState<AttendanceRecord[]>([])
   const [clock,     setClock]     = useState(new Date())
+  const [hasShiftToday, setHasShiftToday] = useState(true) // افتراضي true لحد ما نتأكد، عشان مانوقفش الزرار بالغلط وقت التحميل
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000)
@@ -89,8 +98,9 @@ function MyAttendanceCard() {
   const fetchData = useCallback(async () => {
     if (!employee?.id) return
     setLoading(true)
-    const today_date = new Date().toISOString().split('T')[0]
-    const [brs, openAtt, todayAtt, hist] = await Promise.all([
+    const today_date = getMalaysiaDateString()
+    const yesterday_date = getMalaysiaDateString(new Date(Date.now() - 86400000))
+    const [brs, openAtt, todayAtt, hist, schToday, schYesterday] = await Promise.all([
       sb.from('branches').select('id,name,latitude,longitude,radius_meters').eq('is_active', true),
       // أولاً: هل فيه شيفت مفتوح (دخول بدون خروج) من اليوم أو من يوم سابق (شيفت ليلي عابر لمنتصف الليل)؟
       sb.from('attendance').select('*').eq('employee_id', employee.id)
@@ -98,11 +108,32 @@ function MyAttendanceCard() {
         .order('date', { ascending: false }).limit(1).maybeSingle(),
       sb.from('attendance').select('*').eq('employee_id', employee.id).eq('date', today_date).maybeSingle(),
       sb.from('attendance').select('*').eq('employee_id', employee.id).order('date', { ascending: false }).limit(14),
+      sb.from('shift_schedules').select('id, shifts(start_time,end_time), custom_start, custom_end').eq('employee_id', employee.id).eq('date', today_date).maybeSingle(),
+      sb.from('shift_schedules').select('id, shifts(start_time,end_time), custom_start, custom_end').eq('employee_id', employee.id).eq('date', yesterday_date).maybeSingle(),
     ])
     setBranches(brs.data || [])
     // لو فيه شيفت مفتوح (من اليوم أو من يوم سابق)، اعرضه كالحالة الحالية. غير ذلك اعرض صف اليوم (سواء فاضي أو مكتمل)
     setToday(openAtt.data || todayAtt.data)
     setHistory(hist.data || [])
+
+    // فحص وجود شيفت مجدول فعليًا (اليوم، أو شيفت أمس الممتد لما بعد منتصف الليل ولسه في وقته)
+    let shiftExists = !!schToday.data
+    if (!shiftExists && schYesterday.data) {
+      const endStr = schYesterday.data.custom_end || (schYesterday.data as any).shifts?.end_time
+      const startStr = schYesterday.data.custom_start || (schYesterday.data as any).shifts?.start_time
+      if (endStr && startStr) {
+        const [sh] = startStr.split(':').map(Number)
+        const [eh, em] = endStr.split(':').map(Number)
+        const crossesMidnight = (eh * 60 + (em||0)) <= (sh * 60)
+        if (crossesMidnight) {
+          const now = new Date()
+          const endToday = new Date(); endToday.setHours(eh, em || 0, 0, 0)
+          if (now.getTime() < endToday.getTime()) shiftExists = true
+        }
+      }
+    }
+    // لو فيه شيفت مفتوح من قبل (الموظف فعلاً شغال)، ما نمنعه من حقه يسجل خروج بغض النظر عن جدول اليوم
+    setHasShiftToday(shiftExists || !!openAtt.data)
     setLoading(false)
   }, [employee?.id, sb])
 
@@ -163,8 +194,8 @@ function MyAttendanceCard() {
         setChecking(false); return
       }
 
-      const today_date = new Date().toISOString().split('T')[0]
-      const yesterday_date = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+      const today_date = getMalaysiaDateString()
+      const yesterday_date = getMalaysiaDateString(new Date(Date.now() - 86400000))
       const now        = new Date().toISOString()
       // حساب التأخير بناءً على جدول الشيفت
       const now_time = new Date()
@@ -367,7 +398,20 @@ function MyAttendanceCard() {
         </div>
 
         {/* Action Buttons */}
-        {!today?.check_in_time ? (
+        {!hasShiftToday ? (
+          <div style={{ background: S.amberB, borderRadius: 14, padding: '16px', border: `1px solid ${S.amber}40`, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>📅</div>
+            <div style={{ fontSize: 14, color: S.amber, fontWeight: 800, marginBottom: 6 }}>
+              لا يوجد لديك شيفت مجدول اليوم
+            </div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
+              يرجى التواصل مع المدير لإنشاء شيفت أو لتحديد موعد إجازتك
+            </div>
+            <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', borderTop: `1px solid ${S.border}`, paddingTop: 8, marginTop: 8 }}>
+              No shift scheduled for you today.<br/>Please contact your manager to create a shift or set your leave date.
+            </div>
+          </div>
+        ) : !today?.check_in_time ? (
           <button onClick={checkIn} disabled={checking}
             style={{ width: '100%', padding: '16px', borderRadius: 14, border: 'none', background: `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: checking ? 'not-allowed' : 'pointer', fontSize: 16, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: checking ? 0.7 : 1, boxShadow: '0 4px 20px rgba(34,197,94,0.3)' }}>
             {checking ? '⏳ Getting location...' : '✅ Check In'}
@@ -427,7 +471,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const sbRef = useRef(createClient())
   const sb    = sbRef.current
 
-  const [date,         setDate]         = useState(new Date().toISOString().split('T')[0])
+  const [date,         setDate]         = useState(getMalaysiaDateString())
   const [records,      setRecords]      = useState<any[]>([])
   const [employees,    setEmployees]    = useState<Employee[]>([])
   const [branches,     setBranches]     = useState<Branch[]>([])

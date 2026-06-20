@@ -29,18 +29,30 @@ type Notif = {
   is_read: boolean; created_at: string
 }
 
-const TYPE_CFG: Record<string, { icon: string; color: string; bg: string }> = {
-  order:       { icon: '🍽️', color: S.gold,   bg: S.gold3   },
-  waiter_call: { icon: '🔔', color: S.amber,  bg: S.amberB  },
-  kitchen:     { icon: '👨‍🍳', color: S.teal,  bg: S.tealB   },
-  booking:     { icon: '📅', color: S.purple, bg: S.purpleB },
-  leave:       { icon: '🏖️', color: S.blue,   bg: S.blueB   },
-  leave_reply: { icon: '✅', color: S.green,  bg: S.greenB  },
-  stock:       { icon: '📦', color: S.red,    bg: S.redB    },
-  payroll:     { icon: '💰', color: S.gold,   bg: S.gold3   },
-  shift:       { icon: '🕐', color: S.blue,   bg: S.blueB   },
-  system:      { icon: '⚙️', color: S.muted,  bg: S.card    },
-  request:     { icon: '📋', color: S.purple, bg: S.purpleB },
+const TYPE_CFG: Record<string, { icon: string; color: string; bg: string; label: string }> = {
+  // العمليات اليومية
+  order:       { icon: '🍽️', color: S.gold,   bg: S.gold3,   label: 'طلب عميل' },
+  waiter_call: { icon: '🔔', color: S.amber,  bg: S.amberB,  label: 'نداء نادل' },
+  kitchen:     { icon: '👨‍🍳', color: S.teal,  bg: S.tealB,   label: 'المطبخ' },
+  booking:     { icon: '📅', color: S.purple, bg: S.purpleB, label: 'حجز' },
+  // المخزون والمشتريات
+  purchase:    { icon: '🛒', color: S.green,  bg: S.greenB,  label: 'مشتريات' },
+  stock:       { icon: '📦', color: S.red,    bg: S.redB,    label: 'المخزون' },
+  branch_request: { icon: '📋', color: S.blue, bg: S.blueB,  label: 'طلب فرع' },
+  internal_request: { icon: '🏭', color: S.amber, bg: S.amberB, label: 'طلب مستودع داخلي' },
+  prep:        { icon: '🥘', color: S.teal,   bg: S.tealB,   label: 'التجهيزات' },
+  waste:       { icon: '🗑️', color: S.red,    bg: S.redB,    label: 'هدر' },
+  // الموارد البشرية
+  leave:       { icon: '🏖️', color: S.blue,   bg: S.blueB,   label: 'طلب إجازة' },
+  leave_reply: { icon: '✅', color: S.green,  bg: S.greenB,  label: 'رد على طلب' },
+  request:     { icon: '📋', color: S.purple, bg: S.purpleB, label: 'طلب موظف' },
+  salary:      { icon: '💰', color: S.gold,   bg: S.gold3,   label: 'راتب/سلفة' },
+  attendance:  { icon: '⏰', color: S.amber,  bg: S.amberB,  label: 'حضور وانصراف' },
+  shift:       { icon: '🕐', color: S.blue,   bg: S.blueB,   label: 'شيفت' },
+  violation:   { icon: '⚠️', color: S.red,    bg: S.redB,    label: 'مخالفة' },
+  payroll:     { icon: '💵', color: S.gold,   bg: S.gold3,   label: 'رواتب' },
+  // النظام
+  system:      { icon: '⚙️', color: S.muted,  bg: S.card,    label: 'نظام' },
 }
 
 function timeAgo(iso: string) {
@@ -69,9 +81,14 @@ function SendModal({ employees, onClose, onSent }: {
     { k: 'all', l: 'الجميع' },
     { k: 'admin', l: 'مدير النظام' },
     { k: 'branch_manager', l: 'مدير الفرع' },
-    { k: 'cashier', l: 'الكاشير' },
+    { k: 'kitchen_manager', l: 'مدير المطبخ' },
+    { k: 'hall_manager', l: 'مدير الصالة' },
+    { k: 'bar_manager', l: 'مدير البار' },
     { k: 'kitchen_supervisor', l: 'مشرف المطبخ' },
     { k: 'hall_supervisor', l: 'مشرف الصالة' },
+    { k: 'bar_supervisor', l: 'مشرف البار' },
+    { k: 'warehouse_keeper', l: 'أمين المستودع' },
+    { k: 'cashier', l: 'الكاشير' },
     { k: 'employee', l: 'موظف' },
   ]
 
@@ -127,7 +144,7 @@ function SendModal({ employees, onClose, onSent }: {
                 <button key={k} onClick={() => setForm(p => ({ ...p, type: k }))}
                   style={{ padding: '12px 6px', borderRadius: 12, border: `2px solid ${form.type===k?cfg.color:S.border}`, background: form.type===k?cfg.bg:'rgba(255,255,255,0.03)', color: form.type===k?cfg.color:S.white, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: form.type===k?700:500, textAlign: 'center', transition: 'all .2s' }}>
                   <div style={{ fontSize: 22, marginBottom: 4 }}>{cfg.icon}</div>
-                  <div style={{ fontSize: 10, color: form.type===k?cfg.color:S.white, opacity: form.type===k?1:0.7 }}>{k}</div>
+                  <div style={{ fontSize: 10, color: form.type===k?cfg.color:S.white, opacity: form.type===k?1:0.7 }}>{cfg.label}</div>
                 </button>
               ))}
             </div>
@@ -345,7 +362,8 @@ export default function NotificationsSystemPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button onClick={() => setTypeFilter('all')} style={{ padding: '7px 14px', borderRadius: 20, border: `1px solid ${typeFilter==='all'?S.gold:S.border}`, background: typeFilter==='all'?S.gold3:'transparent', color: typeFilter==='all'?S.gold:S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>الكل</button>
           {Object.entries(TYPE_CFG).map(([k, cfg]) => (
-            <button key={k} onClick={() => setTypeFilter(k)} style={{ padding: '7px 12px', borderRadius: 20, border: `1px solid ${typeFilter===k?cfg.color:S.border}`, background: typeFilter===k?cfg.bg:'transparent', color: typeFilter===k?cfg.color:S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+            <button key={k} onClick={() => setTypeFilter(k)} title={cfg.label}
+              style={{ padding: '7px 12px', borderRadius: 20, border: `1px solid ${typeFilter===k?cfg.color:S.border}`, background: typeFilter===k?cfg.bg:'transparent', color: typeFilter===k?cfg.color:S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
               {cfg.icon}
             </button>
           ))}
@@ -377,7 +395,7 @@ export default function NotificationsSystemPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 800, fontSize: 14, color: notif.is_read ? S.muted : S.white }}>{notif.title}</span>
                     {!notif.is_read && <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, flexShrink: 0, display: 'inline-block' }} />}
-                    <span style={{ background: cfg.bg, color: cfg.color, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>{notif.type}</span>
+                    <span style={{ background: cfg.bg, color: cfg.color, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>{cfg.label}</span>
                   </div>
                   <div style={{ fontSize: 13, color: S.muted, marginBottom: 6, lineHeight: 1.5 }}>{notif.body}</div>
                   <div style={{ fontSize: 11, color: S.muted }}>{timeAgo(notif.created_at)}</div>

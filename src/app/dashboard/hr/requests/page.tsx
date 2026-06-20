@@ -727,7 +727,7 @@ export default function EmployeeRequestsPage() {
   const isBranchManager = currentUser?.role === 'branch_manager'
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
   const isManager = isAdmin
-  const isEmployee = !isAdmin
+  const isEmployee = !isAdmin && !isBranchManager && !isDeptManager
   // صلاحيات ظهور طلبات زيادة الراتب وسلفة الراتب — يتحكم فيها مدير النظام من صفحة إدارة الصلاحيات
   const canSeeSalaryIncrease = isAdmin || permissions?.salary_increase_requests === true
   const canSeeSalaryAdvance  = isAdmin || permissions?.salary_advance_requests === true
@@ -754,11 +754,23 @@ export default function EmployeeRequestsPage() {
       .order('created_at', { ascending: false })
 
     const myId = currentUser?.id || ''
+    const myBranchId = currentUser?.branch_id || ''
+    const myDept = currentUser?.department || ''
 
     if (isAdmin) {
       // admin يشوف كل شيء
+    } else if (isBranchManager) {
+      // مدير الفرع يشوف كل طلبات موظفي فرعه (بما فيه هو)
+      const { data: branchEmployees } = await supabase.from('employees').select('id').eq('branch_id', myBranchId)
+      const ids = (branchEmployees || []).map(e => e.id)
+      reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
+    } else if (isDeptManager) {
+      // مدير القسم يشوف طلبات موظفي قسمه في فرعه فقط (بما فيه هو)
+      const { data: deptEmployees } = await supabase.from('employees').select('id').eq('branch_id', myBranchId).eq('department', myDept)
+      const ids = (deptEmployees || []).map(e => e.id)
+      reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else {
-      // كل الباقيين يشوفوا طلباتهم فقط
+      // الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط
       reqQuery = reqQuery.eq('employee_id', myId)
     }
 
@@ -771,7 +783,7 @@ export default function EmployeeRequestsPage() {
     setEmployees(emp.data || [])
     setBranches(br.data || [])
     setLoading(false)
-  }, [isEmployee, currentUser?.id])
+  }, [isAdmin, isBranchManager, isDeptManager, currentUser?.id, currentUser?.branch_id, currentUser?.department])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 

@@ -268,7 +268,7 @@ function MyAttendanceCard() {
       await fetchData()
       // ✅ تأخير قصير قبل إظهار زر Check Out في نفس مكان الزر، لمنع ضغطة متتالية سريعة غير مقصودة
       setJustCheckedIn(true)
-      setTimeout(() => setJustCheckedIn(false), 4000)
+      setTimeout(() => setJustCheckedIn(false), 60000)
     } catch (e: any) { setLocError('Location error: ' + e.message) }
     setChecking(false)
   }

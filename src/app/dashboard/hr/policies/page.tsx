@@ -33,23 +33,40 @@ const CATEGORIES = [
   { key: 'social',     label: 'التواصل الاجتماعي', label_en: 'Social Media',   icon: '📱' },
 ]
 
+// الأقسام — كل سياسة لازم تتبع لقسم محدد دائمًا. "الإدارة" تمثل القسم العام (للجميع)
+const DEPARTMENTS = [
+  { key: 'الإدارة',  label: 'عام (الإدارة)', icon: '🏢', color: S.purple },
+  { key: 'المطبخ',   label: 'المطبخ',         icon: '👨‍🍳', color: S.amber },
+  { key: 'البار',    label: 'البار',          icon: '🍹', color: S.blue },
+  { key: 'الصالة',   label: 'الصالة',         icon: '🍽️', color: S.green },
+  { key: 'الحلويات', label: 'الحلويات',        icon: '🍰', color: S.gold },
+]
+// ربط دور مدير القسم بقسمه الإلزامي (لا يقدر يختار قسم آخر)
+const DEPT_MANAGER_DEPARTMENT: Record<string, string> = {
+  kitchen_manager: 'المطبخ',
+  bar_manager: 'البار',
+  hall_manager: 'الصالة',
+}
+
 type Policy = {
   id: string; title: string; title_en: string; content: string; content_en: string
-  category: string; is_active: boolean; is_mandatory: boolean; created_at: string; updated_at: string
+  category: string; department: string; is_active: boolean; is_mandatory: boolean; created_at: string; updated_at: string
   acknowledgments?: { employee_id: string }[]
   acknowledged?: boolean
 }
 
 // ══ Policy Modal (Add/Edit) ══
-function PolicyModal({ policy, onClose, onSaved }: { policy?: Policy | null; onClose: () => void; onSaved: () => void }) {
+function PolicyModal({ policy, currentRole, onClose, onSaved }: { policy?: Policy | null; currentRole?: string; onClose: () => void; onSaved: () => void }) {
   const sb = createClient()
   const [saving, setSaving] = useState(false)
+  const lockedDept = currentRole ? DEPT_MANAGER_DEPARTMENT[currentRole] : undefined
   const [form, setForm] = useState({
     title: policy?.title || '',
     title_en: policy?.title_en || '',
     content: policy?.content || '',
     content_en: policy?.content_en || '',
     category: policy?.category || 'general',
+    department: policy?.department || lockedDept || 'الإدارة',
     is_mandatory: policy?.is_mandatory !== false,
     is_active: policy?.is_active !== false,
   })
@@ -78,6 +95,28 @@ function PolicyModal({ policy, onClose, onSaved }: { policy?: Policy | null; onC
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Department */}
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>القسم *</label>
+            {lockedDept ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, fontSize: 13, fontWeight: 700 }}>
+                  {DEPARTMENTS.find(d => d.key === lockedDept)?.icon} {DEPARTMENTS.find(d => d.key === lockedDept)?.label}
+                </span>
+                <span style={{ fontSize: 11, color: S.muted }}>(مرتبط بقسمك تلقائيًا)</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {DEPARTMENTS.map(d => (
+                  <button key={d.key} onClick={() => setForm(p => ({ ...p, department: d.key }))}
+                    style={{ padding: '6px 12px', borderRadius: 20, border: `1px solid ${form.department === d.key ? d.color : S.border}`, background: form.department === d.key ? d.color + '20' : 'transparent', color: form.department === d.key ? d.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                    {d.icon} {d.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Category */}
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>التصنيف</label>
@@ -230,6 +269,9 @@ export default function PoliciesPage() {
   const sb = createClient()
   const { employee } = useAuth()
   const isAdmin = employee?.role === 'admin' || employee?.role === 'branch_manager'
+  const isDeptManager = ['kitchen_manager', 'hall_manager', 'bar_manager'].includes(employee?.role || '')
+  // مدراء الأقسام يقدروا يضيفوا سياسات جديدة فقط (بدون تعديل/حذف)، بالإضافة لـ admin/branch_manager
+  const canAdd = isAdmin || isDeptManager
 
   const [policies, setPolicies] = useState<Policy[]>([])
   const [loading, setLoading] = useState(true)
@@ -290,7 +332,7 @@ export default function PoliciesPage() {
           <h1 style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>📜 سياسات العمل</h1>
           <p style={{ fontSize: 13, color: S.muted }}>Work Policies & Regulations</p>
         </div>
-        {isAdmin && (
+        {canAdd && (
           <button onClick={() => setShowAdd(true)} style={{ padding: '10px 20px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg,${S.gold},${S.gold})`, color: S.navy, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
             ➕ إضافة سياسة
           </button>
@@ -341,12 +383,13 @@ export default function PoliciesPage() {
         <div style={{ textAlign: 'center', padding: 80 }}>
           <div style={{ fontSize: 64, marginBottom: 16 }}>📜</div>
           <div style={{ color: S.white, fontSize: 18, fontWeight: 700, marginBottom: 8 }}>لا توجد سياسات</div>
-          {isAdmin && <div style={{ color: S.muted, fontSize: 13 }}>اضغط "إضافة سياسة" لإضافة أول سياسة عمل</div>}
+          {canAdd && <div style={{ color: S.muted, fontSize: 13 }}>اضغط "إضافة سياسة" لإضافة أول سياسة عمل</div>}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filtered.map(policy => {
             const cat = CATEGORIES.find(c => c.key === policy.category) || CATEGORIES[0]
+            const dept = DEPARTMENTS.find(d => d.key === policy.department) || DEPARTMENTS[0]
             const isExpanded = expanded === policy.id
             const ackCount = (policy.acknowledgments || []).length
 
@@ -360,6 +403,7 @@ export default function PoliciesPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
                       <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{policy.title}</span>
+                      <span style={{ background: dept.color + '20', color: dept.color, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>{dept.icon} {dept.label}</span>
                       {policy.is_mandatory && <span style={{ background: S.redB, color: S.red, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>إلزامية</span>}
                       {!policy.is_active && <span style={{ background: S.card, color: S.muted, borderRadius: 20, padding: '2px 8px', fontSize: 10 }}>غير نشطة</span>}
                       {policy.acknowledged && <span style={{ background: S.greenB, color: S.green, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>✅ تم القراءة</span>}
@@ -421,7 +465,7 @@ export default function PoliciesPage() {
 
       {/* Modals */}
       {(showAdd || editPolicy) && (
-        <PolicyModal policy={editPolicy} onClose={() => { setShowAdd(false); setEditPolicy(null) }} onSaved={() => { setShowAdd(false); setEditPolicy(null); fetchPolicies() }} />
+        <PolicyModal policy={editPolicy} currentRole={employee?.role} onClose={() => { setShowAdd(false); setEditPolicy(null) }} onSaved={() => { setShowAdd(false); setEditPolicy(null); fetchPolicies() }} />
       )}
       {ackPolicy && <AckModal policy={ackPolicy} onClose={() => setAckPolicy(null)} />}
     </div>

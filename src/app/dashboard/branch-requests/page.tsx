@@ -81,7 +81,8 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [monthlyConsumption, setMonthlyConsumption] = useState<Record<string, number>>({})
   const role = currentEmployee?.role || ''
   const autoDept = role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : currentEmployee?.department || ''
-  const [form, setForm] = useState({ branch_id: currentEmployee?.branch_id || '', department: autoDept, requested_by: currentEmployee?.name || '', notes: '' })
+  const fullName = [currentEmployee?.name, currentEmployee?.name_en].filter(Boolean).join(' ').trim()
+  const [form, setForm] = useState({ branch_id: currentEmployee?.branch_id || '', department: autoDept, requested_by: fullName || currentEmployee?.name || '', notes: '' })
 
   useEffect(() => {
     sb.from('department_products').select('product_id').eq('department', activeDeptTab)
@@ -784,9 +785,10 @@ export default function BranchRequestsPage() {
           )}
           {canCreate && (
             <button onClick={async () => {
+              const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ').trim() || employee?.name || ''
               const { data } = await sb.from('branch_requests')
                 .select('*, branch_request_items(*, warehouse_products(name,name_en), units(symbol))')
-                .eq('requested_by', employee?.id)
+                .eq('requested_by', fullName)
                 .order('created_at', { ascending: false })
                 .limit(10)
               setRepeatRequests(data || [])
@@ -892,10 +894,11 @@ export default function BranchRequestsPage() {
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.border = `1px solid ${S.border}`}
                 onClick={async () => {
                   if (!r.branch_request_items?.length) { alert('الطلب لا يحتوي على منتجات'); return }
+                  const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ').trim() || employee?.name || ''
                   const { data: newReq, error } = await sb.from('branch_requests').insert([{
                     branch_id: r.branch_id,
                     department: r.department,
-                    requested_by: employee?.id,
+                    requested_by: fullName,
                     status: 'pending',
                     notes: r.notes,
                   }]).select('id').single()

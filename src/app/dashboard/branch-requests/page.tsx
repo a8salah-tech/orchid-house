@@ -149,8 +149,8 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 4 }}>مقدم الطلب *</label>
-            <input style={inp} value={form.requested_by} onChange={e => setForm(p => ({ ...p, requested_by: e.target.value }))} />
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 4 }}>مقدم الطلب</label>
+            <input style={{ ...inp, opacity: 0.7, cursor: 'not-allowed' }} value={form.requested_by} readOnly />
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 4 }}>ملاحظات</label>
@@ -316,7 +316,8 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const sb = createClient()
   const { isAr } = useLang()
   const [updating, setUpdating] = useState(false)
-  const [actionBy, setActionBy] = useState(currentEmployee?.name || '')
+  const actionByFullName = [currentEmployee?.name, currentEmployee?.name_en].filter(Boolean).join(' ').trim() || currentEmployee?.name || ''
+  const [actionBy, setActionBy] = useState(actionByFullName)
   const [showReceive, setShowReceive] = useState(false)
   const [uploadingImg, setUploadingImg] = useState(false)
   const [receiveImg, setReceiveImg] = useState<File|null>(null)
@@ -519,8 +520,8 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         {/* Actions */}
         {hasAction && (
           <div style={{ background: S.card, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>اسمك *</label>
-            <input style={{ ...inp, marginBottom: 12 }} value={actionBy} onChange={e => setActionBy(e.target.value)} placeholder="أدخل اسمك..." />
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>اسمك</label>
+            <input style={{ ...inp, marginBottom: 12, opacity: 0.7, cursor: 'not-allowed' }} value={actionBy} readOnly />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {canApprove && (
                 <button onClick={() => doAction('manager_approved', { manager_approved_by: actionBy, manager_approved_at: new Date().toISOString() })} disabled={updating}

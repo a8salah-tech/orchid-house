@@ -89,6 +89,7 @@ function MyAttendanceCard() {
   const [history,   setHistory]   = useState<AttendanceRecord[]>([])
   const [clock,     setClock]     = useState(new Date())
   const [hasShiftToday, setHasShiftToday] = useState(true) // افتراضي true لحد ما نتأكد، عشان مانوقفش الزرار بالغلط وقت التحميل
+  const [justCheckedIn, setJustCheckedIn] = useState(false) // فترة تأخير قصيرة بعد نجاح Check In لمنع ضغطة متتالية سريعة على نفس مكان الزر
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000)
@@ -265,6 +266,9 @@ function MyAttendanceCard() {
       if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
       setDistance(Math.round(dist))
       await fetchData()
+      // ✅ تأخير قصير قبل إظهار زر Check Out في نفس مكان الزر، لمنع ضغطة متتالية سريعة غير مقصودة
+      setJustCheckedIn(true)
+      setTimeout(() => setJustCheckedIn(false), 4000)
     } catch (e: any) { setLocError('Location error: ' + e.message) }
     setChecking(false)
   }
@@ -416,6 +420,11 @@ function MyAttendanceCard() {
             style={{ width: '100%', padding: '16px', borderRadius: 14, border: 'none', background: `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: checking ? 'not-allowed' : 'pointer', fontSize: 16, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: checking ? 0.7 : 1, boxShadow: '0 4px 20px rgba(34,197,94,0.3)' }}>
             {checking ? '⏳ Getting location...' : '✅ Check In'}
           </button>
+        ) : justCheckedIn ? (
+          <div style={{ width: '100%', padding: '16px', borderRadius: 14, background: S.greenB, border: `1px solid ${S.green}40`, textAlign: 'center' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.green }}>✅ Checked In Successfully</div>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>Check Out button will appear shortly...</div>
+          </div>
         ) : !today?.check_out_time ? (
           <button onClick={checkOut} disabled={checking}
             style={{ width: '100%', padding: '16px', borderRadius: 14, border: 'none', background: `linear-gradient(135deg, ${S.red}, #DC2626)`, color: S.white, cursor: checking ? 'not-allowed' : 'pointer', fontSize: 16, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: checking ? 0.7 : 1, boxShadow: '0 4px 20px rgba(239,68,68,0.3)' }}>

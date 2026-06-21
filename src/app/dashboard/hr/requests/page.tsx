@@ -523,10 +523,21 @@ function RequestDetailModal({ request, currentUser, onClose, onUpdate, onDelete 
       const checkinMatch  = desc.match(/وقت الدخول الصح:\s*(\d{2}:\d{2})/)
       const checkoutMatch = desc.match(/وقت الخروج الصح:\s*(\d{2}:\d{2})/)
       const updateData: any = {}
-      if (checkinMatch?.[1])  updateData.check_in_time  = `${request.start_date}T${checkinMatch[1]}:00`
-      if (checkoutMatch?.[1]) updateData.check_out_time = `${request.start_date}T${checkoutMatch[1]}:00`
+      if (checkinMatch?.[1]) updateData.check_in_time = `${request.start_date}T${checkinMatch[1]}:00`
+      if (checkoutMatch?.[1]) {
+        // ✅ معالجة الشيفتات الليلية: لو وقت الخروج أصغر من وقت الدخول رقميًا، فالخروج في اليوم التالي
+        let checkoutDate = request.start_date
+        if (checkinMatch?.[1] && checkoutMatch[1] <= checkinMatch[1]) {
+          const nextDay = new Date(request.start_date + 'T00:00:00')
+          nextDay.setDate(nextDay.getDate() + 1)
+          checkoutDate = nextDay.toISOString().split('T')[0]
+        }
+        updateData.check_out_time = `${checkoutDate}T${checkoutMatch[1]}:00`
+      }
       updateData.is_manual = true
       updateData.notes = `تم تصحيحه بموافقة ${approvedBy}`
+      // ✅ التصحيح اليدوي المعتمد من المدير يُعتبر حضورًا سليمًا (يلغي حالة "متأخر" القديمة)
+      if (checkinMatch?.[1]) { updateData.status = 'present'; updateData.late_minutes = 0 }
       if (Object.keys(updateData).length > 2) {
         await supabase.from('attendance')
           .update(updateData)

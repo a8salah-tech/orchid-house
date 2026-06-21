@@ -53,6 +53,17 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 }
 
 interface Employee { id: string; name: string; name_en?: string; employee_number?: string; role: string; department: string; salary?: number; join_date?: string; branch_id?: string }
+
+// ✅ بعض الموظفين مسجل قسمهم بالإنجليزي (Hall/Kitchen/Bar) بدل العربي (الصالة/المطبخ/البار)
+// هذه الدالة توحّد القيمتين كمتساويتين عند المقارنة
+function normalizeDept(dept: string | null | undefined): string {
+  const map: Record<string, string> = {
+    'hall': 'الصالة', 'kitchen': 'المطبخ', 'bar': 'البار',
+    'desserts': 'الحلويات', 'cleaning': 'النظافة', 'admin': 'الإدارة',
+  }
+  const key = (dept || '').trim().toLowerCase()
+  return map[key] || (dept || '').trim()
+}
 interface EmployeeRequest {
   id: string; created_at: string; request_number: number
   employee_id: string; request_type: string; status: string
@@ -766,8 +777,12 @@ export default function EmployeeRequestsPage() {
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else if (isDeptManager) {
       // مدير القسم يشوف طلبات موظفي قسمه في فرعه فقط (بما فيه هو)
-      const { data: deptEmployees } = await supabase.from('employees').select('id').eq('branch_id', myBranchId).eq('department', myDept)
-      const ids = (deptEmployees || []).map(e => e.id)
+      // نجيب كل موظفي الفرع، ونفلتر بالقسم بعد توحيد الاسم (عربي/إنجليزي) لتجنب اختلاف الصيغة
+      const { data: branchEmployees } = await supabase.from('employees').select('id, department').eq('branch_id', myBranchId)
+      const myDeptNormalized = normalizeDept(myDept)
+      const ids = (branchEmployees || [])
+        .filter(e => normalizeDept(e.department) === myDeptNormalized)
+        .map(e => e.id)
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else {
       // الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط

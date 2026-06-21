@@ -37,6 +37,17 @@ const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervis
 const MANAGER_ROLES = ['kitchen_manager', 'hall_manager', 'bar_manager']
 const SENIOR_ROLES = ['admin', 'branch_manager']
 
+// ✅ بعض الموظفين مسجل قسمهم بالإنجليزي (Hall/Kitchen/Bar) بدل العربي (الصالة/المطبخ/البار)
+// هذه الدالة توحّد القيمتين كمتساويتين عند المقارنة
+function normalizeDept(dept: string | null | undefined): string {
+  const map: Record<string, string> = {
+    'hall': 'الصالة', 'kitchen': 'المطبخ', 'bar': 'البار',
+    'desserts': 'الحلويات', 'cleaning': 'النظافة', 'admin': 'الإدارة',
+  }
+  const key = (dept || '').trim().toLowerCase()
+  return map[key] || (dept || '').trim()
+}
+
 interface BranchRequest {
   id: string; created_at: string; request_number: number
   branch_id: string; department: string; status: string
@@ -640,42 +651,59 @@ export default function BranchRequestsPage() {
   const { employee } = useAuth()
   const { isAr } = useLang()
   const [requests, setRequests] = useState<BranchRequest[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [showRepeat, setShowRepeat] = useState(false)
   const [repeatRequests, setRepeatRequests] = useState<BranchRequest[]>([])
   const [selected, setSelected] = useState<BranchRequest|null>(null)
   const [activeTab, setActiveTab] = useState(0)
+  const [activeBranch, setActiveBranch] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
+  const [showReport, setShowReport] = useState(false)
   const [search, setSearch] = useState('')
 
   const role = employee?.role || ''
   const myBranchId = employee?.branch_id || ''
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
-    const { data } = await sb.from('branch_requests')
-      .select('*, branches(name), branch_request_items(id,quantity_requested,quantity_approved,quantity_received,quantity_returned,return_reason,return_image_url,notes,warehouse_products(name,name_en),units(symbol))')
-      .order('created_at', { ascending: false })
-    let reqs = data || []
-    // فلتر حسب الدور
-    if (role === 'branch_manager') reqs = reqs.filter((r:any) => r.branch_id === myBranchId)
-    else if (role === 'kitchen_manager') reqs = reqs.filter((r:any) => ['المطبخ','Kitchen'].includes(r.department))
-    else if (role === 'hall_manager') reqs = reqs.filter((r:any) => ['الصالة','Hall'].includes(r.department))
-    else if (role === 'bar_manager') reqs = reqs.filter((r:any) => ['البار','Bar'].includes(r.department))
-    else if (role === 'kitchen_supervisor') reqs = reqs.filter((r:any) => ['المطبخ','Kitchen'].includes(r.department))
-    else if (role === 'hall_supervisor') reqs = reqs.filter((r:any) => ['الصالة','Hall'].includes(r.department))
-    else if (role === 'bar_supervisor') reqs = reqs.filter((r:any) => ['البار','Bar'].includes(r.department))
-    setRequests(reqs)
-    setLoading(false)
-  }, [role, myBranchId])
-
-  useEffect(() => { fetchAll() }, [fetchAll])
+  const myDept = employee?.department || ''
 
   const isAdmin = role === 'admin'
   const isBranchManager = role === 'branch_manager'
   const isDeptManager = MANAGER_ROLES.includes(role)
   const isSupervisor = SUPERVISOR_ROLES.includes(role)
   const isWarehouse = role === 'warehouse_keeper'
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true)
+    const { data } = await sb.from('branch_requests')
+      .select('*, branches(name), branch_request_items(id,quantity_requested,quantity_approved,quantity_received,quantity_returned,return_reason,return_image_url,notes,warehouse_products(name,name_en),units(symbol))')
+      .order('created_at', { ascending: false })
+    setRequests(data || [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    sb.from('branches').select('id,name').eq('is_active', true).then(({ data }) => setBranches(data || []))
+  }, [])
+  useEffect(() => {
+    // الأدوار غير admin/warehouse_keeper تتقفل على فرعها تلقائيًا
+    if (!isAdmin && myBranchId) setActiveBranch(myBranchId)
+  }, [isAdmin, myBranchId])
+
+  // طلبات الفرع النشط (أو كل الفروع لو activeBranch فاضي و admin)
+  const branchRequests = activeBranch ? requests.filter(r => r.branch_id === activeBranch) : requests
+  // الأدوار غير admin تشوف بس تاب فرعها
+  const visibleBranches = isAdmin ? branches : branches.filter(b => b.id === myBranchId)
+
+  // فلترة إضافية حسب القسم لمديري ومشرفي الأقسام (بعد فلترة الفرع)
+  const deptScopedRequests = (() => {
+    if (isDeptManager || isSupervisor) {
+      const myDeptNormalized = normalizeDept(myDept) ||
+        (role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : '')
+      return branchRequests.filter(r => normalizeDept(r.department) === myDeptNormalized)
+    }
+    return branchRequests
+  })()
 
   // تعريف التابات حسب الدور
   const allTabs = [
@@ -712,7 +740,7 @@ export default function BranchRequestsPage() {
   const visibleTabs = allTabs.filter(t => t.show)
   const currentTab = visibleTabs[activeTab] || visibleTabs[0]
 
-  const filtered = requests.filter(r => {
+  const filtered = deptScopedRequests.filter(r => {
     const tabMatch = currentTab?.filter(r) || false
     const searchMatch = !search || r.requested_by?.includes(search) || String(r.request_number).includes(search) || r.department?.includes(search)
     return tabMatch && searchMatch
@@ -720,6 +748,18 @@ export default function BranchRequestsPage() {
 
   const canCreate = [...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role)
   const canSeeDeptProducts = isAdmin || isWarehouse
+
+  // تقرير مقارن لكل فرع (admin فقط)
+  const comparisonReport = branches.map(b => {
+    const brReqs = requests.filter(r => r.branch_id === b.id)
+    return {
+      id: b.id, name: b.name,
+      total: brReqs.length,
+      pending: brReqs.filter(r => r.status === 'pending').length,
+      processing: brReqs.filter(r => ['manager_approved','branch_approved','warehouse_processing'].includes(r.status)).length,
+      done: brReqs.filter(r => ['supervisor_received','manager_received'].includes(r.status)).length,
+    }
+  })
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
@@ -732,6 +772,11 @@ export default function BranchRequestsPage() {
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'نظام طلب المستلزمات من المستودع' : 'Branch supply request system'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {isAdmin && (
+            <button onClick={() => setShowReport(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              📊 {isAr ? 'تقرير مقارن' : 'Comparison Report'}
+            </button>
+          )}
           {canSeeDeptProducts && (
             <button onClick={() => window.open('/dashboard/settings/department-products', '_blank')} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               🏷️ {isAr ? 'مواد الأقسام' : 'Dept Products'}
@@ -758,13 +803,31 @@ export default function BranchRequestsPage() {
         </div>
       </div>
 
+      {/* Branch Tabs */}
+      {visibleBranches.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button onClick={() => setActiveBranch('')}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === '' ? S.gold : S.border}`, background: activeBranch === '' ? S.gold3 : 'transparent', color: activeBranch === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === '' ? 700 : 400 }}>
+              🌐 {isAr ? 'الإجمالي (الكل)' : 'All Branches'}
+            </button>
+          )}
+          {visibleBranches.map(b => (
+            <button key={b.id} onClick={() => setActiveBranch(b.id)}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === b.id ? S.gold : S.border}`, background: activeBranch === b.id ? S.gold3 : 'transparent', color: activeBranch === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === b.id ? 700 : 400 }}>
+              🏪 {b.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10, marginBottom: 20 }}>
         {[
-          { label: isAr ? 'قيد الانتظار' : 'Pending', count: requests.filter(r=>r.status==='pending').length, color: S.amber, bg: S.amberB, icon: '⏳' },
-          { label: isAr ? 'معتمدة' : 'Approved', count: requests.filter(r=>['manager_approved','branch_approved'].includes(r.status)).length, color: S.blue, bg: S.blueB, icon: '👨‍💼' },
-          { label: isAr ? 'بالمستودع' : 'In Warehouse', count: requests.filter(r=>r.status==='warehouse_processing').length, color: S.orange, bg: S.orangeB, icon: '🏭' },
-          { label: isAr ? 'مكتملة' : 'Done', count: requests.filter(r=>['supervisor_received','manager_received'].includes(r.status)).length, color: S.green, bg: S.greenB, icon: '✅' },
+          { label: isAr ? 'قيد الانتظار' : 'Pending', count: deptScopedRequests.filter(r=>r.status==='pending').length, color: S.amber, bg: S.amberB, icon: '⏳' },
+          { label: isAr ? 'معتمدة' : 'Approved', count: deptScopedRequests.filter(r=>['manager_approved','branch_approved'].includes(r.status)).length, color: S.blue, bg: S.blueB, icon: '👨‍💼' },
+          { label: isAr ? 'بالمستودع' : 'In Warehouse', count: deptScopedRequests.filter(r=>r.status==='warehouse_processing').length, color: S.orange, bg: S.orangeB, icon: '🏭' },
+          { label: isAr ? 'مكتملة' : 'Done', count: deptScopedRequests.filter(r=>['supervisor_received','manager_received'].includes(r.status)).length, color: S.green, bg: S.greenB, icon: '✅' },
         ].map((s, i) => (
           <div key={i} style={{ background: s.bg, borderRadius: 12, padding: '12px 14px', border: `1px solid ${s.color}30` }}>
             <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
@@ -777,7 +840,7 @@ export default function BranchRequestsPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {visibleTabs.map((tab, i) => {
-          const count = requests.filter(tab.filter).length
+          const count = deptScopedRequests.filter(tab.filter).length
           return (
             <button key={i} onClick={() => setActiveTab(i)}
               style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${activeTab===i ? S.gold : S.border}`, background: activeTab===i ? S.gold3 : 'transparent', color: activeTab===i ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab===i ? 700 : 400, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -871,7 +934,48 @@ export default function BranchRequestsPage() {
           </div>
         </div>
       )}
+
+      {/* Comparison Report Modal */}
+      {showReport && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 600, padding: 28, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>📊 {isAr ? 'تقرير مقارن — كل الفروع' : 'Comparison Report — All Branches'}</h2>
+              <button onClick={() => setShowReport(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ background: S.navy3, borderRadius: 14, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: S.card2 }}>
+                    {[isAr ? 'الفرع' : 'Branch', isAr ? 'الإجمالي' : 'Total', isAr ? 'قيد الانتظار' : 'Pending', isAr ? 'قيد التنفيذ' : 'Processing', isAr ? 'مكتملة' : 'Done'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparisonReport.map(r => (
+                    <tr key={r.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.white, fontWeight: 700 }}>🏪 {r.name}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.blue, fontWeight: 700 }}>{r.total}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.amber }}>{r.pending}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.orange }}>{r.processing}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, color: S.green }}>{r.done}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: S.gold3 }}>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>🌐 {isAr ? 'الإجمالي الكلي' : 'Grand Total'}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 14, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.total,0)}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.pending,0)}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.processing,0)}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s,r)=>s+r.done,0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button onClick={() => setShowReport(false)} style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إغلاق' : 'Close'}</button>
+          </div>
+        </div>
+      )}
     </div>
   )
-}        {/* ── تابات الأقسام ── */}
-
+}

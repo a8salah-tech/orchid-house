@@ -31,9 +31,9 @@ type InventoryCount = {
   notes: string | null
   created_at: string
   approved_at: string | null
-  warehouses?: { name: string }
-  employees?: { name: string }
-  approver?: { name: string }
+  warehouses?: { name: string; branch_id?: string }
+  employees?: { name: string; name_en?: string }
+  approver?: { name: string; name_en?: string }
   inventory_count_items?: InventoryCountItem[]
 }
 
@@ -48,6 +48,12 @@ type InventoryCountItem = {
   units?: { symbol: string }
 }
 
+// دمج الاسم الأول والأخير (name_en يخزّن اسم العائلة في هذا النظام)
+function getFullName(p?: { name?: string; name_en?: string } | null): string {
+  if (!p) return '—'
+  return [p.name, p.name_en].filter(Boolean).join(' ').trim() || '—'
+}
+
 export default function InventoryReportsPage() {
   const sb = createClient()
   const { employee, permissions } = useAuth()
@@ -59,6 +65,8 @@ export default function InventoryReportsPage() {
   const canApprove = isAdmin || isBranchManager
 
   const [counts, setCounts] = useState<InventoryCount[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [activeBranch, setActiveBranch] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
   const [unitConversions, setUnitConversions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<InventoryCount | null>(null)
@@ -72,9 +80,9 @@ export default function InventoryReportsPage() {
     let q = sb.from('inventory_counts')
       .select(`
         *,
-        warehouses(name),
-        employees:counted_by(name),
-        approver:approved_by(name),
+        warehouses(name, branch_id),
+        employees:counted_by(name, name_en),
+        approver:approved_by(name, name_en),
         inventory_count_items(
           *,
           warehouse_products(name, name_en),
@@ -89,16 +97,23 @@ export default function InventoryReportsPage() {
       if (warehouses) q = q.in('warehouse_id', warehouses.map(w => w.id))
     }
 
-    const [{ data }, convRes] = await Promise.all([
+    const [{ data }, convRes, branchesRes] = await Promise.all([
       q,
       sb.from('unit_conversions').select('*, from_unit:units!unit_conversions_from_unit_id_fkey(symbol), to_unit:units!unit_conversions_to_unit_id_fkey(symbol)'),
+      sb.from('branches').select('id,name').eq('is_active', true),
     ])
     setCounts((data as any) || [])
     setUnitConversions(convRes.data || [])
+    setBranches(branchesRes.data || [])
     setLoading(false)
   }, [employee])
 
   useEffect(() => { fetchCounts() }, [fetchCounts])
+
+  // الأدوار غير admin تتقفل على فرعها تلقائيًا
+  useEffect(() => {
+    if (!isAdmin && employee?.branch_id) setActiveBranch(employee.branch_id)
+  }, [isAdmin, employee?.branch_id])
 
   async function approveCount(countId: string) {
     setApproving(true)
@@ -198,7 +213,7 @@ export default function InventoryReportsPage() {
 <h1>📋 تقرير جرد المخزون</h1>
 <div class="sub">
   🏭 ${(count.warehouses as any)?.name} · 
-  👤 ${(count.employees as any)?.name} · 
+  👤 ${getFullName(count.employees as any)} · 
   📅 ${new Date(count.count_date).toLocaleDateString('ar-SA')} · 
   ${items.length} صنف
 </div>
@@ -216,7 +231,18 @@ export default function InventoryReportsPage() {
     win.document.close()
   }
 
-  const filtered = counts.filter(c => statusFilter === 'all' || c.status === statusFilter)
+  // خريطة سريعة: warehouse_id → branch_id
+  const warehouseBranchMap = Object.fromEntries(
+    counts.map(c => [c.warehouse_id, c.warehouses?.branch_id]).filter(([, b]) => b)
+  )
+  function countBranchKey(c: InventoryCount): string {
+    return c.warehouses?.branch_id || warehouseBranchMap[c.warehouse_id] || ''
+  }
+
+  const branchScopedCounts = activeBranch ? counts.filter(c => countBranchKey(c) === activeBranch) : counts
+  const visibleBranches = isAdmin ? branches : branches.filter(b => b.id === employee?.branch_id)
+
+  const filtered = branchScopedCounts.filter(c => statusFilter === 'all' || c.status === statusFilter)
 
   const STATUS_CFG = {
     pending:  { label: 'قيد المراجعة', color: S.amber, bg: S.amberB, icon: '⏳' },
@@ -241,10 +267,28 @@ export default function InventoryReportsPage() {
         <p style={{ fontSize: 13, color: S.muted }}>مراجعة واعتماد جرد المخزون من أمناء المستودعات</p>
       </div>
 
+      {/* Branch Tabs */}
+      {visibleBranches.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button onClick={() => setActiveBranch('')}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === '' ? S.gold : S.border}`, background: activeBranch === '' ? S.gold3 : 'transparent', color: activeBranch === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === '' ? 700 : 400 }}>
+              🌐 الإجمالي (الكل)
+            </button>
+          )}
+          {visibleBranches.map(b => (
+            <button key={b.id} onClick={() => setActiveBranch(b.id)}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === b.id ? S.gold : S.border}`, background: activeBranch === b.id ? S.gold3 : 'transparent', color: activeBranch === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === b.id ? 700 : 400 }}>
+              🏪 {b.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 12, marginBottom: 24 }}>
         {(['all', 'pending', 'approved', 'rejected'] as const).map(s => {
-          const count = s === 'all' ? counts.length : counts.filter(c => c.status === s).length
+          const count = s === 'all' ? branchScopedCounts.length : branchScopedCounts.filter(c => c.status === s).length
           const cfg = s === 'all' ? { color: S.white, bg: S.card, icon: '📋', label: 'الكل' } : { ...STATUS_CFG[s], label: STATUS_CFG[s].label }
           return (
             <div key={s} onClick={() => setStatusFilter(s)}
@@ -283,11 +327,16 @@ export default function InventoryReportsPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                       <span style={{ background: cfg.bg, color: cfg.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{cfg.icon} {cfg.label}</span>
                       <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{(c.warehouses as any)?.name || '—'}</span>
+                      {isAdmin && !activeBranch && (
+                        <span style={{ background: S.blueB, color: S.blue, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>
+                          🏪 {branches.find(b => b.id === countBranchKey(c))?.name || '—'}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: S.muted }}>
-                      👤 {(c.employees as any)?.name || '—'} · 📅 {new Date(c.count_date).toLocaleDateString('ar-SA')}
+                      👤 {getFullName(c.employees as any)} · 📅 {new Date(c.count_date).toLocaleDateString('ar-SA')}
                     </div>
-                    {c.approved_at && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>✅ اعتمد بواسطة: {(c.approver as any)?.name} · {new Date(c.approved_at).toLocaleDateString('ar-SA')}</div>}
+                    {c.approved_at && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>✅ اعتمد بواسطة: {getFullName(c.approver as any)} · {new Date(c.approved_at).toLocaleDateString('ar-SA')}</div>}
                   </div>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                     <div style={{ textAlign: 'center' }}>
@@ -324,7 +373,7 @@ export default function InventoryReportsPage() {
                 <div>
                   <h2 style={{ fontSize: 17, fontWeight: 800, color: S.white, marginBottom: 4 }}>📋 تفاصيل الجرد — {(selected.warehouses as any)?.name}</h2>
                   <div style={{ fontSize: 12, color: S.muted }}>
-                    👤 {(selected.employees as any)?.name} · 📅 {new Date(selected.count_date).toLocaleDateString('ar-SA')} · {selected.inventory_count_items?.length} صنف
+                    👤 {getFullName(selected.employees as any)} · 📅 {new Date(selected.count_date).toLocaleDateString('ar-SA')} · {selected.inventory_count_items?.length} صنف
                   </div>
                 </div>
                 <button onClick={() => setSelected(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>

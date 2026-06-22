@@ -63,6 +63,8 @@ export default function ViolationsPage() {
   const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
 
   const [violations, setViolations] = useState<any[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [activeBranch, setActiveBranch] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد — مشترك بين كل التابات
   const [employees, setEmployees] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -119,6 +121,9 @@ export default function ViolationsPage() {
       else if (role === 'kitchen_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['المطبخ','Kitchen'])
       else if (role === 'hall_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['الصالة','Hall'])
       else if (role === 'bar_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['البار','Bar'])
+    } else if (activeBranch) {
+      // admin اختار تاب فرع محدد (بدل "الإجمالي") — فلترة إضافية بدون التأثير على باقي الأدوار
+      empQ = empQ.eq('branch_id', activeBranch)
     }
     const { data: empData } = await empQ
     const today = new Date().toISOString().split('T')[0]
@@ -135,7 +140,11 @@ export default function ViolationsPage() {
     const monthEnd = new Date(year, month, 0).toISOString().split('T')[0]
     let vQ = sb.from('violations').select('*').gte('date', monthStart).lte('date', monthEnd).order('created_at', { ascending: false })
     if (isAdmin) {
-      // admin يشوف الكل
+      // admin يشوف الكل، إلا لو اختار تاب فرع محدد (بدل "الإجمالي")
+      if (activeBranch) {
+        const ids = (empData || []).map((e: any) => e.id)
+        vQ = vQ.in('employee_id', ids.length > 0 ? ids : ['__none__'])
+      }
     } else if (isBranchManager) {
       const ids = (empData || []).map((e: any) => e.id)
       if (ids.length > 0) vQ = vQ.in('employee_id', ids)
@@ -158,7 +167,14 @@ export default function ViolationsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { if (employee?.id) { setPage(0); fetchAll() } }, [employee?.id, filterMonth])
+  useEffect(() => { if (employee?.id) { setPage(0); fetchAll() } }, [employee?.id, filterMonth, activeBranch])
+  useEffect(() => {
+    sb.from('branches').select('id,name').eq('is_active', true).then(({ data }) => setBranches(data || []))
+  }, [])
+  useEffect(() => {
+    // الأدوار غير admin تتقفل على فرعها تلقائيًا (شريط واحد مشترك لكل التابات)
+    if (!isAdmin && employee?.branch_id) setActiveBranch(employee.branch_id)
+  }, [isAdmin, employee?.branch_id])
 
   async function fetchEvaluations() {
     setEvalLoading(true)
@@ -171,6 +187,8 @@ export default function ViolationsPage() {
       else if(role==='kitchen_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
       else if(role==='hall_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
       else if(role==='bar_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
+    } else if (activeBranch) {
+      q = q.eq('branch_id', activeBranch)
     }
     const {data:empData}=await q
     const list=(empData||[]).filter((e:any)=>e.id!==employee?.id)
@@ -185,7 +203,7 @@ export default function ViolationsPage() {
     } else{setEvals([]);setEvalScores({});setEvalNotes({})}
     setEvalLoading(false)
   }
-  useEffect(()=>{if(employee?.id&&activeTab==='evaluations')fetchEvaluations()},[employee?.id,activeTab,evalMonth,evalYear])
+  useEffect(()=>{if(employee?.id&&activeTab==='evaluations')fetchEvaluations()},[employee?.id,activeTab,evalMonth,evalYear,activeBranch])
 
   async function saveEval(empId:string, action: 'draft'|'submit'|'approve' = 'draft'){
     if(action==='approve' && new Date().getDate()>20){alert(isAr?'انتهت فترة الاعتماد (حتى يوم 20)':'Approval period ended (day 20)');return}
@@ -216,6 +234,8 @@ export default function ViolationsPage() {
       else if(role==='kitchen_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
       else if(role==='hall_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
       else if(role==='bar_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
+    } else if (activeBranch) {
+      empQ = empQ.eq('branch_id', activeBranch)
     }
     const {data:empData}=await empQ
     const list=(empData||[]).filter((e:any)=>e.id!==employee?.id)
@@ -227,6 +247,7 @@ export default function ViolationsPage() {
     let q=sb.from('absences').select('*').gte('date',monthStart).lte('date',monthEnd).order('date',{ascending:false})
     if(ids.length>0&&!isAdmin&&!isBranchManager) q=q.in('employee_id',ids)
     else if(isBranchManager&&ids.length>0) q=q.in('employee_id',ids)
+    else if(isAdmin&&activeBranch&&ids.length>0) q=q.in('employee_id',ids)
     const {data:absData}=await q
     if(absData&&absData.length>0){
       const allIds=[...new Set(absData.map((a:any)=>a.employee_id).concat(absData.map((a:any)=>a.created_by)).filter(Boolean))]
@@ -236,8 +257,8 @@ export default function ViolationsPage() {
     } else setAbsences([])
     setAbsLoading(false)
   }
-  useEffect(()=>{if(employee?.id&&activeTab==='absences')fetchAbsences()},[employee?.id,activeTab,absFilterMonth])
-  useEffect(()=>{if(employee?.id&&activeTab==='dept_violations')fetchDeptViolations()},[employee?.id,activeTab,deptViolFilterMonth])
+  useEffect(()=>{if(employee?.id&&activeTab==='absences')fetchAbsences()},[employee?.id,activeTab,absFilterMonth,activeBranch])
+  useEffect(()=>{if(employee?.id&&activeTab==='dept_violations')fetchDeptViolations()},[employee?.id,activeTab,deptViolFilterMonth,activeBranch])
 
   async function saveAbsence(){
     if(!absForm.employee_id||!absForm.date){alert('يرجى اختيار الموظف والتاريخ');return}
@@ -281,11 +302,20 @@ export default function ViolationsPage() {
       .order('created_at', { ascending: false })
     if (isSupervisor) dQ = dQ.eq('created_by', employee?.id || '')
     const { data } = await dQ
-    if (data && data.length > 0) {
-      const creatorIds = [...new Set(data.map((d:any) => d.created_by).filter(Boolean))]
+    let filteredData = data || []
+    // فلترة إضافية بالفرع النشط (admin) أو فرع المستخدم (غير admin)، بناءً على فرع منشئ المخالفة
+    const branchToFilter = isAdmin ? activeBranch : employee?.branch_id
+    if (branchToFilter && filteredData.length > 0) {
+      const creatorIds = [...new Set(filteredData.map((d:any) => d.created_by).filter(Boolean))]
+      const { data: creators } = await sb.from('employees').select('id,branch_id').in('id', creatorIds as string[])
+      const creatorBranchMap = Object.fromEntries((creators || []).map((c: any) => [c.id, c.branch_id]))
+      filteredData = filteredData.filter((d: any) => creatorBranchMap[d.created_by] === branchToFilter)
+    }
+    if (filteredData.length > 0) {
+      const creatorIds = [...new Set(filteredData.map((d:any) => d.created_by).filter(Boolean))]
       const { data: names } = await sb.from('employees').select('id,name,name_en').in('id', creatorIds as string[])
       const nameMap = Object.fromEntries((names||[]).map(e=>[e.id,e]))
-      setDeptViolations(data.map((d:any) => ({ ...d, creatorName: nameMap[d.created_by]?.name || '—' })))
+      setDeptViolations(filteredData.map((d:any) => ({ ...d, creatorName: nameMap[d.created_by]?.name || '—' })))
     } else { setDeptViolations([]) }
     setDeptViolLoading(false)
   }
@@ -387,6 +417,24 @@ export default function ViolationsPage() {
           </button>
         )}
       </div>
+
+      {/* Branch Tabs — مشتركة بين كل التابات الأربعة */}
+      {branches.length > 1 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button onClick={() => setActiveBranch('')}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === '' ? S.gold : S.border}`, background: activeBranch === '' ? S.gold3 : 'transparent', color: activeBranch === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === '' ? 700 : 400 }}>
+              🌐 {isAr ? 'الإجمالي (الكل)' : 'All Branches'}
+            </button>
+          )}
+          {(isAdmin ? branches : branches.filter(b => b.id === employee?.branch_id)).map(b => (
+            <button key={b.id} onClick={() => setActiveBranch(b.id)}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === b.id ? S.gold : S.border}`, background: activeBranch === b.id ? S.gold3 : 'transparent', color: activeBranch === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === b.id ? 700 : 400 }}>
+              🏪 {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>

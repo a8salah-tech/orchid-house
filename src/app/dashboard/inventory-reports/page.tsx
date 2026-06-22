@@ -110,9 +110,9 @@ export default function InventoryReportsPage() {
 
   useEffect(() => { fetchCounts() }, [fetchCounts])
 
-  // الأدوار غير admin تتقفل على فرعها تلقائيًا
+  // الأدوار غير admin تتقفل على فرعها تلقائيًا (أو المستودع الرئيسي لو مالهاش فرع)
   useEffect(() => {
-    if (!isAdmin && employee?.branch_id) setActiveBranch(employee.branch_id)
+    if (!isAdmin) setActiveBranch(employee?.branch_id || 'main')
   }, [isAdmin, employee?.branch_id])
 
   async function approveCount(countId: string) {
@@ -231,16 +231,20 @@ export default function InventoryReportsPage() {
     win.document.close()
   }
 
-  // خريطة سريعة: warehouse_id → branch_id
+  // خريطة سريعة: warehouse_id → branch_id (أو 'main' لو المستودع غير مرتبط بفرع — المستودع الرئيسي)
   const warehouseBranchMap = Object.fromEntries(
-    counts.map(c => [c.warehouse_id, c.warehouses?.branch_id]).filter(([, b]) => b)
+    counts.map(c => [c.warehouse_id, c.warehouses?.branch_id || 'main'])
   )
   function countBranchKey(c: InventoryCount): string {
-    return c.warehouses?.branch_id || warehouseBranchMap[c.warehouse_id] || ''
+    return c.warehouses?.branch_id || warehouseBranchMap[c.warehouse_id] || 'main'
   }
 
+  // التابات: تاب لكل فرع، بالإضافة لتاب "المستودع الرئيسي" دائمًا
+  const allTabs = [{ key: 'main', label: '🏭 المستودع الرئيسي' }, ...branches.map(b => ({ key: b.id, label: `🏪 ${b.name}` }))]
+  // الأدوار غير admin تشوف بس تاب فرعها (أو المستودع الرئيسي لو مالهاش فرع)
+  const visibleTabs = isAdmin ? allTabs : allTabs.filter(t => t.key === (employee?.branch_id || 'main'))
+
   const branchScopedCounts = activeBranch ? counts.filter(c => countBranchKey(c) === activeBranch) : counts
-  const visibleBranches = isAdmin ? branches : branches.filter(b => b.id === employee?.branch_id)
 
   const filtered = branchScopedCounts.filter(c => statusFilter === 'all' || c.status === statusFilter)
 
@@ -268,7 +272,7 @@ export default function InventoryReportsPage() {
       </div>
 
       {/* Branch Tabs */}
-      {visibleBranches.length > 1 && (
+      {visibleTabs.length > 1 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           {isAdmin && (
             <button onClick={() => setActiveBranch('')}
@@ -276,10 +280,10 @@ export default function InventoryReportsPage() {
               🌐 الإجمالي (الكل)
             </button>
           )}
-          {visibleBranches.map(b => (
-            <button key={b.id} onClick={() => setActiveBranch(b.id)}
-              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === b.id ? S.gold : S.border}`, background: activeBranch === b.id ? S.gold3 : 'transparent', color: activeBranch === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === b.id ? 700 : 400 }}>
-              🏪 {b.name}
+          {visibleTabs.map(t => (
+            <button key={t.key} onClick={() => setActiveBranch(t.key)}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === t.key ? S.gold : S.border}`, background: activeBranch === t.key ? S.gold3 : 'transparent', color: activeBranch === t.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === t.key ? 700 : 400 }}>
+              {t.label}
             </button>
           ))}
         </div>
@@ -329,7 +333,7 @@ export default function InventoryReportsPage() {
                       <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{(c.warehouses as any)?.name || '—'}</span>
                       {isAdmin && !activeBranch && (
                         <span style={{ background: S.blueB, color: S.blue, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>
-                          🏪 {branches.find(b => b.id === countBranchKey(c))?.name || '—'}
+                          {allTabs.find(t => t.key === countBranchKey(c))?.label || '—'}
                         </span>
                       )}
                     </div>

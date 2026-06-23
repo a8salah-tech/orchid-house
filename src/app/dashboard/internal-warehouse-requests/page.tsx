@@ -116,31 +116,39 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
     const branchId = currentEmployee?.branch_id
     if (!branchId) return
 
-    // 1) جلب id مستودع الفرع، ثم أصنافه (لتحديد ما هو متوفر محليًا)
+    // 1) جلب id مستودع الفرع أولاً (قبل جلب الأصناف، لاستخدامه في اختيار النسخة الصحيحة من كل صنف)
+    let branchWarehouseId = ''
     sb.from('warehouses').select('id').eq('branch_id', branchId).maybeSingle()
       .then(({ data: wh }) => {
         if (wh?.id) {
+          branchWarehouseId = wh.id
           sb.from('warehouse_products').select('id').eq('is_active', true).eq('warehouse_id', wh.id)
             .then(({ data }) => setBranchWarehouseProductIds(new Set((data || []).map((p: any) => p.id))))
         }
-      })
-
-    // 2) جلب كل أصناف كل الأقسام (من أي مستودع)، موحدة بالاسم بدون تكرار
-    Promise.all(['المطبخ', 'البار', 'الصالة'].map(dept =>
-      sb.from('department_products')
-        .select('product_id, warehouse_products(id,name,name_en,product_code,current_stock,unit_id,units(symbol))')
-        .eq('department', dept)
-        .then(({ data }) => ({ dept, data: data || [] }))
-    )).then(results => {
+        // 2) جلب كل أصناف كل الأقسام (من أي مستودع)، موحدة بالاسم — مع تفضيل نسخة مستودع الفرع بالذات
+        // ✅ Fix: السبب الجذري لفشل الخصم الفعلي عند الموافقة كان أخذ "أول نسخة" بترتيب عشوائي
+        // من Promise.all (غالبًا المستودع الرئيسي) بدل نسخة مستودع الفرع الصحيحة، فكان الـ product_id
+        // المحفوظ يشاور على مستودع مختلف تمامًا عن مستودع الطالب، فيفشل الخصم بهدوء عند الموافقة.
+        return Promise.all(['المطبخ', 'البار', 'الصالة'].map(dept =>
+          sb.from('department_products')
+            .select('product_id, warehouse_products(id,name,name_en,product_code,current_stock,unit_id,warehouse_id,units(symbol))')
+            .eq('department', dept)
+            .then(({ data }) => ({ dept, data: data || [] }))
+        ))
+      }).then(results => {
+      if (!results) return
       const grouped: Record<string, any[]> = { المطبخ: [], البار: [], الصالة: [] }
       for (const { dept, data } of results) {
-        const seen = new Map<string, any>() // مفتاح: الاسم بعد التنظيف، قيمة: أول نسخة من الصنف
+        const seen = new Map<string, any>() // مفتاح: الاسم بعد التنظيف، قيمة: النسخة المختارة من الصنف
         for (const row of data) {
           const wp = (row as any).warehouse_products
           if (!wp) continue
           const cleanName = (wp.name || '').trim()
           if (!cleanName) continue
-          if (!seen.has(cleanName)) {
+          const existing = seen.get(cleanName)
+          const isFromBranchWarehouse = branchWarehouseId && wp.warehouse_id === branchWarehouseId
+          // نفضّل نسخة مستودع الفرع دائمًا، حتى لو وصلت بعد نسخة أخرى تم تسجيلها مسبقًا
+          if (!existing || isFromBranchWarehouse) {
             seen.set(cleanName, wp)
           }
         }

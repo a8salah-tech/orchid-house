@@ -347,7 +347,9 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
       if (upD) { const { data: urlD } = sb.storage.from('employees').getPublicUrl(upD.path); mainImg = urlD.publicUrl }
       setUploadingImg(false)
     }
-    // تحديث كل صنف
+    // المستودع الرئيسي — منه يتم الخصم لحظة تأكيد الفرع استلامه فعليًا
+    const MAIN_WAREHOUSE_ID = 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8'
+    // تحديث كل صنف + خصم الكمية المستلمة فعليًا من المستودع الرئيسي
     for (const item of (request.branch_request_items || [])) {
       const ri = receiveItems[item.id] || { received: item.quantity_approved||item.quantity_requested, returned: 0, reason: '', imgPreview: '' }
       let retImg = ''
@@ -361,6 +363,46 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         return_reason: ri.reason || null,
         return_image_url: retImg || null,
       }).eq('id', item.id)
+
+      // ✅ خصم الكمية المستلمة فعليًا من المستودع الرئيسي (لو فيه كمية مستلمة أكبر من صفر)
+      const receivedQty = parseFloat(String(ri.received)) || 0
+      const productId = (item as any).product_id
+      if (receivedQty > 0 && productId) {
+        const { data: wp } = await sb.from('warehouse_products')
+          .select('id, unit_id')
+          .eq('warehouse_id', MAIN_WAREHOUSE_ID)
+          .eq('id', productId)
+          .maybeSingle()
+        if (wp) {
+          // تحويل الكمية المستلمة لوحدة المخزون الأساسية لو وحدة الطلب مختلفة
+          let qty = receivedQty
+          const itemUnitId = (item as any).unit_id
+          if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
+            const { data: conv } = await sb.from('unit_conversions')
+              .select('from_unit_id, to_unit_id, factor')
+              .eq('product_id', wp.id)
+              .or(`and(from_unit_id.eq.${itemUnitId},to_unit_id.eq.${wp.unit_id}),and(from_unit_id.eq.${wp.unit_id},to_unit_id.eq.${itemUnitId})`)
+              .maybeSingle()
+            if (conv) {
+              if (conv.from_unit_id === itemUnitId && conv.to_unit_id === wp.unit_id) {
+                qty = receivedQty * conv.factor
+              } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
+                qty = receivedQty / conv.factor
+              }
+            }
+          }
+          // ✅ لا نحدّث current_stock يدويًا — الـ trigger (trigger_update_stock) يخصمها تلقائيًا
+          // عند إدراج حركة stock_movements، لمنع خصم الكمية مرتين
+          await sb.from('stock_movements').insert([{
+            product_id: productId,
+            warehouse_id: MAIN_WAREHOUSE_ID,
+            movement_type: 'out',
+            quantity: qty,
+            movement_date: new Date().toISOString().slice(0, 10),
+            notes: `طلب فرع #${request.request_number} — ${request.branches?.name || ''} — استلام`,
+          }])
+        }
+      }
     }
     await sb.from('branch_requests').update({
       status: 'supervisor_received',
@@ -677,7 +719,7 @@ export default function BranchRequestsPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const { data } = await sb.from('branch_requests')
-      .select('*, branches(name), branch_request_items(id,quantity_requested,quantity_approved,quantity_received,quantity_returned,return_reason,return_image_url,notes,warehouse_products(name,name_en),units(symbol))')
+      .select('*, branches(name), branch_request_items(id,product_id,quantity_requested,quantity_approved,quantity_received,quantity_returned,return_reason,return_image_url,notes,unit_id,warehouse_products(name,name_en),units(symbol))')
       .order('created_at', { ascending: false })
     setRequests(data || [])
     setLoading(false)

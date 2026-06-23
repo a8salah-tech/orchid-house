@@ -973,17 +973,19 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
 
   // تنسيق المخزون بالوحدتين الكبيرة والصغيرة
   function formatStock(product: Product) {
+    // ✅ Fix: current_stock محفوظة دائمًا بالوحدة الأساسية للصنف كما اختارها المستخدم وقت الإدخال
+    // (سواء كانت وحدة كبرى أو صغرى) — تُعرض مباشرة بدون أي قسمة أو ضرب.
+    // unit_conversions (لو موجودة لهذا الصنف) تُستخدم فقط كملاحظة توضيحية معلوماتية، لا تؤثر على الرقم المعروض.
     const conv = unitConversionsAll.find((c: any) => c.product_id === product.id)
-    if (!conv || !conv.factor || conv.factor <= 1) {
-      return { big: null, bigUnit: '', small: product.current_stock, smallUnit: product.units?.symbol || '' }
-    }
-    const bigQty = Math.floor(product.current_stock / conv.factor)
-    const smallQty = product.current_stock % conv.factor
     return {
-      big: bigQty > 0 ? bigQty : null,
-      bigUnit: conv.from_unit?.symbol || '',
-      small: smallQty,
-      smallUnit: conv.to_unit?.symbol || product.units?.symbol || '',
+      big: null,
+      bigUnit: '',
+      small: product.current_stock,
+      smallUnit: product.units?.symbol || '',
+      // ملاحظة توضيحية اختيارية: لو فيه معادلة تحويل مسجلة لهذا الصنف
+      conversionNote: conv && conv.factor > 1
+        ? `1 ${conv.from_unit?.symbol || ''} = ${conv.factor} ${conv.to_unit?.symbol || ''}`
+        : null,
     }
   }
 
@@ -1170,14 +1172,14 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
                 <thead>
                   <tr style={{ background: S.navy3 }}>
-                    {['الكود', 'الصنف (عربي / English)', 'الفئة', 'الوحدة الكبيرة', 'القطع / كيس', 'الحد الأدنى', 'آخر سعر', 'الحالة', 'إجراء'].map(h => (
+                    {['الكود', 'الصنف (عربي / English)', 'الفئة', 'الكمية', 'الحد الأدنى', 'آخر سعر', 'الحالة', 'إجراء'].map(h => (
                       <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedProducts.length === 0 ? (
-                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40, color: S.muted }}>
+                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: 40, color: S.muted }}>
                       {search ? `لا توجد نتائج لـ "${search}"` : 'لا توجد أصناف — اضغط "صنف جديد" للبدء'}
                     </td></tr>
                   ) : paginatedProducts.map(p => {
@@ -1208,14 +1210,14 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         <td style={{ padding: '12px 16px', fontWeight: 700, color: isEmpty ? S.red : isLow ? S.amber : S.green, fontSize: 14 }}>
                           {(() => {
                             const s = formatStock(p)
-                            if (s.big !== null) return <div>{s.big} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.bigUnit}</span></div>
-                            return <div style={{ color: S.muted, fontSize: 12 }}>—</div>
-                          })()}
-                        </td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700, color: isEmpty ? S.red : isLow ? S.amber : S.green, fontSize: 14 }}>
-                          {(() => {
-                            const s = formatStock(p)
-                            return <div>{s.small} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.smallUnit}</span></div>
+                            return (
+                              <div>
+                                <div>{s.small} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.smallUnit}</span></div>
+                                {s.conversionNote && (
+                                  <div style={{ fontSize: 10, fontWeight: 400, color: S.muted, marginTop: 2 }}>ℹ️ {s.conversionNote}</div>
+                                )}
+                              </div>
+                            )
                           })()}
                         </td>
                         <td style={{ padding: '12px 16px', fontSize: 13, color: S.muted }}>{p.min_stock} {(p as any).units?.symbol}</td>

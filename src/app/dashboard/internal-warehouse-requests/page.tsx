@@ -319,17 +319,36 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     const { data: wh, error: whErr } = await sb.from('warehouses').select('id').eq('branch_id', request.branch_id).maybeSingle()
     if (whErr || !wh?.id) { alert('لم يتم العثور على مستودع لهذا الفرع'); setUpdating(false); return }
 
-    // 2) لكل صنف: خصم الكمية المعتمدة من المخزون + تسجيل حركة صرف
+    // 2) لكل صنف: تحويل الكمية المعتمدة لوحدة المخزون الأساسية (لو الوحدة المختارة في الطلب مختلفة)، ثم تسجيل حركة صرف
+    // ✅ Fix: لا نحدّث current_stock يدويًا هنا — الـ trigger (trigger_update_stock) يقوم بهذا
+    // تلقائيًا عند إدراج حركة stock_movements. كان التحديث اليدوي السابق يتسبب في خصم الكمية مرتين.
     for (const item of (request.internal_warehouse_request_items || [])) {
-      const qty = approvedQtys[item.id] ?? item.quantity_requested
+      const requestedQty = approvedQtys[item.id] ?? item.quantity_requested
       const { data: wp } = await sb.from('warehouse_products')
-        .select('id, current_stock')
+        .select('id, current_stock, unit_id')
         .eq('warehouse_id', wh.id)
         .eq('id', (item as any).product_id)
         .maybeSingle()
       if (wp) {
-        const newStock = Math.max(0, (wp.current_stock || 0) - qty)
-        await sb.from('warehouse_products').update({ current_stock: newStock }).eq('id', wp.id)
+        // ✅ Fix: لو وحدة الطلب (item.unit_id) مختلفة عن الوحدة الأساسية للصنف (wp.unit_id)،
+        // نحوّل الكمية باستخدام unit_conversions المطابقة تحديدًا لوحدة الطلب
+        // (الصنف ممكن يكون له أكثر من معادلة تحويل، مثل كرتون→كيلو وكرتون→غرام، فلازم نحدد المطابق بالذات)
+        let qty = requestedQty
+        const itemUnitId = (item as any).unit_id
+        if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
+          const { data: conv } = await sb.from('unit_conversions')
+            .select('from_unit_id, to_unit_id, factor')
+            .eq('product_id', wp.id)
+            .or(`and(from_unit_id.eq.${itemUnitId},to_unit_id.eq.${wp.unit_id}),and(from_unit_id.eq.${wp.unit_id},to_unit_id.eq.${itemUnitId})`)
+            .maybeSingle()
+          if (conv) {
+            if (conv.from_unit_id === itemUnitId && conv.to_unit_id === wp.unit_id) {
+              qty = requestedQty * conv.factor
+            } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
+              qty = requestedQty / conv.factor
+            }
+          }
+        }
         await sb.from('stock_movements').insert([{
           product_id: (item as any).product_id,
           warehouse_id: wh.id,
@@ -339,7 +358,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
           notes: `طلب مستودع داخلي #${request.request_number} — ${request.department}`,
         }])
       }
-      await sb.from('internal_warehouse_request_items').update({ quantity_approved: qty }).eq('id', item.id)
+      await sb.from('internal_warehouse_request_items').update({ quantity_approved: requestedQty }).eq('id', item.id)
     }
 
     // 3) تحديث حالة الطلب

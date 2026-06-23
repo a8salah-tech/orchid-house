@@ -434,9 +434,12 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
                 </div>
                 <div style={{ textAlign: 'left', flexShrink: 0 }}>
                   {canApprove ? (
-                    <input type="number" min="0" value={approvedQtys[item.id] ?? item.quantity_requested}
-                      onChange={e => setApprovedQtys(p => ({ ...p, [item.id]: parseFloat(e.target.value) || 0 }))}
-                      style={{ width: 80, textAlign: 'center', background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.blue}40`, borderRadius: 8, padding: '6px 8px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                      <input type="number" min="0" value={approvedQtys[item.id] ?? item.quantity_requested}
+                        onChange={e => setApprovedQtys(p => ({ ...p, [item.id]: parseFloat(e.target.value) || 0 }))}
+                        style={{ width: 80, textAlign: 'center', background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.blue}40`, borderRadius: 8, padding: '6px 8px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }} />
+                      <span style={{ fontSize: 12, color: S.muted, fontWeight: 600 }}>{item.units?.symbol || '—'}</span>
+                    </div>
                   ) : (
                     <div style={{ fontSize: 13, fontWeight: 700, color: S.blue }}>{item.quantity_requested} {item.units?.symbol}</div>
                   )}

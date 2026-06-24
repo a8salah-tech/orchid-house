@@ -794,9 +794,10 @@ export default function EmployeeRequestsPage() {
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
   const isManager = isAdmin
   const isEmployee = !isAdmin && !isBranchManager && !isDeptManager
-  // ✅ زيادة وسلفة الراتب: الرؤية والاعتماد مقصورة على admin فقط، بدون أي استثناء من نظام الصلاحيات
-  const canSeeSalaryIncrease = isAdmin
-  const canSeeSalaryAdvance  = isAdmin
+  // ✅ الرؤية وتقديم الطلب: تعتمد على صلاحية ديناميكية من صفحة "إدارة الصلاحيات" + admin دائمًا
+  // (الاعتماد الفعلي/الموافقة يبقى مقصورًا على admin فقط بدون استثناء — داخل RequestDetailModal)
+  const canSeeSalaryIncrease = isAdmin || permissions?.salary_increase_requests === true
+  const canSeeSalaryAdvance  = isAdmin || permissions?.salary_advance_requests === true
 
   const [requests, setRequests] = useState<EmployeeRequest[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])

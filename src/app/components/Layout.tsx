@@ -68,6 +68,7 @@ const ALL_MENU: MenuGroup[] = [
 { group: 'إدارة المخزون', items: [
     { label: 'المستودعات',   label_en: 'Warehouses',      icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },
     { label: 'تقارير الجرد', label_en: 'Inventory Reports', icon: '📋', path: '/dashboard/inventory-reports', permission: 'inventory_reports' },
+    { label: 'حركة صنف',     label_en: 'Item Movement',   icon: '📜', path: '/dashboard/item-movement',  permission: 'item_movement' },
     { label: 'المشتريات',    label_en: 'Purchases',       icon: '🛒', path: '/dashboard/purchases',       permission: 'purchases' },
     { label: 'طلبات الفروع', label_en: 'Branch Requests', icon: '📦', path: '/dashboard/branch-requests', permission: 'branch_requests' },
     { label: 'طلبات المستودع الداخلي', label_en: 'Internal Warehouse Requests', icon: '🏭', path: '/dashboard/internal-warehouse-requests', permission: 'internal_warehouse_requests' },

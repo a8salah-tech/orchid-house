@@ -487,8 +487,8 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
 }
 
 // ══ Request Detail Modal ══
-function RequestDetailModal({ request, currentUser, onClose, onUpdate, onDelete }: {
-  request: EmployeeRequest; currentUser?: { name?: string; name_en?: string }; onClose: () => void; onUpdate: () => void; onDelete: () => void
+function RequestDetailModal({ request, currentUser, isAdmin, onClose, onUpdate, onDelete }: {
+  request: EmployeeRequest; currentUser?: { id?: string; name?: string; name_en?: string }; isAdmin?: boolean; onClose: () => void; onUpdate: () => void; onDelete: () => void
 }) {
   const supabase = createClient()
   const { isAr } = useLang()
@@ -496,6 +496,11 @@ function RequestDetailModal({ request, currentUser, onClose, onUpdate, onDelete 
   const approvedBy = currentUser?.name ? `${currentUser.name}${currentUser.name_en ? ' (' + currentUser.name_en + ')' : ''}` : ''
   const [rejectionReason, setRejectionReason] = useState('')
   const [showReject, setShowReject] = useState(false)
+  // ✅ الموظف لا يقدر يعتمد/يرفض طلبه الخاص (لأي نوع طلب)
+  const isOwnRequest = currentUser?.id === request.employee_id
+  // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط
+  const isSalaryAdvance = request.request_type === 'salary_advance'
+  const canTakeAction = !isOwnRequest && (!isSalaryAdvance || isAdmin)
 
   async function deleteRequest() {
     if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return
@@ -560,6 +565,11 @@ function printRequest() {
   .logo { font-size: 22px; font-weight: 900; color: #1a1a1a; margin-bottom: 4px; }
   .subtitle { font-size: 14px; color: #C9A84C; font-weight: 700; }
   .req-number { font-size: 12px; color: #666; margin-top: 4px; }
+  .employee-card { background: #FAF7ED; border: 2px solid #C9A84C; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+  .employee-card .name { font-size: 18px; font-weight: 900; color: #1a1a1a; }
+  .employee-card .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .employee-card .field-label { font-size: 11px; color: #888; }
+  .employee-card .field-value { font-size: 14px; font-weight: 700; color: #1a1a1a; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
   td { padding: 10px 14px; border-bottom: 1px solid #e5e5e5; font-size: 13px; vertical-align: top; }
   td:first-child { font-weight: 700; color: #444; width: 200px; background: #fafafa; }
@@ -574,15 +584,20 @@ function printRequest() {
   <div class="subtitle">${request.title || 'Employee Request'}</div>
   <div class="req-number">Request #${request.request_number} · ${new Date(request.created_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
 </div>
-<p class="section-title">Employee Information</p>
+<div class="employee-card">
+  <div class="name">${request.employees?.name || '—'}${request.employees?.name_en ? ' ' + request.employees.name_en : ''}</div>
+  <div class="grid">
+    <div><div class="field-label">Employee ID / رقم الموظف</div><div class="field-value">${request.employees?.employee_number || '—'}</div></div>
+    <div><div class="field-label">Department / القسم</div><div class="field-value">${request.employees?.department || '—'}</div></div>
+    <div><div class="field-label">Branch / الفرع</div><div class="field-value">${request.employees?.branches?.name || '—'}</div></div>
+    <div><div class="field-label">Position / الوظيفة</div><div class="field-value">${request.employees?.role || '—'}</div></div>
+  </div>
+</div>
+<p class="section-title">Request Information</p>
 <table>
-  <tr><td>Employee Name</td><td>${request.employees?.name || '—'}${request.employees?.name_en ? ' (' + request.employees.name_en + ')' : ''}</td></tr>
-  <tr><td>Employee ID</td><td>${request.employees?.employee_number || '—'}</td></tr>
-  <tr><td>Branch</td><td>${request.employees?.branches?.name || '—'}</td></tr>
-  <tr><td>Department</td><td>${request.employees?.department || '—'}</td></tr>
   <tr><td>Status</td><td>${request.status.toUpperCase()}</td></tr>
   <tr><td>Date Submitted</td><td>${new Date(request.created_at).toLocaleDateString('en-GB')}</td></tr>
-  ${request.amount ? '<tr><td>Amount Requested</td><td>MYR ' + request.amount.toFixed(2) + '</td></tr>' : ''}
+  ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toFixed(2) + '</td></tr>' : ''}
   ${request.start_date ? '<tr><td>From Date</td><td>' + request.start_date + '</td></tr>' : ''}
   ${request.end_date ? '<tr><td>To Date</td><td>' + request.end_date + '</td></tr>' : ''}
   ${request.days_count ? '<tr><td>Number of Days</td><td>' + request.days_count + '</td></tr>' : ''}
@@ -621,7 +636,12 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
               {new Date(request.created_at).toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={printRequest} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.gold, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, cursor: 'pointer', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              🖨️ طباعة
+            </button>
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          </div>
         </div>
 
         {/* Info */}
@@ -682,41 +702,65 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         )}
         {/* Actions */}
         {request.status === 'pending' && (
-          <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            {!showReject ? (
-              <>
-                <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>اسم المعتمد</div>
-                <input style={{ ...inp, marginBottom: 12, opacity: 0.8, cursor: 'not-allowed' }} value={approvedBy} readOnly placeholder="..." />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => updateStatus('approved')} disabled={updating}
-                    style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    ✅ موافقة
-                  </button>
-                  <button onClick={() => updateStatus('completed')} disabled={updating}
-                    style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    🏁 اكتمل
-                  </button>
-                  <button onClick={() => setShowReject(true)}
-                    style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    ❌ رفض
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 12, color: S.red, marginBottom: 6, fontWeight: 700 }}>سبب الرفض *</div>
-                <textarea style={{ ...inp, minHeight: 80, resize: 'vertical', marginBottom: 10 } as React.CSSProperties}
-                  value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} placeholder="اشرح سبب الرفض..." />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setShowReject(false)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
-                  <button onClick={() => updateStatus('rejected')} disabled={updating}
-                    style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    ❌ تأكيد الرفض
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          canTakeAction ? (
+            <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              {!showReject ? (
+                <>
+                  <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>اسم المعتمد</div>
+                  <input style={{ ...inp, marginBottom: 12, opacity: 0.8, cursor: 'not-allowed' }} value={approvedBy} readOnly placeholder="..." />
+                  {isSalaryAdvance ? (
+                    // ✅ سلفة الراتب: مرحلة واحدة مدمجة "تأكيد واعتماد التسليم" — تُسجَّل مباشرة كـ completed
+                    // لتمثيل لحظة تسليم السلفة فعليًا للموظف، والتي بعدها تُخصم من الراتب
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => updateStatus('completed')} disabled={updating}
+                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        ✅ تأكيد واعتماد التسليم (تُخصم من الراتب)
+                      </button>
+                      <button onClick={() => setShowReject(true)}
+                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        ❌ رفض
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => updateStatus('approved')} disabled={updating}
+                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        ✅ موافقة
+                      </button>
+                      <button onClick={() => updateStatus('completed')} disabled={updating}
+                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        🏁 اكتمل
+                      </button>
+                      <button onClick={() => setShowReject(true)}
+                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        ❌ رفض
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: S.red, marginBottom: 6, fontWeight: 700 }}>سبب الرفض *</div>
+                  <textarea style={{ ...inp, minHeight: 80, resize: 'vertical', marginBottom: 10 } as React.CSSProperties}
+                    value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} placeholder="اشرح سبب الرفض..." />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setShowReject(false)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
+                    <button onClick={() => updateStatus('rejected')} disabled={updating}
+                      style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      ❌ تأكيد الرفض
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            // ✅ صاحب الطلب نفسه، أو طلب سلفة راتب لمستخدم غير admin — لا تظهر أزرار الاعتماد خالص
+            <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, textAlign: 'center' }}>
+              <div style={{ fontSize: 13, color: S.amber, fontWeight: 700 }}>
+                {isOwnRequest ? '⏳ طلبك قيد المراجعة من الإدارة' : '🔒 هذا الطلب يحتاج اعتماد مدير النظام فقط'}
+              </div>
+            </div>
+          )
         )}
 
         {request.status === 'approved' && (
@@ -750,9 +794,9 @@ export default function EmployeeRequestsPage() {
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
   const isManager = isAdmin
   const isEmployee = !isAdmin && !isBranchManager && !isDeptManager
-  // صلاحيات ظهور طلبات زيادة الراتب وسلفة الراتب — يتحكم فيها مدير النظام من صفحة إدارة الصلاحيات
-  const canSeeSalaryIncrease = isAdmin || permissions?.salary_increase_requests === true
-  const canSeeSalaryAdvance  = isAdmin || permissions?.salary_advance_requests === true
+  // ✅ زيادة وسلفة الراتب: الرؤية والاعتماد مقصورة على admin فقط، بدون أي استثناء من نظام الصلاحيات
+  const canSeeSalaryIncrease = isAdmin
+  const canSeeSalaryAdvance  = isAdmin
 
   const [requests, setRequests] = useState<EmployeeRequest[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -768,6 +812,109 @@ export default function EmployeeRequestsPage() {
   const [filterBranch, setFilterBranch] = useState('all')
   const [branches, setBranches] = useState<{id:string;name:string}[]>([])
   const [search, setSearch] = useState('')
+
+  // ══ تقرير سلف الراتب الشامل: مجمّع بالشهر ثم الفرع، مع إجماليات وتقسيم صفحات كل 20 صف ══
+  function printAllSalaryAdvances() {
+    const advances = requests.filter(r => r.request_type === 'salary_advance')
+    if (advances.length === 0) { alert('لا توجد طلبات سلفة راتب لطباعتها'); return }
+
+    // تجميع حسب الشهر (YYYY-MM) أولاً
+    const byMonth: Record<string, EmployeeRequest[]> = {}
+    advances.forEach(r => {
+      const monthKey = r.created_at.slice(0, 7) // "2026-06"
+      if (!byMonth[monthKey]) byMonth[monthKey] = []
+      byMonth[monthKey].push(r)
+    })
+    const sortedMonths = Object.keys(byMonth).sort((a, b) => b.localeCompare(a)) // الأحدث أولاً
+
+    const PAGE_SIZE = 20
+    let grandTotal = 0
+    const monthsHtml = sortedMonths.map((monthKey, monthIndex) => {
+      const monthRequests = byMonth[monthKey]
+      const monthName = new Date(monthKey + '-01').toLocaleDateString('ar-SA', { year: 'numeric', month: 'long' })
+
+      // تجميع حسب الفرع داخل هذا الشهر
+      const byBranch: Record<string, EmployeeRequest[]> = {}
+      monthRequests.forEach(r => {
+        const branchName = r.employees?.branches?.name || 'بدون فرع'
+        if (!byBranch[branchName]) byBranch[branchName] = []
+        byBranch[branchName].push(r)
+      })
+
+      let monthTotal = 0
+      const branchesHtml = Object.entries(byBranch).map(([branchName, branchRequests]) => {
+        const branchTotal = branchRequests.reduce((s, r) => s + (r.amount || 0), 0)
+        monthTotal += branchTotal
+        grandTotal += branchTotal
+
+        // تقسيم صفوف هذا الفرع كل 20 صف (page-break بينهم)
+        const chunks: EmployeeRequest[][] = []
+        for (let i = 0; i < branchRequests.length; i += PAGE_SIZE) chunks.push(branchRequests.slice(i, i + PAGE_SIZE))
+
+        const chunksHtml = chunks.map((chunk, ci) => `
+          <table class="advances-table" ${ci > 0 ? 'style="page-break-before: always;"' : ''}>
+            <thead><tr><th>#</th><th>رقم الموظف</th><th>الاسم الكامل</th><th>القسم</th><th>المبلغ (MYR)</th><th>الحالة</th><th>التاريخ</th></tr></thead>
+            <tbody>
+              ${chunk.map(r => `<tr>
+                <td>#${r.request_number}</td>
+                <td>${r.employees?.employee_number || '—'}</td>
+                <td>${r.employees?.name || '—'}${r.employees?.name_en ? ' ' + r.employees.name_en : ''}</td>
+                <td>${r.employees?.department || '—'}</td>
+                <td>${(r.amount || 0).toFixed(2)}</td>
+                <td>${STATUS_CONFIG[r.status]?.label || r.status}</td>
+                <td>${new Date(r.created_at).toLocaleDateString('ar-SA')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`).join('')
+
+        return `
+          <div class="branch-section">
+            <div class="branch-title">🏪 ${branchName}</div>
+            ${chunksHtml}
+            <div class="branch-total">إجمالي ${branchName}: ${branchTotal.toFixed(2)} MYR (${branchRequests.length} طلب)</div>
+          </div>`
+      }).join('')
+
+      return `
+        <div class="month-section" ${monthIndex > 0 ? 'style="page-break-before: always;"' : ''}>
+          <div class="month-title">📅 ${monthName}</div>
+          ${branchesHtml}
+          <div class="month-total">💰 إجمالي شهر ${monthName} كاملاً: ${monthTotal.toFixed(2)} MYR (${monthRequests.length} طلب)</div>
+        </div>`
+    }).join('')
+
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
+      <title>تقرير سلف الراتب الشامل</title>
+      <style>
+        body { font-family: Tajawal, Arial, sans-serif; padding: 24px; color: #1a1a1a; }
+        .report-header { text-align: center; border-bottom: 3px solid #C9A84C; padding-bottom: 16px; margin-bottom: 24px; }
+        .report-header .logo { font-size: 22px; font-weight: 900; }
+        .report-header .subtitle { font-size: 14px; color: #C9A84C; font-weight: 700; }
+        .month-title { background: #0F2040; color: #C9A84C; font-size: 16px; font-weight: 800; padding: 10px 16px; border-radius: 6px; margin-bottom: 14px; }
+        .branch-section { margin-bottom: 18px; }
+        .branch-title { font-size: 13px; font-weight: 700; color: #444; margin-bottom: 6px; }
+        table.advances-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
+        table.advances-table th, table.advances-table td { border: 1px solid #ccc; padding: 6px 8px; text-align: right; }
+        table.advances-table th { background: #f3f3f3; }
+        .branch-total { text-align: left; font-size: 12px; font-weight: 700; color: #C9A84C; margin-bottom: 14px; }
+        .month-total { text-align: center; font-size: 14px; font-weight: 900; color: #1a1a1a; background: #FAF0D8; border: 1px solid #C9A84C; border-radius: 6px; padding: 10px; margin-top: 10px; }
+        .grand-total { text-align: center; font-size: 18px; font-weight: 900; color: #fff; background: #0F2040; border-radius: 8px; padding: 16px; margin-top: 30px; }
+        @media print { @page { margin: 12mm; } }
+      </style>
+      </head><body>
+        <div class="report-header">
+          <div class="logo">Orchid Group</div>
+          <div class="subtitle">تقرير سلف الراتب الشامل — كل الفروع</div>
+          <div style="font-size:12px;color:#666;margin-top:4px;">تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA')}</div>
+        </div>
+        ${monthsHtml}
+        <div class="grand-total">💰 الإجمالي الكلي النهائي لكل السلف: ${grandTotal.toFixed(2)} MYR</div>
+        <script>window.onload = function(){ window.print() }</script>
+      </body></html>`)
+    win.document.close()
+  }
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -861,6 +1008,9 @@ export default function EmployeeRequestsPage() {
   )}
   {canSeeSalaryAdvance && (
     <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
+  )}
+  {isAdmin && (
+    <button onClick={printAllSalaryAdvances} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🖨️ تقرير السلف الشامل' : '🖨️ Full Advances Report'}</button>
   )}
 </div>
       </div>
@@ -1010,7 +1160,7 @@ export default function EmployeeRequestsPage() {
 {showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
   <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />
 )}
-      {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
+      {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} isAdmin={isAdmin} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
 } 

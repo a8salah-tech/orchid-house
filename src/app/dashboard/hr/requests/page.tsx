@@ -971,10 +971,12 @@ export default function EmployeeRequestsPage() {
   }, {} as Record<string, number>)
 
   // Filter
-  // تم نقل تعريف صلاحيات الراتب لأعلى (canSeeSalaryIncrease / canSeeSalaryAdvance)
   const filtered = branchScopedRequests.filter(r => {
+    // 📈 زيادة الراتب: تظهر فقط لمن يملك الصلاحية من صفحة إدارة الصلاحيات
     if (!canSeeSalaryIncrease && r.request_type === 'salary_increase') return false
-    if (!canSeeSalaryAdvance && r.request_type === 'salary_advance') return false
+    // 💸 سلفة الراتب: ظاهرة دائمًا للجميع (بدون شرط صلاحية)
+    // لكن غير admin يشوف فقط طلباته الشخصية من سلفة/زيادة الراتب
+    if ((r.request_type === 'salary_advance' || r.request_type === 'salary_increase') && !isAdmin && r.employee_id !== currentUser?.id) return false
     const matchStatus = filterStatus === 'all' || r.status === filterStatus
     const matchType = filterType === 'all' || r.request_type === filterType
     const matchEmp = filterEmp === 'all' || r.employee_id === filterEmp
@@ -1007,9 +1009,7 @@ export default function EmployeeRequestsPage() {
   {canSeeSalaryIncrease && (
     <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '📈 زيادة راتب' : '📈 Salary Increase'}</button>
   )}
-  {canSeeSalaryAdvance && (
-    <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
-  )}
+  <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
   {isAdmin && (
     <button onClick={printAllSalaryAdvances} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🖨️ تقرير السلف الشامل' : '🖨️ Full Advances Report'}</button>
   )}
@@ -1041,9 +1041,9 @@ export default function EmployeeRequestsPage() {
       {/* Type filter chips */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button onClick={() => setFilterType('all')} style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filterType === 'all' ? S.gold : S.border}`, background: filterType === 'all' ? S.gold3 : 'transparent', color: filterType === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-          الكل ({branchScopedRequests.filter(r => (canSeeSalaryIncrease || r.request_type !== 'salary_increase') && (canSeeSalaryAdvance || r.request_type !== 'salary_advance')).length})
+          الكل ({branchScopedRequests.filter(r => (canSeeSalaryIncrease || r.request_type !== 'salary_increase') && !((r.request_type === 'salary_advance' || r.request_type === 'salary_increase') && !isAdmin && r.employee_id !== currentUser?.id)).length})
         </button>
-        {Object.entries(REQUEST_TYPES).filter(([key]) => (key !== 'salary_increase' || canSeeSalaryIncrease) && (key !== 'salary_advance' || canSeeSalaryAdvance)).map(([key, cfg]) => {
+        {Object.entries(REQUEST_TYPES).filter(([key]) => key !== 'salary_increase' || canSeeSalaryIncrease).map(([key, cfg]) => {
           const count = branchScopedRequests.filter(r => r.request_type === key).length
           if (count === 0) return null
           return (

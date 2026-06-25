@@ -452,7 +452,6 @@ const filteredItems = items
 
       {/* Item Sheet */}
       {ItemSheet}
-
       {/* ── Cart Bar ── */}
       {cartCount > 0 && (
         <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(10,15,26,.96)`, borderTop:`1px solid ${C.border}`, zIndex:100, backdropFilter:'blur(8px)' }}>
@@ -466,4 +465,5 @@ const filteredItems = items
       )}
     </div>
   )
-}
+} 
+ 

@@ -376,7 +376,7 @@ const filteredItems = items
       </div>
 
       {/* ── Items List ── */}
-      <div style={{ padding:'14px 14px 14px', display:'flex', flexDirection:'column', gap:18, maxWidth:560, margin:'0 auto' }}>
+      <div style={{ padding:'14px 14px 100px', display:'flex', flexDirection:'column', gap:36, maxWidth:560, margin:'0 auto' }}>
         {filteredItems.length === 0 ? (
           <div style={{ textAlign:'center', padding:60, color:C.silver2 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
@@ -389,8 +389,8 @@ const filteredItems = items
               style={{ background:C.bg2, borderRadius:20, overflow:'visible', border:`1px solid ${qty > 0 ? C.blue1 : C.border}`, cursor:'pointer', position:'relative', display:'flex', alignItems:'center', minHeight:110, boxShadow: qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`, transition:'all .2s' }}
               onClick={() => { setSelectedItem(item); setSelectedSize(null) }}>
 
-              {/* Content (left side) */}
-              <div style={{ flex:1, minWidth:0, padding:'14px 16px 14px 100px', textAlign:'right' }}>
+              {/* Content (right side) */}
+              <div style={{ flex:1, minWidth:0, padding:'14px 100px 14px 16px', textAlign:'right' }}>
                 <div style={{ fontSize:14, fontWeight:800, color:C.white, marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
                 <div style={{ fontSize:11, color:C.blue1, marginBottom:6, fontWeight:600 }}>{item.name}</div>
                 {item.description_en && (
@@ -418,8 +418,8 @@ const filteredItems = items
                 </div>
               </div>
 
-              {/* ── Tall Image (right side, bleeds outside card) ── */}
-              <div style={{ position:'absolute', top:-10, bottom:-10, right:-10, width:110, borderRadius:18, overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 20px ${C.glow2}` : `0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
+              {/* ── Tall Image (left side, bleeds outside card) ── */}
+              <div style={{ position:'absolute', top:-10, bottom:-10, left:-10, width:110, borderRadius:18, overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 20px ${C.glow2}` : `0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
                 {item.image_url
                   ? <img src={item.image_url} alt={item.name_en} loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32 }}>🍽️</div>
@@ -440,7 +440,7 @@ const filteredItems = items
 
       {/* ── Cart Bar ── */}
       {cartCount > 0 && (
-        <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(10,15,26,.92)`, borderTop:`1px solid ${C.border}` }}>
+        <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(10,15,26,.96)`, borderTop:`1px solid ${C.border}`, zIndex:100, backdropFilter:'blur(8px)' }}>
           <div style={{ maxWidth:520, margin:'0 auto' }}>
             <button onClick={() => setPhase('cart')}
               style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'15px 20px', cursor:'pointer', fontWeight:900, fontSize:15, color:C.white, display:'flex', justifyContent:'center', alignItems:'center', boxShadow:`0 8px 28px ${C.glow2}` }}>

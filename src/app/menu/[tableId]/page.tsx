@@ -411,14 +411,14 @@ const filteredItems = items
                 {item.description_en && (
                   <div style={{ fontSize:10, color:C.silver2, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
                 )}
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                   {item.discount_percent && item.discount_percent > 0 ? (
                     <>
-                      <div style={{ background:'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius:20, padding:'4px 10px', fontSize:12, fontWeight:900, color:'#fff', display:'flex', alignItems:'center', gap:4 }}>
-                        MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}
-                        <span style={{ fontSize:9, background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 4px' }}>-{item.discount_percent}%</span>
+                      <div style={{ background:'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius:20, padding:'4px 10px', fontSize:12, fontWeight:900, color:'#fff', display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
+                        <span style={{ whiteSpace:'nowrap' }}>MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}</span>
+                        <span style={{ fontSize:9, background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 4px', whiteSpace:'nowrap' }}>-{item.discount_percent}%</span>
                       </div>
-                      <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through' }}>MYR {item.price.toFixed(2)}</div>
+                      <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through', whiteSpace:'nowrap' }}>MYR {item.price.toFixed(2)}</div>
                     </>
                   ) : (
                     <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
@@ -452,6 +452,7 @@ const filteredItems = items
 
       {/* Item Sheet */}
       {ItemSheet}
+
       {/* ── Cart Bar ── */}
       {cartCount > 0 && (
         <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(10,15,26,.96)`, borderTop:`1px solid ${C.border}`, zIndex:100, backdropFilter:'blur(8px)' }}>
@@ -465,5 +466,4 @@ const filteredItems = items
       )}
     </div>
   )
-} 
- 
+}

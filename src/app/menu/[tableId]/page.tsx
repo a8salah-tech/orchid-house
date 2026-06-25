@@ -384,13 +384,28 @@ const filteredItems = items
           </div>
         ) : filteredItems.map(item => {
           const qty = getQty(item.id)
+          const hasDiscount = !!(item.discount_percent && item.discount_percent > 0)
           return (
             <div key={item.id} className="item-card"
-              style={{ background:C.bg2, borderRadius:20, overflow:'visible', border:`1px solid ${qty > 0 ? C.blue1 : C.border}`, cursor:'pointer', position:'relative', display:'flex', alignItems:'center', minHeight:110, boxShadow: qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`, transition:'all .2s' }}
+              style={{
+                background: hasDiscount ? 'linear-gradient(135deg, rgba(239,68,68,.08), rgba(220,38,38,.04))' : C.bg2,
+                borderRadius:20, overflow:'visible',
+                border: hasDiscount ? '1.5px solid #ef4444' : `1px solid ${qty > 0 ? C.blue1 : C.border}`,
+                cursor:'pointer', position:'relative', display:'flex', alignItems:'center', minHeight:140,
+                boxShadow: hasDiscount ? '0 8px 28px rgba(239,68,68,.25)' : (qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`),
+                transition:'all .2s'
+              }}
               onClick={() => { setSelectedItem(item); setSelectedSize(null) }}>
 
+              {/* ── Discount ribbon (only visible if item has an active discount) ── */}
+              {hasDiscount && (
+                <div style={{ position:'absolute', top:-12, left:140, background:'linear-gradient(135deg,#ef4444,#dc2626)', color:'#fff', fontSize:10, fontWeight:900, padding:'3px 10px', borderRadius:10, boxShadow:'0 4px 10px rgba(239,68,68,.4)', zIndex:12, display:'flex', alignItems:'center', gap:3 }}>
+                  🔥 OFFER -{item.discount_percent}%
+                </div>
+              )}
+
               {/* Content (right side) */}
-              <div style={{ flex:1, minWidth:0, marginLeft:100, padding:'14px 16px 14px 0', textAlign:'left', position:'relative', zIndex:1 }}>
+              <div style={{ flex:1, minWidth:0, marginLeft:156, padding:'14px 16px 14px 0', textAlign:'left', position:'relative', zIndex:1 }}>
                 <div style={{ fontSize:14, fontWeight:800, color:C.white, marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
                 <div style={{ fontSize:11, color:C.blue1, marginBottom:6, fontWeight:600 }}>{item.name}</div>
                 {item.description_en && (
@@ -419,7 +434,7 @@ const filteredItems = items
               </div>
 
               {/* ── Tall Image (left side, bleeds outside card) ── */}
-              <div style={{ position:'absolute', top:-10, bottom:-10, left:-10, width:110, borderRadius:18, overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 20px ${C.glow2}` : `0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
+              <div style={{ position:'absolute', top:-14, bottom:-14, left:-14, width:150, borderRadius:20, overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 20px ${C.glow2}` : `0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
                 {item.image_url
                   ? <img src={item.image_url} alt={item.name_en} loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32 }}>🍽️</div>

@@ -315,6 +315,14 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const [approvedQtys, setApprovedQtys] = useState<Record<string, number>>(
     Object.fromEntries((request.internal_warehouse_request_items || []).map(i => [i.id, i.quantity_requested]))
   )
+  // ✅ إضافة جديدة: السماح لأمين المستودع بتصحيح الوحدة (لو الموظف مقدّم الطلب أدخل وحدة خاطئة)
+  const [units, setUnits] = useState<any[]>([])
+  const [editedUnits, setEditedUnits] = useState<Record<string, string>>(
+    Object.fromEntries((request.internal_warehouse_request_items || []).map(i => [i.id, (i as any).unit_id || '']))
+  )
+  useEffect(() => {
+    sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
+  }, [])
   const role = currentEmployee?.role || ''
 
   const canApprove = role === 'warehouse_keeper' && request.status === 'pending'
@@ -342,7 +350,8 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         // نحوّل الكمية باستخدام unit_conversions المطابقة تحديدًا لوحدة الطلب
         // (الصنف ممكن يكون له أكثر من معادلة تحويل، مثل كرتون→كيلو وكرتون→غرام، فلازم نحدد المطابق بالذات)
         let qty = requestedQty
-        const itemUnitId = (item as any).unit_id
+        // ✅ إضافة: لو أمين المستودع صحّح الوحدة (لأن مقدّم الطلب أدخلها غلط)، نستخدم الوحدة المصحَّحة بدل الأصلية
+        const itemUnitId = editedUnits[item.id] || (item as any).unit_id
         if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
           const { data: conv } = await sb.from('unit_conversions')
             .select('from_unit_id, to_unit_id, factor')
@@ -366,7 +375,12 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
           notes: `طلب مستودع داخلي #${request.request_number} — ${request.department}`,
         }])
       }
-      await sb.from('internal_warehouse_request_items').update({ quantity_approved: requestedQty }).eq('id', item.id)
+      // ✅ إضافة: تحديث الوحدة كذلك لو أمين المستودع صحّحها، بالإضافة للكمية المعتمدة كما كان
+      const updatePayload: any = { quantity_approved: requestedQty }
+      if (editedUnits[item.id] && editedUnits[item.id] !== (item as any).unit_id) {
+        updatePayload.unit_id = editedUnits[item.id]
+      }
+      await sb.from('internal_warehouse_request_items').update(updatePayload).eq('id', item.id)
     }
 
     // 3) تحديث حالة الطلب
@@ -438,7 +452,11 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
                       <input type="number" min="0" value={approvedQtys[item.id] ?? item.quantity_requested}
                         onChange={e => setApprovedQtys(p => ({ ...p, [item.id]: parseFloat(e.target.value) || 0 }))}
                         style={{ width: 80, textAlign: 'center', background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.blue}40`, borderRadius: 8, padding: '6px 8px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }} />
-                      <span style={{ fontSize: 12, color: S.muted, fontWeight: 600 }}>{item.units?.symbol || '—'}</span>
+                      {/* ✅ إضافة: تعديل الوحدة متاح فقط لأمين المستودع قبل الاعتماد، لتصحيح أي خطأ من مقدّم الطلب */}
+                      <select value={editedUnits[item.id] ?? ''} onChange={e => setEditedUnits(p => ({ ...p, [item.id]: e.target.value }))}
+                        style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.amber}40`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.amber, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+                        {units.map(u => <option key={u.id} value={u.id} style={{ background: S.navy2, color: S.white }}>{u.symbol || u.name}</option>)}
+                      </select>
                     </div>
                   ) : (
                     <div style={{ fontSize: 13, fontWeight: 700, color: S.blue }}>{item.quantity_requested} {item.units?.symbol}</div>

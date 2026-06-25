@@ -1108,18 +1108,49 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                     onClick={async e => {
                       e.stopPropagation()
                       const count = catCounts[cat] || 0
-                      if (count > 0 && !confirm(`قسم "${cat}" يحتوي على ${count} صنف. سيتم نقل هذه الأصناف إلى "بدون فئة" (بدون حذف أي منتج)، ثم حذف القسم. هل تريد الاستمرار؟`)) return
+                      if (count > 0 && !confirm(`قسم "${cat}" يحتوي على ${count} صنف.\n\n⚠️ سيتم حذف هذه الأصناف نهائيًا (الأصناف التي ليس لها أي تاريخ حركات أو فواتير أو طلبات مرتبطة بها فقط).\nالأصناف التي لها سجل تاريخي سيتم تنبيهك بها ولن تُحذف تلقائيًا.\n\nهل تريد الاستمرار؟`)) return
                       if (count === 0 && !confirm(`حذف قسم "${cat}"؟`)) return
-                      // ✅ Fix: لو فيه منتجات مرتبطة بهذا القسم، نحدّث فئتها لقيمة فاضية أولاً
-                      // (بدون حذف أي منتج خالص)، وإلا سيظهر القسم تلقائيًا مرة أخرى بعد أي تحديث
-                      // للصفحة لأن المنتجات نفسها لا تزال تحمل هذا التصنيف.
+
                       if (count > 0) {
-                        const { error: updErr } = await supabase.from('warehouse_products').update({ category: '' }).eq('category', cat).eq('warehouse_id', warehouseId)
-                        if (updErr) { alert('تعذّر نقل أصناف القسم: ' + updErr.message); return }
+                        // ✅ جلب كل منتجات هذا القسم في هذا المستودع
+                        const { data: catProducts, error: prodErr } = await supabase
+                          .from('warehouse_products').select('id, name')
+                          .eq('category', cat).eq('warehouse_id', warehouseId)
+                        if (prodErr) { alert('تعذّر جلب أصناف القسم: ' + prodErr.message); return }
+
+                        const blockedNames: string[] = []
+                        const deletableIds: string[] = []
+
+                        // ✅ فحص كل صنف على حدة للتأكد من عدم وجود أي ارتباط تاريخي قبل حذفه فعليًا
+                        for (const p of (catProducts || [])) {
+                          const [sm, pii, iwri, bri, dp] = await Promise.all([
+                            supabase.from('stock_movements').select('id', { count: 'exact', head: true }).eq('product_id', p.id),
+                            supabase.from('purchase_invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id),
+                            supabase.from('internal_warehouse_request_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id),
+                            supabase.from('branch_request_items').select('id', { count: 'exact', head: true }).eq('product_id', p.id),
+                            supabase.from('department_products').select('id', { count: 'exact', head: true }).eq('product_id', p.id),
+                          ])
+                          const hasHistory = [sm, pii, iwri, bri, dp].some(r => (r.count || 0) > 0)
+                          if (hasHistory) blockedNames.push(p.name)
+                          else deletableIds.push(p.id)
+                        }
+
+                        // ✅ حذف الأصناف الخالية من أي ارتباط فقط، الباقي يبقى كما هو بدون أي لمس
+                        if (deletableIds.length > 0) {
+                          const { error: delProdErr } = await supabase.from('warehouse_products').delete().in('id', deletableIds)
+                          if (delProdErr) { alert('تعذّر حذف بعض الأصناف: ' + delProdErr.message); return }
+                        }
+
+                        if (blockedNames.length > 0) {
+                          alert(`⚠️ تم حذف ${deletableIds.length} صنف من القسم.\n\nلم يتم حذف ${blockedNames.length} صنف لوجود سجل تاريخي (حركات/فواتير/طلبات) مرتبط بها:\n${blockedNames.join('، ')}\n\nهذه الأصناف نُقلت إلى "بدون فئة" بدلاً من حذفها.`)
+                          // الأصناف المحظورة تُنقل لـ"بدون فئة" (بدل ما تفضل تظهر القسم المحذوف تلقائيًا)
+                          await supabase.from('warehouse_products').update({ category: '' }).eq('category', cat).eq('warehouse_id', warehouseId)
+                        }
                       }
+
                       const { error: delErr } = await supabase.from('warehouse_categories').delete().eq('name', cat)
                       if (delErr) { alert('تعذّر حذف القسم: ' + delErr.message); return }
-                      // ✅ Fix: تحديث الواجهة فقط بعد التأكد من نجاح الحذف فعليًا في قاعدة البيانات
+                      // ✅ تحديث الواجهة فقط بعد التأكد من نجاح الحذف فعليًا في قاعدة البيانات
                       setCategories(prev => prev.filter(c => c !== cat))
                       if (selectedCategory === cat) setSelectedCategory('all')
                       fetchAll()

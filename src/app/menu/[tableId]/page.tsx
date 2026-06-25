@@ -390,7 +390,7 @@ const filteredItems = items
               onClick={() => { setSelectedItem(item); setSelectedSize(null) }}>
 
               {/* Content (right side) */}
-              <div style={{ flex:1, minWidth:0, padding:'14px 16px 14px 100px', textAlign:'left' }}>
+              <div style={{ flex:1, minWidth:0, marginLeft:100, padding:'14px 16px 14px 0', textAlign:'left', position:'relative', zIndex:1 }}>
                 <div style={{ fontSize:14, fontWeight:800, color:C.white, marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
                 <div style={{ fontSize:11, color:C.blue1, marginBottom:6, fontWeight:600 }}>{item.name}</div>
                 {item.description_en && (

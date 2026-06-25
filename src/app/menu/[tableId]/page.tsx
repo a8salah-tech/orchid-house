@@ -182,8 +182,8 @@ const filteredItems = items
     <div style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
       <style>{globalStyles}</style>
       <div style={{ textAlign:'center' }}>
-        <div style={{ width:80, height:80, borderRadius:'50%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', animation:'spin 2s linear infinite', boxShadow:`0 0 30px ${C.glow2}` }}>
-          <span style={{ fontSize:40 }}>🌸</span>
+        <div style={{ width:80, height:80, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', animation:'spin 2s linear infinite', boxShadow:`0 0 30px ${C.glow2}` }}>
+          <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         </div>
         <div style={{ color:C.blue1, fontSize:16, fontWeight:700 }}>Loading menu...</div>
       </div>
@@ -325,17 +325,6 @@ const filteredItems = items
           </div>
           )
         })}
-        <div style={{ background:`rgba(59,159,229,.06)`, border:`1px solid ${C.border}`, borderRadius:20, padding:'16px 20px', marginBottom:16 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:C.silver2, marginBottom:6 }}>
-            <span>Subtotal</span><span style={{ color:C.white }}> MYR {cartTotal.toFixed(2)}</span>
-          </div>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:C.silver2, marginBottom:4 }}>
-            <span>Service Charge (10%)</span><span>MYR {(cartTotal * .1).toFixed(2)}</span>
-          </div>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:C.silver2 }}>
-            <span>SST (6%)</span><span>MYR {(cartTotal * .06).toFixed(2)}</span>
-          </div>
-        </div>
         <button onClick={confirmOrder} disabled={submitting}
           style={{ width:'100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'17px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight:900, fontSize:16, color:C.white, boxShadow: submitting ? 'none' : `0 8px 32px ${C.glow2}` }}>
           {submitting ? '⏳ Placing order...' : `✅ Confirm Order — ${cartCount} items`}
@@ -354,10 +343,12 @@ const filteredItems = items
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
           {/* Logo area */}
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{ width:40, height:40, borderRadius:'50%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, boxShadow:`0 4px 12px ${C.glow}`, flexShrink:0 }}>🌸</div>
+            <div style={{ width:40, height:40, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:`0 4px 12px ${C.glow}`, flexShrink:0 }}>
+              <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+            </div>
             <div>
               <div style={{ fontSize:16, fontWeight:900, color:C.white, lineHeight:1 }}>ORCHID <span style={{ color:C.blue1 }}>HOUSE</span></div>
-              <div style={{ fontSize:10, color:C.silver2, marginTop:2 }}>{table?.name || `Table ${table?.number}`}</div>
+              <div style={{ display:'inline-block', marginTop:5, padding:'3px 10px', borderRadius:8, border:`1.5px solid ${C.blue1}`, background:'rgba(59,159,229,.1)', fontSize:12, fontWeight:800, color:C.blue1 }}>{table?.name || `Table ${table?.number}`}</div>
             </div>
           </div>
           <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
@@ -384,10 +375,10 @@ const filteredItems = items
         </div>
       </div>
 
-      {/* ── Items Grid ── */}
-      <div style={{ padding:'28px 14px 14px', display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'56px 14px', maxWidth:560, margin:'0 auto' }}>
+      {/* ── Items List ── */}
+      <div style={{ padding:'14px 14px 14px', display:'flex', flexDirection:'column', gap:18, maxWidth:560, margin:'0 auto' }}>
         {filteredItems.length === 0 ? (
-          <div style={{ gridColumn:'1/-1', textAlign:'center', padding:60, color:C.silver2 }}>
+          <div style={{ textAlign:'center', padding:60, color:C.silver2 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
             <div>No items found</div>
           </div>
@@ -395,38 +386,25 @@ const filteredItems = items
           const qty = getQty(item.id)
           return (
             <div key={item.id} className="item-card"
-              style={{ background:C.bg2, borderRadius:22, overflow:'visible', border:`1px solid ${qty > 0 ? C.blue1 : C.border}`, cursor:'pointer', position:'relative', marginTop:52, boxShadow: qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`, transition:'all .2s' }}
+              style={{ background:C.bg2, borderRadius:20, overflow:'visible', border:`1px solid ${qty > 0 ? C.blue1 : C.border}`, cursor:'pointer', position:'relative', display:'flex', alignItems:'center', minHeight:110, boxShadow: qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`, transition:'all .2s' }}
               onClick={() => { setSelectedItem(item); setSelectedSize(null) }}>
 
-              {/* ── Circular Image ── */}
-              <div style={{ position:'absolute', top:-52, left:'50%', transform:'translateX(-50%)', width:96, height:96, borderRadius:'50%', overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 0 4px ${C.bg2}, 0 0 20px ${C.glow2}` : `0 0 0 4px ${C.bg2}, 0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
-                {item.image_url
-                  ? <img src={item.image_url} alt={item.name_en} loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                  : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36 }}>🍽️</div>
-                }
-              </div>
-
-              {/* qty badge */}
-              {qty > 0 && (
-                <div style={{ position:'absolute', top:-10, right:-6, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:26, height:26, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, zIndex:11, boxShadow:`0 2px 8px ${C.glow2}` }}>{qty}</div>
-              )}
-
-              {/* Content */}
-              <div style={{ padding:'52px 12px 14px', textAlign:'center' }}>
-                <div style={{ fontSize:13, fontWeight:800, color:C.white, marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
-                <div style={{ fontSize:10, color:C.blue1, marginBottom:6, fontWeight:600 }}>{item.name}</div>
+              {/* Content (left side) */}
+              <div style={{ flex:1, minWidth:0, padding:'14px 16px 14px 100px', textAlign:'right' }}>
+                <div style={{ fontSize:14, fontWeight:800, color:C.white, marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
+                <div style={{ fontSize:11, color:C.blue1, marginBottom:6, fontWeight:600 }}>{item.name}</div>
                 {item.description_en && (
                   <div style={{ fontSize:10, color:C.silver2, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
                 )}
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:10, gap:6 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                   {item.discount_percent && item.discount_percent > 0 ? (
-                    <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2 }}>
-                      <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through' }}>MYR {item.price.toFixed(2)}</div>
+                    <>
                       <div style={{ background:'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius:20, padding:'4px 10px', fontSize:12, fontWeight:900, color:'#fff', display:'flex', alignItems:'center', gap:4 }}>
                         MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}
                         <span style={{ fontSize:9, background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 4px' }}>-{item.discount_percent}%</span>
                       </div>
-                    </div>
+                      <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through' }}>MYR {item.price.toFixed(2)}</div>
+                    </>
                   ) : (
                     <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
                       MYR {item.price.toFixed(2)}
@@ -439,6 +417,19 @@ const filteredItems = items
                   </div>
                 </div>
               </div>
+
+              {/* ── Tall Image (right side, bleeds outside card) ── */}
+              <div style={{ position:'absolute', top:-10, bottom:-10, right:-10, width:110, borderRadius:18, overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 20px ${C.glow2}` : `0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
+                {item.image_url
+                  ? <img src={item.image_url} alt={item.name_en} loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                  : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32 }}>🍽️</div>
+                }
+              </div>
+
+              {/* qty badge */}
+              {qty > 0 && (
+                <div style={{ position:'absolute', top:-10, right:-6, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:26, height:26, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, zIndex:11, boxShadow:`0 2px 8px ${C.glow2}` }}>{qty}</div>
+              )}
             </div>
           )
         })}
@@ -452,9 +443,8 @@ const filteredItems = items
         <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(10,15,26,.92)`, borderTop:`1px solid ${C.border}` }}>
           <div style={{ maxWidth:520, margin:'0 auto' }}>
             <button onClick={() => setPhase('cart')}
-              style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'15px 20px', cursor:'pointer', fontWeight:900, fontSize:15, color:C.white, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:`0 8px 28px ${C.glow2}` }}>
+              style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'15px 20px', cursor:'pointer', fontWeight:900, fontSize:15, color:C.white, display:'flex', justifyContent:'center', alignItems:'center', boxShadow:`0 8px 28px ${C.glow2}` }}>
               <span>🛒 View Order ({cartCount} items)</span>
-              <span style={{ background:'rgba(255,255,255,.15)', borderRadius:12, padding:'4px 12px', fontSize:14 }}>MYR {cartTotal.toFixed(2)}</span>
             </button>
           </div>
         </div>

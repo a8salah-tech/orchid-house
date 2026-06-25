@@ -1108,11 +1108,21 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                     onClick={async e => {
                       e.stopPropagation()
                       const count = catCounts[cat] || 0
-                      if (count > 0 && !confirm(`قسم "${cat}" يحتوي على ${count} صنف. هل تريد حذفه؟`)) return
+                      if (count > 0 && !confirm(`قسم "${cat}" يحتوي على ${count} صنف. سيتم نقل هذه الأصناف إلى "بدون فئة" (بدون حذف أي منتج)، ثم حذف القسم. هل تريد الاستمرار؟`)) return
                       if (count === 0 && !confirm(`حذف قسم "${cat}"؟`)) return
-                      await supabase.from('warehouse_categories').delete().eq('name', cat)
+                      // ✅ Fix: لو فيه منتجات مرتبطة بهذا القسم، نحدّث فئتها لقيمة فاضية أولاً
+                      // (بدون حذف أي منتج خالص)، وإلا سيظهر القسم تلقائيًا مرة أخرى بعد أي تحديث
+                      // للصفحة لأن المنتجات نفسها لا تزال تحمل هذا التصنيف.
+                      if (count > 0) {
+                        const { error: updErr } = await supabase.from('warehouse_products').update({ category: '' }).eq('category', cat).eq('warehouse_id', warehouseId)
+                        if (updErr) { alert('تعذّر نقل أصناف القسم: ' + updErr.message); return }
+                      }
+                      const { error: delErr } = await supabase.from('warehouse_categories').delete().eq('name', cat)
+                      if (delErr) { alert('تعذّر حذف القسم: ' + delErr.message); return }
+                      // ✅ Fix: تحديث الواجهة فقط بعد التأكد من نجاح الحذف فعليًا في قاعدة البيانات
                       setCategories(prev => prev.filter(c => c !== cat))
                       if (selectedCategory === cat) setSelectedCategory('all')
+                      fetchAll()
                     }}
                     style={{ marginRight: 4, color: '#EF4444', fontSize: 13, cursor: 'pointer', fontWeight: 700, padding: '0 2px' }}
                     title="حذف القسم"

@@ -57,7 +57,7 @@ export default function UniformRequestsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const baseSelect = `*, employees(name, name_en, employee_number, department), uniform_request_items(*)`
+    const baseSelect = `*, employees:employee_id(name, name_en, employee_number, department), uniform_request_items(*)`
     const [mine, all] = await Promise.all([
       sb.from('uniform_requests').select(baseSelect).eq('employee_id', currentUser?.id || '').order('requested_at', { ascending: false }),
       isAdmin

@@ -22,10 +22,10 @@ const S = {
 }
 
 const ITEM_TYPES = [
-  { key: 'jacket', label: 'Jackets', label_ar: 'جاكيت', icon: '🧥' },
+  { key: 'jacket', label: 'Jackets', label_ar: 'جاكيت', icon: '👨🏻‍🍳' },
   { key: 'tshirt', label: 'T-shirts', label_ar: 'تيشيرت', icon: '👕' },
   { key: 'cap',    label: 'Cap',      label_ar: 'كاب',     icon: '🧢' },
-  { key: 'apron',  label: 'Apron',    label_ar: 'مريول',   icon: '🥽' },
+  { key: 'apron',  label: 'Apron',    label_ar: 'مريول',   icon: '🎽' },
 ]
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL']
 
@@ -95,10 +95,10 @@ export default function UniformRequestsPage() {
     await sb.from('uniform_request_items').insert(
       items.map(([item_type, sel]) => ({ request_id: newReq.id, item_type, size: sel.size, quantity: sel.quantity }))
     )
+    await fetchAll()
     setSubmitting(false)
     setSelections({})
     setTab('mine')
-    fetchAll()
   }
 
   async function markDelivered(requestId: string) {
@@ -107,13 +107,13 @@ export default function UniformRequestsPage() {
       delivered_at: new Date().toISOString(),
       delivered_by: currentUser?.id,
     }).eq('id', requestId)
-    fetchAll()
+    await fetchAll()
   }
 
   async function markRejected(requestId: string) {
     if (!confirm('تأكيد رفض الطلب؟')) return
     await sb.from('uniform_requests').update({ status: 'rejected' }).eq('id', requestId)
-    fetchAll()
+    await fetchAll()
   }
 
   function itemLabel(type: string) {

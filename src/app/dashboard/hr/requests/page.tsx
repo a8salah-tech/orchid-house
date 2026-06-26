@@ -551,6 +551,58 @@ function RequestDetailModal({ request, currentUser, isAdmin, onClose, onUpdate, 
       }
     }
 
+    // ✅ خصم سلفة الراتب تلقائيًا من راتب شهر الاعتماد نفسه (وليس شهر السداد الفعلي)
+    // مثال: السلفة تُعتمد 25 مايو → تُخصم من راتب شهر مايو (الذي يُسلَّم فعليًا في يونيو)
+    if (newStatus === 'completed' && request.request_type === 'salary_advance' && request.amount) {
+      const now = new Date()
+      const targetMonth = now.getMonth() + 1
+      const targetYear = now.getFullYear()
+
+      // 1) إيجاد شهر الرواتب المطابق، أو إنشاؤه لو لم يكن موجودًا بعد
+      let { data: payrollMonth } = await supabase.from('payroll_months')
+        .select('id').eq('month', targetMonth).eq('year', targetYear).maybeSingle()
+      if (!payrollMonth) {
+        const { data: newMonth } = await supabase.from('payroll_months')
+          .insert([{ month: targetMonth, year: targetYear, status: 'draft' }])
+          .select('id').single()
+        payrollMonth = newMonth
+      }
+
+      if (payrollMonth) {
+        // 2) إيجاد سجل راتب الموظف لهذا الشهر، أو إنشاؤه لو لم يكن موجودًا بعد
+        const { data: existingRecord } = await supabase.from('payroll_records')
+          .select('id, advance').eq('payroll_month_id', payrollMonth.id).eq('employee_id', request.employee_id).maybeSingle()
+
+        if (existingRecord) {
+          // ✅ نزيد على القيمة الحالية (لا نستبدلها) لحماية أي سلفة سابقة معتمدة لنفس الشهر
+          await supabase.from('payroll_records').update({
+            advance: (existingRecord.advance || 0) + request.amount,
+          }).eq('id', existingRecord.id)
+        } else {
+          // جلب الراتب الأساسي والتأمين من بيانات الموظف نفسه لتعبئة السجل الجديد
+          const { data: empData } = await supabase.from('employees')
+            .select('salary, insurance, work_insurance').eq('id', request.employee_id).maybeSingle()
+          await supabase.from('payroll_records').insert([{
+            payroll_month_id: payrollMonth.id, employee_id: request.employee_id,
+            basic_salary: empData?.salary || 0, insurance: empData?.insurance || 0,
+            working_days: 30, days_worked: 30,
+            overtime_days: 0, overtime_hours: 0,
+            allowance_1: 0, allowance_1_label: 'Allowance 1',
+            allowance_2: 0, allowance_2_label: 'Allowance 2',
+            allowance_3: 0, allowance_3_label: 'Allowance 3',
+            absence_days: 0, late_hours: 0, early_exit_hours: 0,
+            tax: 0,
+            deduction_1: 0, deduction_1_label: 'Deduction 1',
+            deduction_2: 0, deduction_2_label: 'Deduction 2',
+            deduction_3: 0, deduction_3_label: 'Deduction 3',
+            advance: request.amount, advance_balance: 0, carried_forward: 0,
+            amount_due: 0, amount_paid: 0,
+            work_insurance: empData?.work_insurance || 0,
+          }])
+        }
+      }
+    }
+
     setUpdating(false)
     onUpdate()
   }

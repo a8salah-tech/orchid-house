@@ -34,6 +34,8 @@ const ROLES = [
 ]
 
 const BRANCH_PREFIX: Record<string, string> = {
+  'Orchid House': 'ORH',
+  'Orchid KLCC': 'ORK',
   'اوركيد هاوس': 'ORH',
   'اوركيد فرع KLCC': 'ORK',
 }

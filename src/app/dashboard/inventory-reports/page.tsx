@@ -120,13 +120,12 @@ export default function InventoryReportsPage() {
     const count = counts.find(c => c.id === countId)
     if (!count) { setApproving(false); return }
 
-    // تحديث المخزون لكل صنف
+    // ⚠️ Fix: لا نحدّث current_stock يدويًا هنا — الـ trigger (trigger_update_stock)
+    // على جدول stock_movements بيحدّث current_stock تلقائيًا أول ما نسجل الحركة تحت.
+    // كان فيه تحديث يدوي مباشر زيادة عن اللازم هنا، وده كان يسبب تحديث current_stock
+    // مرتين (مرة يدوي + مرة من التريغر) فيخرج رقم مضاعف خطأ (مثال: 89 بتتحول لـ 178).
     for (const item of count.inventory_count_items || []) {
-      await sb.from('warehouse_products')
-        .update({ current_stock: item.actual_stock })
-        .eq('id', item.product_id)
-
-      // تسجيل حركة مخزون
+      // تسجيل حركة مخزون بالفرق فقط — الـ trigger هو المسؤول عن تحديث current_stock
       if (item.difference !== 0) {
         await sb.from('stock_movements').insert([{
           product_id: item.product_id,

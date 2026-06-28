@@ -973,19 +973,25 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
 
   // تنسيق المخزون بالوحدتين الكبيرة والصغيرة
   function formatStock(product: Product) {
-    // ✅ Fix: current_stock محفوظة دائمًا بالوحدة الأساسية للصنف كما اختارها المستخدم وقت الإدخال
-    // (سواء كانت وحدة كبرى أو صغرى) — تُعرض مباشرة بدون أي قسمة أو ضرب.
-    // unit_conversions (لو موجودة لهذا الصنف) تُستخدم فقط كملاحظة توضيحية معلوماتية، لا تؤثر على الرقم المعروض.
     const conv = unitConversionsAll.find((c: any) => c.product_id === product.id)
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return {
+        big: null,
+        bigUnit: '',
+        small: product.current_stock,
+        smallUnit: product.units?.symbol || '',
+        conversionNote: null,
+      }
+    }
+    const factor = conv.factor
+    const bigQty = Math.floor(product.current_stock / factor)
+    const smallQty = product.current_stock % factor
     return {
-      big: null,
-      bigUnit: '',
-      small: product.current_stock,
-      smallUnit: product.units?.symbol || '',
-      // ملاحظة توضيحية اختيارية: لو فيه معادلة تحويل مسجلة لهذا الصنف
-      conversionNote: conv && conv.factor > 1
-        ? `1 ${conv.from_unit?.symbol || ''} = ${conv.factor} ${conv.to_unit?.symbol || ''}`
-        : null,
+      big: bigQty,
+      bigUnit: conv.from_unit?.symbol || '',
+      small: smallQty,
+      smallUnit: conv.to_unit?.symbol || product.units?.symbol || '',
+      conversionNote: `1 ${conv.from_unit?.symbol || ''} = ${factor} ${conv.to_unit?.symbol || ''}`,
     }
   }
 
@@ -1251,9 +1257,20 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         <td style={{ padding: '12px 16px', fontWeight: 700, color: isEmpty ? S.red : isLow ? S.amber : S.green, fontSize: 14 }}>
                           {(() => {
                             const s = formatStock(p)
+                            const hasBig = s.big !== null
                             return (
                               <div>
-                                <div>{s.small} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.smallUnit}</span></div>
+                                <div>
+                                  {hasBig ? (
+                                    <>
+                                      {(s.big as number) > 0 && <>{s.big} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.bigUnit}</span></>}
+                                      {(s.big as number) > 0 && s.small > 0 && ' + '}
+                                      {(s.small > 0 || (s.big as number) === 0) && <>{s.small} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.smallUnit}</span></>}
+                                    </>
+                                  ) : (
+                                    <>{s.small} <span style={{ fontSize: 11, fontWeight: 400, color: S.muted }}>{s.smallUnit}</span></>
+                                  )}
+                                </div>
                                 {s.conversionNote && (
                                   <div style={{ fontSize: 10, fontWeight: 400, color: S.muted, marginTop: 2 }}>ℹ️ {s.conversionNote}</div>
                                 )}

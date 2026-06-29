@@ -36,7 +36,7 @@ type Branch = { id: string; name: string }
 type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
   role: string; department?: string; salary?: number; insurance?: number
-  work_insurance?: number; branch_id?: string; is_active?: boolean; branches?: { name: string } | any
+  work_insurance?: number; branch_id?: string; is_active?: boolean; deactivated_at?: string; branches?: { name: string } | any
 }
 type PayrollRecord = {
   id?: string; created_at?: string; payroll_month_id: string; employee_id: string
@@ -77,6 +77,34 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
     amount_due: 0, amount_paid: 0,
     work_insurance: emp.work_insurance || 0,
   }
+}
+
+// ✅ حساب الراتب بالتناسب حسب تاريخ إيقاف الموظف (deactivated_at) ومقارنته بالشهر الحالي
+// monthStart/monthEnd بصيغة 'YYYY-MM-DD' (مقارنة نصية تعمل صحيح لأن الصيغة موحّدة)
+function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: string): { basicSalary: number; daysWorked: number | null; note: string | null } {
+  // موظف نشط ومفيش تاريخ إيقاف مسجل — راتب طبيعي بالكامل
+  if (emp.is_active !== false && !emp.deactivated_at) {
+    return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
+  }
+  if (emp.deactivated_at) {
+    if (emp.deactivated_at < monthStart) {
+      // الشهر كامل بعد تاريخ الإيقاف — مفيش راتب
+      return { basicSalary: 0, daysWorked: 0, note: `⏸ موقوف عن العمل من ${emp.deactivated_at}` }
+    }
+    if (emp.deactivated_at > monthEnd) {
+      // الشهر ده كان قبل الإيقاف — كان نشط بالكامل، راتب طبيعي
+      return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
+    }
+    // شهر الإيقاف نفسه — تناسب حسب عدد الأيام الفعلية
+    const dayOfMonth = parseInt(emp.deactivated_at.split('-')[2], 10)
+    return {
+      basicSalary: emp.salary || 0,
+      daysWorked: dayOfMonth,
+      note: `⏸ تم إيقاف الموظف بتاريخ ${emp.deactivated_at} — تم حساب الراتب لـ ${dayOfMonth} يوم فقط من هذا الشهر`,
+    }
+  }
+  // موقوف (is_active = false) بدون تاريخ إيقاف مسجل (حالة قديمة قبل إضافة هذه الميزة) — أأمن نوقف الراتب من الآن
+  return { basicSalary: 0, daysWorked: 0, note: '⏸ موظف موقوف عن العمل (بدون تاريخ إيقاف مسجل)' }
 }
 
 function calcRecord(r: PayrollRecord) {
@@ -135,11 +163,11 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false 
       <td style={{ ...thStyle, minWidth: 160, cursor: 'pointer' }} onClick={() => onOpenPayslip(record)} title="اضغط لعرض تقرير الراتب التفصيلي">
         <div style={{ fontWeight: 700, color: S.gold, fontSize: 12, textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
           {emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}
-          {emp && emp.is_active === false && (
-            <span style={{ marginRight: 6, background: S.redB, color: S.red, borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>⏸ موقوف</span>
-          )}
         </div>
         <div style={{ fontSize: 10, color: S.muted }}>{emp?.department}</div>
+        {record.notes && record.notes.startsWith('⏸') && (
+          <div style={{ fontSize: 9, color: S.red, marginTop: 2, fontWeight: 700, whiteSpace: 'normal' }}>{record.notes}</div>
+        )}
       </td>
       <Cell value={record.basic_salary}     onChange={v => set('basic_salary', v)}     readOnly={readOnly} />
       <Cell value={record.insurance}        onChange={v => set('insurance', v)}        readOnly={readOnly} />
@@ -187,7 +215,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
       <div class="brand">🌸 Orchid House</div>
       <div class="title">Payslip — قسيمة راتب</div>
       <div class="period">${monthName} ${year}</div>
-      ${emp && emp.is_active === false ? '<div style="margin-top:6px;color:#c62828;font-weight:800;font-size:11px">⏸ هذا الموظف موقوف عن العمل حاليًا — Employee Currently Suspended</div>' : ''}
+      ${record.notes && record.notes.startsWith('⏸') ? `<div style="margin-top:6px;color:#c62828;font-weight:800;font-size:11px">${record.notes}</div>` : ''}
     </div>
     <table class="emp-info">
       <tr>
@@ -321,7 +349,7 @@ export default function PayrollPage() {
     const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
       (() => {
-        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,branches(name)').order('name')
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,branches(name)').order('name')
         // فلتر حسب الدور
         if (!isSuperAdmin && isBranchManager) q = q.eq('branch_id', currentUser?.branch_id || '')
         else if (!isSuperAdmin && !isBranchManager) q = q.eq('id', myId)
@@ -343,7 +371,7 @@ export default function PayrollPage() {
 
     let emps = employees
     if (emps.length === 0) {
-      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,branches(name)').order('name')
+      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,branches(name)').order('name')
       if (!isSuperAdmin && isBranchManager) q2 = q2.eq('branch_id', currentUser?.branch_id || '')
       else if (!isSuperAdmin && !isBranchManager) q2 = q2.eq('id', myId)
       const { data } = await q2
@@ -397,7 +425,9 @@ export default function PayrollPage() {
     // دمج المخالفات والغياب — دائماً بتحسب من الجداول مش من DB
     const allRecords = [...existing, ...missing].map((r: any) => {
       const emp = filteredEmps.find(e => e.id === r.employee_id)
-      const baseSalary = emp?.salary || r.basic_salary || 0
+      // ✅ تناسب الراتب حسب تاريخ إيقاف الموظف (لو موجود) ومقارنته بشهر الجرد الحالي
+      const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }
+      const baseSalary = salaryInfo.basicSalary
       const dailyRate = baseSalary / 30
       const violAmount = violMap[r.employee_id] || 0
       const absDays = absMap[r.employee_id] || 0
@@ -406,6 +436,8 @@ export default function PayrollPage() {
       return {
         ...r,
         basic_salary: baseSalary,
+        days_worked: salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : r.days_worked,
+        notes: salaryInfo.note || r.notes,
         late_hours: lateHrs,
         deduction_1: violAmount,
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toFixed(2)} MYR)` : 'Violations',
@@ -912,8 +944,8 @@ export default function PayrollPage() {
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>📋 تقرير الراتب — {emp?.name} {emp?.name_en}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{monthName} {selectedMonth.year} · {emp?.employee_number || '—'} · {emp?.department}</div>
-                  {emp && emp.is_active === false && (
-                    <div style={{ marginTop: 6, display: 'inline-block', background: S.redB, color: S.red, borderRadius: 10, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>⏸ هذا الموظف موقوف عن العمل حاليًا</div>
+                  {payslipRecord.notes && payslipRecord.notes.startsWith('⏸') && (
+                    <div style={{ marginTop: 6, display: 'inline-block', background: S.redB, color: S.red, borderRadius: 10, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{payslipRecord.notes}</div>
                   )}
                 </div>
                 <button onClick={() => setPayslipRecord(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>

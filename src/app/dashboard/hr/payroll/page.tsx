@@ -796,7 +796,7 @@ export default function PayrollPage() {
           /* PAYROLL TABLE */
           <>
             {/* Summary Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
               {[
                 { label: isSuperAdmin ? 'Total Employees' : isBranchManager ? 'Branch Employees' : 'My Payroll', value: visibleRecords.length, color: S.white, icon: '👥' },
                 { label: 'Total Earnings',   value: 'MYR ' + fmt(totals.earnings),   color: S.green,  icon: '📈' },

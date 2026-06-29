@@ -243,9 +243,12 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
                 </div>
               )}
               {round.map(i => (
-                <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
-                  <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
-                  <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                <div key={i.id} style={{ padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                    <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                  </div>
+                  {i.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 2 }}>📝 {i.notes}</div>}
                 </div>
               ))}
             </div>
@@ -843,8 +846,22 @@ export default function CashierPage() {
           }
         }, 1200)
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, async (payload: any) => {
         const newStatus = (payload.new as any)?.status
+        const tableId = (payload.new as any)?.table_id
+        // ✅ Fix: لو الطلب اتلغى تلقائيًا (فشل حفظ الأصناف من المنيو وتم التراجع عنه)،
+        // نشيل البادچ/الإشعار عن الطاولة دي بدل ما يفضلوا ظاهرين لطلب أصلاً ملغي
+        if (newStatus === 'cancelled' && tableId) {
+          setUnseenTableIds(prev => { const next = new Set(prev); next.delete(tableId); return next })
+          setNewOrderAlert(prev => {
+            if (!prev) return prev
+            const tbl = tablesRef.current.find(t => t.id === tableId)
+            const tblName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : '')
+            return prev.tableName === tblName ? null : prev
+          })
+          setNotif('⚠️ Order failed and was cancelled — ask customer to retry')
+          setTimeout(() => setNotif(null), 6000)
+        }
         // لو الطلب اتدفع مش نعمل fetchAll عشان متبقاش حمرا
         if (newStatus !== 'paid') fetchAll()
       })

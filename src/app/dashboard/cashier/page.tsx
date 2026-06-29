@@ -774,7 +774,6 @@ export default function CashierPage() {
         const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', payload.new?.id)
         itemsCount = itemsData?.length || 0
         setNewOrderAlert({ tableName, itemsCount, total: payload.new?.total_amount || 0 })
-        setTimeout(() => setNewOrderAlert(null), 7000)
         setNotif('🆕 New order received!')
         setTimeout(() => setNotif(null), 5000)
         playSound('order')
@@ -801,7 +800,6 @@ export default function CashierPage() {
             const tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'Table')
             const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', oid)
             setNewOrderAlert({ tableName, itemsCount: itemsData?.length || 0, total: orderData.total_amount || 0 })
-            setTimeout(() => setNewOrderAlert(null), 7000)
             setNotif(`🆕 New items added — ${tableName}!`)
             setTimeout(() => setNotif(null), 5000)
             playSound('order')
@@ -893,9 +891,9 @@ export default function CashierPage() {
 
       {/* New Order Center Alert */}
       {newOrderAlert && (
-        <div onClick={() => setNewOrderAlert(null)}
-          style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.6)', backdropFilter: 'blur(2px)', cursor: 'pointer' }}>
-          <div onClick={e => e.stopPropagation()}
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.6)', backdropFilter: 'blur(2px)' }}>
+          <div
             style={{ background: S.navy2, border: `2px solid ${S.gold}`, borderRadius: 24, padding: '36px 48px', textAlign: 'center', boxShadow: '0 12px 50px rgba(0,0,0,0.55)', animation: 'popIn .25s ease-out', minWidth: 280 }}>
             <div style={{ fontSize: 52, marginBottom: 10 }}>🆕</div>
             <div style={{ fontSize: 22, fontWeight: 900, color: S.gold, marginBottom: 8 }}>New Order!</div>

@@ -625,10 +625,14 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
 export default function CashierPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
-  const { employee } = useAuth()
+  const { employee, permissions } = useAuth()
+  const isAdmin = permissions?.all === true
 
   const [orders, setOrders] = useState<Order[]>([])
   const [tables, setTables] = useState<TableRow[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const tablesRef = useRef<TableRow[]>([])
+  useEffect(() => { tablesRef.current = tables }, [tables])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'active' | 'all' | 'done'>('active')
   const [shift, setShift] = useState<'shift1' | 'shift2'>('shift1')
@@ -645,6 +649,12 @@ export default function CashierPage() {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
+  }, [])
+
+  // Load branches (for admin grouping labels)
+  useEffect(() => {
+    sb.from('branches').select('id,name').eq('is_active', true).order('name')
+      .then(({ data }) => setBranches(data || []))
   }, [])
 
   // Polling for waiter calls every 5s
@@ -697,20 +707,30 @@ export default function CashierPage() {
   }, [])
   const [tick, setTick] = useState(0)
   const [notif, setNotif] = useState<string | null>(null)
+  const [newOrderAlert, setNewOrderAlert] = useState<{ tableName: string; itemsCount: number; total: number } | null>(null)
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
   const [view, setView] = useState<'orders' | 'tables'>('tables')
 
   const fetchAll = useCallback(async () => {
     const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
+    let tablesQuery = sb.from('tables').select('*').order('number')
+    // ✅ غير الأدمن يشوف بس طاولات فرعه
+    if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
     const [activeRes, tablesRes] = await Promise.all([
       sb.from('orders').select(SEL).in('status', ['confirmed','preparing','ready']).order('created_at', { ascending: false }).limit(100),
-      sb.from('tables').select('*').order('number'),
+      tablesQuery,
     ])
-    setOrders((activeRes.data as any) || [])
-    setTables(tablesRes.data || [])
+    const allowedTables = tablesRes.data || []
+    const allowedTableIds = new Set(allowedTables.map((t: any) => t.id))
+    // ✅ غير الأدمن: نستثني طلبات الفروع التانية حتى لو رجعت في نفس الاستعلام (orders مفيهاش branch_id مباشر)
+    const filteredOrders = isAdmin
+      ? (activeRes.data as any) || []
+      : ((activeRes.data as any) || []).filter((o: any) => allowedTableIds.has(o.table_id))
+    setOrders(filteredOrders)
+    setTables(allowedTables)
     setLoading(false)
-  }, [sb])
+  }, [sb, isAdmin, employee?.branch_id])
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
@@ -723,12 +743,25 @@ export default function CashierPage() {
 
   useEffect(() => {
     const channel = sb.channel('cashier-rt')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload: any) => {
         fetchAll()
+        const tableId = payload.new?.table_id
+        const tbl = tablesRef.current.find(t => t.id === tableId)
+        let tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'New Table')
+        let itemsCount = 0
+        // لو الطاولة لسه مش في الـ state المحلي (طلب جاي قبل أول fetch)، نجيب اسمها من القاعدة مباشرة
+        if (!tbl && tableId) {
+          const { data: tblData } = await sb.from('tables').select('name,number').eq('id', tableId).single()
+          if (tblData) tableName = tblData.name || `Table ${tblData.number}`
+        }
+        const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', payload.new?.id)
+        itemsCount = itemsData?.length || 0
+        setNewOrderAlert({ tableName, itemsCount, total: payload.new?.total_amount || 0 })
+        setTimeout(() => setNewOrderAlert(null), 7000)
         setNotif('🆕 New order received!')
         setTimeout(() => setNotif(null), 5000)
         playSound('order')
-        sendNotification('🆕 New Order!', 'A new order has been placed')
+        sendNotification('🆕 New Order!', `${tableName} — ${itemsCount} item(s)`)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
         const newStatus = (payload.new as any)?.status
@@ -782,18 +815,50 @@ export default function CashierPage() {
   const activeCount = orders.filter(o => ['confirmed','preparing','ready'].includes(o.status)).length
   const shiftElapsed = shiftStart ? elapsed(shiftStart.toISOString()) : null
 
+  // ✅ إحصائية حالة الطاولات — مقسّمة لكل فرع على حدة (الأدمن يشوف كل الفروع، غير الأدمن يشوف فرعه بس لأن tables مفلترة already)
+  const activeTables = tables.filter(t => t.is_active)
+  function computeBranchStats(tblList: TableRow[]) {
+    const occupied  = tblList.filter(t => orders.some(o => o.table_id === t.id && ['confirmed','preparing','ready'].includes(o.status))).length
+    const reserved  = tblList.filter(t => t.status === 'reserved' && !orders.some(o => o.table_id === t.id && ['confirmed','preparing','ready'].includes(o.status))).length
+    const available = tblList.length - occupied - reserved
+    return { total: tblList.length, occupied, available, reserved }
+  }
+  const branchGroups: { branchId: string; branchName: string; stats: ReturnType<typeof computeBranchStats> }[] = isAdmin
+    ? branches.map(b => ({ branchId: b.id, branchName: b.name, stats: computeBranchStats(activeTables.filter(t => t.branch_id === b.id)) }))
+        .filter(g => g.stats.total > 0)
+    : [{ branchId: 'own', branchName: '', stats: computeBranchStats(activeTables) }]
+
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'ltr', color: S.white, minHeight: '100vh', background: S.navy }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800;900&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         select option { background: #0F2040; color: #FAFAF8; }
+        @keyframes popIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
       `}</style>
 
-      {/* Notification */}
+      {/* Notification (top banner — waiter calls etc.) */}
       {notif && (
         <div style={{ position: 'fixed', top: 80, left: '50%', transform: 'translateX(-50%)', background: S.blue, color: S.white, padding: '12px 24px', borderRadius: 12, fontWeight: 700, fontSize: 14, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.4)', whiteSpace: 'nowrap' }}>
           {notif}
+        </div>
+      )}
+
+      {/* New Order Center Alert */}
+      {newOrderAlert && (
+        <div onClick={() => setNewOrderAlert(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.6)', backdropFilter: 'blur(2px)', cursor: 'pointer' }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: S.navy2, border: `2px solid ${S.gold}`, borderRadius: 24, padding: '36px 48px', textAlign: 'center', boxShadow: '0 12px 50px rgba(0,0,0,0.55)', animation: 'popIn .25s ease-out', minWidth: 280 }}>
+            <div style={{ fontSize: 52, marginBottom: 10 }}>🆕</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: S.gold, marginBottom: 8 }}>New Order!</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: S.white, marginBottom: 4 }}>{newOrderAlert.tableName}</div>
+            <div style={{ fontSize: 13, color: S.muted, marginBottom: 18 }}>{newOrderAlert.itemsCount} item(s) · MYR {newOrderAlert.total.toFixed(2)}</div>
+            <button onClick={() => setNewOrderAlert(null)}
+              style={{ padding: '10px 28px', borderRadius: 10, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+              OK
+            </button>
+          </div>
         </div>
       )}
 
@@ -842,6 +907,28 @@ export default function CashierPage() {
       </div>
 
       <div style={{ padding: 16, maxWidth: 1200, margin: '0 auto' }}>
+        {/* Tables Stats Bar — per branch */}
+        {branchGroups.map(g => (
+          <div key={g.branchId} style={{ marginBottom: 16 }}>
+            {g.branchName && (
+              <div style={{ fontSize: 12, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🏪 {g.branchName}</div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+              {[
+                { label: 'Total Tables', value: g.stats.total,     color: S.white, icon: '🪑' },
+                { label: 'Occupied',     value: g.stats.occupied,  color: S.red,   icon: '🔴' },
+                { label: 'Available',    value: g.stats.available, color: S.green, icon: '🟢' },
+                { label: 'Reserved',     value: g.stats.reserved,  color: S.amber, icon: '🟡' },
+              ].map((s, i) => (
+                <div key={i} style={{ background: S.card, borderRadius: 12, padding: '10px 12px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{s.icon} {s.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
         ) : view === 'tables' ? (

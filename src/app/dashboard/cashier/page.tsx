@@ -117,7 +117,7 @@ function elapsed(iso: string) {
 }
 
 // ══ Payment Modal ══
-function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () => void; onPaid: () => void }) {
+function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; onClose: () => void; onPaid: () => void; onTransfer: (order: Order) => void }) {
   const sb = createClient()
   const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'free'>('cash')
   const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
@@ -362,6 +362,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={printReceipt} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
+          <button onClick={() => onTransfer(order)} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 Transfer</button>
           <button onClick={pay} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
             {saving ? '⏳...' : discountType === 'free' ? '🎁 Complimentaryة' : '✅ Confirm Payment'}
           </button>
@@ -658,6 +659,70 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
 }
 
 // ══ Main ══
+function TransferTableModal({ order, tables, onClose, onTransferred }: { order: Order; tables: TableRow[]; onClose: () => void; onTransferred: () => void }) {
+  const sb = createClient()
+  const [moving, setMoving] = useState(false)
+  // ✅ Fix: لازم نفلتر الطاولات المتاحة لنقل الطلب إليها بنفس فرع الطاولة الحالية بس، مش كل الفروع
+  const currentTable = tables.find(t => t.id === order.table_id)
+  const availableTables = tables.filter(t =>
+    t.is_active && t.id !== order.table_id && (t.status || 'available') === 'available'
+    && t.branch_id === currentTable?.branch_id
+  )
+
+  async function transferTo(newTable: TableRow) {
+    setMoving(true)
+    const oldTableId = order.table_id
+    // ✅ جيب الطاولة القديمة عشان نحافظ على وقت الجلوس الأصلي (occupied_since) بدل ما يرجع العداد للصفر
+    const { data: oldTableData } = await sb.from('tables').select('occupied_since').eq('id', oldTableId).single()
+
+    // نقل كل الطلبات النشطة المرتبطة بالطاولة القديمة (لو فيها أكتر من طلب مدموج)
+    await sb.from('orders')
+      .update({ table_id: newTable.id })
+      .eq('table_id', oldTableId)
+      .in('status', ['confirmed', 'preparing', 'ready'])
+
+    await sb.from('tables').update({
+      status: 'occupied', current_order_id: order.id, occupied_since: oldTableData?.occupied_since || new Date().toISOString(),
+    }).eq('id', newTable.id)
+
+    await sb.from('tables').update({
+      status: 'available', current_order_id: null, occupied_since: null,
+    }).eq('id', oldTableId)
+
+    setMoving(false)
+    onTransferred()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '18px 22px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.purple }}>🔄 Transfer Table</div>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>Select the destination table</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+          {availableTables.length === 0 ? (
+            <div style={{ textAlign: 'center', color: S.muted, padding: 30 }}>No available tables right now</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 10 }}>
+              {availableTables.map(t => (
+                <button key={t.id} disabled={moving} onClick={() => transferTo(t)}
+                  style={{ padding: '14px 8px', borderRadius: 12, border: `2px solid ${S.green}60`, background: S.greenB, color: S.green, cursor: moving ? 'not-allowed' : 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 800, fontSize: 14, opacity: moving ? 0.6 : 1 }}>
+                  {t.number}
+                  <div style={{ fontSize: 9, fontWeight: 400, marginTop: 2 }}>{t.name}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CashierPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
@@ -751,6 +816,7 @@ export default function CashierPage() {
   // ✅ تجميع إشعارات إضافة أصناف على طلب موجود (لما عميل تاني على نفس الطاولة يطلب) في إشعار واحد بدل واحد لكل صنف
   const itemsBatchRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; byOrder: Map<string, number> }>({ timer: null, byOrder: new Map() })
   const [payOrder, setPayOrder] = useState<Order | null>(null)
+  const [transferOrder, setTransferOrder] = useState<Order | null>(null)
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
   const [view, setView] = useState<'orders' | 'tables'>('tables')
   const [adminBranchFilter, setAdminBranchFilter] = useState<string>('')
@@ -1199,7 +1265,16 @@ export default function CashierPage() {
         setTables(prev => prev.map(t => t.id === paidTableId ? { ...t, status: 'available', current_order_id: null, occupied_since: null } : t))
         // بعدين fetch من DB
         setTimeout(() => fetchAll(), 1000)
-      }} />}
+      }} onTransfer={(o) => { setPayOrder(null); setTransferOrder(o) }} />}
+
+      {transferOrder && (
+        <TransferTableModal
+          order={transferOrder}
+          tables={tables}
+          onClose={() => setTransferOrder(null)}
+          onTransferred={() => { setTransferOrder(null); fetchAll() }}
+        />
+      )}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
       {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => { setShowShiftReport(false); setShiftStarted(false); setShiftStart(null); localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start') }} />}
     </div>

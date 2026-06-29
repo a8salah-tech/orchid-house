@@ -741,6 +741,8 @@ export default function CashierPage() {
   const [tick, setTick] = useState(0)
   const [notif, setNotif] = useState<string | null>(null)
   const [newOrderAlert, setNewOrderAlert] = useState<{ tableName: string; itemsCount: number; total: number } | null>(null)
+  // ✅ تتبّع الطاولات اللي عليها طلب جديد/إضافي لسه محدش فتحها — يفضل badge ظاهر عليها لحد ما تُفتح
+  const [unseenTableIds, setUnseenTableIds] = useState<Set<string>>(new Set())
   // ✅ لتجنب تكرار الإشعار: نتذكر الطلبات اللي اتعمل لها إشعار "طلب جديد" حديثًا (من حدث INSERT على orders)
   const recentNewOrderIdsRef = useRef<Set<string>>(new Set())
   // ✅ تجميع إشعارات إضافة أصناف على طلب موجود (لما عميل تاني على نفس الطاولة يطلب) في إشعار واحد بدل واحد لكل صنف
@@ -805,6 +807,7 @@ export default function CashierPage() {
         }
         const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', payload.new?.id)
         itemsCount = itemsData?.length || 0
+        if (tableId) setUnseenTableIds(prev => new Set(prev).add(tableId))
         setNewOrderAlert({ tableName, itemsCount, total: payload.new?.total_amount || 0 })
         setNotif('🆕 New order received!')
         setTimeout(() => setNotif(null), 5000)
@@ -831,6 +834,7 @@ export default function CashierPage() {
             const tbl = tablesRef.current.find(t => t.id === orderData.table_id)
             const tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'Table')
             const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', oid)
+            if (orderData.table_id) setUnseenTableIds(prev => new Set(prev).add(orderData.table_id))
             setNewOrderAlert({ tableName, itemsCount: itemsData?.length || 0, total: orderData.total_amount || 0 })
             setNotif(`🆕 New items added — ${tableName}!`)
             setTimeout(() => setNotif(null), 5000)
@@ -1027,6 +1031,7 @@ export default function CashierPage() {
               {displayedTables.map(table => {
                 const activeOrder = orders.find(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
                 const status = activeOrder ? 'occupied' : (table.status || 'available')
+                const isUnseen = unseenTableIds.has(table.id)
                 const statusColors: Record<string, { color: string; bg: string; border: string }> = {
                   available: { color: S.green, bg: S.greenB, border: S.green + '60' },
                   reserved:  { color: S.amber, bg: S.amberB, border: S.amber + '60' },
@@ -1036,6 +1041,8 @@ export default function CashierPage() {
                 return (
                   <div key={table.id}
                     onClick={() => {
+                      // ✅ فتح الطاولة = شوفناها، نشيل علامة "جديد"
+                      if (isUnseen) setUnseenTableIds(prev => { const next = new Set(prev); next.delete(table.id); return next })
                       if (activeOrder) {
                         // جيب كل الطلبات النشطة للطاولة
                         const tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
@@ -1050,7 +1057,12 @@ export default function CashierPage() {
                         setAddOrderTable(table)
                       }
                     }}
-                    style={{ background: sc.bg, border: `2px solid ${sc.border}`, borderRadius: 16, padding: '16px 12px', cursor: 'pointer', textAlign: 'center', transition: 'all .2s', position: 'relative' }}>
+                    style={{ background: sc.bg, border: `2px solid ${isUnseen ? S.gold : sc.border}`, borderRadius: 16, padding: '16px 12px', cursor: 'pointer', textAlign: 'center', transition: 'all .2s', position: 'relative', boxShadow: isUnseen ? `0 0 0 3px ${S.gold}40` : 'none' }}>
+                    {isUnseen && (
+                      <div style={{ position: 'absolute', top: -8, right: -8, background: S.gold, color: S.navy, borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, boxShadow: '0 2px 8px rgba(0,0,0,0.3)', animation: 'popIn .25s ease-out' }}>
+                        🆕
+                      </div>
+                    )}
                     {/* Table number in circle */}
                     <div style={{ width: 52, height: 52, borderRadius: '50%', background: S.navy2, border: `2px solid ${sc.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px', fontSize: 20, fontWeight: 900, color: sc.color }}>
                       {table.number}

@@ -41,16 +41,17 @@ const createClient = () => createBrowserClient(
 )
 
 const S = {
-  navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
-  gold: '#C9A84C', gold2: '#E8C97A', gold3: 'rgba(201,168,76,0.12)', goldB: 'rgba(201,168,76,0.22)',
-  white: '#FAFAF8', muted: '#8A9BB5', border: 'rgba(255,255,255,0.08)',
+  navy: '#FFFFFF', navy2: '#FFFFFF', navy3: '#EAF6F4',
+  gold: '#14B8A6', gold2: '#2DD4BF', gold3: 'rgba(20,184,166,0.12)', goldB: 'rgba(20,184,166,0.22)',
+  white: '#0B2B33', muted: '#6B8389', border: 'rgba(15,60,60,0.12)',
   green: '#22C55E', greenB: 'rgba(34,197,94,0.12)',
   red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
   blue: '#3B82F6', blueB: 'rgba(59,130,246,0.12)',
   amber: '#F59E0B', amberB: 'rgba(245,158,11,0.12)',
   teal: '#14B8A6', tealB: 'rgba(20,184,166,0.12)',
   purple: '#8B5CF6', purpleB: 'rgba(139,92,246,0.12)',
-  card: 'rgba(255,255,255,0.04)', card2: 'rgba(255,255,255,0.08)',
+  card: '#F2F9F8', card2: '#E6F4F2',
+  pageBg: '#F4FAF9',
 }
 
 const SERVICE_CHARGE_RATE = 0.10
@@ -198,7 +199,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
     win.document.close()
   }
 
-  const inp: React.CSSProperties = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', boxSizing: 'border-box' as const }
+  const inp: React.CSSProperties = { background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', boxSizing: 'border-box' as const }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
@@ -244,7 +245,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
                     <div key={c.id}
                       onClick={() => { setSelectedCustomer(c); setCustomerSearch(''); setShowCustomerDrop(false) }}
                       style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#EEF7F6'}
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{c.name}</div>
@@ -399,7 +400,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
     onSaved()
   }
 
-  const inp: React.CSSProperties = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', boxSizing: 'border-box' as const }
+  const inp: React.CSSProperties = { background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', boxSizing: 'border-box' as const }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
@@ -593,7 +594,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
               </thead>
               <tbody>
                 {shiftOrders.map((o, i) => (
-                  <tr key={o.id} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                  <tr key={o.id} style={{ background: i % 2 === 0 ? 'transparent' : '#F6FBFA' }}>
                     <td style={tdStyle}>{i + 1}</td>
                     <td style={tdStyle}>{o.tables?.name || 'Table ' + o.tables?.number}</td>
                     <td style={{ ...tdStyle, color: S.gold }}>#{o.id.slice(-6).toUpperCase()}</td>
@@ -711,6 +712,12 @@ export default function CashierPage() {
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
   const [view, setView] = useState<'orders' | 'tables'>('tables')
+  const [adminBranchFilter, setAdminBranchFilter] = useState<string>('')
+
+  // أول ما الفروع توصل، الأدمن يبدأ بأول فرع تلقائيًا
+  useEffect(() => {
+    if (isAdmin && branches.length > 0 && !adminBranchFilter) setAdminBranchFilter(branches[0].id)
+  }, [isAdmin, branches, adminBranchFilter])
 
   const fetchAll = useCallback(async () => {
     const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
@@ -805,35 +812,36 @@ export default function CashierPage() {
     fetchAll()
   }
 
-  const filtered = orders.filter(o => {
-    const matchFilter = filter === 'active' ? ['confirmed','preparing','ready'].includes(o.status)
-      : filter === 'done' ? ['done','paid','cancelled'].includes(o.status)
-      : !['paid'].includes(o.status)
-    return matchFilter
-  })
-
-  const activeCount = orders.filter(o => ['confirmed','preparing','ready'].includes(o.status)).length
-  const shiftElapsed = shiftStart ? elapsed(shiftStart.toISOString()) : null
-
-  // ✅ إحصائية حالة الطاولات — مقسّمة لكل فرع على حدة (الأدمن يشوف كل الفروع، غير الأدمن يشوف فرعه بس لأن tables مفلترة already)
+  // ✅ إحصائية حالة الطاولات — للفرع المختار (الأدمن يختار من التابات، غير الأدمن مفلتر على فرعه already)
   const activeTables = tables.filter(t => t.is_active)
+  const displayedTables = (isAdmin && adminBranchFilter) ? activeTables.filter(t => t.branch_id === adminBranchFilter) : activeTables
+  const displayedTableIds = new Set(displayedTables.map(t => t.id))
   function computeBranchStats(tblList: TableRow[]) {
     const occupied  = tblList.filter(t => orders.some(o => o.table_id === t.id && ['confirmed','preparing','ready'].includes(o.status))).length
     const reserved  = tblList.filter(t => t.status === 'reserved' && !orders.some(o => o.table_id === t.id && ['confirmed','preparing','ready'].includes(o.status))).length
     const available = tblList.length - occupied - reserved
     return { total: tblList.length, occupied, available, reserved }
   }
-  const branchGroups: { branchId: string; branchName: string; stats: ReturnType<typeof computeBranchStats> }[] = isAdmin
-    ? branches.map(b => ({ branchId: b.id, branchName: b.name, stats: computeBranchStats(activeTables.filter(t => t.branch_id === b.id)) }))
-        .filter(g => g.stats.total > 0)
-    : [{ branchId: 'own', branchName: '', stats: computeBranchStats(activeTables) }]
+  const tableStats = computeBranchStats(displayedTables)
+  const currentBranchName = isAdmin ? (branches.find(b => b.id === adminBranchFilter)?.name || '') : ''
+
+  const filtered = orders.filter(o => {
+    const matchFilter = filter === 'active' ? ['confirmed','preparing','ready'].includes(o.status)
+      : filter === 'done' ? ['done','paid','cancelled'].includes(o.status)
+      : !['paid'].includes(o.status)
+    const matchBranch = !isAdmin || displayedTableIds.has(o.table_id)
+    return matchFilter && matchBranch
+  })
+
+  const activeCount = orders.filter(o => ['confirmed','preparing','ready'].includes(o.status) && (!isAdmin || displayedTableIds.has(o.table_id))).length
+  const shiftElapsed = shiftStart ? elapsed(shiftStart.toISOString()) : null
 
   return (
-    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'ltr', color: S.white, minHeight: '100vh', background: S.navy }}>
+    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'ltr', color: S.white, minHeight: '100vh', background: S.pageBg }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800;900&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        select option { background: #0F2040; color: #FAFAF8; }
+        select option { background: #FFFFFF; color: #0B2B33; }
         @keyframes popIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
       `}</style>
 
@@ -906,28 +914,39 @@ export default function CashierPage() {
         </div>
       </div>
 
+      {/* Row 3: Branch Selector (Admin only) */}
+      {isAdmin && branches.length > 0 && (
+        <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>🏪 Branch:</span>
+          {branches.map(b => (
+            <button key={b.id} onClick={() => setAdminBranchFilter(b.id)}
+              style={{ padding: '6px 16px', borderRadius: 20, border: `1px solid ${adminBranchFilter === b.id ? S.gold : S.border}`, background: adminBranchFilter === b.id ? S.gold3 : 'transparent', color: adminBranchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: adminBranchFilter === b.id ? 700 : 400 }}>
+              {b.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div style={{ padding: 16, maxWidth: 1200, margin: '0 auto' }}>
-        {/* Tables Stats Bar — per branch */}
-        {branchGroups.map(g => (
-          <div key={g.branchId} style={{ marginBottom: 16 }}>
-            {g.branchName && (
-              <div style={{ fontSize: 12, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🏪 {g.branchName}</div>
-            )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
-              {[
-                { label: 'Total Tables', value: g.stats.total,     color: S.white, icon: '🪑' },
-                { label: 'Occupied',     value: g.stats.occupied,  color: S.red,   icon: '🔴' },
-                { label: 'Available',    value: g.stats.available, color: S.green, icon: '🟢' },
-                { label: 'Reserved',     value: g.stats.reserved,  color: S.amber, icon: '🟡' },
-              ].map((s, i) => (
-                <div key={i} style={{ background: S.card, borderRadius: 12, padding: '10px 12px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
-                  <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{s.icon} {s.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
+        {/* Tables Stats Bar — for the currently displayed branch */}
+        <div style={{ marginBottom: 16 }}>
+          {currentBranchName && (
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🏪 {currentBranchName}</div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+            {[
+              { label: 'Total Tables', value: tableStats.total,     color: S.white, icon: '🪑' },
+              { label: 'Occupied',     value: tableStats.occupied,  color: S.red,   icon: '🔴' },
+              { label: 'Available',    value: tableStats.available, color: S.green, icon: '🟢' },
+              { label: 'Reserved',     value: tableStats.reserved,  color: S.amber, icon: '🟡' },
+            ].map((s, i) => (
+              <div key={i} style={{ background: S.card, borderRadius: 12, padding: '10px 12px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{s.icon} {s.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
@@ -936,7 +955,7 @@ export default function CashierPage() {
           <div>
             <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>Tap a table to add order or view current order</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 12 }}>
-              {tables.filter(t => t.is_active).map(table => {
+              {displayedTables.map(table => {
                 const activeOrder = orders.find(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
                 const status = activeOrder ? 'occupied' : (table.status || 'available')
                 const statusColors: Record<string, { color: string; bg: string; border: string }> = {

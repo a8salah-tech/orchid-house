@@ -67,6 +67,13 @@ function AddProductModal({ units, categories, warehouseId, onClose, onSaved }: {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name: '', name_en: '', category: '', unit_id: '', min_stock: '', current_stock: '0' })
+  const [previewCode, setPreviewCode] = useState<string>('...')
+
+  useEffect(() => {
+    supabase.rpc('preview_next_product_code').then(({ data, error }) => {
+      if (!error && data) setPreviewCode(data)
+    })
+  }, [])
 
   async function save() {
     if (!form.name || !form.unit_id) { alert('يرجى إدخال الاسم والوحدة'); return }
@@ -90,6 +97,10 @@ function AddProductModal({ units, categories, warehouseId, onClose, onSaved }: {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ background: S.gold3, border: `1px solid ${S.gold}40`, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: S.muted }}>كود الصنف (تلقائي)</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, fontFamily: 'system-ui', letterSpacing: 0.5 }}>{previewCode}</span>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم الصنف (عربي) *</label>
@@ -1230,7 +1241,11 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                       {search ? `لا توجد نتائج لـ "${search}"` : 'لا توجد أصناف — اضغط "صنف جديد" للبدء'}
                     </td></tr>
                   ) : paginatedProducts.map(p => {
-                    const isLow = p.current_stock <= p.min_stock && p.min_stock > 0 && p.current_stock > 0
+                    // ✅ Fix: min_stock محفوظة بالوحدة الكبرى (مثل current_stock نفسه يستخدم الوحدة الصغرى عند وجود تحويل)
+                    // لازم نحوّل min_stock لنفس وحدة current_stock قبل المقارنة، وإلا المقارنة بتبقى بين وحدتين مختلفتين
+                    const convForLow = unitConversionsAll.find((c: any) => c.product_id === p.id)
+                    const minStockInBaseUnit = convForLow && convForLow.factor > 1 ? p.min_stock * convForLow.factor : p.min_stock
+                    const isLow = p.current_stock <= minStockInBaseUnit && p.min_stock > 0 && p.current_stock > 0
                     const isEmpty = p.current_stock === 0
                     const isInactive = p.is_active === false
                     return (

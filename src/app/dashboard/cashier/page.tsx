@@ -286,6 +286,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
               placeholder={discountType === 'percent' ? 'Discount %' : 'Amount Discount MYR'} />
           )}
         </div>
+
         {/* Payment Method */}
         {discountType !== 'free' && (
           <div style={{ marginBottom: 16 }}>
@@ -304,6 +305,7 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
             </div>
           </div>
         )}
+
         {/* Totals */}
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 20 }}>
           {[
@@ -707,6 +709,10 @@ export default function CashierPage() {
   const [tick, setTick] = useState(0)
   const [notif, setNotif] = useState<string | null>(null)
   const [newOrderAlert, setNewOrderAlert] = useState<{ tableName: string; itemsCount: number; total: number } | null>(null)
+  // ✅ لتجنب تكرار الإشعار: نتذكر الطلبات اللي اتعمل لها إشعار "طلب جديد" حديثًا (من حدث INSERT على orders)
+  const recentNewOrderIdsRef = useRef<Set<string>>(new Set())
+  // ✅ تجميع إشعارات إضافة أصناف على طلب موجود (لما عميل تاني على نفس الطاولة يطلب) في إشعار واحد بدل واحد لكل صنف
+  const itemsBatchRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; byOrder: Map<string, number> }>({ timer: null, byOrder: new Map() })
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
   const [view, setView] = useState<'orders' | 'tables'>('tables')
@@ -750,6 +756,12 @@ export default function CashierPage() {
     const channel = sb.channel('cashier-rt')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload: any) => {
         fetchAll()
+        const newOrderId = payload.new?.id
+        if (newOrderId) {
+          // ✅ نسجّل الطلب ده عشان لو order_items بتاعه جت بعده بثواني، مانعملش إشعار مكرر
+          recentNewOrderIdsRef.current.add(newOrderId)
+          setTimeout(() => recentNewOrderIdsRef.current.delete(newOrderId), 5000)
+        }
         const tableId = payload.new?.table_id
         const tbl = tablesRef.current.find(t => t.id === tableId)
         let tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'New Table')
@@ -767,6 +779,35 @@ export default function CashierPage() {
         setTimeout(() => setNotif(null), 5000)
         playSound('order')
         sendNotification('🆕 New Order!', `${tableName} — ${itemsCount} item(s)`)
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_items' }, (payload: any) => {
+        fetchAll()
+        const orderId = payload.new?.order_id
+        if (!orderId) return
+        // ✅ لو ده طلب جديد لسه اتعمل له إشعار من اللحظة، متعمل إشعار تاني
+        if (recentNewOrderIdsRef.current.has(orderId)) return
+        // ✅ تجميع: نضيف للـ batch ونعمل debounce عشان لو عميل طلب أكتر من صنف مرة واحدة يطلع إشعار واحد بس
+        const batch = itemsBatchRef.current
+        batch.byOrder.set(orderId, (batch.byOrder.get(orderId) || 0) + 1)
+        if (batch.timer) clearTimeout(batch.timer)
+        batch.timer = setTimeout(async () => {
+          const orderIds = Array.from(batch.byOrder.keys())
+          batch.byOrder.clear()
+          batch.timer = null
+          for (const oid of orderIds) {
+            const { data: orderData } = await sb.from('orders').select('table_id,total_amount').eq('id', oid).single()
+            if (!orderData) continue
+            const tbl = tablesRef.current.find(t => t.id === orderData.table_id)
+            const tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'Table')
+            const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', oid)
+            setNewOrderAlert({ tableName, itemsCount: itemsData?.length || 0, total: orderData.total_amount || 0 })
+            setTimeout(() => setNewOrderAlert(null), 7000)
+            setNotif(`🆕 New items added — ${tableName}!`)
+            setTimeout(() => setNotif(null), 5000)
+            playSound('order')
+            sendNotification('🆕 Items Added!', `${tableName} added more items to their order`)
+          }
+        }, 1200)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
         const newStatus = (payload.new as any)?.status

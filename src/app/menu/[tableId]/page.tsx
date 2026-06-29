@@ -165,16 +165,22 @@ const filteredItems = items
     // كان الطلب بيتسجل بإجمالي صحيح لكن بدون أصناف خالص، والعميل برضو يشوف "تم التأكيد".
     let itemsError = (await sb.from('order_items').insert(itemsPayload)).error
     if (itemsError) {
+      console.error('order_items insert failed (attempt 1):', itemsError.message, itemsError.code, itemsError.details, itemsPayload)
       // محاولة ثانية واحدة (الفشل غالبًا بسبب انقطاع شبكة لحظي على موبايل العميل)
       itemsError = (await sb.from('order_items').insert(itemsPayload)).error
+      if (itemsError) console.error('order_items insert failed (attempt 2):', itemsError.message, itemsError.code, itemsError.details, itemsPayload)
     }
     if (itemsError) {
       // ✅ Fix: التراجع عن تعديل/إنشاء الطلب عشان مانسيبش طلب بإجمالي غلط بدون أصناف
+      let rollbackError
       if (existingOrder) {
-        await sb.from('orders').update({ total_amount: existingOrder.total_amount || 0 }).eq('id', orderId)
+        rollbackError = (await sb.from('orders').update({ total_amount: existingOrder.total_amount || 0 }).eq('id', orderId)).error
       } else {
-        await sb.from('orders').delete().eq('id', orderId)
+        // ✅ Fix: استخدام update لحالة 'cancelled' بدل delete — لأن العميل (anon) غالبًا ملوش صلاحية DELETE في RLS،
+        // وكان الـ delete بيفشل بصمت (بدون تحقق من النتيجة) فيسيب الطلب الفاضي موجود بالظبط زي المشكلة الأصلية
+        rollbackError = (await sb.from('orders').update({ status: 'cancelled' }).eq('id', orderId)).error
       }
+      if (rollbackError) console.error('order rollback failed:', rollbackError.message, rollbackError.code)
       setSubmitting(false)
       alert('⚠️ حصل خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى أو طلب المساعدة من النادل.\n⚠️ Something went wrong sending your order. Please try again or call the waiter.')
       return

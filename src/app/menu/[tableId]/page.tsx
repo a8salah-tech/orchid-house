@@ -145,13 +145,40 @@ const filteredItems = items
       orderId = order.id
     }
 
-    await sb.from('order_items').insert(cart.map(c => ({
+    // ✅ Fix: حساب السعر الفعلي الصحيح المطبق وقت الطلب (الحجم المختار أو الخصم)، بدل سعر الصنف الأساسي دايمًا
+    function actualUnitPrice(c: CartItem) {
+      if (c.selectedSize) return c.selectedSize.price
+      if (c.item.discount_percent && c.item.discount_percent > 0) return c.item.price * (1 - c.item.discount_percent / 100)
+      return c.item.price
+    }
+
+    const itemsPayload = cart.map(c => ({
       order_id: orderId, menu_item_id: c.item.id,
-      quantity: c.quantity, unit_price: c.item.price,
+      quantity: c.quantity, unit_price: actualUnitPrice(c),
       notes: c.notes || null,
       destination: catMap[c.item.category_id] || 'kitchen',
       status: 'pending',
-    })))
+    }))
+
+    // ✅ Fix: لازم نتأكد إن الأصناف اتسجلت فعليًا قبل ما نعرض "تم تأكيد الطلب" للعميل.
+    // قبل كده كان الكود بيكمل من غير أي تحقق، فلو فشل الإدخال (انقطاع نت لحظي، timeout...)
+    // كان الطلب بيتسجل بإجمالي صحيح لكن بدون أصناف خالص، والعميل برضو يشوف "تم التأكيد".
+    let itemsError = (await sb.from('order_items').insert(itemsPayload)).error
+    if (itemsError) {
+      // محاولة ثانية واحدة (الفشل غالبًا بسبب انقطاع شبكة لحظي على موبايل العميل)
+      itemsError = (await sb.from('order_items').insert(itemsPayload)).error
+    }
+    if (itemsError) {
+      // ✅ Fix: التراجع عن تعديل/إنشاء الطلب عشان مانسيبش طلب بإجمالي غلط بدون أصناف
+      if (existingOrder) {
+        await sb.from('orders').update({ total_amount: existingOrder.total_amount || 0 }).eq('id', orderId)
+      } else {
+        await sb.from('orders').delete().eq('id', orderId)
+      }
+      setSubmitting(false)
+      alert('⚠️ حصل خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى أو طلب المساعدة من النادل.\n⚠️ Something went wrong sending your order. Please try again or call the waiter.')
+      return
+    }
 
     await sb.from('tables').update({
       status: 'occupied',

@@ -286,7 +286,6 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
               placeholder={discountType === 'percent' ? 'Discount %' : 'Amount Discount MYR'} />
           )}
         </div>
-
         {/* Payment Method */}
         {discountType !== 'free' && (
           <div style={{ marginBottom: 16 }}>
@@ -305,7 +304,6 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
             </div>
           </div>
         )}
-
         {/* Totals */}
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 20 }}>
           {[

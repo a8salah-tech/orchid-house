@@ -80,7 +80,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'الحلويات', label_en: 'Desserts', icon: '🍰',  path: '/dashboard/desserts', permission: 'desserts' },
     { label: 'البار',    label_en: 'Bar',      icon: '☕',  path: '/dashboard/bar',      permission: 'bar' },
     { label: 'مستودع التجهيزات', label_en: 'Prep Warehouse', icon: '🏭', path: '/dashboard/prep-warehouse', permission: 'prep_warehouse' },
-    { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'cashier' },
+    { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'sales' },
     { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'tables' },
   ]},
   { group: 'قائمة الطعام', items: [

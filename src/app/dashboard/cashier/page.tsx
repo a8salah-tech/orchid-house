@@ -57,8 +57,29 @@ const S = {
 const SERVICE_CHARGE_RATE = 0.10
 const SST_RATE = 0.06
 
+// ✅ تجميع أصناف الطلب في "جولات" منفصلة — لو الفاصل الزمني بين صنف والتالي أكتر من دقيقتين، تعتبر جولة طلب جديدة
+// (يحصل ده لما عميل تاني على نفس الطاولة يطلب طلب إضافي بعد فترة)
+function groupItemsByRound(items: OrderItem[]): OrderItem[][] {
+  const sorted = [...items].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
+  const rounds: OrderItem[][] = []
+  const GAP_MS = 2 * 60 * 1000 // دقيقتين
+  for (const item of sorted) {
+    const last = rounds[rounds.length - 1]
+    const lastItem = last?.[last.length - 1]
+    const gap = lastItem?.created_at && item.created_at
+      ? new Date(item.created_at).getTime() - new Date(lastItem.created_at).getTime()
+      : 0
+    if (last && gap < GAP_MS) {
+      last.push(item)
+    } else {
+      rounds.push([item])
+    }
+  }
+  return rounds
+}
+
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
-type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; destination: string; status: string; menu_items: { name: string; name_en: string } }
+type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; destination: string; status: string; created_at?: string; menu_items: { name: string; name_en: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
   discount_amount: number; discount_type: string; payment_method: string
@@ -212,10 +233,21 @@ function PaymentModal({ order, onClose, onPaid }: { order: Order; onClose: () =>
         {/* Order Summary */}
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{order.tables?.name || `Table ${order.tables?.number}`} · #{order.id.slice(-6).toUpperCase()}</div>
-          {order.order_items.map(i => (
-            <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
-              <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
-              <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+          {groupItemsByRound(order.order_items).map((round, ri) => (
+            <div key={ri}>
+              {ri > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', color: S.amber, fontSize: 11, fontWeight: 700 }}>
+                  <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
+                  🔔 Round {ri + 1} (Additional Order)
+                  <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
+                </div>
+              )}
+              {round.map(i => (
+                <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
+                  <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                  <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -724,7 +756,7 @@ export default function CashierPage() {
   }, [isAdmin, branches, adminBranchFilter])
 
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,created_at,menu_items(name,name_en))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -745,7 +777,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,created_at,menu_items(name,name_en))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -1086,10 +1118,21 @@ export default function CashierPage() {
                       </div>
 
                       <div style={{ padding: '10px 16px' }}>
-                        {order.order_items.map(i => (
-                          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
-                            <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
-                            {i.notes && <span style={{ color: S.muted, fontSize: 10 }}>({i.notes})</span>}
+                        {groupItemsByRound(order.order_items).map((round, ri) => (
+                          <div key={ri}>
+                            {ri > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '8px 0', color: S.amber, fontSize: 10, fontWeight: 700 }}>
+                                <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
+                                🔔 Round {ri + 1}
+                                <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
+                              </div>
+                            )}
+                            {round.map(i => (
+                              <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
+                                <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                                {i.notes && <span style={{ color: S.muted, fontSize: 10 }}>({i.notes})</span>}
+                              </div>
+                            ))}
                           </div>
                         ))}
                       </div>

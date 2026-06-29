@@ -36,7 +36,7 @@ type Branch = { id: string; name: string }
 type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
   role: string; department?: string; salary?: number; insurance?: number
-  work_insurance?: number; branch_id?: string; branches?: { name: string } | any
+  work_insurance?: number; branch_id?: string; is_active?: boolean; branches?: { name: string } | any
 }
 type PayrollRecord = {
   id?: string; created_at?: string; payroll_month_id: string; employee_id: string
@@ -133,7 +133,12 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false 
     <tr>
       <td style={{ ...thStyle, color: S.muted, textAlign: 'center', minWidth: 30 }}>{emp?.employee_number || '—'}</td>
       <td style={{ ...thStyle, minWidth: 160, cursor: 'pointer' }} onClick={() => onOpenPayslip(record)} title="اضغط لعرض تقرير الراتب التفصيلي">
-        <div style={{ fontWeight: 700, color: S.gold, fontSize: 12, textDecoration: 'underline', textDecorationStyle: 'dotted' }}>{emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}</div>
+        <div style={{ fontWeight: 700, color: S.gold, fontSize: 12, textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+          {emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}
+          {emp && emp.is_active === false && (
+            <span style={{ marginRight: 6, background: S.redB, color: S.red, borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>⏸ موقوف</span>
+          )}
+        </div>
         <div style={{ fontSize: 10, color: S.muted }}>{emp?.department}</div>
       </td>
       <Cell value={record.basic_salary}     onChange={v => set('basic_salary', v)}     readOnly={readOnly} />
@@ -182,6 +187,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
       <div class="brand">🌸 Orchid House</div>
       <div class="title">Payslip — قسيمة راتب</div>
       <div class="period">${monthName} ${year}</div>
+      ${emp && emp.is_active === false ? '<div style="margin-top:6px;color:#c62828;font-weight:800;font-size:11px">⏸ هذا الموظف موقوف عن العمل حاليًا — Employee Currently Suspended</div>' : ''}
     </div>
     <table class="emp-info">
       <tr>
@@ -315,7 +321,7 @@ export default function PayrollPage() {
     const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
       (() => {
-        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name')
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,branches(name)').order('name')
         // فلتر حسب الدور
         if (!isSuperAdmin && isBranchManager) q = q.eq('branch_id', currentUser?.branch_id || '')
         else if (!isSuperAdmin && !isBranchManager) q = q.eq('id', myId)
@@ -337,7 +343,7 @@ export default function PayrollPage() {
 
     let emps = employees
     if (emps.length === 0) {
-      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name)').eq('is_active', true).order('name')
+      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,branches(name)').order('name')
       if (!isSuperAdmin && isBranchManager) q2 = q2.eq('branch_id', currentUser?.branch_id || '')
       else if (!isSuperAdmin && !isBranchManager) q2 = q2.eq('id', myId)
       const { data } = await q2
@@ -906,6 +912,9 @@ export default function PayrollPage() {
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>📋 تقرير الراتب — {emp?.name} {emp?.name_en}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{monthName} {selectedMonth.year} · {emp?.employee_number || '—'} · {emp?.department}</div>
+                  {emp && emp.is_active === false && (
+                    <div style={{ marginTop: 6, display: 'inline-block', background: S.redB, color: S.red, borderRadius: 10, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>⏸ هذا الموظف موقوف عن العمل حاليًا</div>
+                  )}
                 </div>
                 <button onClick={() => setPayslipRecord(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
               </div>

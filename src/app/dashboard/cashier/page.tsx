@@ -62,7 +62,7 @@ const SST_RATE = 0.06
 function groupItemsByRound(items: OrderItem[]): OrderItem[][] {
   const sorted = [...items].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
   const rounds: OrderItem[][] = []
-  const GAP_MS = 2 * 60 * 1000 // دقيقتين
+  const GAP_MS = 10 * 1000 // 10 ثواني
   for (const item of sorted) {
     const last = rounds[rounds.length - 1]
     const lastItem = last?.[last.length - 1]

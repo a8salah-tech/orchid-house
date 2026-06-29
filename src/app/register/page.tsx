@@ -337,7 +337,18 @@ export default function RegisterPage() {
             {/* Branch */}
             <div>
               {label('Branch', true)}
-              <select style={inp('branch')} value={branch} onChange={e => { setBranch(e.target.value); setEmployeeNumber('') }}>
+              <select style={inp('branch')} value={branch} onChange={async e => {
+                const val = e.target.value
+                setBranch(val)
+                setEmployeeNumber('')
+                const b = branches.find(br => br.name === val)
+                if (b) {
+                  const prefix = getPrefix(val)
+                  const { data, error } = await supabase.rpc('preview_next_employee_number', { p_branch_id: b.id, p_prefix: prefix })
+                  if (error) console.error('preview_next_employee_number error:', error)
+                  if (!error && data != null) setEmployeeNumber(String(data))
+                }
+              }}>
                 <option value="">Select Branch</option>
                 {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
@@ -354,13 +365,13 @@ export default function RegisterPage() {
                   </div>
                   <input
                     style={{ ...inp('employee_number'), borderRadius: '0 12px 12px 0', flex: 1 }}
-                    type="number" min="1"
+                    type="number" min="1" lang="en" dir="ltr"
                     value={employeeNumber}
                     onChange={e => setEmployeeNumber(e.target.value.replace(/\D/g, ''))}
                     placeholder="e.g. 001"
                   />
                 </div>
-                {employeeNumber && <div style={{ fontSize: 11, color: S.gold, marginTop: 4 }}>Full: {getPrefix(branch)}-{employeeNumber}</div>}
+                {employeeNumber && <div style={{ fontSize: 11, color: S.gold, marginTop: 4 }}>Full: {getPrefix(branch)}-{employeeNumber} <span style={{ color: S.muted }}>(auto-suggested, editable)</span></div>}
                 {errMsg('employee_number')}
               </div>
             )}

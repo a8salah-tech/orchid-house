@@ -113,10 +113,11 @@ function Cell({ value, onChange, readOnly = false }: { value: any; onChange: (v:
   )
 }
 
-function PayrollRow({ record, empMap, onChange, readOnly = false }: {
+function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false }: {
   record: PayrollRecord
   empMap: Record<string, Employee>
   onChange: (updated: PayrollRecord) => void
+  onOpenPayslip: (record: PayrollRecord) => void
   readOnly?: boolean
 }) {
   const emp  = empMap[record.employee_id]
@@ -131,8 +132,8 @@ function PayrollRow({ record, empMap, onChange, readOnly = false }: {
   return (
     <tr>
       <td style={{ ...thStyle, color: S.muted, textAlign: 'center', minWidth: 30 }}>{emp?.employee_number || '—'}</td>
-      <td style={{ ...thStyle, minWidth: 160 }}>
-        <div style={{ fontWeight: 700, color: S.white, fontSize: 12 }}>{emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}</div>
+      <td style={{ ...thStyle, minWidth: 160, cursor: 'pointer' }} onClick={() => onOpenPayslip(record)} title="اضغط لعرض تقرير الراتب التفصيلي">
+        <div style={{ fontWeight: 700, color: S.gold, fontSize: 12, textDecoration: 'underline', textDecorationStyle: 'dotted' }}>{emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}</div>
         <div style={{ fontSize: 10, color: S.muted }}>{emp?.department}</div>
       </td>
       <Cell value={record.basic_salary}     onChange={v => set('basic_salary', v)}     readOnly={readOnly} />
@@ -170,7 +171,120 @@ function PayrollRow({ record, empMap, onChange, readOnly = false }: {
   )
 }
 
+function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number): string {
+  const c = calcRecord(record)
+  const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const row = (label: string, value: string, bold = false) => `
+    <tr><td class="lbl">${label}</td><td class="val" style="${bold ? 'font-weight:800' : ''}">${value}</td></tr>`
+  return `
+  <div class="payslip">
+    <div class="payslip-header">
+      <div class="brand">🌸 Orchid House</div>
+      <div class="title">Payslip — قسيمة راتب</div>
+      <div class="period">${monthName} ${year}</div>
+    </div>
+    <table class="emp-info">
+      <tr>
+        <td class="lbl">الاسم / Name</td><td class="val">${emp?.name || '—'} ${emp?.name_en || ''}</td>
+        <td class="lbl">الرقم الوظيفي / ID</td><td class="val">${emp?.employee_number || '—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">القسم / Department</td><td class="val">${emp?.department || '—'}</td>
+        <td class="lbl">الفرع / Branch</td><td class="val">${(emp?.branches as any)?.name || '—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">الوظيفة / Role</td><td class="val">${emp?.role || '—'}</td>
+        <td class="lbl">أيام العمل / Working Days</td><td class="val">${record.working_days} (${record.days_worked} ايام مُنجزة)</td>
+      </tr>
+    </table>
+
+    <div class="cols">
+      <table class="section">
+        <thead><tr><th colspan="2">💰 الاستحقاقات / Earnings</th></tr></thead>
+        <tbody>
+          ${row('الراتب الأساسي / Basic Salary', fmt(record.basic_salary))}
+          ${row('سعر اليوم / Daily Rate', fmt(c.dailyRate))}
+          ${row('سعر الساعة / Hourly Rate', fmt(c.hourlyRate))}
+          ${row('المستحق الأساسي / Earned Base', fmt(c.earnedBase))}
+          ${row('أيام إضافي / OT Days', String(record.overtime_days))}
+          ${row('ساعات إضافي / OT Hours', String(record.overtime_hours))}
+          ${row('بدل إضافي / Overtime Pay', fmt(c.overtimePay))}
+          ${record.allowance_1 > 0 ? row(record.allowance_1_label || 'Allowance 1', fmt(record.allowance_1)) : ''}
+          ${record.allowance_2 > 0 ? row(record.allowance_2_label || 'Allowance 2', fmt(record.allowance_2)) : ''}
+          ${record.allowance_3 > 0 ? row(record.allowance_3_label || 'Allowance 3', fmt(record.allowance_3)) : ''}
+          ${row('إجمالي الاستحقاقات / Total Earnings', fmt(c.totalEarnings), true)}
+        </tbody>
+      </table>
+
+      <table class="section">
+        <thead><tr><th colspan="2">📉 الاستقطاعات / Deductions</th></tr></thead>
+        <tbody>
+          ${row('أيام غياب / Absence Days', `${record.absence_days} (${fmt(c.absenceDed)})`)}
+          ${row('تأخير (ساعات) / Late Hours', `${record.late_hours} (${fmt(c.lateDed)})`)}
+          ${row('خروج مبكر / Early Exit (h)', `${record.early_exit_hours} (${fmt(c.earlyDed)})`)}
+          ${row('التأمينات / Insurance', fmt(record.insurance))}
+          ${row('الضريبة / Tax', fmt(record.tax))}
+          ${record.deduction_1 > 0 ? row(record.deduction_1_label || 'Deduction 1', fmt(record.deduction_1)) : ''}
+          ${record.deduction_2 > 0 ? row(record.deduction_2_label || 'Deduction 2', fmt(record.deduction_2)) : ''}
+          ${record.deduction_3 > 0 ? row(record.deduction_3_label || 'Deduction 3', fmt(record.deduction_3)) : ''}
+          ${record.advance > 0 ? row('سلفة / Advance', fmt(record.advance)) : ''}
+          ${row('إجمالي الاستقطاعات / Total Deductions', fmt(c.totalDeductions), true)}
+        </tbody>
+      </table>
+    </div>
+
+    <table class="summary">
+      <tr>
+        <td class="lbl">المرحّل من شهر سابق / Carried Forward</td><td class="val">${fmt(record.carried_forward)}</td>
+        <td class="lbl">رصيد السلفة / Advance Balance</td><td class="val">${fmt(record.advance_balance)}</td>
+      </tr>
+      <tr class="net-row">
+        <td class="lbl">صافي الراتب / NET SALARY</td><td class="val net">${fmt(c.netSalary)}</td>
+        <td class="lbl">المبلغ المستحق / Amount Due</td><td class="val">${fmt(record.amount_due || c.amountDue)}</td>
+      </tr>
+      <tr>
+        <td class="lbl">المبلغ المدفوع / Amount Paid</td><td class="val">${fmt(record.amount_paid)}</td>
+        <td class="lbl">الرصيد المتبقي / Balance</td><td class="val">${fmt((record.amount_due || c.amountDue) - record.amount_paid)}</td>
+      </tr>
+      <tr>
+        <td class="lbl">تأمين العمل / Work Insurance</td><td class="val">${fmt(record.work_insurance)}</td>
+        <td class="lbl"></td><td class="val"></td>
+      </tr>
+    </table>
+
+    <div class="signatures">
+      <div>توقيع الموظف / Employee Signature: ____________________</div>
+      <div>توقيع الإدارة / Approved by: ____________________</div>
+    </div>
+  </div>`
+}
+
+const PAYSLIP_PRINT_STYLE = `
+  body{font-family:Arial,sans-serif;font-size:12px;margin:0;direction:rtl;color:#0A1628}
+  .payslip{padding:18mm 14mm;page-break-after:always}
+  .payslip:last-child{page-break-after:auto}
+  .payslip-header{text-align:center;border-bottom:2px solid #C9A84C;padding-bottom:10px;margin-bottom:14px}
+  .payslip-header .brand{font-size:18px;font-weight:900;color:#0A1628}
+  .payslip-header .title{font-size:13px;color:#555;margin-top:2px}
+  .payslip-header .period{font-size:12px;color:#C9A84C;font-weight:700;margin-top:4px}
+  table.emp-info{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px}
+  table.emp-info td{padding:6px 8px;border:1px solid #ddd}
+  .cols{display:flex;gap:12px;margin-bottom:14px}
+  table.section{flex:1;border-collapse:collapse;font-size:11px}
+  table.section th{background:#0A1628;color:#fff;padding:7px;text-align:center;font-size:11px}
+  table.section td{padding:5px 8px;border:1px solid #ddd}
+  table.summary{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:18px}
+  table.summary td{padding:7px 8px;border:1px solid #ddd}
+  .net-row{background:#fff8e1}
+  .net-row .net{font-weight:900;font-size:14px;color:#0277bd}
+  .lbl{color:#555;width:25%}
+  .val{font-weight:600;text-align:left;direction:ltr}
+  .signatures{display:flex;justify-content:space-between;font-size:11px;margin-top:20px}
+  @media print{@page{size:A4;margin:0}}
+`
+
 export default function PayrollPage() {
+
   const sbRef = useRef(createClient())
   const sb    = sbRef.current
   const { employee: currentUser, permissions, hasPermission } = useAuth()
@@ -192,6 +306,7 @@ export default function PayrollPage() {
   const [showNewMonth,  setShowNewMonth]  = useState(false)
   const [newMonth,      setNewMonth]      = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() })
   const [search,        setSearch]        = useState('')
+  const [payslipRecord, setPayslipRecord] = useState<PayrollRecord | null>(null)
 
   const empMap = useMemo(() => Object.fromEntries(employees.map(e => [e.id, e])), [employees])
 
@@ -242,12 +357,15 @@ export default function PayrollPage() {
     const monthEnd   = new Date(month.year, month.month, 0).toISOString().split('T')[0]
     const empIds = filteredEmps.map(e => e.id)
 
-    const [violRes, absRes] = await Promise.all([
+    const [violRes, absRes, lateRes] = await Promise.all([
       empIds.length > 0
         ? sb.from('violations').select('employee_id,amount').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
       empIds.length > 0
         ? sb.from('absences').select('employee_id').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
+        : Promise.resolve({ data: [] }),
+      empIds.length > 0
+        ? sb.from('attendance').select('employee_id,late_minutes').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
     ])
 
@@ -259,6 +377,11 @@ export default function PayrollPage() {
     const absMap: Record<string, number> = {}
     for (const a of (absRes.data || [])) {
       absMap[a.employee_id] = (absMap[a.employee_id] || 0) + 1
+    }
+    // ✅ إجمالي دقائق التأخير لكل موظف خلال الشهر من جدول الحضور — محوّلة لساعات
+    const lateMap: Record<string, number> = {}
+    for (const a of ((lateRes as any).data || [])) {
+      lateMap[a.employee_id] = (lateMap[a.employee_id] || 0) + (a.late_minutes || 0)
     }
 
     const existing    = (data || []).filter((r: any) => filteredEmps.some(e => e.id === r.employee_id))
@@ -273,9 +396,11 @@ export default function PayrollPage() {
       const violAmount = violMap[r.employee_id] || 0
       const absDays = absMap[r.employee_id] || 0
       const absAmount = parseFloat((absDays * dailyRate).toFixed(2))
+      const lateHrs = parseFloat(((lateMap[r.employee_id] || 0) / 60).toFixed(2))
       return {
         ...r,
         basic_salary: baseSalary,
+        late_hours: lateHrs,
         deduction_1: violAmount,
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toFixed(2)} MYR)` : 'Violations',
         deduction_2: absAmount,
@@ -286,7 +411,7 @@ export default function PayrollPage() {
 
     // Auto-save violations and absences deductions
     const toAutoSave = allRecords
-      .filter((r: any) => violMap[r.employee_id] > 0 || absMap[r.employee_id] > 0)
+      .filter((r: any) => violMap[r.employee_id] > 0 || absMap[r.employee_id] > 0 || lateMap[r.employee_id] > 0)
       .map((r: any) => {
         const calc = calcRecord(r)
         const { employees: _emp, ...cleanRecord } = r as any
@@ -387,6 +512,40 @@ export default function PayrollPage() {
     win.document.close()
   }
 
+  function printSinglePayslip(record: PayrollRecord) {
+    if (!selectedMonth) return
+    const emp = empMap[record.employee_id]
+    const monthName = MONTHS[selectedMonth.month - 1]
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Payslip - ${emp?.name || ''} - ${monthName} ${selectedMonth.year}</title>
+    <style>${PAYSLIP_PRINT_STYLE}</style>
+    </head><body>
+    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year)}
+    <script>window.onload=function(){window.print()}<\/script>
+    </body></html>`)
+    win.document.close()
+  }
+
+  function printAllPayslips() {
+    if (!selectedMonth) return
+    const monthName = MONTHS[selectedMonth.month - 1]
+    const win = window.open('', '_blank')
+    if (!win) return
+    const allHTML = visibleRecords.filter(r => empMap[r.employee_id]).map(r =>
+      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year)
+    ).join('')
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Payslips - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>
+    <style>${PAYSLIP_PRINT_STYLE}</style>
+    </head><body>
+    ${allHTML}
+    <script>window.onload=function(){window.print()}<\/script>
+    </body></html>`)
+    win.document.close()
+  }
+
   const filteredRecords = useMemo(() => {
     if (!search) return records
     return records.filter(r => {
@@ -467,7 +626,8 @@ export default function PayrollPage() {
               {selectedMonth.status === 'finalized' ? '✅ Finalized' : '📝 Draft'}
             </span>
             <input style={{ ...inp, width: 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
-            <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
+            <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Sheet</button>
+            <button onClick={printAllPayslips} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📄 Print All Payslips</button>
             {isAdmin && selectedMonth.status !== 'finalized' && (
               <>
                 <button onClick={saveAll} disabled={saving} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -676,7 +836,7 @@ export default function PayrollPage() {
                       <th style={thStyle}>Allow 3</th>
                       <th style={{ ...thStyle, background: 'rgba(34,197,94,0.35)' }}>Total</th>
                       <th style={thStyle}>Absence</th>
-                      <th style={thStyle}>Late (h)</th>
+                      <th style={thStyle} title="يُحسب تلقائيًا من بيانات الحضور (late_minutes)">⏱️ Late (h) 🔄</th>
                       <th style={thStyle}>Early Exit</th>
                       <th style={thStyle}>Insurance</th>
                       <th style={thStyle}>Tax</th>
@@ -701,6 +861,7 @@ export default function PayrollPage() {
                         record={r}
                         empMap={empMap}
                         readOnly={!isAdmin}
+                        onOpenPayslip={setPayslipRecord}
                         onChange={updated => setRecords(prev => prev.map(p => p.employee_id === updated.employee_id ? updated : p))}
                       />
                     ))}
@@ -730,6 +891,75 @@ export default function PayrollPage() {
           </>
         )}
       </div>
+      {/* Payslip Detail Modal */}
+      {payslipRecord && selectedMonth && (() => {
+        const emp = empMap[payslipRecord.employee_id]
+        const c = calcRecord(payslipRecord)
+        const fmt2 = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const monthName = MONTHS[selectedMonth.month - 1]
+        const rowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 640, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+              {/* Header */}
+              <div style={{ padding: '18px 22px', borderBottom: `1px solid ${S.border}`, flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>📋 تقرير الراتب — {emp?.name} {emp?.name_en}</div>
+                  <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{monthName} {selectedMonth.year} · {emp?.employee_number || '—'} · {emp?.department}</div>
+                </div>
+                <button onClick={() => setPayslipRecord(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+              </div>
+
+              {/* Body */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: S.green, marginBottom: 8 }}>💰 الاستحقاقات</div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>الراتب الأساسي</span><span>{fmt2(payslipRecord.basic_salary)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>سعر اليوم</span><span>{fmt2(c.dailyRate)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>سعر الساعة</span><span>{fmt2(c.hourlyRate)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>أيام/ساعات إضافي</span><span>{payslipRecord.overtime_days}d / {payslipRecord.overtime_hours}h</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>بدل إضافي</span><span>{fmt2(c.overtimePay)}</span></div>
+                    {payslipRecord.allowance_1 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.allowance_1_label}</span><span>{fmt2(payslipRecord.allowance_1)}</span></div>}
+                    {payslipRecord.allowance_2 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.allowance_2_label}</span><span>{fmt2(payslipRecord.allowance_2)}</span></div>}
+                    {payslipRecord.allowance_3 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.allowance_3_label}</span><span>{fmt2(payslipRecord.allowance_3)}</span></div>}
+                    <div style={{ ...rowStyle, fontWeight: 800, color: S.green, borderBottom: 'none' }}><span>إجمالي الاستحقاقات</span><span>{fmt2(c.totalEarnings)}</span></div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 8 }}>📉 الاستقطاعات</div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>غياب ({payslipRecord.absence_days} يوم)</span><span>{fmt2(c.absenceDed)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>تأخير ({payslipRecord.late_hours} س)</span><span>{fmt2(c.lateDed)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>خروج مبكر ({payslipRecord.early_exit_hours} س)</span><span>{fmt2(c.earlyDed)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>التأمينات</span><span>{fmt2(payslipRecord.insurance)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>الضريبة</span><span>{fmt2(payslipRecord.tax)}</span></div>
+                    {payslipRecord.deduction_1 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_1_label}</span><span>{fmt2(payslipRecord.deduction_1)}</span></div>}
+                    {payslipRecord.deduction_2 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_2_label}</span><span>{fmt2(payslipRecord.deduction_2)}</span></div>}
+                    {payslipRecord.deduction_3 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_3_label}</span><span>{fmt2(payslipRecord.deduction_3)}</span></div>}
+                    {payslipRecord.advance > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>سلفة</span><span>{fmt2(payslipRecord.advance)}</span></div>}
+                    <div style={{ ...rowStyle, fontWeight: 800, color: S.red, borderBottom: 'none' }}><span>إجمالي الاستقطاعات</span><span>{fmt2(c.totalDeductions)}</span></div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 18, background: S.gold3, border: `1px solid ${S.gold}40`, borderRadius: 12, padding: '14px 18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 17, fontWeight: 900, color: S.teal, marginBottom: 8 }}>
+                    <span>صافي الراتب NET</span><span>MYR {fmt2(c.netSalary)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted }}>
+                    <span>مدفوع: {fmt2(payslipRecord.amount_paid)}</span>
+                    <span>الرصيد: {fmt2((payslipRecord.amount_due || c.amountDue) - payslipRecord.amount_paid)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding: '14px 22px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
+                <button onClick={() => setPayslipRecord(null)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+                <button onClick={() => printSinglePayslip(payslipRecord)} style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة هذا الموظف</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

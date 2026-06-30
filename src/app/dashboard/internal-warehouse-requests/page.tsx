@@ -338,14 +338,27 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // 2) لكل صنف: تحويل الكمية المعتمدة لوحدة المخزون الأساسية (لو الوحدة المختارة في الطلب مختلفة)، ثم تسجيل حركة صرف
     // ✅ Fix: لا نحدّث current_stock يدويًا هنا — الـ trigger (trigger_update_stock) يقوم بهذا
     // تلقائيًا عند إدراج حركة stock_movements. كان التحديث اليدوي السابق يتسبب في خصم الكمية مرتين.
+    const failedItems: string[] = []
     for (const item of (request.internal_warehouse_request_items || [])) {
       const requestedQty = approvedQtys[item.id] ?? item.quantity_requested
+      // ✅ Fix (جذري): id عمود فريد بالفعل، فلا داعي لفلتر warehouse_id إضافي معه —
+      // كان هذا الفلتر المزدوج يسبب فشل صامت كامل (wp = null) لو product_id المحفوظ في الطلب
+      // يشاور على نسخة الصنف في مستودع مختلف عن مستودع الفرع، فيتخطى الكود خصم المخزون بدون أي تنبيه
+      // بينما الطلب يكتمل ويظهر "معتمد" بنجاح. الآن نتحقق من التطابق صراحة ونوقف العملية فورًا عند أي تعارض.
       const { data: wp } = await sb.from('warehouse_products')
-        .select('id, current_stock, unit_id')
-        .eq('warehouse_id', wh.id)
+        .select('id, current_stock, unit_id, warehouse_id, name')
         .eq('id', (item as any).product_id)
         .maybeSingle()
-      if (wp) {
+      if (!wp) {
+        failedItems.push(`الصنف غير موجود في قاعدة البيانات (معرّف: ${(item as any).product_id})`)
+        continue
+      }
+      if (wp.warehouse_id !== wh.id) {
+        // ✅ تعارض حقيقي: الصنف المحفوظ في الطلب يخص مستودع مختلف عن مستودع هذا الفرع — توقف فورًا بدل الفشل الصامت
+        failedItems.push(`${wp.name} — هذا الصنف غير مرتبط بمستودع هذا الفرع، يرجى التواصل مع الدعم الفني قبل المتابعة`)
+        continue
+      }
+      {
         // ✅ Fix: لو وحدة الطلب (item.unit_id) مختلفة عن الوحدة الأساسية للصنف (wp.unit_id)،
         // نحوّل الكمية باستخدام unit_conversions المطابقة تحديدًا لوحدة الطلب
         // (الصنف ممكن يكون له أكثر من معادلة تحويل، مثل كرتون→كيلو وكرتون→غرام، فلازم نحدد المطابق بالذات)
@@ -381,6 +394,13 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         updatePayload.unit_id = editedUnits[item.id]
       }
       await sb.from('internal_warehouse_request_items').update(updatePayload).eq('id', item.id)
+    }
+
+    // ✅ Fix (جذري): لو فيه أي صنف فشل خصمه، نوقف العملية ونمنع تعليم الطلب كـ"معتمد" بدل الاستمرار بصمت
+    if (failedItems.length > 0) {
+      setUpdating(false)
+      alert('⚠️ تعذّر اعتماد الطلب بسبب مشاكل في الأصناف التالية:\n\n' + failedItems.join('\n') + '\n\nلم يتم خصم أي كمية ولم يتم اعتماد الطلب.')
+      return
     }
 
     // 3) تحديث حالة الطلب

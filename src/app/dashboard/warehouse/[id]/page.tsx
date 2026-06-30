@@ -996,7 +996,8 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
     }
     const factor = conv.factor
     const bigQty = Math.floor(product.current_stock / factor)
-    const smallQty = product.current_stock % factor
+    // ✅ Fix: تقريب لمنع أخطاء الفاصلة العائمة في JS (مثال: 6.899999999999999 بدل 6.9)
+    const smallQty = Math.round((product.current_stock % factor) * 100) / 100
     return {
       big: bigQty,
       bigUnit: conv.from_unit?.symbol || '',

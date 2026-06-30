@@ -161,7 +161,8 @@ export default function InventoryReportsPage() {
     const conv = unitConversions.find((c: any) => c.product_id === productId)
     if (!conv || !conv.factor || conv.factor <= 1) return `${stock} ${unitSymbol}`
     const bigQty = Math.floor(stock / conv.factor)
-    const smallQty = stock % conv.factor
+    // ✅ Fix: تقريب لمنع أخطاء الفاصلة العائمة في JS (مثال: 6.899999999999999 بدل 6.9)
+    const smallQty = Math.round((stock % conv.factor) * 100) / 100
     const parts = []
     if (bigQty > 0) parts.push(`${bigQty} ${conv.from_unit?.symbol || ''}`)
     if (smallQty > 0) parts.push(`${smallQty} ${conv.to_unit?.symbol || unitSymbol}`)

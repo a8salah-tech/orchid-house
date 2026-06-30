@@ -420,7 +420,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
   const [saving, setSaving] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState('')
-  const [invoiceImage, setInvoiceImage] = useState<string | null>(null)
+  const [invoiceImages, setInvoiceImages] = useState<string[]>([])
   const [showAddSupplier, setShowAddSupplier] = useState(false)
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [newProductName, setNewProductName] = useState('')
@@ -473,14 +473,30 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
   const availableProducts = form.warehouse_id ? warehouseProducts : localProducts
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; if (!file) return
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const base64 = reader.result as string
-      setInvoiceImage(base64)
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    // ✅ نقرأ كل الصور المختارة كـ base64 ونضيفها لقائمة الصور الحالية (مش نستبدل، عشان تقدر تضيف صور تانية لاحقًا)
+    const newImages: string[] = []
+    for (const file of files) {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      newImages.push(base64)
+    }
+    setInvoiceImages(prev => [...prev, ...newImages])
+    // نحلل كل صورة جديدة بالذكاء الاصطناعي بالتتابع وندمج النتائج (صنف جديد يُضاف، باقي البيانات تُملأ لو لسه فاضية)
+    for (const base64 of newImages) {
       await handleAIScan(base64)
     }
-    reader.readAsDataURL(file)
+    // نفرّغ قيمة input عشان لو المستخدم اختار نفس الملفات تاني تتسجل onChange
+    e.target.value = ''
+  }
+
+  function removeImage(index: number) {
+    setInvoiceImages(prev => prev.filter((_, i) => i !== index))
   }
 
   async function handleAIScan(base64: string) {
@@ -490,12 +506,14 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
       setScanProgress('📷 استخراج البيانات من الصورة...')
       const result = await scanInvoiceWithAI(base64, availableProducts)
       setScanProgress('🔗 مطابقة الأصناف مع قاعدة البيانات...')
-      if (result.invoice_number) setForm(p => ({ ...p, supplier_invoice_number: result.invoice_number }))
+      // ✅ نملأ حقول الفاتورة (الرقم، التاريخ، الملاحظات، المورد) فقط لو لسه فاضية —
+      // عشان لو صورة تانية لنفس الفاتورة فيها رقم/تاريخ مختلف بالغلط، نحافظ على أول قيمة صحيحة اتقرأت
+      if (result.invoice_number) setForm(p => p.supplier_invoice_number ? p : ({ ...p, supplier_invoice_number: result.invoice_number }))
       if (result.invoice_date) setForm(p => ({ ...p, invoice_date: result.invoice_date }))
-      if (result.notes) setForm(p => ({ ...p, notes: result.notes }))
+      if (result.notes) setForm(p => p.notes ? { ...p, notes: p.notes + ' / ' + result.notes } : { ...p, notes: result.notes })
       if (result.supplier_name) {
         const matched = localSuppliers.find(s => s.name.includes(result.supplier_name) || result.supplier_name.includes(s.name))
-        if (matched) setForm(p => ({ ...p, supplier_id: matched.id }))
+        if (matched) setForm(p => p.supplier_id ? p : ({ ...p, supplier_id: matched.id }))
       }
       if (result.items?.length) {
         const matchedItems: InvoiceItem[] = result.items.map(item => {
@@ -510,7 +528,11 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
             matched: !!match,
           }
         })
-        setItems(matchedItems)
+        // ✅ ندمج الأصناف الجديدة مع الموجودة (نستبعد السطر الفارغ الافتراضي الأول لو لسه موجود ومفيهوش بيانات)
+        setItems(prev => {
+          const cleaned = prev.filter(it => it.product_id || it.product_name || it.quantity || it.unit_price)
+          return [...cleaned, ...matchedItems]
+        })
       }
       setScanProgress('✅ تم استخراج البيانات بنجاح!')
       setTimeout(() => setScanProgress(''), 2000)
@@ -551,10 +573,16 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
         invoice_date: form.invoice_date,
         notes: form.notes,
         total_amount: total,
-        image_url: invoiceImage || null,
+        image_url: invoiceImages[0] || null,
         status: 'confirmed',
       }]).select().single()
       if (invErr) throw invErr
+      // ✅ حفظ كل الصور (بما فيها الأولى) في جدول الصور المنفصل عشان نقدر نعرضهم كلهم لاحقًا
+      if (invoiceImages.length > 0) {
+        await supabase.from('purchase_invoice_images').insert(
+          invoiceImages.map((url, idx) => ({ invoice_id: inv.id, image_url: url, sort_order: idx }))
+        )
+      }
       for (const item of items) {
         await supabase.from('purchase_invoice_items').insert([{
           invoice_id: inv.id, product_id: item.product_id,
@@ -596,30 +624,47 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
 
             {/* صورة الفاتورة */}
             <div>
-              <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 10 }}>📷 صورة الفاتورة</div>
-              <div
-                onClick={() => fileRef.current?.click()}
-                style={{
-                  border: `2px dashed ${invoiceImage ? S.green : S.border}`,
-                  borderRadius: 14, padding: invoiceImage ? 8 : 24,
-                  textAlign: 'center', cursor: 'pointer', marginBottom: 10,
-                  background: invoiceImage ? S.greenB : 'transparent',
-                  transition: 'all .2s', minHeight: 140,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                {invoiceImage ? (
-                  <img src={invoiceImage} alt="فاتورة" style={{ maxHeight: 200, maxWidth: '100%', borderRadius: 10, objectFit: 'contain' }} />
-                ) : (
+              <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 10 }}>📷 صور الفاتورة {invoiceImages.length > 0 && `(${invoiceImages.length})`}</div>
+
+              {invoiceImages.length === 0 ? (
+                <div
+                  onClick={() => fileRef.current?.click()}
+                  style={{
+                    border: `2px dashed ${S.border}`,
+                    borderRadius: 14, padding: 24,
+                    textAlign: 'center', cursor: 'pointer', marginBottom: 10,
+                    background: 'transparent',
+                    transition: 'all .2s', minHeight: 140,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
                   <div>
                     <div style={{ fontSize: 36, marginBottom: 8 }}>📸</div>
                     <div style={{ fontSize: 13, color: S.white, fontWeight: 600, marginBottom: 4 }}>صوّر أو ارفع الفاتورة</div>
                     <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>الذكاء الاصطناعي سيستخرج البيانات تلقائياً</div>
-                    <div style={{ padding: '7px 18px', background: S.gold3, border: `1px solid ${S.gold}`, borderRadius: 8, display: 'inline-block', fontSize: 12, color: S.gold, fontWeight: 700 }}>اختر صورة</div>
+                    <div style={{ padding: '7px 18px', background: S.gold3, border: `1px solid ${S.gold}`, borderRadius: 8, display: 'inline-block', fontSize: 12, color: S.gold, fontWeight: 700 }}>اختر صورة أو أكثر</div>
                   </div>
-                )}
-              </div>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleImageUpload} />
+                </div>
+              ) : (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 8, marginBottom: 10 }}>
+                    {invoiceImages.map((img, idx) => (
+                      <div key={idx} style={{ position: 'relative', border: `2px solid ${S.green}`, borderRadius: 10, overflow: 'hidden', aspectRatio: '1' }}>
+                        <img src={img} alt={`فاتورة ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onClick={() => window.open(img, '_blank')} />
+                        <button onClick={() => removeImage(idx)}
+                          style={{ position: 'absolute', top: 2, left: 2, background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%', width: 22, height: 22, color: S.white, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                        <div style={{ position: 'absolute', bottom: 2, right: 2, background: 'rgba(0,0,0,0.7)', borderRadius: 6, padding: '1px 6px', fontSize: 10, color: S.white }}>{idx + 1}</div>
+                      </div>
+                    ))}
+                    <div onClick={() => fileRef.current?.click()}
+                      style={{ border: `2px dashed ${S.gold}`, borderRadius: 10, aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: S.gold3, fontSize: 24, color: S.gold }}>
+                      ＋
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: S.muted }}>📌 لو الفاتورة في أكتر من صفحة، أضف باقي الصور بنفس الطريقة — كل صفحة هتتحلل وتُضاف أصنافها تلقائياً</div>
+                </div>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }} onChange={handleImageUpload} />
 
               {(scanning || scanProgress) && (
                 <div style={{ background: scanning ? S.purpleB : scanProgress.includes('✅') ? S.greenB : S.amberB, border: `1px solid ${scanning ? S.purple : scanProgress.includes('✅') ? S.green : S.amber}`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: scanning ? S.purple : scanProgress.includes('✅') ? S.green : S.amber, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -634,10 +679,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                 </div>
               )}
 
-              {invoiceImage && (
+              {invoiceImages.length > 0 && (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClickCapture={() => window.open(invoiceImage, '_blank')} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔍 عرض الصورة</button>
-                  <button onClick={() => { setInvoiceImage(null); setItems([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }]) }} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔄 إعادة المحاولة</button>
+                  <button onClick={() => { setInvoiceImages([]); setItems([{ product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }]) }} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔄 مسح الكل وإعادة المحاولة</button>
                 </div>
               )}
             </div>

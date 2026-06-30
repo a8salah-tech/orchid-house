@@ -48,6 +48,24 @@ function normalizeDept(dept: string | null | undefined): string {
   return map[key] || (dept || '').trim()
 }
 
+// ✅ Fix: تطبيع نص البحث العربي — يوحّد أشكال الحروف المختلفة (أ/إ/آ/ا، ة/ه، ى/ي) ويشيل التشكيل والمسافات الزائدة،
+// عشان البحث يلاقي الصنف حتى لو المستخدم كتب الهمزة بشكل مختلف عن المخزّن في قاعدة البيانات
+// (مثال: مستخدم يكتب "ارز" بينما الصنف مخزّن "أرز" — كان البحث القديم بيفشل في الحالة دي رغم إن النص متطابق منطقيًا)
+function normalizeSearchText(s: string | null | undefined): string {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[إأآا]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[ًٌٍَُِّْـ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+function matchesSearch(text: string | null | undefined, query: string): boolean {
+  if (!query) return true
+  return normalizeSearchText(text).includes(normalizeSearchText(query))
+}
+
 interface BranchRequest {
   id: string; created_at: string; request_number: number
   branch_id: string; department: string; status: string
@@ -173,11 +191,14 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
             ))}
           </div>
           <input style={{ ...inp, marginBottom: 12, fontSize: 12 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث بالاسم أو الكود (مثال: OR001)..." />
-          {deptProducts.length === 0 ? (
+          {/* ✅ Fix: لو فيه نص بحث، نبحث في كل أصناف المستودع الرئيسي (مش بس أصناف القسم المحدد)
+              عشان لو الصنف مش مربوط بالقسم في جدول department_products، البحث برضو يلاقيه.
+              من غير نص بحث، نرجع لعرض أصناف القسم بس (تصفح سريع) زي الأصل */}
+          {!search && deptProducts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>لا توجد أصناف محددة لهذا القسم</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
-              {products.filter(p => deptProducts.includes(p.id) && (!search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.product_code || '').toLowerCase().includes(search.toLowerCase()))).map(p => {
+              {products.filter(p => (search ? matchesSearch(p.name, search) || matchesSearch(p.name_en, search) || matchesSearch(p.product_code, search) : deptProducts.includes(p.id))).map(p => {
                 const isSelected = items.some(it => it.product_id === p.id)
                 return (
                   <div key={p.id} onClick={() => {
@@ -284,7 +305,7 @@ function RequestCard({ req, role, onOpen }: { req: BranchRequest; role: string; 
 function AddItemSearch({ products, editedItems, onAdd }: { products: {id:string;name:string;product_code?:string}[]; editedItems: any[]; onAdd: (p:{id:string;name:string}) => void }) {
   const [search, setSearch] = useState('')
   const available = products.filter(p => !editedItems.some(i => i.product_id === p.id && !i._delete))
-  const filtered = available.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.product_code || '').toLowerCase().includes(search.toLowerCase()))
+  const filtered = available.filter(p => matchesSearch(p.name, search) || matchesSearch(p.product_code, search))
   return (
     <div style={{ position: 'relative' }}>
       <input style={{ ...inp }} placeholder="🔍 ابحث بالاسم أو الكود (مثال: OR001)..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -350,6 +371,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // المستودع الرئيسي — منه يتم الخصم لحظة تأكيد الفرع استلامه فعليًا
     const MAIN_WAREHOUSE_ID = 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8'
     // تحديث كل صنف + خصم الكمية المستلمة فعليًا من المستودع الرئيسي
+    const failedItems: string[] = []
     for (const item of (request.branch_request_items || [])) {
       const ri = receiveItems[item.id] || { received: item.quantity_approved||item.quantity_requested, returned: 0, reason: '', imgPreview: '' }
       let retImg = ''
@@ -368,12 +390,23 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
       const receivedQty = parseFloat(String(ri.received)) || 0
       const productId = (item as any).product_id
       if (receivedQty > 0 && productId) {
+        // ✅ Fix (جذري): id عمود فريد بالفعل فلا داعي لفلتر warehouse_id إضافي معه —
+        // الفلتر المزدوج كان يسبب فشل صامت كامل (wp = null) لو product_id يشاور على نسخة الصنف
+        // في مستودع مختلف عن المستودع الرئيسي، فيتخطى الكود خصم المخزون بدون أي تنبيه بينما
+        // الطلب يُعلَّم "تم الاستلام" بنجاح. الآن نتحقق من التطابق صراحة ونوقف العملية فورًا عند أي تعارض.
         const { data: wp } = await sb.from('warehouse_products')
-          .select('id, unit_id')
-          .eq('warehouse_id', MAIN_WAREHOUSE_ID)
+          .select('id, unit_id, warehouse_id, name')
           .eq('id', productId)
           .maybeSingle()
-        if (wp) {
+        if (!wp) {
+          failedItems.push(`الصنف غير موجود في قاعدة البيانات (معرّف: ${productId})`)
+          continue
+        }
+        if (wp.warehouse_id !== MAIN_WAREHOUSE_ID) {
+          failedItems.push(`${wp.name} — هذا الصنف غير مرتبط بالمستودع الرئيسي، يرجى التواصل مع الدعم الفني قبل المتابعة`)
+          continue
+        }
+        {
           // تحويل الكمية المستلمة لوحدة المخزون الأساسية لو وحدة الطلب مختلفة
           let qty = receivedQty
           const itemUnitId = (item as any).unit_id
@@ -404,6 +437,14 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         }
       }
     }
+
+    // ✅ Fix (جذري): لو فيه أي صنف فشل خصمه، نوقف العملية ونمنع تعليم الطلب كـ"تم الاستلام" بدل الاستمرار بصمت
+    if (failedItems.length > 0) {
+      setUpdating(false)
+      alert('⚠️ تعذّر تأكيد الاستلام بسبب مشاكل في الأصناف التالية:\n\n' + failedItems.join('\n') + '\n\nلم يتم خصم أي كمية ولم يتم تأكيد الاستلام.')
+      return
+    }
+
     await sb.from('branch_requests').update({
       status: 'supervisor_received',
       supervisor_received_by: actionBy,

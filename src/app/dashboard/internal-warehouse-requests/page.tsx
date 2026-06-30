@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
@@ -46,6 +46,22 @@ function normalizeDept(dept: string | null | undefined): string {
   }
   const key = (dept || '').trim().toLowerCase()
   return map[key] || (dept || '').trim()
+}
+
+// ✅ Fix: تطبيع نص البحث العربي — يوحّد أشكال الحروف المختلفة (أ/إ/آ/ا، ة/ه، ى/ي) ويشيل التشكيل والمسافات الزائدة
+function normalizeSearchText(s: string | null | undefined): string {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[إأآا]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[ًٌٍَُِّْـ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+function matchesSearch(text: string | null | undefined, query: string): boolean {
+  if (!query) return true
+  return normalizeSearchText(text).includes(normalizeSearchText(query))
 }
 
 interface InternalRequest {
@@ -172,6 +188,15 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   }, [])
 
   const currentDeptProducts = allDeptProducts[activeDeptTab] || []
+  // ✅ Fix: قائمة موحّدة بكل الأصناف من كل الأقسام (بدون تكرار بالاسم) — تُستخدم وقت وجود نص بحث فعلي
+  // عشان البحث يلاقي أي صنف حتى لو مش مربوط بالقسم النشط حاليًا، بدل قصر البحث على تبويب واحد فقط
+  const allProductsFlat = useMemo(() => {
+    const seen = new Map<string, any>()
+    for (const list of Object.values(allDeptProducts)) {
+      for (const p of list) if (!seen.has(p.id)) seen.set(p.id, p)
+    }
+    return Array.from(seen.values())
+  }, [allDeptProducts])
 
   async function save() {
     const branchId = currentEmployee?.branch_id
@@ -227,12 +252,12 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
             ))}
           </div>
           <input style={{ ...inp, marginBottom: 12, fontSize: 12 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث بالاسم أو الكود (مثال: OR001)..." />
-          {currentDeptProducts.length === 0 ? (
+          {!search && currentDeptProducts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>لا توجد أصناف محددة لهذا القسم</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
-              {currentDeptProducts
-                .filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.product_code || '').toLowerCase().includes(search.toLowerCase()))
+              {(search ? allProductsFlat : currentDeptProducts)
+                .filter(p => matchesSearch(p.name, search) || matchesSearch(p.name_en, search) || matchesSearch(p.product_code, search))
                 .map(p => {
                 const isSelected = items.some(it => it.product_id === p.id)
                 const availableLocally = branchWarehouseProductIds.has(p.id)

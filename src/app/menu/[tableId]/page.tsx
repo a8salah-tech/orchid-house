@@ -77,6 +77,11 @@ export default function CustomerMenuPage() {
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
+  // ✅ Fix (جذري): قفل متزامن (مش state) يمنع تنفيذ confirmOrder أكتر من مرة في نفس اللحظة.
+  // الـ state (submitting) تحديثها غير متزامن (React batching)، فلو العميل ضغط الزرار أكتر من مرة بسرعة
+  // (شائع جدًا مع شبكة بطيئة)، بيتنفذ confirmOrder() مرتين متوازيتين فعليًا قبل ما الزرار يتعطل في الواجهة،
+  // فيحصل تضارب: تنفيذ بينجح والتاني بيتعارض ويفشل، بينما التنفيذ التاني لسه شغال فيفضل الزرار عالق "Placing order...".
+  const isSubmittingRef = useRef(false)
   // ✅ نحدّث "الآن" كل دقيقة عشان الأقسام المرتبطة بوقت تظهر/تختفي تلقائيًا بدون ما العميل يعمل تحديث للصفحة
   const [, forceTick] = useState(0)
   useEffect(() => {
@@ -154,6 +159,9 @@ const filteredItems = items
 
   async function confirmOrder() {
     if (!table || cart.length === 0) return
+    // ✅ Fix (جذري): فحص فوري متزامن — لو فيه تنفيذ شغال already، نوقف على طول من غير أي تأخير
+    if (isSubmittingRef.current) return
+    isSubmittingRef.current = true
     setSubmitting(true)
     const catMap = Object.fromEntries(categories.map(c => [c.id, c.destination]))
 
@@ -180,7 +188,7 @@ const filteredItems = items
         table_id: table.id, status: 'confirmed',
         total_amount: cartTotal, confirmed_at: new Date().toISOString(),
       }]).select('id').single()
-      if (error || !order) { setSubmitting(false); alert('Error, please try again'); return }
+      if (error || !order) { isSubmittingRef.current = false; setSubmitting(false); alert('Error, please try again'); return }
       orderId = order.id
     }
 
@@ -220,6 +228,7 @@ const filteredItems = items
         rollbackError = (await sb.from('orders').update({ status: 'cancelled' }).eq('id', orderId)).error
       }
       if (rollbackError) console.error('order rollback failed:', rollbackError.message, rollbackError.code)
+      isSubmittingRef.current = false
       setSubmitting(false)
       alert('⚠️ حصل خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى أو طلب المساعدة من النادل.\n⚠️ Something went wrong sending your order. Please try again or call the waiter.')
       return
@@ -233,6 +242,7 @@ const filteredItems = items
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
     setPhase('done')
+    isSubmittingRef.current = false
     setSubmitting(false)
   }
 

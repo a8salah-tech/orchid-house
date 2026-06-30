@@ -33,6 +33,23 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'rtl',
 }
 
+// ✅ Fix: تطبيع نص البحث العربي — يوحّد أشكال الحروف المختلفة (أ/إ/آ/ا، ة/ه، ى/ي) ويشيل التشكيل والمسافات الزائدة
+// (نفس الدالة المستخدمة في صفحتي طلبات الفروع وطلبات المستودع الداخلي للحفاظ على سلوك بحث موحّد عبر النظام)
+function normalizeSearchText(s: string | null | undefined): string {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[إأآا]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[ًٌٍَُِّْـ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+function matchesSearch(text: string | null | undefined, query: string): boolean {
+  if (!query) return true
+  return normalizeSearchText(text).includes(normalizeSearchText(query))
+}
+
 const DEFAULT_CATEGORIES = [
   'البار', 'المطبخ', 'خضار', 'فواكة', 'المنظفات',
   'البلاستيك', 'لحوم', 'حلويات', 'توابل وبهارات',
@@ -271,7 +288,7 @@ function StockInModal({ warehouseId, warehouseName, products, units, onClose, on
                   {!(item.product_id) && (item as any)._search && (
                     <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 50, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
                       {products
-                        .filter(p => p.name.toLowerCase().includes(((item as any)._search || '').toLowerCase()) || (p.name_en || '').toLowerCase().includes(((item as any)._search || '').toLowerCase()))
+                        .filter(p => matchesSearch(p.name, (item as any)._search || '') || matchesSearch(p.name_en, (item as any)._search || ''))
                         .slice(0, 15)
                         .map(p => (
                           <div key={p.id}
@@ -284,7 +301,7 @@ function StockInModal({ warehouseId, warehouseName, products, units, onClose, on
                             {p.name_en && <div style={{ fontSize: 10, color: S.muted }}>{p.name_en}</div>}
                           </div>
                         ))}
-                      {products.filter(p => p.name.toLowerCase().includes(((item as any)._search || '').toLowerCase())).length === 0 && (
+                      {products.filter(p => matchesSearch(p.name, (item as any)._search || '')).length === 0 && (
                         <div style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>لا توجد نتائج</div>
                       )}
                     </div>
@@ -890,9 +907,7 @@ export default function WarehouseDetailPage() {
 
   // Filtering
   const filteredProducts = products.filter(p => {
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.name_en || '').toLowerCase().includes(search.toLowerCase()) ||
-      (p.product_code || '').toLowerCase().includes(search.toLowerCase())
+    const matchSearch = matchesSearch(p.name, search) || matchesSearch(p.name_en, search) || matchesSearch(p.product_code, search)
     const matchCat = selectedCategory === 'all' || p.category === selectedCategory
     const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? p.is_active !== false : p.is_active === false)
     const matchStock = stockFilter === 'all' ||
@@ -1718,7 +1733,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                 </div>
 
                 {products
-                  .filter(p => !inventorySearch || p.name.toLowerCase().includes(inventorySearch.toLowerCase()) || (p.name_en||'').toLowerCase().includes(inventorySearch.toLowerCase()))
+                  .filter(p => matchesSearch(p.name, inventorySearch) || matchesSearch(p.name_en, inventorySearch))
                   .map(p => {
                     const inv = inventoryData[p.id] || { units: '', pieces: '' }
                     const conv = unitConversionsAll.find((c: any) => c.product_id === p.id)

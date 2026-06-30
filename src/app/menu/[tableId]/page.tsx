@@ -28,10 +28,34 @@ const C = {
   glow2:     'rgba(59,159,229,0.4)',
 }
 
-type Category = { id: string; name: string; name_en: string; destination: string }
+type Category = {
+  id: string; name: string; name_en: string; destination: string
+  available_days?: number[] | null; available_from?: string | null; available_to?: string | null
+  time_badge_ar?: string | null; time_badge_en?: string | null
+}
 type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[] }
 type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; price: number } | null }
 type Phase     = 'menu' | 'cart' | 'done'
+
+// ✅ هل القسم ده متاح دلوقتي حسب اليوم والوقت المحددين له (لو مفيش قيود، يبقى متاح دايمًا)
+function isCategoryAvailableNow(cat: Category): boolean {
+  if (!cat.available_days && !cat.available_from && !cat.available_to) return true
+  const now = new Date()
+  const day = now.getDay() // 0=Sunday ... 6=Saturday
+  if (cat.available_days && cat.available_days.length > 0 && !cat.available_days.includes(day)) return false
+  if (cat.available_from || cat.available_to) {
+    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    if (cat.available_from) {
+      const [h, m] = cat.available_from.split(':').map(Number)
+      if (nowMinutes < h * 60 + m) return false
+    }
+    if (cat.available_to) {
+      const [h, m] = cat.available_to.split(':').map(Number)
+      if (nowMinutes >= h * 60 + m) return false
+    }
+  }
+  return true
+}
 
 export default function CustomerMenuPage() {
   const params  = useParams()
@@ -53,6 +77,12 @@ export default function CustomerMenuPage() {
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
+  // ✅ نحدّث "الآن" كل دقيقة عشان الأقسام المرتبطة بوقت تظهر/تختفي تلقائيًا بدون ما العميل يعمل تحديث للصفحة
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => forceTick(t => t + 1), 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -60,7 +90,7 @@ export default function CustomerMenuPage() {
       if (!tbl) { setNotFound(true); setLoading(false); return }
       setTable(tbl)
       const [cats, itms] = await Promise.all([
-        sb.from('menu_categories').select('id,name,name_en,destination').eq('is_active', true).order('sort_order'),
+        sb.from('menu_categories').select('id,name,name_en,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
         sb.from('menu_items') .select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)') .eq('is_available', true) .eq('is_active', true) 
       ])
       setCategories(cats.data || [])
@@ -70,7 +100,12 @@ export default function CustomerMenuPage() {
     if (tableId) load()
   }, [tableId, sb])
 
+// ✅ الأقسام المتاحة حاليًا فقط (القسم المرتبط بوقت محدد يختفي تلقائيًا برّه نطاقه)
+const visibleCategories = categories.filter(isCategoryAvailableNow)
+const visibleCategoryIds = new Set(visibleCategories.map(c => c.id))
+
 const filteredItems = items
+  .filter(i => visibleCategoryIds.has(i.category_id) || !categories.some(c => c.id === i.category_id))
   .filter(i => {
     const matchCat = activeCat === 'all' || i.category_id === activeCat
     const q = search.trim()
@@ -84,6 +119,10 @@ const filteredItems = items
     const bOrder = (b as any).menu_categories?.sort_order ?? 99
     return aOrder - bOrder
   })
+
+  useEffect(() => {
+    if (activeCat !== 'all' && !visibleCategoryIds.has(activeCat)) setActiveCat('all')
+  }, [activeCat, visibleCategoryIds])
 
   function addToCart(item: MenuItem, size?: { id: string; name: string; name_en: string; price: number } | null) {
     setCart(p => {
@@ -399,12 +438,20 @@ const filteredItems = items
 
         {/* Categories */}
         <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:14 }}>
-          {[{ id:'all', name_en:'All', name:'All' }, ...categories].map(c => (
-            <button key={c.id} onClick={() => setActiveCat(c.id)}
-              style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s' }}>
-              {c.name_en || c.name}
-            </button>
-          ))}
+          {[{ id:'all', name_en:'All', name:'All' }, ...visibleCategories].map(c => {
+            const timeBadge = (c as Category).time_badge_en || (c as Category).time_badge_ar
+            return (
+              <button key={c.id} onClick={() => setActiveCat(c.id)}
+                style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s', display:'flex', alignItems:'center', gap:6 }}>
+                {c.name_en || c.name}
+                {timeBadge && (
+                  <span style={{ fontSize:9, background: activeCat === c.id ? 'rgba(255,255,255,.25)' : 'rgba(245,158,11,.15)', color: activeCat === c.id ? C.white : '#F59E0B', border: activeCat === c.id ? 'none' : '1px solid rgba(245,158,11,.4)', borderRadius:8, padding:'2px 6px', fontWeight:800 }}>
+                    🍽️ {timeBadge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 

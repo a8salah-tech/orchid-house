@@ -366,21 +366,23 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     const failedItems: string[] = []
     for (const item of (request.internal_warehouse_request_items || [])) {
       const requestedQty = approvedQtys[item.id] ?? item.quantity_requested
-      // ✅ Fix (جذري): id عمود فريد بالفعل، فلا داعي لفلتر warehouse_id إضافي معه —
-      // كان هذا الفلتر المزدوج يسبب فشل صامت كامل (wp = null) لو product_id المحفوظ في الطلب
-      // يشاور على نسخة الصنف في مستودع مختلف عن مستودع الفرع، فيتخطى الكود خصم المخزون بدون أي تنبيه
-      // بينما الطلب يكتمل ويظهر "معتمد" بنجاح. الآن نتحقق من التطابق صراحة ونوقف العملية فورًا عند أي تعارض.
-      const { data: wp } = await sb.from('warehouse_products')
-        .select('id, current_stock, unit_id, warehouse_id, name')
-        .eq('id', (item as any).product_id)
-        .maybeSingle()
-      if (!wp) {
-        failedItems.push(`الصنف غير موجود في قاعدة البيانات (معرّف: ${(item as any).product_id})`)
-        continue
+      // ✅ Fix (نهائي وبسيط): ندور على الصنف بالاسم في مستودع الفرع اللي طالب
+      // بدل الاعتماد على product_id المحفوظ (ممكن يكون لفرع تاني)
+      const { data: srcWp } = await sb.from('warehouse_products')
+        .select('name').eq('id', (item as any).product_id).maybeSingle()
+      const itemName = srcWp?.name || (item as any).product_name || ''
+
+      let wp: any = null
+      if (itemName) {
+        const { data } = await sb.from('warehouse_products')
+          .select('id, unit_id, warehouse_id, name')
+          .eq('warehouse_id', wh.id)
+          .ilike('name', itemName.trim())
+          .maybeSingle()
+        wp = data
       }
-      if (wp.warehouse_id !== wh.id) {
-        // ✅ تعارض حقيقي: الصنف المحفوظ في الطلب يخص مستودع مختلف عن مستودع هذا الفرع — توقف فورًا بدل الفشل الصامت
-        failedItems.push(`${wp.name} — هذا الصنف غير مرتبط بمستودع هذا الفرع، يرجى التواصل مع الدعم الفني قبل المتابعة`)
+      if (!wp) {
+        failedItems.push(`${itemName || (item as any).product_id} — لم يتم العثور على هذا الصنف في مستودع هذا الفرع`)
         continue
       }
       {
@@ -405,7 +407,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
           }
         }
         await sb.from('stock_movements').insert([{
-          product_id: (item as any).product_id,
+          product_id: wp.id,
           warehouse_id: wh.id,
           movement_type: 'out',
           quantity: qty,

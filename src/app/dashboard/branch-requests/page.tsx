@@ -386,28 +386,44 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         return_image_url: retImg || null,
       }).eq('id', item.id)
 
-      // ✅ خصم الكمية المستلمة فعليًا من المستودع الرئيسي (لو فيه كمية مستلمة أكبر من صفر)
+      // ✅ Fix (نهائي وبسيط): ندور على الصنف بالاسم في مستودع الفرع اللي طالب
+      // بدل الاعتماد على product_id المحفوظ (ممكن يكون لفرع تاني)
       const receivedQty = parseFloat(String(ri.received)) || 0
       const productId = (item as any).product_id
       if (receivedQty > 0 && productId) {
-        // ✅ Fix (جذري): id عمود فريد بالفعل فلا داعي لفلتر warehouse_id إضافي معه —
-        // الفلتر المزدوج كان يسبب فشل صامت كامل (wp = null) لو product_id يشاور على نسخة الصنف
-        // في مستودع مختلف عن المستودع الرئيسي، فيتخطى الكود خصم المخزون بدون أي تنبيه بينما
-        // الطلب يُعلَّم "تم الاستلام" بنجاح. الآن نتحقق من التطابق صراحة ونوقف العملية فورًا عند أي تعارض.
-        const { data: wp } = await sb.from('warehouse_products')
-          .select('id, unit_id, warehouse_id, name')
-          .eq('id', productId)
-          .maybeSingle()
-        if (!wp) {
-          failedItems.push(`الصنف غير موجود في قاعدة البيانات (معرّف: ${productId})`)
-          continue
+        // نجيب اسم الصنف الأول
+        const { data: srcWp } = await sb.from('warehouse_products')
+          .select('name').eq('id', productId).maybeSingle()
+        const itemName = srcWp?.name || ''
+
+        // ندور على نسخة الصنف في مستودع الفرع الطالب بالاسم
+        const { data: branchWh } = await sb.from('warehouses')
+          .select('id').eq('branch_id', request.branch_id).maybeSingle()
+        const branchWhId = branchWh?.id
+
+        let wp: any = null
+        if (itemName && branchWhId) {
+          const { data } = await sb.from('warehouse_products')
+            .select('id, unit_id, warehouse_id, name')
+            .eq('warehouse_id', branchWhId)
+            .ilike('name', itemName.trim())
+            .maybeSingle()
+          wp = data
         }
-        if (wp.warehouse_id !== MAIN_WAREHOUSE_ID) {
-          failedItems.push(`${wp.name} — هذا الصنف غير مرتبط بالمستودع الرئيسي، يرجى التواصل مع الدعم الفني قبل المتابعة`)
+        // fallback: نسخة المستودع الرئيسي لو الفرع ما عندوش نسخة
+        if (!wp) {
+          const { data } = await sb.from('warehouse_products')
+            .select('id, unit_id, warehouse_id, name')
+            .eq('warehouse_id', MAIN_WAREHOUSE_ID)
+            .ilike('name', itemName.trim())
+            .maybeSingle()
+          wp = data
+        }
+        if (!wp) {
+          failedItems.push(`${itemName || productId} — لم يتم العثور على هذا الصنف في أي مستودع`)
           continue
         }
         {
-          // تحويل الكمية المستلمة لوحدة المخزون الأساسية لو وحدة الطلب مختلفة
           let qty = receivedQty
           const itemUnitId = (item as any).unit_id
           if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
@@ -424,11 +440,9 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
               }
             }
           }
-          // ✅ لا نحدّث current_stock يدويًا — الـ trigger (trigger_update_stock) يخصمها تلقائيًا
-          // عند إدراج حركة stock_movements، لمنع خصم الكمية مرتين
           await sb.from('stock_movements').insert([{
-            product_id: productId,
-            warehouse_id: MAIN_WAREHOUSE_ID,
+            product_id: wp.id,
+            warehouse_id: wp.warehouse_id,
             movement_type: 'out',
             quantity: qty,
             movement_date: new Date().toISOString().slice(0, 10),

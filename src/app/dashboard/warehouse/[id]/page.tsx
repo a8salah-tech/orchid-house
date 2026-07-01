@@ -999,7 +999,11 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
 
   // تنسيق المخزون بالوحدتين الكبيرة والصغيرة
   function formatStock(product: Product) {
-    const conv = unitConversionsAll.find((c: any) => c.product_id === product.id)
+    // ✅ Fix: نختار التحويل الذي وحدته الكبيرة (from_unit_id) تطابق وحدة المخزون الأساسية للصنف (unit_id)
+    // بدل أخذ أول تحويل عشوائي — مثال: الموز وحدته الأساسية "كرتون"، لازم نختار "1 كرتون = 13 كيلو"
+    // مش "1 كيلو = 1000 غرام" (ده تحويل داخلي مش مرتبط بوحدة المخزون)
+    const conv = unitConversionsAll.find((c: any) => c.product_id === product.id && c.from_unit_id === product.unit_id)
+      || unitConversionsAll.find((c: any) => c.product_id === product.id)
     if (!conv || !conv.factor || conv.factor <= 1) {
       return {
         big: null,

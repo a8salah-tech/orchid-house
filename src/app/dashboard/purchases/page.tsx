@@ -1372,7 +1372,7 @@ export default function PurchasesPage() {
       {showNew && (
         <NewInvoiceModal
           products={products} suppliers={suppliers} units={units}
-          warehouses={isAdmin ? warehouses : warehouses.filter(w => (w.branch_id || 'main') === (myBranchId || 'main'))}
+          warehouses={isAdmin || employee?.role === 'warehouse_keeper' ? warehouses : warehouses.filter(w => (w.branch_id || 'main') === (myBranchId || 'main'))}
           unitConversions={unitConversions}
           onClose={() => setShowNew(false)}
           onSaved={() => { setShowNew(false); fetchAll() }}

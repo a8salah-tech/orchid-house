@@ -411,9 +411,9 @@ function ImageViewerModal({ imageUrl, onClose }: { imageUrl: string; onClose: ()
 // ══════════════════════════════════════════
 // NewInvoiceModal
 // ══════════════════════════════════════════
-function NewInvoiceModal({ products: initialProducts, suppliers, units, warehouses, unitConversions, onClose, onSaved }: {
+function NewInvoiceModal({ products: initialProducts, suppliers, units, warehouses, unitConversions, employeeId, onClose, onSaved }: {
   products: Product[]; suppliers: Supplier[]; units: Unit[]
-  warehouses: { id: string; name: string }[]; unitConversions: any[]; onClose: () => void; onSaved: () => void
+  warehouses: { id: string; name: string }[]; unitConversions: any[]; employeeId?: string; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -443,6 +443,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     supplier_id: '', warehouse_id: '',
     supplier_invoice_number: '',
     invoice_date: new Date().toISOString().split('T')[0], notes: '',
+    sst_percent: '',
   })
 
   // جلب أصناف المستودع المختار مباشرة من قاعدة البيانات (مصدر موثوق 100%، بدل الاعتماد على البيانات الممررة من الصفحة الأب)
@@ -565,7 +566,10 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     if (items.some(i => !i.product_id || !i.quantity || !i.unit_price)) { alert('يرجى إكمال بيانات الأصناف'); return }
     setSaving(true)
     try {
-      const total = items.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
+      const subtotal = items.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
+      const sstPercent = parseFloat(form.sst_percent || '0') || 0
+      const sstAmount = Math.round(subtotal * sstPercent / 100 * 100) / 100
+      const total = Math.round((subtotal + sstAmount) * 100) / 100
       const { data: inv, error: invErr } = await supabase.from('purchase_invoices').insert([{
         supplier_id: form.supplier_id || null,
         warehouse_id: form.warehouse_id,
@@ -575,6 +579,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
         total_amount: total,
         image_url: invoiceImages[0] || null,
         status: 'confirmed',
+        created_by: employeeId || null,
+        sst_percent: sstPercent || null,
+        sst_amount: sstAmount || null,
       }]).select().single()
       if (invErr) throw invErr
       // ✅ حفظ كل الصور (بما فيها الأولى) في جدول الصور المنفصل عشان نقدر نعرضهم كلهم لاحقًا
@@ -753,7 +760,7 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                 <div style={{ marginBottom: 8 }}>
                   <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الصنف</label>
                   <ProductSearchInput
-                    products={availableProducts}
+                    products={warehouseProducts.length > 0 ? warehouseProducts : localProducts.filter((p: any) => p.warehouse_id === form.warehouse_id)}
                     value={item.product_id}
                     productName={item.product_name}
                     matched={item.matched}
@@ -830,9 +837,40 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
               </div>
             ))}
 
-            <div style={{ background: S.navy3, borderRadius: 12, padding: '14px 18px', marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: S.muted, fontSize: 14 }}>إجمالي الفاتورة</span>
-              <span style={{ color: S.gold, fontSize: 22, fontWeight: 800 }}>{formatMYR(total)}</span>
+            <div style={{ background: S.navy3, borderRadius: 12, padding: '16px 18px', marginTop: 8 }}>
+              {/* حقل نسبة SST */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid rgba(255,255,255,0.07)` }}>
+                <span style={{ color: S.muted, fontSize: 13, flex: 1 }}>نسبة SST %</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="number" min="0" max="100" step="0.1"
+                    value={form.sst_percent}
+                    onChange={e => setForm(p => ({ ...p, sst_percent: e.target.value }))}
+                    placeholder="0"
+                    style={{ ...inp, width: 80, textAlign: 'center', padding: '6px 10px', fontSize: 14 }}
+                  />
+                  <span style={{ color: S.muted, fontSize: 13 }}>%</span>
+                </div>
+              </div>
+              {/* المجموع قبل الضريبة */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ color: S.muted, fontSize: 13 }}>المجموع قبل الضريبة</span>
+                <span style={{ color: S.white, fontSize: 15, fontWeight: 700 }}>{formatMYR(total)}</span>
+              </div>
+              {/* SST */}
+              {parseFloat(form.sst_percent || '0') > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ color: S.amber, fontSize: 13 }}>SST ({form.sst_percent}%)</span>
+                  <span style={{ color: S.amber, fontSize: 15, fontWeight: 700 }}>{formatMYR(total * parseFloat(form.sst_percent) / 100)}</span>
+                </div>
+              )}
+              {/* الإجمالي النهائي */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: `1px solid rgba(255,255,255,0.07)` }}>
+                <span style={{ color: S.muted, fontSize: 14 }}>الإجمالي النهائي</span>
+                <span style={{ color: S.gold, fontSize: 22, fontWeight: 800 }}>
+                  {formatMYR(total + (total * parseFloat(form.sst_percent || '0') / 100))}
+                </span>
+              </div>
             </div>
           </div>
           )}
@@ -881,8 +919,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
 // ══════════════════════════════════════════
 // InvoiceDetailModal
 // ══════════════════════════════════════════
-function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, onClose, onViewImage, onDeleted, onSaved }: {
+function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, currentEmployeeId, currentEmployeeName, onClose, onViewImage, onDeleted, onSaved }: {
   invoice: any; products: any[]; suppliers: any[]; units: any[]; warehouses: any[]
+  currentEmployeeId?: string; currentEmployeeName?: string
   onClose: () => void; onViewImage: (url: string) => void; onDeleted: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
@@ -891,14 +930,36 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
   const [deleting, setDeleting] = useState(false)
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [saving, setSaving] = useState(false)
+  // ✅ editForm معرّف أولاً قبل أي useEffect يستخدمه
   const [editForm, setEditForm] = useState({
     invoice_number: invoice.invoice_number || '',
     invoice_date: invoice.invoice_date || '',
     supplier_id: invoice.supplier_id || '',
     warehouse_id: invoice.warehouse_id || '',
     notes: invoice.notes || '',
+    sst_percent: String((invoice as any).sst_percent || ''),
   })
   const [editItems, setEditItems] = useState<any[]>([])
+  const [editWarehouseProducts, setEditWarehouseProducts] = useState<any[]>([])
+  const [loadingEditProducts, setLoadingEditProducts] = useState(false)
+  // ميزة: ملاحظات الفاتورة (يدوية + سجل تعديلات)
+  const [newNote, setNewNote] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
+  const [invoiceNotes, setInvoiceNotes] = useState<any[]>([])
+  // ميزة: سبب التعديل
+  const [editReason, setEditReason] = useState('')
+
+  // جلب أصناف المستودع المختار مباشرة من قاعدة البيانات
+  useEffect(() => {
+    if (!editForm.warehouse_id) { setEditWarehouseProducts([]); return }
+    setLoadingEditProducts(true)
+    supabase.from('warehouse_products')
+      .select('*, units(symbol)')
+      .eq('is_active', true)
+      .eq('warehouse_id', editForm.warehouse_id)
+      .order('name')
+      .then(({ data }) => { setEditWarehouseProducts(data || []); setLoadingEditProducts(false) })
+  }, [editForm.warehouse_id])
 
   const S2 = {
     navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
@@ -934,15 +995,43 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
       setEditItems(loaded.map((i: any) => ({ id: i.id, product_id: i.product_id, quantity: String(i.quantity), unit_price: String(i.unit_price), unit_id: i.unit_id || '' })))
       setLoadingItems(false)
     }
+    async function loadNotes() {
+      const { data } = await supabase
+        .from('purchase_invoice_notes')
+        .select('*, employees(name)')
+        .eq('invoice_id', invoice.id)
+        .order('created_at', { ascending: false })
+      setInvoiceNotes(data || [])
+    }
     loadItems()
+    loadNotes()
   }, [invoice.id])
+
+  async function saveNote() {
+    if (!newNote.trim()) return
+    setSavingNote(true)
+    await supabase.from('purchase_invoice_notes').insert([{
+      invoice_id: invoice.id,
+      note_type: 'manual',
+      note: newNote.trim(),
+      employee_id: currentEmployeeId || null,
+    }])
+    setNewNote('')
+    const { data } = await supabase.from('purchase_invoice_notes').select('*, employees(name)').eq('invoice_id', invoice.id).order('created_at', { ascending: false })
+    setInvoiceNotes(data || [])
+    setSavingNote(false)
+  }
 
   async function handleSave() {
     if (editItems.length === 0) { alert('يرجى إضافة صنف واحد على الأقل'); return }
     if (editItems.some(i => !i.product_id || !i.quantity || !i.unit_price)) { alert('يرجى إكمال بيانات الأصناف'); return }
+    if (!editReason.trim()) { alert('يرجى كتابة سبب التعديل'); return }
     setSaving(true)
-    const total = editItems.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
-    await supabase.from('purchase_invoices').update({ invoice_number: editForm.invoice_number || null, invoice_date: editForm.invoice_date, supplier_id: editForm.supplier_id || null, warehouse_id: editForm.warehouse_id || null, notes: editForm.notes || null, total_amount: total }).eq('id', invoice.id)
+    const subtotal = editItems.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
+    const sstPercent = parseFloat(editForm.sst_percent || '0') || 0
+    const sstAmount = Math.round(subtotal * sstPercent / 100 * 100) / 100
+    const total = Math.round((subtotal + sstAmount) * 100) / 100
+    await supabase.from('purchase_invoices').update({ invoice_number: editForm.invoice_number || null, invoice_date: editForm.invoice_date, supplier_id: editForm.supplier_id || null, warehouse_id: editForm.warehouse_id || null, notes: editForm.notes || null, total_amount: total, sst_percent: sstPercent || null, sst_amount: sstAmount || null }).eq('id', invoice.id)
     await supabase.from('purchase_invoice_items').delete().eq('invoice_id', invoice.id)
     await supabase.from('stock_movements').delete().eq('invoice_id', invoice.id)
     for (const item of editItems) {
@@ -952,6 +1041,15 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
       }
     }
     setSaving(false)
+    // ✅ تسجيل سبب التعديل في جدول الملاحظات
+    await supabase.from('purchase_invoice_notes').insert([{
+      invoice_id: invoice.id,
+      note_type: 'edit',
+      reason: editReason.trim(),
+      note: `تعديل بواسطة ${currentEmployeeName || 'مجهول'}`,
+      employee_id: currentEmployeeId || null,
+    }])
+    setEditReason('')
     onSaved()
   }
 
@@ -990,11 +1088,14 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                 { label: 'المورد', value: invoice.warehouse_suppliers?.name || '—', icon: '🤝' },
                 { label: 'المستودع', value: invoice.warehouses?.name || '—', icon: '🏭' },
                 { label: 'التاريخ', value: invoice.invoice_date, icon: '📅' },
-                { label: 'الإجمالي', value: `MYR ${Number(invoice.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2 })}`, icon: '💰', green: true },
+                { label: 'المجموع قبل الضريبة', value: formatMYR((invoice.total_amount || 0) - ((invoice as any).sst_amount || 0)), icon: '💵' },
+                ...((invoice as any).sst_percent ? [{ label: `SST (${(invoice as any).sst_percent}%)`, value: formatMYR((invoice as any).sst_amount || 0), icon: '🧾', amber: true }] : []),
+                { label: 'الإجمالي النهائي', value: `MYR ${Number(invoice.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2 })}`, icon: '💰', green: true },
+                { label: 'أدخلها', value: (invoice as any).employees?.name || '—', icon: '👤' },
               ].map((r, i) => (
                 <div key={i} style={{ background: S2.card, borderRadius: 10, padding: '10px 12px' }}>
                   <div style={{ fontSize: 10, color: S2.muted, marginBottom: 3 }}>{r.icon} {r.label}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: (r as any).green ? S2.green : S2.white }}>{r.value}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: (r as any).green ? S2.green : (r as any).amber ? '#F59E0B' : S2.white }}>{r.value}</div>
                 </div>
               ))}
             </div>
@@ -1035,6 +1136,42 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                     <div style={{ fontSize: 13, fontWeight: 800, color: S2.green }}>{items.reduce((s, item) => s + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0).toFixed(2)}</div>
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* ✅ قسم الملاحظات — ملاحظات يدوية + سجل التعديلات */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: S2.gold, fontWeight: 700, marginBottom: 10 }}>📝 الملاحظات والتعديلات</div>
+              {/* إضافة ملاحظة جديدة */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <input
+                  value={newNote} onChange={e => setNewNote(e.target.value)}
+                  placeholder="أضف ملاحظة على الفاتورة..."
+                  style={{ ...inpD, flex: 1 }}
+                  onKeyDown={e => { if (e.key === 'Enter') saveNote() }}
+                />
+                <button onClick={saveNote} disabled={savingNote || !newNote.trim()} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: !newNote.trim() ? 0.5 : 1 }}>
+                  {savingNote ? '⏳' : '💬 إضافة'}
+                </button>
+              </div>
+              {/* سجل الملاحظات */}
+              {invoiceNotes.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {invoiceNotes.map((n: any) => (
+                    <div key={n.id} style={{ background: n.note_type === 'edit' ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.04)', borderRadius: 10, padding: '10px 14px', borderRight: `3px solid ${n.note_type === 'edit' ? S2.amber : S2.blue}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, color: n.note_type === 'edit' ? S2.amber : S2.blue, fontWeight: 700 }}>
+                          {n.note_type === 'edit' ? '✏️ تعديل' : '💬 ملاحظة'} — {n.employees?.name || 'مجهول'}
+                        </span>
+                        <span style={{ fontSize: 10, color: S2.muted }}>{new Date(n.created_at).toLocaleString('ar-SA')}</span>
+                      </div>
+                      {n.reason && <div style={{ fontSize: 12, color: S2.white, marginBottom: 2 }}>السبب: {n.reason}</div>}
+                      {n.note && <div style={{ fontSize: 12, color: S2.muted }}>{n.note}</div>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 12, color: S2.muted, fontSize: 12 }}>لا توجد ملاحظات بعد</div>
               )}
             </div>
 
@@ -1088,6 +1225,13 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                 <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>ملاحظات</label>
                 <input style={inpD} value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} placeholder="اختياري" />
               </div>
+              <div>
+                <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>نسبة SST %</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="number" min="0" max="100" step="0.1" style={{ ...inpD, width: 100, textAlign: 'center' }} value={editForm.sst_percent} onChange={e => setEditForm(p => ({ ...p, sst_percent: e.target.value }))} placeholder="0" />
+                  <span style={{ color: S2.muted, fontSize: 13 }}>%</span>
+                </div>
+              </div>
             </div>
 
             <div style={{ marginBottom: 16 }}>
@@ -1100,7 +1244,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                   <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 6, alignItems: 'center', background: S2.card, borderRadius: 10, padding: '8px 10px' }}>
                     <select style={{ ...inpD, padding: '7px 10px' }} value={item.product_id} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, product_id: e.target.value } : x))}>
                       <option value="">الصنف</option>
-                      {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {(editWarehouseProducts.length > 0 ? editWarehouseProducts : products.filter((p: any) => p.warehouse_id === editForm.warehouse_id)).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                     <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="الكمية" value={item.quantity} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, quantity: e.target.value } : x))} />
                     <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="السعر" value={item.unit_price} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, unit_price: e.target.value } : x))} />
@@ -1112,10 +1256,32 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, o
                 )}
               </div>
               {editItems.length > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, padding: '8px 12px', background: S2.greenB, borderRadius: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: S2.green }}>الإجمالي: MYR {editTotal.toFixed(2)}</span>
+                <div style={{ background: S2.navy3, borderRadius: 12, padding: '14px 16px', marginTop: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, color: S2.muted }}>المجموع قبل الضريبة</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: S2.white }}>MYR {editTotal.toFixed(2)}</span>
+                  </div>
+                  {parseFloat(editForm.sst_percent || '0') > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: '#F59E0B' }}>SST ({editForm.sst_percent}%)</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>MYR {(editTotal * parseFloat(editForm.sst_percent) / 100).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: `1px solid rgba(255,255,255,0.07)` }}>
+                    <span style={{ fontSize: 13, color: S2.muted }}>الإجمالي النهائي</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: S2.green }}>MYR {(editTotal + editTotal * parseFloat(editForm.sst_percent || '0') / 100).toFixed(2)}</span>
+                  </div>
                 </div>
               )}
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, color: S2.amber, display: 'block', marginBottom: 4, fontWeight: 700 }}>⚠️ سبب التعديل (مطلوب)</label>
+              <input
+                value={editReason} onChange={e => setEditReason(e.target.value)}
+                placeholder="اكتب سبب التعديل هنا..."
+                style={{ ...inpD, borderColor: 'rgba(245,158,11,0.4)' }}
+              />
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -1160,7 +1326,7 @@ export default function PurchasesPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const [inv, prod, sup, un, wh, uc, brs] = await Promise.all([
-      supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name,branch_id)').order('created_at', { ascending: false }),
+      supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)').order('created_at', { ascending: false }),
       supabase.from('warehouse_products').select('*, units(symbol)').eq('is_active', true).order('name'),
       supabase.from('warehouse_suppliers').select('*').order('name'),
       supabase.from('units').select('*').order('name'),
@@ -1284,7 +1450,7 @@ export default function PurchasesPage() {
           { label: 'إجمالي الفواتير', value: tabInvoices.length, icon: '🧾', color: S.blue, bg: S.blueB },
           { label: 'مشتريات هذا الشهر', value: monthInvoices.length, icon: '📅', color: S.green, bg: S.greenB },
           { label: 'إجمالي هذا الشهر', value: formatMYR(monthTotal), icon: '💰', color: S.gold, bg: S.gold3 },
-          { label: 'إجمالي كل الفواتير', value: formatMYR(totalAll), icon: '📊', color: S.purple, bg: S.purpleB },
+          ...(isAdmin ? [{ label: 'إجمالي كل الفواتير', value: formatMYR(totalAll), icon: '📊', color: S.purple, bg: S.purpleB }] : []),
           { label: 'عدد الموردين', value: suppliers.length, icon: '🤝', color: S.teal, bg: S.tealB },
         ].map((s, i) => (
           <div key={i} style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '18px 20px' }}>
@@ -1324,7 +1490,7 @@ export default function PurchasesPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
               <thead>
                 <tr style={{ background: S.navy3 }}>
-                  {['# النظام', 'رقم المورد', 'المورد', 'التاريخ', 'الإجمالي', 'صورة', ''].map(h => (
+                  {['# النظام', 'رقم المورد', 'المورد', 'التاريخ', 'الإجمالي', 'بواسطة', 'صورة', ''].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                   ))}
                 </tr>
@@ -1343,6 +1509,7 @@ export default function PurchasesPage() {
                     <td style={{ padding: '14px 16px', color: S.white, fontSize: 13, fontWeight: 600 }}>{inv.warehouse_suppliers?.name || <span style={{ color: S.muted }}>—</span>}</td>
                     <td style={{ padding: '14px 16px', fontSize: 12, color: S.muted }}>{inv.invoice_date}</td>
                     <td style={{ padding: '14px 16px', fontWeight: 700, color: S.green, fontSize: 13 }}>{formatMYR(inv.total_amount)}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 12, color: S.blue }}>{(inv as any).employees?.name || <span style={{ color: S.muted }}>—</span>}</td>
                     <td style={{ padding: '14px 16px' }}>
                       {inv.image_url ? (
                         <img src={inv.image_url} alt="فاتورة" style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', border: `1px solid ${S.border}` }} onClick={(e) => { e.stopPropagation(); setViewerImage(inv.image_url) }} />
@@ -1360,6 +1527,7 @@ export default function PurchasesPage() {
       {selectedInvoice && (
         <InvoiceDetailModal
           invoice={selectedInvoice} products={products} suppliers={suppliers} units={units} warehouses={warehouses}
+          currentEmployeeId={employee?.id} currentEmployeeName={employee?.name}
           onClose={() => setSelectedInvoice(null)}
           onViewImage={(url) => setViewerImage(url)}
           onDeleted={() => { setSelectedInvoice(null); fetchAll() }}
@@ -1373,6 +1541,7 @@ export default function PurchasesPage() {
         <NewInvoiceModal
           products={products} suppliers={suppliers} units={units}
           warehouses={isAdmin || employee?.role === 'warehouse_keeper' ? warehouses : warehouses.filter(w => (w.branch_id || 'main') === (myBranchId || 'main'))}
+          employeeId={employee?.id}
           unitConversions={unitConversions}
           onClose={() => setShowNew(false)}
           onSaved={() => { setShowNew(false); fetchAll() }}

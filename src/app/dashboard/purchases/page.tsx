@@ -52,6 +52,7 @@ interface InvoiceItem {
   quantity: string; unit_price: string; unit_id: string; matched: boolean
   contents_per_unit?: number; contents_unit_name?: string
   contents_manual?: string
+  sst_percent?: string
 }
 
 // ── AI Scanner ──
@@ -567,9 +568,11 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     setSaving(true)
     try {
       const subtotal = items.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
-      const sstPercent = parseFloat(form.sst_percent || '0') || 0
-      const sstAmount = Math.round(subtotal * sstPercent / 100 * 100) / 100
-      const total = Math.round((subtotal + sstAmount) * 100) / 100
+      const totalSSTAmount = items.reduce((s, i) => {
+        const sub = parseFloat(i.quantity) * parseFloat(i.unit_price)
+        return s + Math.round(sub * (parseFloat(i.sst_percent || '0') / 100) * 100) / 100
+      }, 0)
+      const total = Math.round((subtotal + totalSSTAmount) * 100) / 100
       const { data: inv, error: invErr } = await supabase.from('purchase_invoices').insert([{
         supplier_id: form.supplier_id || null,
         warehouse_id: form.warehouse_id,
@@ -580,22 +583,25 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
         image_url: invoiceImages[0] || null,
         status: 'confirmed',
         created_by: employeeId || null,
-        sst_percent: sstPercent || null,
-        sst_amount: sstAmount || null,
+        sst_amount: totalSSTAmount || null,
       }]).select().single()
       if (invErr) throw invErr
-      // ✅ حفظ كل الصور (بما فيها الأولى) في جدول الصور المنفصل عشان نقدر نعرضهم كلهم لاحقًا
       if (invoiceImages.length > 0) {
         await supabase.from('purchase_invoice_images').insert(
           invoiceImages.map((url, idx) => ({ invoice_id: inv.id, image_url: url, sort_order: idx }))
         )
       }
       for (const item of items) {
+        const itemSSTPercent = parseFloat(item.sst_percent || '0') || 0
+        const itemSub = parseFloat(item.quantity) * parseFloat(item.unit_price)
+        const itemSSTAmount = Math.round(itemSub * itemSSTPercent / 100 * 100) / 100
         await supabase.from('purchase_invoice_items').insert([{
           invoice_id: inv.id, product_id: item.product_id,
           quantity: parseFloat(item.quantity), unit_price: parseFloat(item.unit_price),
           unit_id: item.unit_id || null,
           notes: item.contents_manual ? `محتويات الوحدة: ${item.contents_manual}` : null,
+          sst_percent: itemSSTPercent || null,
+          sst_amount: itemSSTAmount || null,
         }])
         const actualQty = parseFloat(item.quantity)
         await supabase.from('stock_movements').insert([{
@@ -830,45 +836,51 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                 </div>
 
                 {item.quantity && item.unit_price && (
-                  <div style={{ textAlign: 'left', marginTop: 6, fontSize: 12, color: S.gold, fontWeight: 600 }}>
-                    = {formatMYR(parseFloat(item.quantity) * parseFloat(item.unit_price))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: 11, color: S.muted }}>SST %</label>
+                      <input
+                        type="number" min="0" max="100" step="0.1"
+                        value={item.sst_percent || ''}
+                        onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, sst_percent: e.target.value } : it))}
+                        placeholder="0"
+                        style={{ ...inp, width: 60, padding: '4px 8px', fontSize: 12, textAlign: 'center' }}
+                      />
+                    </div>
+                    <div style={{ textAlign: 'left', fontSize: 12, color: S.gold, fontWeight: 600 }}>
+                      {(() => {
+                        const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_price)
+                        const sst = subtotal * (parseFloat(item.sst_percent || '0') / 100)
+                        return sst > 0
+                          ? <span>{formatMYR(subtotal)} <span style={{ color: '#F59E0B' }}>+SST {formatMYR(sst)}</span> = {formatMYR(subtotal + sst)}</span>
+                          : formatMYR(subtotal)
+                      })()}
+                    </div>
                   </div>
                 )}
               </div>
             ))}
 
             <div style={{ background: S.navy3, borderRadius: 12, padding: '16px 18px', marginTop: 8 }}>
-              {/* حقل نسبة SST */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: `1px solid rgba(255,255,255,0.07)` }}>
-                <span style={{ color: S.muted, fontSize: 13, flex: 1 }}>نسبة SST %</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="number" min="0" max="100" step="0.1"
-                    value={form.sst_percent}
-                    onChange={e => setForm(p => ({ ...p, sst_percent: e.target.value }))}
-                    placeholder="0"
-                    style={{ ...inp, width: 80, textAlign: 'center', padding: '6px 10px', fontSize: 14 }}
-                  />
-                  <span style={{ color: S.muted, fontSize: 13 }}>%</span>
-                </div>
-              </div>
               {/* المجموع قبل الضريبة */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ color: S.muted, fontSize: 13 }}>المجموع قبل الضريبة</span>
                 <span style={{ color: S.white, fontSize: 15, fontWeight: 700 }}>{formatMYR(total)}</span>
               </div>
-              {/* SST */}
-              {parseFloat(form.sst_percent || '0') > 0 && (
+              {/* SST إجمالي الأصناف الخاضعة */}
+              {items.reduce((s, it) => s + (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)*(parseFloat(it.sst_percent||'0')/100), 0) > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ color: S.amber, fontSize: 13 }}>SST ({form.sst_percent}%)</span>
-                  <span style={{ color: S.amber, fontSize: 15, fontWeight: 700 }}>{formatMYR(total * parseFloat(form.sst_percent) / 100)}</span>
+                  <span style={{ color: '#F59E0B', fontSize: 13 }}>SST (الأصناف الخاضعة)</span>
+                  <span style={{ color: '#F59E0B', fontSize: 15, fontWeight: 700 }}>
+                    {formatMYR(items.reduce((s, it) => s + (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)*(parseFloat(it.sst_percent||'0')/100), 0))}
+                  </span>
                 </div>
               )}
               {/* الإجمالي النهائي */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: `1px solid rgba(255,255,255,0.07)` }}>
                 <span style={{ color: S.muted, fontSize: 14 }}>الإجمالي النهائي</span>
                 <span style={{ color: S.gold, fontSize: 22, fontWeight: 800 }}>
-                  {formatMYR(total + (total * parseFloat(form.sst_percent || '0') / 100))}
+                  {formatMYR(total + items.reduce((s, it) => s + (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)*(parseFloat(it.sst_percent||'0')/100), 0))}
                 </span>
               </div>
             </div>
@@ -1034,10 +1046,12 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
     if (!editReason.trim()) { alert('يرجى كتابة سبب التعديل'); return }
     setSaving(true)
     const subtotal = editItems.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
-    const sstPercent = parseFloat(editForm.sst_percent || '0') || 0
-    const sstAmount = Math.round(subtotal * sstPercent / 100 * 100) / 100
-    const total = Math.round((subtotal + sstAmount) * 100) / 100
-    await supabase.from('purchase_invoices').update({ invoice_number: editForm.invoice_number || null, invoice_date: editForm.invoice_date, supplier_id: editForm.supplier_id || null, warehouse_id: editForm.warehouse_id || null, notes: editForm.notes || null, total_amount: total, sst_percent: sstPercent || null, sst_amount: sstAmount || null }).eq('id', invoice.id)
+    const totalSSTAmount = editItems.reduce((s, i) => {
+      const sub = parseFloat(i.quantity) * parseFloat(i.unit_price)
+      return s + Math.round(sub * (parseFloat(i.sst_percent || '0') / 100) * 100) / 100
+    }, 0)
+    const total = Math.round((subtotal + totalSSTAmount) * 100) / 100
+    await supabase.from('purchase_invoices').update({ invoice_number: editForm.invoice_number || null, invoice_date: editForm.invoice_date, supplier_id: editForm.supplier_id || null, warehouse_id: editForm.warehouse_id || null, notes: editForm.notes || null, total_amount: total, sst_amount: totalSSTAmount || null }).eq('id', invoice.id)
     await supabase.from('purchase_invoice_items').delete().eq('invoice_id', invoice.id)
     await supabase.from('stock_movements').delete().eq('invoice_id', invoice.id)
     for (const item of editItems) {
@@ -1335,19 +1349,35 @@ export default function PurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [inv, sup, un, wh, uc, brs] = await Promise.all([
-      supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)').order('created_at', { ascending: false }),
-      supabase.from('warehouse_suppliers').select('*').order('name'),
-      supabase.from('units').select('*').order('name'),
+const [inv, sup, un, wh, brs] = await Promise.all([
+      // ✅ نجيب آخر 200 فاتورة بس بدل كلهم — أسرع بكثير
+      supabase.from('purchase_invoices')
+        .select('id, created_at, invoice_number, invoice_date, supplier_id, warehouse_id, total_amount, sst_percent, sst_amount, status, image_url, created_by, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)')
+        .order('created_at', { ascending: false })
+        .limit(300),
+      supabase.from('warehouse_suppliers').select('id,name').order('name'),
+      supabase.from('units').select('id,name,symbol').order('name'),
       supabase.from('warehouses').select('id,name,branch_id').eq('is_active', true),
-      supabase.from('unit_conversions').select('*, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)'),
       supabase.from('branches').select('id,name').eq('is_active', true),
     ])
-    setInvoices(inv.data || [])
+
+    // تحويل المصفوفات الفرعية الخاصة بالعلاقات إلى كائنات مفردة متوافقة مع الـ Types
+    const formattedInvoices = (inv.data || []).map((invoice: any) => ({
+      ...invoice,
+      // تحويل المصفوفة لكائن بأخذ العنصر الأول [0]
+      warehouse_suppliers: Array.isArray(invoice.warehouse_suppliers) 
+        ? invoice.warehouse_suppliers[0] 
+        : invoice.warehouse_suppliers,
+      
+      warehouses: Array.isArray(invoice.warehouses) 
+        ? invoice.warehouses[0] 
+        : invoice.warehouses
+    }))
+
+    setInvoices(formattedInvoices) // تمرير البيانات المنسقة هنا
     setSuppliers(sup.data || [])
     setUnits(un.data || [])
     setWarehouses(wh.data || [])
-    setUnitConversions(uc.data || [])
     setBranches(brs.data || [])
     setLoading(false)
   }, [])

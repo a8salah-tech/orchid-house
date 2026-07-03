@@ -998,7 +998,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
     async function loadNotes() {
       const { data } = await supabase
         .from('purchase_invoice_notes')
-        .select('*, employees(name)')
+        .select('id, note_type, note, reason, created_at, employee_id, employees(name)')
         .eq('invoice_id', invoice.id)
         .order('created_at', { ascending: false })
       setInvoiceNotes(data || [])
@@ -1010,15 +1010,21 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
   async function saveNote() {
     if (!newNote.trim()) return
     setSavingNote(true)
-    await supabase.from('purchase_invoice_notes').insert([{
+    const { error } = await supabase.from('purchase_invoice_notes').insert([{
       invoice_id: invoice.id,
       note_type: 'manual',
       note: newNote.trim(),
       employee_id: currentEmployeeId || null,
     }])
-    setNewNote('')
-    const { data } = await supabase.from('purchase_invoice_notes').select('*, employees(name)').eq('invoice_id', invoice.id).order('created_at', { ascending: false })
-    setInvoiceNotes(data || [])
+    if (!error) {
+      setNewNote('')
+      const { data } = await supabase
+        .from('purchase_invoice_notes')
+        .select('id, note_type, note, reason, created_at, employee_id, employees(name)')
+        .eq('invoice_id', invoice.id)
+        .order('created_at', { ascending: false })
+      setInvoiceNotes(data || [])
+    }
     setSavingNote(false)
   }
 
@@ -1074,9 +1080,13 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
             {invoice.invoice_number && <div style={{ fontSize: 12, color: S2.muted }}>رقم المورد: {invoice.invoice_number}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {mode === 'view' && (
-              <button onClick={() => setMode('edit')} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✏️ تعديل</button>
-            )}
+            {mode === 'view' && (() => {
+              const hoursSinceCreation = (Date.now() - new Date(invoice.created_at).getTime()) / (1000 * 60 * 60)
+              const canEdit = hoursSinceCreation <= 24
+              return canEdit ? (
+                <button onClick={() => setMode('edit')} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S2.gold}`, background: S2.gold3, color: S2.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✏️ تعديل</button>
+              ) : null
+            })()}
             <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S2.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
           </div>
         </div>
@@ -1325,9 +1335,8 @@ export default function PurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [inv, prod, sup, un, wh, uc, brs] = await Promise.all([
+    const [inv, sup, un, wh, uc, brs] = await Promise.all([
       supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)').order('created_at', { ascending: false }),
-      supabase.from('warehouse_products').select('*, units(symbol)').eq('is_active', true).order('name'),
       supabase.from('warehouse_suppliers').select('*').order('name'),
       supabase.from('units').select('*').order('name'),
       supabase.from('warehouses').select('id,name,branch_id').eq('is_active', true),
@@ -1335,7 +1344,6 @@ export default function PurchasesPage() {
       supabase.from('branches').select('id,name').eq('is_active', true),
     ])
     setInvoices(inv.data || [])
-    setProducts(prod.data || [])
     setSuppliers(sup.data || [])
     setUnits(un.data || [])
     setWarehouses(wh.data || [])
@@ -1450,7 +1458,7 @@ export default function PurchasesPage() {
           { label: 'إجمالي الفواتير', value: tabInvoices.length, icon: '🧾', color: S.blue, bg: S.blueB },
           { label: 'مشتريات هذا الشهر', value: monthInvoices.length, icon: '📅', color: S.green, bg: S.greenB },
           { label: 'إجمالي هذا الشهر', value: formatMYR(monthTotal), icon: '💰', color: S.gold, bg: S.gold3 },
-          ...(isAdmin ? [{ label: 'إجمالي كل الفواتير', value: formatMYR(totalAll), icon: '📊', color: S.purple, bg: S.purpleB }] : []),
+          ...(employee?.role === 'admin' ? [{ label: 'إجمالي كل الفواتير', value: formatMYR(totalAll), icon: '📊', color: S.purple, bg: S.purpleB }] : []),
           { label: 'عدد الموردين', value: suppliers.length, icon: '🤝', color: S.teal, bg: S.tealB },
         ].map((s, i) => (
           <div key={i} style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '18px 20px' }}>

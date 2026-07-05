@@ -874,6 +874,8 @@ export default function CashierPage() {
           const { data: tblData } = await sb.from('tables').select('name,number').eq('id', tableId).single()
           if (tblData) tableName = tblData.name || `Table ${tblData.number}`
         }
+        // ✅ انتظر 1.5 ثانية قبل جلب الأصناف — عشان نضمن إنها اتحفظت كلها في قاعدة البيانات قبل ما نعرضها
+        await new Promise(r => setTimeout(r, 1500))
         const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', payload.new?.id)
         itemsCount = itemsData?.length || 0
         if (tableId) setUnseenTableIds(prev => new Set(prev).add(tableId))

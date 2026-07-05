@@ -502,24 +502,58 @@ const filteredItems = items
                   <div style={{ fontSize:10, color:C.silver2, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
                 )}
                 <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                  {item.discount_percent && item.discount_percent > 0 ? (
-                    <>
-                      <div style={{ background:'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius:20, padding:'4px 10px', fontSize:12, fontWeight:900, color:'#fff', display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
-                        <span style={{ whiteSpace:'nowrap' }}>MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}</span>
-                        <span style={{ fontSize:9, background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 4px', whiteSpace:'nowrap' }}>-{item.discount_percent}%</span>
-                      </div>
-                      <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through', whiteSpace:'nowrap' }}>MYR {item.price.toFixed(2)}</div>
-                    </>
-                  ) : (
-                    <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
-                      MYR {item.price.toFixed(2)}
+                  {item.sizes && item.sizes.filter((s: any) => s.is_active).length > 0 ? (
+                    // ✅ أحجام متعددة — كل حجم في بطاقة مستقلة واضحة
+                    <div style={{ display:'flex', flexDirection:'column', gap:6, width:'100%' }}>
+                      {item.sizes.filter((s: any) => s.is_active).map((size: any) => {
+                        const sizeQty = getQty(item.id, size.id)
+                        return (
+                          <div key={size.id}
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              display:'flex', alignItems:'center', justifyContent:'space-between',
+                              background: sizeQty > 0 ? `rgba(59,159,229,0.1)` : 'rgba(255,255,255,0.04)',
+                              border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
+                              borderRadius:12, padding:'6px 10px', gap:8,
+                            }}>
+                            <span style={{ fontSize:11, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0 }}>{size.name_en || size.name}</span>
+                            <span style={{ fontSize:11, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toFixed(2)}</span>
+                            {sizeQty > 0 ? (
+                              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                                <button onClick={() => removeFromCart(item.id, size.id)} style={{ width:22, height:22, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.2)', color:'#ef4444', fontSize:15, cursor:'pointer', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
+                                <span style={{ color:C.white, fontWeight:900, fontSize:13, minWidth:16, textAlign:'center' }}>{sizeQty}</span>
+                                <button onClick={() => addToCart(item, size)} style={{ width:22, height:22, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:15, cursor:'pointer', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => addToCart(item, size)} style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:10, padding:'4px 10px', cursor:'pointer', fontSize:11, fontWeight:800, color:'#fff', whiteSpace:'nowrap' }}>+ Add</button>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
+                  ) : (
+                    // صنف بدون أحجام — العرض العادي
+                    <>
+                      {item.discount_percent && item.discount_percent > 0 ? (
+                        <>
+                          <div style={{ background:'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius:20, padding:'4px 10px', fontSize:12, fontWeight:900, color:'#fff', display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
+                            <span>MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}</span>
+                            <span style={{ fontSize:9, background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 4px' }}>-{item.discount_percent}%</span>
+                          </div>
+                          <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through', whiteSpace:'nowrap' }}>MYR {item.price.toFixed(2)}</div>
+                        </>
+                      ) : (
+                        <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
+                          MYR {item.price.toFixed(2)}
+                        </div>
+                      )}
+                      <div onClick={e => { e.stopPropagation(); addToCart(item) }}
+                        style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : `rgba(59,159,229,.1)`, border: qty > 0 ? 'none' : `1px solid ${C.border}`, borderRadius:20, padding:'6px 12px', cursor:'pointer', fontSize:12, fontWeight:800, color: qty > 0 ? C.white : C.blue1, display:'flex', alignItems:'center', gap:4, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : 'none' }}>
+                        <span style={{ fontSize:15 }}>+</span>
+                        <span>{qty > 0 ? qty : 'Add'}</span>
+                      </div>
+                    </>
                   )}
-                  <div onClick={e => { e.stopPropagation(); addToCart(item) }}
-                    style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : `rgba(59,159,229,.1)`, border: qty > 0 ? 'none' : `1px solid ${C.border}`, borderRadius:20, padding:'6px 12px', cursor:'pointer', fontSize:12, fontWeight:800, color: qty > 0 ? C.white : C.blue1, display:'flex', alignItems:'center', gap:4, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : 'none' }}>
-                    <span style={{ fontSize:15 }}>+</span>
-                    <span>{qty > 0 ? qty : 'Add'}</span>
-                  </div>
                 </div>
               </div>
 

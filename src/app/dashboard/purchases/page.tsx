@@ -1055,9 +1055,27 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
     await supabase.from('purchase_invoice_items').delete().eq('invoice_id', invoice.id)
     await supabase.from('stock_movements').delete().eq('invoice_id', invoice.id)
     for (const item of editItems) {
-      await supabase.from('purchase_invoice_items').insert([{ invoice_id: invoice.id, product_id: item.product_id, quantity: parseFloat(item.quantity), unit_price: parseFloat(item.unit_price), unit_id: item.unit_id || null, total_price: parseFloat(item.quantity) * parseFloat(item.unit_price) }])
+      const itemSSTPercent = parseFloat(item.sst_percent || '0') || 0
+      const itemSub = parseFloat(item.quantity) * parseFloat(item.unit_price)
+      const itemSSTAmount = Math.round(itemSub * itemSSTPercent / 100 * 100) / 100
+      await supabase.from('purchase_invoice_items').insert([{
+        invoice_id: invoice.id,
+        product_id: item.product_id,
+        quantity: parseFloat(item.quantity),
+        unit_price: parseFloat(item.unit_price),
+        unit_id: item.unit_id || null,
+        sst_percent: itemSSTPercent || null,
+        sst_amount: itemSSTAmount || null,
+      }])
       if (editForm.warehouse_id) {
-        await supabase.from('stock_movements').insert([{ product_id: item.product_id, warehouse_id: editForm.warehouse_id, movement_type: 'in', quantity: parseFloat(item.quantity), invoice_id: invoice.id, notes: 'تعديل فاتورة مشتريات' }])
+        await supabase.from('stock_movements').insert([{
+          product_id: item.product_id,
+          warehouse_id: editForm.warehouse_id,
+          movement_type: 'in',
+          quantity: parseFloat(item.quantity),
+          invoice_id: invoice.id,
+          notes: 'تعديل فاتورة مشتريات',
+        }])
       }
     }
     setSaving(false)
@@ -1349,16 +1367,16 @@ export default function PurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-const [inv, sup, un, wh, brs] = await Promise.all([
-      // ✅ نجيب آخر 200 فاتورة بس بدل كلهم — أسرع بكثير
+    const [inv, sup, un, wh, brs, uc] = await Promise.all([
       supabase.from('purchase_invoices')
-        .select('id, created_at, invoice_number, invoice_date, supplier_id, warehouse_id, total_amount, sst_percent, sst_amount, status, image_url, created_by, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)')
+        .select('id, created_at, invoice_number, invoice_date, supplier_id, warehouse_id, total_amount, sst_percent, sst_amount, notes, status, image_url, created_by, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)')
         .order('created_at', { ascending: false })
-        .limit(300),
+        .limit(500),
       supabase.from('warehouse_suppliers').select('id,name').order('name'),
       supabase.from('units').select('id,name,symbol').order('name'),
       supabase.from('warehouses').select('id,name,branch_id').eq('is_active', true),
       supabase.from('branches').select('id,name').eq('is_active', true),
+      supabase.from('unit_conversions').select('product_id, from_unit_id, to_unit_id, factor, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)'),
     ])
 
     // تحويل المصفوفات الفرعية الخاصة بالعلاقات إلى كائنات مفردة متوافقة مع الـ Types
@@ -1374,11 +1392,12 @@ const [inv, sup, un, wh, brs] = await Promise.all([
         : invoice.warehouses
     }))
 
-    setInvoices(formattedInvoices) // تمرير البيانات المنسقة هنا
+    setInvoices(formattedInvoices)
     setSuppliers(sup.data || [])
     setUnits(un.data || [])
     setWarehouses(wh.data || [])
     setBranches(brs.data || [])
+    setUnitConversions(uc.data || [])
     setLoading(false)
   }, [])
 
@@ -1414,12 +1433,18 @@ const [inv, sup, un, wh, brs] = await Promise.all([
   const monthTotal = monthInvoices.reduce((s, i) => s + (i.total_amount || 0), 0)
   const totalAll = tabInvoices.reduce((s, i) => s + (i.total_amount || 0), 0)
 
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 20
+
   const filtered = tabInvoices.filter(inv => {
     const matchSearch = !search || inv.invoice_number?.includes(search) || inv.warehouse_suppliers?.name?.includes(search)
     const matchSupplier = !filterSupplier || inv.warehouse_suppliers?.name === filterSupplier
     const matchMonth = !filterMonth || inv.invoice_date?.startsWith(filterMonth)
     return matchSearch && matchSupplier && matchMonth
   })
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedInvoices = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const invoiceSuppliers = [...new Set(tabInvoices.map(i => i.warehouse_suppliers?.name).filter(Boolean))]
 
@@ -1468,13 +1493,13 @@ const [inv, sup, un, wh, brs] = await Promise.all([
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           {/* تاب "الإجمالي" يظهر لـ admin فقط، لرؤية كل الفروع مجتمعة */}
           {isAdmin && (
-            <button onClick={() => setActiveTab('')}
+            <button onClick={() => { setActiveTab(''); setCurrentPage(1) }}
               style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${activeTab === '' ? S.gold : S.border}`, background: activeTab === '' ? S.gold3 : 'transparent', color: activeTab === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab === '' ? 700 : 400 }}>
               🌐 الإجمالي (الكل)
             </button>
           )}
           {visibleTabs.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
+            <button key={t.key} onClick={() => { setActiveTab(t.key); setCurrentPage(1) }}
               style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${activeTab === t.key ? S.gold : S.border}`, background: activeTab === t.key ? S.gold3 : 'transparent', color: activeTab === t.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab === t.key ? 700 : 400 }}>
               {t.label}
             </button>
@@ -1504,14 +1529,14 @@ const [inv, sup, un, wh, brs] = await Promise.all([
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث برقم الفاتورة أو المورد..." />
-        <select style={{ ...inp, width: 'auto', minWidth: 160 }} value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)}>
+        <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => { setSearch(e.target.value); setCurrentPage(1) }} placeholder="🔍 بحث برقم الفاتورة أو المورد..." />
+        <select style={{ ...inp, width: 'auto', minWidth: 160 }} value={filterSupplier} onChange={e => { setFilterSupplier(e.target.value); setCurrentPage(1) }}>
           <option value="">كل الموردين</option>
           {invoiceSuppliers.map(s => <option key={s} value={s!}>{s}</option>)}
         </select>
-        <input style={{ ...inp, width: 'auto' }} type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
+        <input style={{ ...inp, width: 'auto' }} type="month" value={filterMonth} onChange={e => { setFilterMonth(e.target.value); setCurrentPage(1) }} />
         {(search || filterSupplier || filterMonth) && (
-          <button onClick={() => { setSearch(''); setFilterSupplier(''); setFilterMonth('') }} style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ مسح</button>
+          <button onClick={() => { setSearch(''); setFilterSupplier(''); setFilterMonth(''); setCurrentPage(1) }} style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ مسح</button>
         )}
       </div>
 
@@ -1540,7 +1565,7 @@ const [inv, sup, un, wh, brs] = await Promise.all([
                     <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد فواتير بعد</div>
                     <div style={{ fontSize: 13 }}>اضغط "فاتورة جديدة" لإضافة أول فاتورة</div>
                   </td></tr>
-                ) : filtered.map((inv, idx) => (
+                ) : paginatedInvoices.map((inv, idx) => (
                   <tr key={inv.id} className="inv-row" style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setSelectedInvoice(inv)}>
                     <td style={{ padding: '14px 16px', color: S.purple, fontWeight: 800, fontSize: 14 }}>#{filtered.length - idx}</td>
                     <td style={{ padding: '14px 16px', color: S.gold, fontWeight: 700, fontSize: 13 }}>{inv.invoice_number || <span style={{ color: S.muted, fontStyle: 'italic', fontSize: 11 }}>—</span>}</td>
@@ -1559,6 +1584,28 @@ const [inv, sup, un, wh, brs] = await Promise.all([
               </tbody>
             </table>
           </div>
+          {/* ── Pagination ── */}
+          {totalPages > 1 && (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'16px 0', borderTop:`1px solid ${S.border}` }}>
+              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
+                style={{ padding:'6px 14px', borderRadius:8, border:`1px solid ${S.border}`, background:'transparent', color: currentPage === 1 ? S.muted : S.white, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontSize:13 }}>
+                ← السابق
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => setCurrentPage(p)}
+                  style={{ width:34, height:34, borderRadius:8, border:`1px solid ${p === currentPage ? S.gold : S.border}`, background: p === currentPage ? S.gold3 : 'transparent', color: p === currentPage ? S.gold : S.muted, cursor:'pointer', fontSize:13, fontWeight: p === currentPage ? 800 : 400 }}>
+                  {p}
+                </button>
+              ))}
+              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
+                style={{ padding:'6px 14px', borderRadius:8, border:`1px solid ${S.border}`, background:'transparent', color: currentPage === totalPages ? S.muted : S.white, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', fontSize:13 }}>
+                التالي →
+              </button>
+              <span style={{ fontSize:12, color:S.muted, marginRight:8 }}>
+                {filtered.length} فاتورة — صفحة {currentPage} من {totalPages}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

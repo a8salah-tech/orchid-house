@@ -861,37 +861,17 @@ export default function CashierPage() {
         fetchAll()
         const newOrderId = payload.new?.id
         if (newOrderId) {
-          // ✅ نسجّل الطلب ده عشان لو order_items بتاعه جت بعده بثواني، مانعملش إشعار مكرر
+          // ✅ نسجّل الطلب ده عشان معالج order_items يعرف يعمل الإشعار بعد ما الأصناف اتحفظت
           recentNewOrderIdsRef.current.add(newOrderId)
-          setTimeout(() => recentNewOrderIdsRef.current.delete(newOrderId), 5000)
+          setTimeout(() => recentNewOrderIdsRef.current.delete(newOrderId), 15000)
         }
-        const tableId = payload.new?.table_id
-        const tbl = tablesRef.current.find(t => t.id === tableId)
-        let tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'New Table')
-        let itemsCount = 0
-        // لو الطاولة لسه مش في الـ state المحلي (طلب جاي قبل أول fetch)، نجيب اسمها من القاعدة مباشرة
-        if (!tbl && tableId) {
-          const { data: tblData } = await sb.from('tables').select('name,number').eq('id', tableId).single()
-          if (tblData) tableName = tblData.name || `Table ${tblData.number}`
-        }
-        // ✅ انتظر 1.5 ثانية قبل جلب الأصناف — عشان نضمن إنها اتحفظت كلها في قاعدة البيانات قبل ما نعرضها
-        await new Promise(r => setTimeout(r, 1500))
-        const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', payload.new?.id)
-        itemsCount = itemsData?.length || 0
-        if (tableId) setUnseenTableIds(prev => new Set(prev).add(tableId))
-        setNewOrderAlert({ tableName, itemsCount, total: payload.new?.total_amount || 0 })
-        setNotif('🆕 New order received!')
-        setTimeout(() => setNotif(null), 5000)
-        playSound('order')
-        sendNotification('🆕 New Order!', `${tableName} — ${itemsCount} item(s)`)
+        // ✅ Fix جذري: مش بنبعت إشعار هنا خالص — الإشعار بيجي من معالج order_items INSERT
+        // عشان نضمن إن عدد الأصناف يكون صح دايماً (مش 0)
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_items' }, (payload: any) => {
         fetchAll()
         const orderId = payload.new?.order_id
         if (!orderId) return
-        // ✅ لو ده طلب جديد لسه اتعمل له إشعار من اللحظة، متعمل إشعار تاني
-        if (recentNewOrderIdsRef.current.has(orderId)) return
-        // ✅ تجميع: نضيف للـ batch ونعمل debounce عشان لو عميل طلب أكتر من صنف مرة واحدة يطلع إشعار واحد بس
         const batch = itemsBatchRef.current
         batch.byOrder.set(orderId, (batch.byOrder.get(orderId) || 0) + 1)
         if (batch.timer) clearTimeout(batch.timer)
@@ -900,17 +880,28 @@ export default function CashierPage() {
           batch.byOrder.clear()
           batch.timer = null
           for (const oid of orderIds) {
-            const { data: orderData } = await sb.from('orders').select('table_id,total_amount').eq('id', oid).single()
-            if (!orderData) continue
+            const { data: orderData } = await sb.from('orders').select('table_id,total_amount,status').eq('id', oid).single()
+            if (!orderData || orderData.status === 'cancelled') continue
             const tbl = tablesRef.current.find(t => t.id === orderData.table_id)
-            const tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'Table')
+            let tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'Table')
+            if (!tbl && orderData.table_id) {
+              const { data: tblData } = await sb.from('tables').select('name,number').eq('id', orderData.table_id).single()
+              if (tblData) tableName = tblData.name || `Table ${tblData.number}`
+            }
             const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', oid)
+            const itemsCount = itemsData?.length || 0
             if (orderData.table_id) setUnseenTableIds(prev => new Set(prev).add(orderData.table_id))
-            setNewOrderAlert({ tableName, itemsCount: itemsData?.length || 0, total: orderData.total_amount || 0 })
-            setNotif(`🆕 New items added — ${tableName}!`)
+            // ✅ لو الطلب جديد (موجود في recentNewOrderIds) → إشعار "طلب جديد"
+            // لو مش جديد → إشعار "أصناف إضافية"
+            const isNewOrder = recentNewOrderIdsRef.current.has(oid)
+            setNewOrderAlert({ tableName, itemsCount, total: orderData.total_amount || 0 })
+            setNotif(isNewOrder ? '🆕 New order received!' : `🆕 New items added — ${tableName}!`)
             setTimeout(() => setNotif(null), 5000)
             playSound('order')
-            sendNotification('🆕 Items Added!', `${tableName} added more items to their order`)
+            sendNotification(
+              isNewOrder ? '🆕 New Order!' : '🆕 Items Added!',
+              `${tableName} — ${itemsCount} item(s)`
+            )
           }
         }, 1200)
       })

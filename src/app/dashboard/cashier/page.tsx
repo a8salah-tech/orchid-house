@@ -79,7 +79,7 @@ function groupItemsByRound(items: OrderItem[]): OrderItem[][] {
 }
 
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
-type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; destination: string; status: string; created_at?: string; menu_items: { name: string; name_en: string } }
+type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; menu_items: { name: string; name_en: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
   discount_amount: number; discount_type: string; payment_method: string
@@ -196,7 +196,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     <div class="row"><span>Order #:</span><span>${order.id.slice(-6).toUpperCase()}</span></div>
     <div class="line"></div>
     ${order.order_items.map(i => `
-    <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
+    <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name}${i.size_name ? ' (' + i.size_name + ')' : ''} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
     ${i.notes ? `<div style="font-size:10px;color:#666;padding-right:10px">* ${i.notes}</div>` : ''}
     `).join('')}
     <div class="line"></div>
@@ -245,7 +245,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
               {round.map(i => (
                 <div key={i.id} style={{ padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.notes ? ` (${i.notes})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                    <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                     <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
                   </div>
                   {i.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 2 }}>📝 {i.notes}</div>}
@@ -828,7 +828,7 @@ export default function CashierPage() {
   }, [isAdmin, branches, adminBranchFilter])
 
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,created_at,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,menu_items(name,name_en))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -849,7 +849,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,destination,status,created_at,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,menu_items(name,name_en))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -1217,9 +1217,11 @@ export default function CashierPage() {
                               </div>
                             )}
                             {round.map(i => (
-                              <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
-                                <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.notes ? ` (${i.notes})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
-                                {i.notes && <span style={{ color: S.muted, fontSize: 10 }}>({i.notes})</span>}
+                              <div key={i.id} style={{ padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                                </div>
+                                {i.notes && <div style={{ fontSize: 10, color: S.amber, marginTop: 1 }}>📝 {i.notes}</div>}
                               </div>
                             ))}
                           </div>

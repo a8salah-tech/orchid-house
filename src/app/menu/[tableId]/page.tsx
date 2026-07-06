@@ -202,7 +202,7 @@ const filteredItems = items
     const itemsPayload = cart.map(c => ({
       order_id: orderId, menu_item_id: c.item.id,
       quantity: c.quantity, unit_price: actualUnitPrice(c),
-      notes: c.notes || null,
+      notes: c.selectedSize ? `${c.selectedSize.name_en || c.selectedSize.name}${c.notes ? ' - ' + c.notes : ''}` : (c.notes || null),
       destination: catMap[c.item.category_id] || 'kitchen',
       status: 'pending',
     }))

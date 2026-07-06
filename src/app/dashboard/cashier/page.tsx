@@ -245,7 +245,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
               {round.map(i => (
                 <div key={i.id} style={{ padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                    <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.notes ? ` (${i.notes})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                     <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
                   </div>
                   {i.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 2 }}>📝 {i.notes}</div>}
@@ -728,6 +728,7 @@ export default function CashierPage() {
   const sb = sbRef.current
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
+  const isCashierRole = ['cashier','assistant_cashier'].includes(employee?.role || '')
 
   const [orders, setOrders] = useState<Order[]>([])
   const [tables, setTables] = useState<TableRow[]>([])
@@ -1047,7 +1048,7 @@ export default function CashierPage() {
           </div>
         </div>
         {/* Row 2: Shift */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {isCashierRole && <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <select value={shift} onChange={e => setShift(e.target.value as any)} style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 10px', color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
             <option value="shift1">Shift 1</option>
             <option value="shift2">Shift 2</option>
@@ -1060,7 +1061,7 @@ export default function CashierPage() {
               <button onClick={() => { setShowShiftReport(true) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⏹ End Shift</button>
             </>
           )}
-        </div>
+        </div>}
       </div>
 
       {/* Row 3: Branch Selector (Admin only) */}
@@ -1217,7 +1218,7 @@ export default function CashierPage() {
                             )}
                             {round.map(i => (
                               <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
-                                <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                                <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.notes ? ` (${i.notes})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                                 {i.notes && <span style={{ color: S.muted, fontSize: 10 }}>({i.notes})</span>}
                               </div>
                             ))}

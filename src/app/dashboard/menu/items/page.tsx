@@ -155,6 +155,21 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     if (!form.name || !form.category_id) { alert('يرجى إدخال الاسم والقسم'); return }
     setSaving(true)
 
+    // ✅ التحقق من عدم تكرار كود الصنف (OR-code) على أي صنف تاني
+    const trimmedCode = form.or_code.trim()
+    if (trimmedCode) {
+      let dupQuery = supabase.from('menu_items').select('id,name').eq('or_code', trimmedCode).eq('is_active', true)
+      if (item?.id) dupQuery = dupQuery.neq('id', item.id)
+      const { data: dup } = await dupQuery.maybeSingle()
+      if (dup) {
+        alert(isAr
+          ? `⚠️ الكود "${trimmedCode}" مستخدم بالفعل للصنف "${dup.name}". اختر كود تاني.`
+          : `⚠️ Code "${trimmedCode}" is already used by "${dup.name}". Choose another.`)
+        setSaving(false)
+        return
+      }
+    }
+
     let finalImageUrl: string | null = item?.image_url || null
 
     if (imageFile) {
@@ -171,9 +186,13 @@ function ItemModal({ item, categories, onClose, onSaved }: {
       finalImageUrl = null
     }
 
+    const numMatch = trimmedCode.match(/(\d+)/)
+    const derivedSortOrder = numMatch ? parseInt(numMatch[1], 10) : (item?.sort_order ?? 0)
+
     const payload = {
       name: form.name,
       name_en: form.name_en || null,
+      or_code: trimmedCode || null,
       description: form.description || null,
       description_en: form.description_en || null,
       category_id: form.category_id || null,
@@ -183,13 +202,27 @@ function ItemModal({ item, categories, onClose, onSaved }: {
       is_available: form.is_available !== false,
       is_active: (form as any).is_active !== false,
       image_url: finalImageUrl,
+      ...(trimmedCode ? { sort_order: derivedSortOrder } : {}),
     }
 
     let error
     if (item) {
       ({ error } = await supabase.from('menu_items').update(payload).eq('id', item.id))
-    } else {
+    } else if (trimmedCode) {
+      // ✅ المستخدم كتب كود بنفسه — نستخدم رقمه هو زي ما هو، من غير ما نغيره برقم تلقائي
       ({ error } = await supabase.from('menu_items').insert([payload]))
+    } else {
+      // ✅ لو سايب الكود فاضي، ياخد آخر ترتيب في نفس القسم (max sort_order + 1) بدل ما يتحط تلقائي في الأول
+      const { data: maxRow } = await supabase
+        .from('menu_items')
+        .select('sort_order')
+        .eq('category_id', form.category_id)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
+      ({ error } = await supabase.from('menu_items').insert([{ ...payload, sort_order: nextSortOrder }]))
     }
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -295,12 +328,15 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             </div>
 
             {/* OR Code */}
-{item?.or_code && (
-  <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px' }}>
-    <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>{isAr ? 'رقم الصنف' : 'Item Code'}</div>
-    <div style={{ fontSize: 14, fontWeight: 700, color: S.gold }}>{item.or_code}</div>
-  </div>
-)}
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'كود الصنف (رقم الترتيب)' : 'Item Code (sort number)'}</label>
+              <input
+                style={{ ...inp, direction: 'ltr', textAlign: 'left', fontWeight: 700, color: S.gold }}
+                value={form.or_code}
+                onChange={e => setForm(p => ({ ...p, or_code: e.target.value }))}
+                placeholder={isAr ? 'مثال: OR-155 (هيتحدد تلقائيًا لو سبته فاضي)' : 'e.g. OR-155 (auto-assigned if left empty)'}
+              />
+            </div>
 
             {/* الأسعار */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -400,7 +436,16 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   async function save() {
     if (!form.name) { alert('يرجى إدخال اسم القسم'); return }
     setSaving(true)
-    const { error } = await supabase.from('menu_categories').insert([{ ...form, is_active: true }])
+    // ✅ القسم الجديد ياخد آخر ترتيب (max sort_order + 1) بدل ما يتحط تلقائي في الأول
+    const { data: maxRow } = await supabase
+      .from('menu_categories')
+      .select('sort_order')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
+    const { error } = await supabase.from('menu_categories').insert([{ ...form, is_active: true, sort_order: nextSortOrder }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
     onSaved()
@@ -817,6 +862,40 @@ export default function MenuItemsPage() {
     fetchAll()
   }
 
+  // ✅ تعديل كود الصنف (OR-code) مباشرة من الكارت - بيمنع التكرار وبيحسب ترتيب العرض من الرقم اللي في الكود
+  async function updateItemCode(item: MenuItem, newCode: string) {
+    const trimmed = newCode.trim()
+    if (!trimmed || trimmed === (item.or_code || '')) return
+    const duplicate = items.find(i => i.id !== item.id && (i.or_code || '') === trimmed)
+    if (duplicate) {
+      alert(isAr
+        ? `⚠️ الكود "${trimmed}" مستخدم بالفعل للصنف "${duplicate.name}". اختر كود تاني.`
+        : `⚠️ Code "${trimmed}" is already used by "${duplicate.name}". Choose another.`)
+      fetchAll()
+      return
+    }
+    const numMatch = trimmed.match(/(\d+)/)
+    const derivedSortOrder = numMatch ? parseInt(numMatch[1], 10) : (item.sort_order ?? 0)
+    await supabase.from('menu_items').update({ or_code: trimmed, sort_order: derivedSortOrder }).eq('id', item.id)
+    fetchAll()
+  }
+
+  // ✅ تعديل رقم ترتيب القسم يدويًا - بيمنع التكرار بين كل الأقسام
+  async function updateCategorySortOrder(cat: Category, newValue: number) {
+    if (isNaN(newValue)) return
+    if (newValue === (cat.sort_order ?? 0)) return
+    const duplicate = categories.find(c => c.id !== cat.id && (c.sort_order ?? 0) === newValue)
+    if (duplicate) {
+      alert(isAr
+        ? `⚠️ الرقم ${newValue} مستخدم بالفعل للقسم "${duplicate.name}". اختر رقم تاني.`
+        : `⚠️ Number ${newValue} is already used by category "${duplicate.name}". Choose another number.`)
+      fetchAll()
+      return
+    }
+    await supabase.from('menu_categories').update({ sort_order: newValue }).eq('id', cat.id)
+    fetchAll()
+  }
+
   // Filter
   const filtered = items.filter(i => {
     const matchCat = selectedCat === 'all' || i.category_id === selectedCat
@@ -926,21 +1005,35 @@ export default function MenuItemsPage() {
             <div style={{ fontSize: 11, color: S.muted }}>All Items</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: selectedCat === 'all' ? S.gold : S.blue, marginTop: 6 }}>{totalItems}</div>
           </button>
-          {categories.map(cat => (
-            <button key={cat.id}
-              onClick={() => setSelectedCat(selectedCat === cat.id ? 'all' : cat.id)}
-              style={{
-                background: selectedCat === cat.id ? S.gold3 : S.card2,
-                border: `1px solid ${selectedCat === cat.id ? S.gold : S.border}`,
-                borderRadius: 14, padding: '14px 16px', cursor: 'pointer',
-                textAlign: 'right', transition: 'all .2s',
-              }}
-            >
-              <div style={{ fontSize: 24, marginBottom: 6 }}>{cat.icon}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: selectedCat === cat.id ? S.gold : S.white, marginBottom: 2, lineHeight: 1.3 }}>{cat.name}</div>
-              <div style={{ fontSize: 10, color: S.muted }}>{cat.name_en}</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: selectedCat === cat.id ? S.gold : S.blue, marginTop: 6 }}>{cat.item_count || 0}</div>
-            </button>
+          {categories.map((cat) => (
+            <div key={cat.id} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setSelectedCat(selectedCat === cat.id ? 'all' : cat.id)}
+                style={{
+                  width: '100%',
+                  background: selectedCat === cat.id ? S.gold3 : S.card2,
+                  border: `1px solid ${selectedCat === cat.id ? S.gold : S.border}`,
+                  borderRadius: 14, padding: '14px 16px', cursor: 'pointer',
+                  textAlign: 'right', transition: 'all .2s',
+                }}
+              >
+                <div style={{ fontSize: 24, marginBottom: 6 }}>{cat.icon}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: selectedCat === cat.id ? S.gold : S.white, marginBottom: 2, lineHeight: 1.3 }}>{cat.name}</div>
+                <div style={{ fontSize: 10, color: S.muted }}>{cat.name_en}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: selectedCat === cat.id ? S.gold : S.blue, marginTop: 6 }}>{cat.item_count || 0}</div>
+              </button>
+              <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 3 }} onClick={(e) => e.stopPropagation()}>
+                <input
+                  key={`cat-sort-${cat.id}-${cat.sort_order}`}
+                  type="number"
+                  defaultValue={cat.sort_order ?? 0}
+                  onBlur={(e) => updateCategorySortOrder(cat, parseInt(e.target.value))}
+                  onClick={(e) => e.stopPropagation()}
+                  title={isAr ? 'رقم ترتيب القسم' : 'Category sort number'}
+                  style={{ width: 38, padding: '2px 4px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'rgba(10,22,40,0.9)', color: S.gold, fontSize: 11, textAlign: 'center', fontWeight: 700 }}
+                />
+              </div>
+            </div>
           ))}
           <button
             onClick={() => setShowAddCat(true)}
@@ -1052,6 +1145,20 @@ export default function MenuItemsPage() {
                   </button>
                   <button onClick={() => deleteItem(item.id)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🗑️</button>
 </div>
+                {(() => {
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                      <span style={{ fontSize: 11, color: S.muted }}>{isAr ? 'الكود:' : 'Code:'}</span>
+                      <input
+                        key={`item-code-${item.id}-${item.or_code}`}
+                        type="text"
+                        defaultValue={item.or_code || ''}
+                        onBlur={(e) => updateItemCode(item, e.target.value)}
+                        style={{ width: 70, padding: '5px 6px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.gold, fontSize: 12, textAlign: 'center', fontWeight: 700, direction: 'ltr' }}
+                      />
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           ))}
@@ -1095,7 +1202,15 @@ export default function MenuItemsPage() {
                           {item.menu_categories?.icon} {item.menu_categories?.name}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 16px', fontSize: 12, color: S.gold, fontWeight: 600 }}>{item.or_code || '—'}</td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <input
+                          key={`item-code-list-${item.id}-${item.or_code}`}
+                          type="text"
+                          defaultValue={item.or_code || ''}
+                          onBlur={(e) => updateItemCode(item, e.target.value)}
+                          style={{ width: 80, padding: '5px 6px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.gold, fontSize: 12, fontWeight: 600, direction: 'ltr' }}
+                        />
+                      </td>
                       <td style={{ padding: '12px 16px', fontWeight: 700, color: S.gold, fontSize: 13 }}>{formatMYR(item.price)}</td>
                       <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{item.cost_price ? formatMYR(item.cost_price) : '—'}</td>
                       <td style={{ padding: '12px 16px' }}>

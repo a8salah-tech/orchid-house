@@ -78,6 +78,18 @@ function groupItemsByRound(items: OrderItem[]): OrderItem[][] {
   return rounds
 }
 
+// ✅ يحسب المدة اللي عدّت من وقت أول صنف في الجولة لحد دلوقتي (مثال: "منذ 12 د" أو "منذ 1س 5د")
+function timeElapsedSince(dateStr?: string): string {
+  if (!dateStr) return ''
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'الآن'
+  if (mins < 60) return `منذ ${mins} د`
+  const hrs = Math.floor(mins / 60)
+  const remMins = mins % 60
+  return remMins > 0 ? `منذ ${hrs}س ${remMins}د` : `منذ ${hrs}س`
+}
+
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; menu_items: { name: string; name_en: string } }
 type Order = {
@@ -128,6 +140,14 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null)
   const [showCustomerDrop, setShowCustomerDrop] = useState(false)
 
+  // ✅ تقسيم الفاتورة على أكتر من شخص
+  const [splitMode, setSplitMode] = useState(false)
+  const [splitType, setSplitType] = useState<'equal' | 'items'>('equal')
+  const [splitCount, setSplitCount] = useState(2)
+  const [itemAssignments, setItemAssignments] = useState<Record<string, number>>({}) // item.id → person index (0-based)
+  const [personMethods, setPersonMethods] = useState<Record<number, 'cash' | 'visa' | 'online'>>({})
+  const [personPaid, setPersonPaid] = useState<Record<number, boolean>>({})
+
   useEffect(() => {
     sb.from('customers').select('id,name,phone,email,loyalty_points').order('name').limit(200)
       .then(({ data }) => setCustomers(data || []))
@@ -150,6 +170,38 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const sst = discountType === 'free' ? 0 : afterDiscount * SST_RATE
   const total = afterDiscount + serviceCharge + sst
 
+  // ✅ حساب حصة كل شخص - متساوي أو بالصنف (بالتناسب مع نصيبه من الإجمالي الفرعي)
+  const splitPeople: { idx: number; label: string; amount: number }[] = (() => {
+    if (!splitMode) return []
+    if (splitType === 'equal') {
+      const n = Math.max(2, splitCount)
+      const baseShare = Math.floor((total / n) * 100) / 100
+      const shares = Array.from({ length: n }, () => baseShare)
+      // نضيف أي فرق تقريب صغير لنصيب آخر شخص عشان المجموع يساوي الإجمالي بالظبط
+      const roundingDiff = total - baseShare * n
+      shares[n - 1] = Math.round((shares[n - 1] + roundingDiff) * 100) / 100
+      return shares.map((amount, idx) => ({ idx, label: `Person ${idx + 1}`, amount }))
+    }
+    // splitType === 'items'
+    const maxPerson = Math.max(1, ...Object.values(itemAssignments), splitCount - 1)
+    const n = maxPerson + 1
+    const perPersonSubtotal: number[] = Array.from({ length: n }, () => 0)
+    for (const item of order.order_items) {
+      const p = itemAssignments[item.id]
+      if (p === undefined) continue
+      perPersonSubtotal[p] += item.unit_price * item.quantity
+    }
+    return perPersonSubtotal.map((personSubtotal, idx) => {
+      const ratio = subtotal > 0 ? personSubtotal / subtotal : 0
+      const amount = Math.round(ratio * total * 100) / 100
+      return { idx, label: `Person ${idx + 1}`, amount }
+    })
+  })()
+  const unassignedItemsCount = splitMode && splitType === 'items'
+    ? order.order_items.filter(i => itemAssignments[i.id] === undefined).length
+    : 0
+  const allSplitPeoplePaid = splitPeople.length > 0 && splitPeople.every(p => personPaid[p.idx])
+
   async function pay() {
     setSaving(true)
 
@@ -167,6 +219,47 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
 
     // 2. Reset table to available
+    await sb.from('tables').update({
+      status: 'available',
+      current_order_id: null,
+      occupied_since: null,
+    }).eq('id', order.table_id)
+
+    setSaving(false)
+    onPaid()
+  }
+
+  // ✅ إنهاء الفاتورة بعد ما كل شخص دفع نصيبه بطريقته
+  async function paySplit() {
+    if (!allSplitPeoplePaid) return
+    setSaving(true)
+
+    // نسجل كل دفعة على حدة في order_split_payments للأرشفة والتقارير
+    await sb.from('order_split_payments').insert(
+      splitPeople.map(p => ({
+        order_id: order.id,
+        person_label: p.label,
+        amount: p.amount,
+        payment_method: personMethods[p.idx] || 'cash',
+      }))
+    )
+
+    const methodsUsed = [...new Set(splitPeople.map(p => personMethods[p.idx] || 'cash'))]
+    const summaryMethod = `split(${methodsUsed.join('+')})`
+
+    // نفس خطوات إغلاق الفاتورة العادية، بس payment_method بيوضح إنها كانت فاتورة مقسّمة
+    await sb.from('orders').update({
+      status: 'paid',
+      payment_method: summaryMethod,
+      discount_amount: discountAmt,
+      discount_type: discountType === 'free' ? 'free' : discountType,
+      service_charge: serviceCharge,
+      sst_amount: sst,
+      total_amount: total,
+      paid_at: new Date().toISOString(),
+      customer_id: selectedCustomer?.id || null,
+    }).eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
+
     await sb.from('tables').update({
       status: 'available',
       current_order_id: null,
@@ -238,7 +331,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
               {ri > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', color: S.amber, fontSize: 11, fontWeight: 700 }}>
                   <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
-                  🔔 Round {ri + 1} (Additional Order)
+                  🔔 Round {ri + 1} (Additional Order) · {timeElapsedSince(round[0]?.created_at)}
                   <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
                 </div>
               )}
@@ -322,8 +415,18 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
           )}
         </div>
 
-        {/* Payment Method */}
+        {/* Split Bill Toggle */}
         {discountType !== 'free' && (
+          <div style={{ marginBottom: 16 }}>
+            <button onClick={() => setSplitMode(!splitMode)}
+              style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${splitMode ? S.purple : S.border}`, background: splitMode ? S.purpleB : 'transparent', color: splitMode ? S.purple : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {splitMode ? '✕ إلغاء تقسيم الفاتورة' : '✂️ تقسيم الفاتورة'}
+            </button>
+          </div>
+        )}
+
+        {/* Payment Method */}
+        {discountType !== 'free' && !splitMode && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Payment Method</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
@@ -336,6 +439,86 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
                   style={{ padding: '10px', borderRadius: 10, border: `1px solid ${method === m.k ? m.color : S.border}`, background: method === m.k ? m.color + '20' : 'transparent', color: method === m.k ? m.color : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: method === m.k ? 700 : 400 }}>
                   {m.label}
                 </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Split Bill Panel */}
+        {discountType !== 'free' && splitMode && (
+          <div style={{ marginBottom: 16, background: S.card, borderRadius: 12, padding: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+              <button onClick={() => setSplitType('equal')}
+                style={{ padding: '9px', borderRadius: 10, border: `1px solid ${splitType === 'equal' ? S.gold : S.border}`, background: splitType === 'equal' ? S.gold3 : 'transparent', color: splitType === 'equal' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ⚖️ تقسيم متساوي
+              </button>
+              <button onClick={() => setSplitType('items')}
+                style={{ padding: '9px', borderRadius: 10, border: `1px solid ${splitType === 'items' ? S.gold : S.border}`, background: splitType === 'items' ? S.gold3 : 'transparent', color: splitType === 'items' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                🍽️ تحديد أصناف كل شخص
+              </button>
+            </div>
+
+            {splitType === 'equal' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <span style={{ fontSize: 12, color: S.muted }}>عدد الأشخاص</span>
+                <button onClick={() => setSplitCount(c => Math.max(2, c - 1))} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>−</button>
+                <span style={{ fontSize: 15, fontWeight: 800, color: S.gold, minWidth: 20, textAlign: 'center' }}>{splitCount}</span>
+                <button onClick={() => setSplitCount(c => c + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>+</button>
+              </div>
+            )}
+
+            {splitType === 'items' && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>
+                  اختار كل صنف يخص من
+                  {unassignedItemsCount > 0 && <span style={{ color: S.red }}> — {unassignedItemsCount} صنف لسه من غير تحديد</span>}
+                </div>
+                {order.order_items.map(item => (
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${S.border}` }}>
+                    <span style={{ fontSize: 12, color: S.white, flex: 1 }}>{item.menu_items?.name_en || item.menu_items?.name} ×{item.quantity}</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {Array.from({ length: Math.max(splitCount, ...Object.values(itemAssignments).map(v => v + 1), 1) }, (_, p) => p).map(p => (
+                        <button key={p} onClick={() => setItemAssignments(prev => ({ ...prev, [item.id]: p }))}
+                          style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid ${itemAssignments[item.id] === p ? S.gold : S.border}`, background: itemAssignments[item.id] === p ? S.gold3 : 'transparent', color: itemAssignments[item.id] === p ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                          {p + 1}
+                        </button>
+                      ))}
+                      <button onClick={() => setSplitCount(c => c + 1)}
+                        title="إضافة شخص جديد"
+                        style={{ width: 26, height: 26, borderRadius: 7, border: `1px dashed ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12 }}>+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Per-person cards */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {splitPeople.map(p => (
+                <div key={p.idx} style={{ background: personPaid[p.idx] ? S.greenB : S.navy3, border: `1px solid ${personPaid[p.idx] ? S.green : S.border}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>👤 {p.label}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {p.amount.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+                    {[
+                      { k: 'cash', label: '💵 Cash', color: S.green },
+                      { k: 'visa', label: '💳 Visa', color: S.blue },
+                      { k: 'online', label: '📱 Online', color: S.purple },
+                    ].map(m => (
+                      <button key={m.k} onClick={() => setPersonMethods(prev => ({ ...prev, [p.idx]: m.k as any }))}
+                        style={{ padding: '7px', borderRadius: 8, border: `1px solid ${personMethods[p.idx] === m.k ? m.color : S.border}`, background: personMethods[p.idx] === m.k ? m.color + '20' : 'transparent', color: personMethods[p.idx] === m.k ? m.color : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: personMethods[p.idx] === m.k ? 700 : 400 }}>
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    disabled={!personMethods[p.idx]}
+                    onClick={() => setPersonPaid(prev => ({ ...prev, [p.idx]: !prev[p.idx] }))}
+                    style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: personPaid[p.idx] ? S.green : (personMethods[p.idx] ? S.gold : S.border), color: personPaid[p.idx] ? '#fff' : S.navy, cursor: personMethods[p.idx] ? 'pointer' : 'not-allowed', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: personMethods[p.idx] ? 1 : 0.5 }}>
+                    {personPaid[p.idx] ? '✅ دفع' : 'تسجيل الدفع'}
+                  </button>
+                </div>
               ))}
             </div>
           </div>
@@ -363,9 +546,15 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={printReceipt} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
           <button onClick={() => onTransfer(order)} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 Transfer</button>
-          <button onClick={pay} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
-            {saving ? '⏳...' : discountType === 'free' ? '🎁 Complimentaryة' : '✅ Confirm Payment'}
-          </button>
+          {splitMode ? (
+            <button onClick={paySplit} disabled={saving || !allSplitPeoplePaid || unassignedItemsCount > 0} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: (allSplitPeoplePaid && unassignedItemsCount === 0) ? `linear-gradient(135deg, ${S.gold}, ${S.gold2})` : S.border, color: (allSplitPeoplePaid && unassignedItemsCount === 0) ? S.navy : S.muted, cursor: (allSplitPeoplePaid && unassignedItemsCount === 0) ? 'pointer' : 'not-allowed', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
+              {saving ? '⏳...' : '✅ إنهاء الفاتورة المقسّمة'}
+            </button>
+          ) : (
+            <button onClick={pay} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
+              {saving ? '⏳...' : discountType === 'free' ? '🎁 Complimentaryة' : '✅ Confirm Payment'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1212,7 +1401,7 @@ export default function CashierPage() {
                             {ri > 0 && (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '8px 0', color: S.amber, fontSize: 10, fontWeight: 700 }}>
                                 <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
-                                🔔 Round {ri + 1}
+                                🔔 Round {ri + 1} · {timeElapsedSince(round[0]?.created_at)}
                                 <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
                               </div>
                             )}

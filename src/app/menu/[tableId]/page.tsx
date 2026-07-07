@@ -347,11 +347,29 @@ const filteredItems = items
     // قبل كده كان الكود بيكمل من غير أي تحقق، فلو فشل الإدخال (انقطاع نت لحظي، timeout...)
     // كان الطلب بيتسجل بإجمالي صحيح لكن بدون أصناف خالص، والعميل برضو يشوف "تم التأكيد".
     let itemsError = (await sb.from('order_items').insert(itemsPayload)).error
-    if (itemsError) {
-      console.error('order_items insert failed (attempt 1):', itemsError.message, itemsError.code, itemsError.details, itemsPayload)
-      // محاولة ثانية واحدة (الفشل غالبًا بسبب انقطاع شبكة لحظي على موبايل العميل)
+    let attemptCount = 1
+    // ✅ 3 محاولات بدل اتنين، مع فاصل بسيط بينهم (نص ثانية) عشان يدي فرصة للشبكة تتعافى لو الانقطاع لحظي
+    while (itemsError && attemptCount < 3) {
+      console.error(`order_items insert failed (attempt ${attemptCount}):`, itemsError.message, itemsError.code, itemsError.details, itemsPayload)
+      await new Promise(res => setTimeout(res, 500))
+      attemptCount++
       itemsError = (await sb.from('order_items').insert(itemsPayload)).error
-      if (itemsError) console.error('order_items insert failed (attempt 2):', itemsError.message, itemsError.code, itemsError.details, itemsPayload)
+    }
+    if (itemsError) {
+      console.error(`order_items insert failed (attempt ${attemptCount}):`, itemsError.message, itemsError.code, itemsError.details, itemsPayload)
+      // ✅ نسجل الخطأ الحقيقي في قاعدة البيانات عشان نقدر نشخّصه بعدين (الـ console.error محبوس جوه موبايل العميل ومش وصلنا)
+      try {
+        await sb.from('order_submission_errors').insert([{
+          table_id: table.id,
+          attempt_count: attemptCount,
+          error_message: itemsError.message || null,
+          error_code: itemsError.code || null,
+          error_details: itemsError.details || null,
+          items_payload: itemsPayload,
+        }])
+      } catch (logErr) {
+        console.error('Failed to log order_submission_errors:', logErr)
+      }
     }
     if (itemsError) {
       // ✅ Fix: التراجع عن تعديل/إنشاء الطلب عشان مانسيبش طلب بإجمالي غلط بدون أصناف

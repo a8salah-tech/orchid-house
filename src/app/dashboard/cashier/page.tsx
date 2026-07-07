@@ -140,6 +140,8 @@ function lastOrderTime(order?: Order | null): string | null {
 // ══ Payment Modal ══
 function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; onClose: () => void; onPaid: () => void; onTransfer: (order: Order) => void }) {
   const sb = createClient()
+  const { employee, permissions } = useAuth()
+  const isCashierRole = permissions?.all === true || ['cashier', 'assistant_cashier'].includes(employee?.role || '')
   const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'free'>('cash')
   const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
   const [discountValue, setDiscountValue] = useState('')
@@ -435,7 +437,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
         </div>
 
         {/* Split Bill Toggle */}
-        {discountType !== 'free' && (
+        {discountType !== 'free' && isCashierRole && (
           <div style={{ marginBottom: 16 }}>
             <button onClick={() => setSplitMode(!splitMode)}
               style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${splitMode ? S.purple : S.border}`, background: splitMode ? S.purpleB : 'transparent', color: splitMode ? S.purple : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -464,7 +466,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
         )}
 
         {/* Split Bill Panel */}
-        {discountType !== 'free' && splitMode && (
+        {discountType !== 'free' && splitMode && isCashierRole && (
           <div style={{ marginBottom: 16, background: S.card, borderRadius: 12, padding: 14 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
               <button onClick={() => setSplitType('equal')}
@@ -571,7 +573,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={printReceipt} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
           <button onClick={() => onTransfer(order)} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 Transfer</button>
-          {splitMode ? (
+          {splitMode && isCashierRole ? (
             <button onClick={paySplit} disabled={saving || !allSplitPeoplePaid || unassignedItemsCount > 0} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: (allSplitPeoplePaid && unassignedItemsCount === 0) ? `linear-gradient(135deg, ${S.gold}, ${S.gold2})` : S.border, color: (allSplitPeoplePaid && unassignedItemsCount === 0) ? S.navy : S.muted, cursor: (allSplitPeoplePaid && unassignedItemsCount === 0) ? 'pointer' : 'not-allowed', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
               {saving ? '⏳...' : '✅ Finalize Split Bill'}
             </button>
@@ -942,7 +944,7 @@ export default function CashierPage() {
   const sb = sbRef.current
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
-  const isCashierRole = ['cashier','assistant_cashier'].includes(employee?.role || '')
+  const isCashierRole = isAdmin || ['cashier','assistant_cashier'].includes(employee?.role || '')
 
   const [orders, setOrders] = useState<Order[]>([])
   const [tables, setTables] = useState<TableRow[]>([])
@@ -1258,7 +1260,9 @@ export default function CashierPage() {
             )}
             <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 Tables</button>
             <button onClick={() => setView('orders')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : 'transparent', color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 Orders</button>
-            <button onClick={() => setView('shift' as any)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'shift' ? S.teal : S.border}`, background: (view as string) === 'shift' ? S.tealB : 'transparent', color: (view as string) === 'shift' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 Shift</button>
+            {isCashierRole && (
+              <button onClick={() => setView('shift' as any)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'shift' ? S.teal : S.border}`, background: (view as string) === 'shift' ? S.tealB : 'transparent', color: (view as string) === 'shift' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 Shift</button>
+            )}
           </div>
         </div>
         {/* Row 2: Shift */}

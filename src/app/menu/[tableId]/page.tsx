@@ -77,6 +77,14 @@ export default function CustomerMenuPage() {
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
+
+  // ✅ لعبة "مين هيدفع الحساب؟" - للتسلية بس، مفيش أي ربط بالكاشير أو الدفع الفعلي
+  const [showPayGame, setShowPayGame] = useState(false)
+  const [gamePhone, setGamePhone] = useState('')
+  const [gameNames, setGameNames] = useState<string[]>(['', ''])
+  const [gameSpinning, setGameSpinning] = useState(false)
+  const [wheelRotation, setWheelRotation] = useState(0)
+  const [gameWinner, setGameWinner] = useState<string | null>(null)
   // ✅ Fix (جذري): قفل متزامن (مش state) يمنع تنفيذ confirmOrder أكتر من مرة في نفس اللحظة.
   // الـ state (submitting) تحديثها غير متزامن (React batching)، فلو العميل ضغط الزرار أكتر من مرة بسرعة
   // (شائع جدًا مع شبكة بطيئة)، بيتنفذ confirmOrder() مرتين متوازيتين فعليًا قبل ما الزرار يتعطل في الواجهة،
@@ -159,6 +167,113 @@ const filteredItems = items
         : c.item.price
     return s + unitPrice * c.quantity
   }, 0)
+
+  // ✅ لعبة "مين هيدفع الحساب؟" - عجلة دوارة حقيقية
+  function updateGamePeopleCount(n: number) {
+    const count = Math.max(2, n)
+    setGameNames(prev => {
+      const next = [...prev]
+      while (next.length < count) next.push('')
+      while (next.length > count) next.pop()
+      return next
+    })
+  }
+
+  function playPayGame() {
+    const validNames = gameNames.map(n => n.trim()).filter(Boolean)
+    if (validNames.length < 2 || gameSpinning) return
+    setGameWinner(null)
+    setGameSpinning(true)
+    const n = validNames.length
+    const winnerIdx = Math.floor(Math.random() * n)
+    const segAngle = 360 / n
+    const centerAngle = winnerIdx * segAngle + segAngle / 2
+    const extraSpins = 6 + Math.floor(Math.random() * 3) // 6-8 لفة كاملة
+    // نضيف جزء عشوائي بسيط جوه حدود الشريحة عشان مايوقفش بالظبط في نص كل مرة (إحساس واقعي أكتر)
+    const jitter = (Math.random() - 0.5) * (segAngle * 0.6)
+    const target = wheelRotation + extraSpins * 360 + ((360 - centerAngle - wheelRotation % 360 + 360) % 360) + jitter
+    setWheelRotation(target)
+    // مدة الأنيميشن 4.2 ثانية (متطابقة مع CSS transition تحت)
+    setTimeout(() => {
+      setGameWinner(validNames[winnerIdx])
+      setGameSpinning(false)
+    }, 4200)
+  }
+
+  function resetPayGame() {
+    setGameWinner(null)
+    setGameNames(['', ''])
+    setGamePhone('')
+    setWheelRotation(0)
+  }
+
+  // ✅ مشاركة نتيجة اللعبة - بيولّد صورة فيها لوجو أوركيد واسم الفائز، وبيفتح شاشة المشاركة الأصلية للموبايل
+  // (بتغطي واتساب، انستجرام، وأي تطبيق تاني مثبت) - على الديسكتوب بيرجع لروابط واتساب/فيسبوك/إكس مباشرة
+  async function shareGameResult() {
+    if (!gameWinner) return
+    const shareText = `🎲 We played "Who's Paying the Bill?" at Orchid House and ${gameWinner} is paying! 💸🌸`
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = 800
+      canvas.height = 800
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = C.bg
+        ctx.fillRect(0, 0, 800, 800)
+        try {
+          const logo = new Image()
+          logo.crossOrigin = 'anonymous'
+          logo.src = '/logo.png'
+          await new Promise(res => { logo.onload = res; logo.onerror = res; setTimeout(res, 800) })
+          ctx.drawImage(logo, 300, 90, 200, 200)
+        } catch {}
+        ctx.textAlign = 'center'
+        ctx.fillStyle = C.blue1
+        ctx.font = 'bold 34px Arial'
+        ctx.fillText("🎲 Who's Paying the Bill?", 400, 340)
+        ctx.fillStyle = '#FFFFFF'
+        ctx.font = 'bold 64px Arial'
+        ctx.fillText(gameWinner, 400, 460)
+        ctx.font = '30px Arial'
+        ctx.fillStyle = C.silver2
+        ctx.fillText('💸 pays the bill today!', 400, 510)
+        ctx.font = 'bold 26px Arial'
+        ctx.fillStyle = C.blue1
+        ctx.fillText('🌸 Orchid House Restaurant', 400, 650)
+      }
+      const blob: Blob | null = await new Promise(res => canvas.toBlob(res, 'image/png'))
+      if (blob) {
+        const file = new File([blob], 'orchid-who-pays.png', { type: 'image/png' })
+        const nav = navigator as any
+        if (nav.canShare && nav.canShare({ files: [file] })) {
+          await nav.share({ files: [file], text: shareText, title: "Who's Paying the Bill?" })
+          return
+        }
+        if (nav.share) {
+          await nav.share({ text: shareText })
+          return
+        }
+        // ✅ Desktop fallback: نزّل الصورة تلقائيًا عشان يقدر يرفعها هو بنفسه لأي منصة
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        link.download = 'orchid-who-pays.png'
+        link.click()
+      }
+    } catch {
+      // تجاهل أي خطأ في توليد الصورة، المستخدم لسه يقدر يستخدم روابط المشاركة تحت
+    }
+  }
+  function shareToWhatsApp() {
+    const text = `🎲 We played "Who's Paying the Bill?" at 🌸 Orchid House and ${gameWinner} is paying! 💸`
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+  }
+  function shareToFacebook() {
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`, '_blank')
+  }
+  function shareToTwitter() {
+    const text = `🎲 We played "Who's Paying the Bill?" at 🌸 Orchid House and ${gameWinner} is paying! 💸`
+    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank')
+  }
 
   async function confirmOrder() {
     if (!table || cart.length === 0) return
@@ -309,6 +424,139 @@ const filteredItems = items
             ))}
           </div>
           <p style={{ color:C.silver2, fontSize:12, marginTop:20 }}>A team member will serve you shortly 🙏</p>
+        </div>
+
+        {/* ── 🎲 Who's Paying the Bill? Roulette Game ── */}
+        <div style={{ marginTop:24, background:`linear-gradient(135deg, ${C.bg2}, ${C.bg3})`, border:`1px solid ${C.border2}`, borderRadius:28, padding:'24px 20px', boxShadow:`0 0 40px ${C.glow}` }}>
+          {!showPayGame ? (
+            <>
+              <div style={{ fontSize:32, marginBottom:8 }}>🎲</div>
+              <div style={{ fontSize:16, fontWeight:900, color:C.white, marginBottom:6 }}>While you wait... Who's Paying the Bill?</div>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>Spin the wheel and let fate decide! 🎉</div>
+              <button onClick={() => setShowPayGame(true)}
+                style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'12px 24px', color:C.white, fontWeight:800, fontSize:14, cursor:'pointer', boxShadow:`0 6px 20px ${C.glow2}` }}>
+                🎮 Play the Game
+              </button>
+            </>
+          ) : (
+            <div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <span style={{ fontSize:15, fontWeight:900, color:C.white }}>🎲 Who's Paying?</span>
+                <button onClick={() => { setShowPayGame(false); resetPayGame() }} style={{ background:'transparent', border:'none', color:C.silver2, fontSize:20, cursor:'pointer' }}>✕</button>
+              </div>
+
+              {gameWinner ? (
+                <div>
+                  <div style={{ position:'relative', width:220, height:220, margin:'0 auto 18px' }}>
+                    <img src="/logo.png" alt="Orchid House" style={{ width:80, height:80, borderRadius:'50%', position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', border:`3px solid ${C.blue1}`, boxShadow:`0 0 30px ${C.glow2}`, zIndex:2, objectFit:'cover' }} />
+                    <div style={{ fontSize:90, textAlign:'center', animation:'chefBounce 1.4s ease-in-out infinite' }}>🎉</div>
+                  </div>
+                  <div style={{ fontSize:13, color:C.silver2, marginBottom:6 }}>And the bill goes to...</div>
+                  <div style={{ fontSize:26, fontWeight:900, color:C.blue1, marginBottom:20 }}>{gameWinner}! 💸</div>
+
+                  {/* مشاركة النتيجة */}
+                  <div style={{ fontSize:11, color:C.silver2, marginBottom:10 }}>📤 Share the result</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+                    <button onClick={shareToWhatsApp} style={{ padding:'10px', borderRadius:12, border:'1px solid rgba(37,211,102,.4)', background:'rgba(37,211,102,.12)', color:'#25D366', fontWeight:700, fontSize:12, cursor:'pointer' }}>💬 WhatsApp</button>
+                    <button onClick={shareToFacebook} style={{ padding:'10px', borderRadius:12, border:'1px solid rgba(24,119,242,.4)', background:'rgba(24,119,242,.12)', color:'#1877F2', fontWeight:700, fontSize:12, cursor:'pointer' }}>📘 Facebook</button>
+                    <button onClick={shareToTwitter} style={{ padding:'10px', borderRadius:12, border:`1px solid ${C.border2}`, background:C.bg, color:C.white, fontWeight:700, fontSize:12, cursor:'pointer' }}>✖️ X / Twitter</button>
+                    <button onClick={shareGameResult} style={{ padding:'10px', borderRadius:12, border:`1px solid ${C.blue1}`, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontWeight:700, fontSize:12, cursor:'pointer' }}>📸 More / Image</button>
+                  </div>
+
+                  <button onClick={resetPayGame}
+                    style={{ width:'100%', background:'transparent', border:`1px solid ${C.border2}`, borderRadius:12, padding:'10px 20px', color:C.silver2, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                    🔄 Play Again
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {gameNames.filter(n => n.trim()).length >= 2 && (
+                    /* ── العجلة الدوارة ── */
+                    <div style={{ position:'relative', width:240, height:240, margin:'0 auto 20px' }}>
+                      {/* المؤشر الثابت فوق */}
+                      <div style={{ position:'absolute', top:-6, left:'50%', transform:'translateX(-50%)', width:0, height:0, borderLeft:'12px solid transparent', borderRight:'12px solid transparent', borderTop:`22px solid ${C.blue1}`, zIndex:10, filter:`drop-shadow(0 2px 6px ${C.glow2})` }} />
+                      {/* العجلة نفسها */}
+                      <div style={{
+                        width:'100%', height:'100%', borderRadius:'50%',
+                        border:`4px solid ${C.blue1}`,
+                        boxShadow:`0 0 30px ${C.glow2}, inset 0 0 20px rgba(0,0,0,.3)`,
+                        position:'relative', overflow:'hidden',
+                        transform:`rotate(${wheelRotation}deg)`,
+                        transition: gameSpinning ? 'transform 4.2s cubic-bezier(0.17,0.67,0.12,0.99)' : 'none',
+                        background: (() => {
+                          const names = gameNames.map(n => n.trim()).filter(Boolean)
+                          const n = names.length
+                          const palette = [C.blue1, C.blue3, C.blue2, C.silver2]
+                          const stops = names.map((_, i) => `${palette[i % palette.length]} ${(i / n) * 100}% ${((i + 1) / n) * 100}%`)
+                          return `conic-gradient(${stops.join(',')})`
+                        })(),
+                      }}>
+                        {gameNames.map(n => n.trim()).filter(Boolean).map((name, i, arr) => {
+                          const segAngle = 360 / arr.length
+                          const centerAngle = i * segAngle + segAngle / 2
+                          return (
+                            <div key={i} style={{ position:'absolute', inset:0, transform:`rotate(${centerAngle}deg)` }}>
+                              <div style={{ position:'absolute', top:'10%', left:'50%', transform:'translateX(-50%)', fontSize:10, fontWeight:900, color:'#fff', textShadow:'0 1px 3px rgba(0,0,0,.6)', maxWidth:56, textAlign:'center', lineHeight:1.15, wordBreak:'break-word' }}>
+                                {name}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {/* مركز العجلة */}
+                      <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:36, height:36, borderRadius:'50%', background:C.bg2, border:`3px solid ${C.blue1}`, zIndex:5 }} />
+                    </div>
+                  )}
+
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:14 }}>
+                    <span style={{ fontSize:12, color:C.silver2 }}>Number of People</span>
+                    <button onClick={() => updateGamePeopleCount(gameNames.length - 1)} disabled={gameNames.length <= 2 || gameSpinning}
+                      style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.border2}`, background:'transparent', color:C.white, cursor:gameNames.length <= 2 ? 'not-allowed':'pointer', fontSize:15, opacity:gameNames.length <= 2 ? 0.4:1 }}>−</button>
+                    <span style={{ fontSize:14, fontWeight:800, color:C.blue1, minWidth:18, textAlign:'center' }}>{gameNames.length}</span>
+                    <button onClick={() => updateGamePeopleCount(gameNames.length + 1)} disabled={gameSpinning}
+                      style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.border2}`, background:'transparent', color:C.white, cursor:'pointer', fontSize:15 }}>+</button>
+                  </div>
+
+                  <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
+                    {gameNames.map((name, i) => (
+                      <div key={i}
+                        style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:12, border:`1px solid ${C.border}` }}>
+                        <span style={{ fontSize:12, color:C.silver2, minWidth:16 }}>{i + 1}.</span>
+                        <input
+                          value={name}
+                          disabled={gameSpinning}
+                          onChange={e => setGameNames(prev => prev.map((n, ni) => ni === i ? e.target.value : n))}
+                          placeholder={`Person ${i + 1} name`}
+                          style={{ flex:1, background:'transparent', border:'none', outline:'none', color:C.white, fontSize:13, fontFamily:'inherit' }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <input
+                    value={gamePhone}
+                    disabled={gameSpinning}
+                    onChange={e => setGamePhone(e.target.value)}
+                    placeholder="📱 Mobile number (organizer only)"
+                    style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:12, border:`1px solid ${C.border}`, background:C.bg, color:C.white, fontSize:13, marginBottom:14, direction:'ltr', textAlign:'left' }}
+                  />
+
+                  <button
+                    onClick={playPayGame}
+                    disabled={gameSpinning || gameNames.map(n => n.trim()).filter(Boolean).length < 2}
+                    style={{
+                      width:'100%', padding:'13px', borderRadius:14, border:'none',
+                      background: gameSpinning ? C.border : `linear-gradient(135deg,${C.blue1},${C.blue2})`,
+                      color:C.white, fontWeight:900, fontSize:14,
+                      cursor: gameSpinning ? 'default' : 'pointer', opacity: gameSpinning ? 0.7 : 1,
+                    }}>
+                    {gameSpinning ? '🎰 Spinning...' : '🎰 Spin the Wheel!'}
+                  </button>
+                  <div style={{ fontSize:10, color:C.silver2, marginTop:10 }}>🎉 Just for fun — not a real payment decision!</div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

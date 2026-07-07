@@ -112,7 +112,7 @@ export default function ViolationsPage() {
   })
   async function fetchAll() {
     setLoading(true)
-    let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id').eq('is_active', true).order('name')
+    let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id,employee_number').eq('is_active', true).order('name')
     if (!isAdmin) {
       if (isBranchManager) empQ = empQ.eq('branch_id', employee?.branch_id || '')
       else if (role === 'kitchen_manager') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['المطبخ','Kitchen','البار','Bar','الحلويات'])
@@ -160,9 +160,9 @@ export default function ViolationsPage() {
     if (error) { console.error('violations error:', error.message); setLoading(false); return }
     if (vData && vData.length > 0) {
       const ids2 = [...new Set(vData.map(v => v.employee_id).concat(vData.map(v => v.created_by)).filter(Boolean))]
-      const { data: empNames } = await sb.from('employees').select('id,name,name_en,department').in('id', ids2 as string[])
+      const { data: empNames } = await sb.from('employees').select('id,name,name_en,department,employee_number').in('id', ids2 as string[])
       const empMap = Object.fromEntries((empNames || []).map(e => [e.id, e]))
-      setViolations(vData.map(v => ({ ...v, empName: empMap[v.employee_id]?.name || '—', empNameEn: empMap[v.employee_id]?.name_en || '', empDept: empMap[v.employee_id]?.department || '', creatorName: `${empMap[v.created_by]?.name || '—'} ${empMap[v.created_by]?.name_en || ''}`.trim() })))
+      setViolations(vData.map(v => ({ ...v, empName: empMap[v.employee_id]?.name || '—', empNameEn: empMap[v.employee_id]?.name_en || '', empDept: empMap[v.employee_id]?.department || '', empNumber: empMap[v.employee_id]?.employee_number || '', creatorName: `${empMap[v.created_by]?.name || '—'} ${empMap[v.created_by]?.name_en || ''}`.trim() })))
     } else { setViolations([]) }
     setLoading(false)
   }
@@ -471,7 +471,7 @@ export default function ViolationsPage() {
         <input style={{ ...inp, width: 'auto' }} type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
         <select style={{ ...inp, width: 'auto', minWidth: 160, cursor: 'pointer', background: S.navy2 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
           <option value="all">{isAr ? 'كل الموظفين' : 'All Employees'}</option>
-          {employees.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''}</option>)}
+          {employees.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''}</option>)}
         </select>
       </div>
 
@@ -490,7 +490,7 @@ export default function ViolationsPage() {
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flex: 1 }}>
                 <div style={{ width: 44, height: 44, borderRadius: '50%', background: S.redB, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>⚠️</div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn} — {v.empDept}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn}{v.empNumber ? ` (#${v.empNumber})` : ''} — {v.empDept}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{v.reason}</div>
                   <div style={{ fontSize: 13, color: S.muted }}>📅 {v.date} · <span style={{ color: S.white, fontWeight: 600 }}>{isAr ? 'بواسطة' : 'by'}: {v.creatorName}</span></div>
                   {v.attachment_url && (
@@ -795,7 +795,7 @@ export default function ViolationsPage() {
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'الموظف *' : 'Employee *'}</label>
                 <select style={{ ...inp, cursor: 'pointer', background: S.navy3 }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
                   <option value="">{isAr ? '-- اختر الموظف --' : '-- Select Employee --'}</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''} — {e.department || e.role}</option>)}
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''} — {e.department || e.role}</option>)}
                 </select>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

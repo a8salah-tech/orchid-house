@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
@@ -38,12 +38,23 @@ function formatMYR(amount: number | null | undefined): string {
   }).format(amount)
 }
 
+// ✅ رفع صورة الفاتورة لـ Supabase Storage بدل تخزينها base64 جوه قاعدة البيانات
+// (السبب الرئيسي لبطء الصفحة كان تخزين الصور كـ base64 مباشرة في عمود image_url)
+async function uploadInvoiceImage(supabase: ReturnType<typeof createClient>, file: File, invoiceKey: string): Promise<string | null> {
+  const ext = file.name.split('.').pop() || 'jpg'
+  const path = `${invoiceKey}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+  const { data, error } = await supabase.storage.from('invoice-images').upload(path, file, { upsert: true, contentType: file.type })
+  if (error) { console.error('Invoice image upload error:', error); return null }
+  const { data: urlData } = supabase.storage.from('invoice-images').getPublicUrl(data.path)
+  return urlData.publicUrl
+}
+
 interface Product { id: string; name: string; name_en?: string; category: string; current_stock: number; last_purchase_price: number; units?: { symbol: string }; warehouse_id?: string }
 interface Supplier { id: string; name: string; phone?: string }
 interface Unit { id: string; name: string; symbol: string }
 interface Invoice {
   id: string; sys_number?: number; invoice_number: string; invoice_date: string
-  total_amount: number; status: string; image_url: string; notes: string
+  total_amount: number; status: string; image_url?: string; notes: string
   warehouse_id?: string
   warehouse_suppliers?: { name: string }; warehouses?: { name: string; branch_id?: string }; created_at: string
 }
@@ -477,22 +488,30 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
-    // ✅ نقرأ كل الصور المختارة كـ base64 ونضيفها لقائمة الصور الحالية (مش نستبدل، عشان تقدر تضيف صور تانية لاحقًا)
-    const newImages: string[] = []
+    setScanning(true)
+    setScanProgress('⏳ جاري رفع الصور...')
+    const uploadedUrls: string[] = []
     for (const file of files) {
+      // ✅ base64 بيتستخدم بس مؤقتًا (في الذاكرة) عشان نبعته لتحليل الذكاء الاصطناعي، مش هيتحفظ في قاعدة البيانات
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
         reader.onload = () => resolve(reader.result as string)
         reader.onerror = reject
         reader.readAsDataURL(file)
       })
-      newImages.push(base64)
-    }
-    setInvoiceImages(prev => [...prev, ...newImages])
-    // نحلل كل صورة جديدة بالذكاء الاصطناعي بالتتابع وندمج النتائج (صنف جديد يُضاف، باقي البيانات تُملأ لو لسه فاضية)
-    for (const base64 of newImages) {
+      // ✅ الصورة نفسها بترفع على Supabase Storage، ونخزن بس الرابط القصير (مش الصورة كاملة) في قاعدة البيانات
+      const uploadedUrl = await uploadInvoiceImage(supabase, file, `invoice_${Date.now()}`)
+      if (!uploadedUrl) {
+        alert('فشل رفع صورة الفاتورة — تأكد من إعداد bucket "invoice-images" في Supabase')
+        continue
+      }
+      uploadedUrls.push(uploadedUrl)
+      // نحلل الصورة بالذكاء الاصطناعي بالـ base64 المؤقت (مش من الرابط، عشان السرعة ومنعًا لأي تأخير شبكة إضافي)
       await handleAIScan(base64)
     }
+    setInvoiceImages(prev => [...prev, ...uploadedUrls])
+    setScanning(false)
+    setScanProgress('')
     // نفرّغ قيمة input عشان لو المستخدم اختار نفس الملفات تاني تتسجل onChange
     e.target.value = ''
   }
@@ -961,6 +980,14 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
   // ميزة: سبب التعديل
   const [editReason, setEditReason] = useState('')
 
+  // ✅ الصورة بقت بتتجاب هنا بس (لما الفاتورة تتفتح)، مش مع قايمة الفواتير كلها - أهم إصلاح لمشكلة الـ timeout
+  const [invoiceImageUrl, setInvoiceImageUrl] = useState<string | null>(invoice.image_url || null)
+  useEffect(() => {
+    supabase.from('purchase_invoices').select('image_url').eq('id', invoice.id).maybeSingle().then(({ data }) => {
+      setInvoiceImageUrl(data?.image_url || null)
+    })
+  }, [invoice.id])
+
   // جلب أصناف المستودع المختار مباشرة من قاعدة البيانات
   useEffect(() => {
     if (!editForm.warehouse_id) { setEditWarehouseProducts([]); return }
@@ -1217,11 +1244,11 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
               )}
             </div>
 
-            {invoice.image_url && (
+            {invoiceImageUrl && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: S2.gold, fontWeight: 700, marginBottom: 8 }}>📸 صورة الفاتورة</div>
-                <img src={invoice.image_url} alt="فاتورة" style={{ width: '100%', maxHeight: 180, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S2.border}`, objectFit: 'contain', background: S2.navy3 }} onClick={() => onViewImage(invoice.image_url)} />
-                <button onClick={() => onViewImage(invoice.image_url)} style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S2.blue}`, background: S2.blueB, color: S2.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔍 عرض بالحجم الكامل</button>
+                <img src={invoiceImageUrl} alt="فاتورة" style={{ width: '100%', maxHeight: 180, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S2.border}`, objectFit: 'contain', background: S2.navy3 }} onClick={() => onViewImage(invoiceImageUrl)} />
+                <button onClick={() => onViewImage(invoiceImageUrl)} style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S2.blue}`, background: S2.blueB, color: S2.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔍 عرض بالحجم الكامل</button>
               </div>
             )}
 
@@ -1346,6 +1373,8 @@ export default function PurchasesPage() {
   const supabase = createClient()
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
+  // ✅ أمين المستودع (warehouse_keeper) يشوف فواتير كل الفروع زي الأدمن، مش بس فرعه
+  const canSeeAllBranches = isAdmin || employee?.role === 'warehouse_keeper'
   const myBranchId = employee?.branch_id || ''
 
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -1365,19 +1394,28 @@ export default function PurchasesPage() {
   const [activeTab, setActiveTab] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
   const [showReport, setShowReport] = useState(false)
 
+  const [fetchError, setFetchError] = useState<string | null>(null)
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
+    setFetchError(null)
     const [inv, sup, un, wh, brs, uc] = await Promise.all([
       supabase.from('purchase_invoices')
-        .select('id, created_at, invoice_number, invoice_date, supplier_id, warehouse_id, total_amount, sst_percent, sst_amount, notes, status, image_url, created_by, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)')
+        .select('id, created_at, invoice_number, invoice_date, supplier_id, warehouse_id, total_amount, sst_percent, sst_amount, notes, status, created_by, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)')
         .order('created_at', { ascending: false })
-        .limit(500),
+        .limit(200),
       supabase.from('warehouse_suppliers').select('id,name').order('name'),
       supabase.from('units').select('id,name,symbol').order('name'),
       supabase.from('warehouses').select('id,name,branch_id').eq('is_active', true),
       supabase.from('branches').select('id,name').eq('is_active', true),
       supabase.from('unit_conversions').select('product_id, from_unit_id, to_unit_id, factor, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)'),
     ])
+
+    // ✅ لو طلب الفواتير فشل (RLS، حجم رد كبير جدًا، timeout...)، نطبع ونعرض الخطأ الحقيقي بدل ما نسيبها تظهر "لا يوجد فواتير" بصمت
+    if (inv.error) {
+      console.error('purchase_invoices fetch error:', inv.error)
+      setFetchError(inv.error.message || 'فشل تحميل الفواتير')
+    }
 
     // تحويل المصفوفات الفرعية الخاصة بالعلاقات إلى كائنات مفردة متوافقة مع الـ Types
     const formattedInvoices = (inv.data || []).map((invoice: any) => ({
@@ -1407,15 +1445,17 @@ export default function PurchasesPage() {
   // admin يبدأ بـ"الإجمالي" ويشوف الكل بحرية.
   // غيره يتقفل على فرعه (لو عنده branch_id)، أو على "المستودع الرئيسي" لو مالوش فرع (أمين مستودع رئيسي مستقبلاً)
   useEffect(() => {
-    if (!isAdmin) setActiveTab(myBranchId || 'main')
-  }, [isAdmin, myBranchId])
+    if (!canSeeAllBranches) setActiveTab(myBranchId || 'main')
+  }, [canSeeAllBranches, myBranchId])
 
   const thisMonth = new Date().toISOString().slice(0, 7)
 
   // خريطة سريعة: warehouse_id → branch_id (أو 'main' لو المستودع غير مرتبط بفرع — المستودع الرئيسي)
-  const warehouseBranchMap = Object.fromEntries(
+  // ✅ useMemo: تتحسب بس لو warehouses اتغيرت، مش مع كل render
+  const warehouseBranchMap = useMemo(() => Object.fromEntries(
     warehouses.map(w => [w.id, w.branch_id || 'main'])
-  )
+  ), [warehouses])
+
   function invoiceBranchKey(inv: Invoice): string {
     if (inv.warehouses?.branch_id) return inv.warehouses.branch_id
     if (inv.warehouse_id && warehouseBranchMap[inv.warehouse_id]) return warehouseBranchMap[inv.warehouse_id]
@@ -1423,33 +1463,44 @@ export default function PurchasesPage() {
   }
 
   // التابات: تاب لكل فرع له مستودع، بالإضافة لتاب "المستودع الرئيسي" دائمًا
-  const branchTabs = branches.map(b => ({ key: b.id, label: `🏪 ${b.name}` }))
-  const allTabs = [{ key: 'main', label: '🏭 المستودع الرئيسي' }, ...branchTabs]
-  // الأدوار غير admin تشوف بس تاب فرعها (أو المستودع الرئيسي لو مالهاش فرع)
-  const visibleTabs = isAdmin ? allTabs : allTabs.filter(t => t.key === (myBranchId || 'main'))
+  const branchTabs = useMemo(() => branches.map(b => ({ key: b.id, label: `🏪 ${b.name}` })), [branches])
+  const allTabs = useMemo(() => [{ key: 'main', label: '🏭 المستودع الرئيسي' }, ...branchTabs], [branchTabs])
+  // الأدوار غير admin/أمين مستودع تشوف بس تاب فرعها (أو المستودع الرئيسي لو مالهاش فرع)
+  const visibleTabs = canSeeAllBranches ? allTabs : allTabs.filter(t => t.key === (myBranchId || 'main'))
 
-  const tabInvoices = activeTab ? invoices.filter(inv => invoiceBranchKey(inv) === activeTab) : invoices
-  const monthInvoices = tabInvoices.filter(i => i.created_at?.startsWith(thisMonth))
-  const monthTotal = monthInvoices.reduce((s, i) => s + (i.total_amount || 0), 0)
-  const totalAll = tabInvoices.reduce((s, i) => s + (i.total_amount || 0), 0)
+  // ✅ useMemo: أهم تحسين - كانت الفلاتر دي بتتكرر مع كل حرف تكتبه في البحث، دلوقتي بتتحسب بس لو invoices أو activeTab اتغيروا
+  const tabInvoices = useMemo(
+    () => activeTab ? invoices.filter(inv => invoiceBranchKey(inv) === activeTab) : invoices,
+    [invoices, activeTab, warehouseBranchMap]
+  )
+  const monthInvoices = useMemo(
+    () => tabInvoices.filter(i => i.created_at?.startsWith(thisMonth)),
+    [tabInvoices, thisMonth]
+  )
+  const monthTotal = useMemo(() => monthInvoices.reduce((s, i) => s + (i.total_amount || 0), 0), [monthInvoices])
+  const totalAll = useMemo(() => tabInvoices.reduce((s, i) => s + (i.total_amount || 0), 0), [tabInvoices])
 
   const [currentPage, setCurrentPage] = useState(1)
   const PAGE_SIZE = 20
 
-  const filtered = tabInvoices.filter(inv => {
+  // ✅ useMemo: ده كان بيتكرر مع كل حرف تكتبه في مربع البحث - دلوقتي بيتحسب بس لو الفلاتر أو البيانات اتغيرت فعليًا
+  const filtered = useMemo(() => tabInvoices.filter(inv => {
     const matchSearch = !search || inv.invoice_number?.includes(search) || inv.warehouse_suppliers?.name?.includes(search)
     const matchSupplier = !filterSupplier || inv.warehouse_suppliers?.name === filterSupplier
     const matchMonth = !filterMonth || inv.invoice_date?.startsWith(filterMonth)
     return matchSearch && matchSupplier && matchMonth
-  })
+  }), [tabInvoices, search, filterSupplier, filterMonth])
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginatedInvoices = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  const invoiceSuppliers = [...new Set(tabInvoices.map(i => i.warehouse_suppliers?.name).filter(Boolean))]
+  const invoiceSuppliers = useMemo(
+    () => [...new Set(tabInvoices.map(i => i.warehouse_suppliers?.name).filter(Boolean))],
+    [tabInvoices]
+  )
 
-  // تقرير مقارن لكل فرع (admin فقط)
-  const comparisonReport = allTabs.map(t => {
+  // ✅ useMemo: تقرير المقارنة بين الفروع كان بيتحسب بالكامل مع كل render حتى لو التقرير مقفول - دلوقتي بس لو invoices/allTabs اتغيروا
+  const comparisonReport = useMemo(() => allTabs.map(t => {
     const tabInvs = invoices.filter(inv => invoiceBranchKey(inv) === t.key)
     return {
       key: t.key, label: t.label,
@@ -1457,8 +1508,8 @@ export default function PurchasesPage() {
       total: tabInvs.reduce((s, i) => s + (i.total_amount || 0), 0),
       monthTotal: tabInvs.filter(i => i.created_at?.startsWith(thisMonth)).reduce((s, i) => s + (i.total_amount || 0), 0),
     }
-  })
-  const grandTotal = comparisonReport.reduce((s, r) => s + r.total, 0)
+  }), [allTabs, invoices, thisMonth, warehouseBranchMap])
+  const grandTotal = useMemo(() => comparisonReport.reduce((s, r) => s + r.total, 0), [comparisonReport])
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
@@ -1477,7 +1528,7 @@ export default function PurchasesPage() {
           <p style={{ fontSize: 13, color: S.muted }}>إدارة فواتير المشتريات ومسح ذكي بالذكاء الاصطناعي</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          {isAdmin && (
+          {canSeeAllBranches && (
             <button onClick={() => setShowReport(true)} style={{ padding: '11px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
               📊 تقرير مقارن
             </button>
@@ -1491,8 +1542,8 @@ export default function PurchasesPage() {
       {/* Branch Tabs */}
       {visibleTabs.length > 1 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-          {/* تاب "الإجمالي" يظهر لـ admin فقط، لرؤية كل الفروع مجتمعة */}
-          {isAdmin && (
+          {/* تاب "الإجمالي" يظهر لـ admin وأمين المستودع، لرؤية كل الفروع مجتمعة */}
+          {canSeeAllBranches && (
             <button onClick={() => { setActiveTab(''); setCurrentPage(1) }}
               style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${activeTab === '' ? S.gold : S.border}`, background: activeTab === '' ? S.gold3 : 'transparent', color: activeTab === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeTab === '' ? 700 : 400 }}>
               🌐 الإجمالي (الكل)
@@ -1562,8 +1613,17 @@ export default function PurchasesPage() {
                 {filtered.length === 0 ? (
                   <tr><td colSpan={7} style={{ textAlign: 'center', padding: 60, color: S.muted }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>🧾</div>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد فواتير بعد</div>
-                    <div style={{ fontSize: 13 }}>اضغط "فاتورة جديدة" لإضافة أول فاتورة</div>
+                    {fetchError ? (
+                      <>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: S.red, marginBottom: 6 }}>⚠️ فشل تحميل الفواتير</div>
+                        <div style={{ fontSize: 12, color: S.muted, direction: 'ltr' }}>{fetchError}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد فواتير بعد</div>
+                        <div style={{ fontSize: 13 }}>اضغط "فاتورة جديدة" لإضافة أول فاتورة</div>
+                      </>
+                    )}
                   </td></tr>
                 ) : paginatedInvoices.map((inv, idx) => (
                   <tr key={inv.id} className="inv-row" style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setSelectedInvoice(inv)}>
@@ -1574,9 +1634,16 @@ export default function PurchasesPage() {
                     <td style={{ padding: '14px 16px', fontWeight: 700, color: S.green, fontSize: 13 }}>{formatMYR(inv.total_amount)}</td>
                     <td style={{ padding: '14px 16px', fontSize: 12, color: S.blue }}>{(inv as any).employees?.name || <span style={{ color: S.muted }}>—</span>}</td>
                     <td style={{ padding: '14px 16px' }}>
-                      {inv.image_url ? (
-                        <img src={inv.image_url} alt="فاتورة" style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', border: `1px solid ${S.border}` }} onClick={(e) => { e.stopPropagation(); setViewerImage(inv.image_url) }} />
-                      ) : <span style={{ color: S.muted, fontSize: 18 }}>📄</span>}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          const { data } = await supabase.from('purchase_invoices').select('image_url').eq('id', inv.id).maybeSingle()
+                          if (data?.image_url) setViewerImage(data.image_url)
+                          else alert('لا توجد صورة لهذه الفاتورة')
+                        }}
+                        style={{ background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 8, color: S.blue, cursor: 'pointer', fontSize: 16, padding: '4px 8px' }}
+                        title="عرض صورة الفاتورة"
+                      >🖼️</button>
                     </td>
                     <td style={{ padding: '14px 16px', color: S.muted, fontSize: 18 }}>←</td>
                   </tr>
@@ -1625,7 +1692,7 @@ export default function PurchasesPage() {
       {showNew && (
         <NewInvoiceModal
           products={products} suppliers={suppliers} units={units}
-          warehouses={isAdmin || employee?.role === 'warehouse_keeper' ? warehouses : warehouses.filter(w => (w.branch_id || 'main') === (myBranchId || 'main'))}
+          warehouses={canSeeAllBranches ? warehouses : warehouses.filter(w => (w.branch_id || 'main') === (myBranchId || 'main'))}
           employeeId={employee?.id}
           unitConversions={unitConversions}
           onClose={() => setShowNew(false)}

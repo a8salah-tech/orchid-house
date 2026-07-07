@@ -83,11 +83,11 @@ function timeElapsedSince(dateStr?: string): string {
   if (!dateStr) return ''
   const diffMs = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diffMs / 60000)
-  if (mins < 1) return 'الآن'
-  if (mins < 60) return `منذ ${mins} د`
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
   const hrs = Math.floor(mins / 60)
   const remMins = mins % 60
-  return remMins > 0 ? `منذ ${hrs}س ${remMins}د` : `منذ ${hrs}س`
+  return remMins > 0 ? `${hrs}h ${remMins}m ago` : `${hrs}h ago`
 }
 
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
@@ -114,9 +114,9 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; 
 
 function timeAgo(iso: string) {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
-  if (diff < 60) return `${diff}ث`
-  if (diff < 3600) return `${Math.floor(diff / 60)}د`
-  return `${Math.floor(diff / 3600)}س ${Math.floor((diff % 3600) / 60)}د`
+  if (diff < 60) return `${diff}s`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`
+  return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`
 }
 
 function elapsed(iso: string) {
@@ -126,6 +126,15 @@ function elapsed(iso: string) {
   const s = diff % 60
   if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
   return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+}
+
+// ✅ وقت آخر صنف اتطلب فعليًا (مش وقت أول ما الطاولة اتحجزت) - يستخدم في عداد "⏱" جنب الطاولة
+function lastOrderTime(order?: Order | null): string | null {
+  if (!order || !order.order_items || order.order_items.length === 0) return order?.created_at || null
+  return order.order_items.reduce((latest: string, item) => {
+    if (!item.created_at) return latest
+    return !latest || new Date(item.created_at).getTime() > new Date(latest).getTime() ? item.created_at : latest
+  }, order.created_at)
 }
 
 // ══ Payment Modal ══
@@ -144,7 +153,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const [splitMode, setSplitMode] = useState(false)
   const [splitType, setSplitType] = useState<'equal' | 'items'>('equal')
   const [splitCount, setSplitCount] = useState(2)
-  const [itemAssignments, setItemAssignments] = useState<Record<string, number>>({}) // item.id → person index (0-based)
+  const [personItemQty, setPersonItemQty] = useState<Record<string, number>>({}) // key: `${itemId}::${personIdx}` → qty assigned to that person
   const [personMethods, setPersonMethods] = useState<Record<number, 'cash' | 'visa' | 'online'>>({})
   const [personPaid, setPersonPaid] = useState<Record<number, boolean>>({})
 
@@ -170,6 +179,17 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const sst = discountType === 'free' ? 0 : afterDiscount * SST_RATE
   const total = afterDiscount + serviceCharge + sst
 
+  // ✅ helper: الكمية المخصصة لشخص معين من صنف معين
+  function getPersonQty(itemId: string, personIdx: number): number {
+    return personItemQty[`${itemId}::${personIdx}`] || 0
+  }
+  // ✅ helper: إجمالي الكمية اللي اتحطت لأي شخص من صنف معين (لمعرفة المتبقي)
+  function totalAssignedForItem(itemId: string, n: number): number {
+    let sum = 0
+    for (let p = 0; p < n; p++) sum += getPersonQty(itemId, p)
+    return sum
+  }
+
   // ✅ حساب حصة كل شخص - متساوي أو بالصنف (بالتناسب مع نصيبه من الإجمالي الفرعي)
   const splitPeople: { idx: number; label: string; amount: number }[] = (() => {
     if (!splitMode) return []
@@ -183,13 +203,12 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       return shares.map((amount, idx) => ({ idx, label: `Person ${idx + 1}`, amount }))
     }
     // splitType === 'items'
-    const maxPerson = Math.max(1, ...Object.values(itemAssignments), splitCount - 1)
-    const n = maxPerson + 1
+    const n = Math.max(2, splitCount)
     const perPersonSubtotal: number[] = Array.from({ length: n }, () => 0)
     for (const item of order.order_items) {
-      const p = itemAssignments[item.id]
-      if (p === undefined) continue
-      perPersonSubtotal[p] += item.unit_price * item.quantity
+      for (let p = 0; p < n; p++) {
+        perPersonSubtotal[p] += getPersonQty(item.id, p) * item.unit_price
+      }
     }
     return perPersonSubtotal.map((personSubtotal, idx) => {
       const ratio = subtotal > 0 ? personSubtotal / subtotal : 0
@@ -198,7 +217,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     })
   })()
   const unassignedItemsCount = splitMode && splitType === 'items'
-    ? order.order_items.filter(i => itemAssignments[i.id] === undefined).length
+    ? order.order_items.filter(i => totalAssignedForItem(i.id, Math.max(2, splitCount)) < i.quantity).length
     : 0
   const allSplitPeoplePaid = splitPeople.length > 0 && splitPeople.every(p => personPaid[p.idx])
 
@@ -420,7 +439,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
           <div style={{ marginBottom: 16 }}>
             <button onClick={() => setSplitMode(!splitMode)}
               style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${splitMode ? S.purple : S.border}`, background: splitMode ? S.purpleB : 'transparent', color: splitMode ? S.purple : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              {splitMode ? '✕ إلغاء تقسيم الفاتورة' : '✂️ تقسيم الفاتورة'}
+              {splitMode ? '✕ Cancel Split' : '✂️ Split Bill'}
             </button>
           </div>
         )}
@@ -450,46 +469,24 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
               <button onClick={() => setSplitType('equal')}
                 style={{ padding: '9px', borderRadius: 10, border: `1px solid ${splitType === 'equal' ? S.gold : S.border}`, background: splitType === 'equal' ? S.gold3 : 'transparent', color: splitType === 'equal' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                ⚖️ تقسيم متساوي
+                ⚖️ Split Equally
               </button>
               <button onClick={() => setSplitType('items')}
                 style={{ padding: '9px', borderRadius: 10, border: `1px solid ${splitType === 'items' ? S.gold : S.border}`, background: splitType === 'items' ? S.gold3 : 'transparent', color: splitType === 'items' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                🍽️ تحديد أصناف كل شخص
+                🍽️ Assign Items Per Person
               </button>
             </div>
 
-            {splitType === 'equal' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                <span style={{ fontSize: 12, color: S.muted }}>عدد الأشخاص</span>
-                <button onClick={() => setSplitCount(c => Math.max(2, c - 1))} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>−</button>
-                <span style={{ fontSize: 15, fontWeight: 800, color: S.gold, minWidth: 20, textAlign: 'center' }}>{splitCount}</span>
-                <button onClick={() => setSplitCount(c => c + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>+</button>
-              </div>
-            )}
+            {/* عدد الأشخاص - واحد بس فوق، بيتحكم في الاتنين */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <span style={{ fontSize: 12, color: S.muted }}>Number of People</span>
+              <button onClick={() => setSplitCount(c => Math.max(2, c - 1))} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>−</button>
+              <span style={{ fontSize: 15, fontWeight: 800, color: S.gold, minWidth: 20, textAlign: 'center' }}>{Math.max(2, splitCount)}</span>
+              <button onClick={() => setSplitCount(c => c + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>+</button>
+            </div>
 
-            {splitType === 'items' && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>
-                  اختار كل صنف يخص من
-                  {unassignedItemsCount > 0 && <span style={{ color: S.red }}> — {unassignedItemsCount} صنف لسه من غير تحديد</span>}
-                </div>
-                {order.order_items.map(item => (
-                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${S.border}` }}>
-                    <span style={{ fontSize: 12, color: S.white, flex: 1 }}>{item.menu_items?.name_en || item.menu_items?.name} ×{item.quantity}</span>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {Array.from({ length: Math.max(splitCount, ...Object.values(itemAssignments).map(v => v + 1), 1) }, (_, p) => p).map(p => (
-                        <button key={p} onClick={() => setItemAssignments(prev => ({ ...prev, [item.id]: p }))}
-                          style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid ${itemAssignments[item.id] === p ? S.gold : S.border}`, background: itemAssignments[item.id] === p ? S.gold3 : 'transparent', color: itemAssignments[item.id] === p ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
-                          {p + 1}
-                        </button>
-                      ))}
-                      <button onClick={() => setSplitCount(c => c + 1)}
-                        title="إضافة شخص جديد"
-                        style={{ width: 26, height: 26, borderRadius: 7, border: `1px dashed ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12 }}>+</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            {splitType === 'items' && unassignedItemsCount > 0 && (
+              <div style={{ fontSize: 11, color: S.red, marginBottom: 10 }}>⚠️ {unassignedItemsCount} item(s) still not fully assigned to anyone</div>
             )}
 
             {/* Per-person cards */}
@@ -500,6 +497,34 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
                     <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>👤 {p.label}</span>
                     <span style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {p.amount.toFixed(2)}</span>
                   </div>
+
+                  {/* ✅ لو وضع "تحديد أصناف كل شخص": يظهر جنب كل شخص الأصناف المتبقية بس (اللي لسه محدش خدها) */}
+                  {splitType === 'items' && (
+                    <div style={{ marginBottom: 10, background: S.card, borderRadius: 8, padding: 8 }}>
+                      {order.order_items.map(item => {
+                        const myQty = getPersonQty(item.id, p.idx)
+                        // أقصى حاجة ممكن الشخص ده ياخدها = الكمية الكلية ناقص اللي اتاخد من باقي الناس (مش هو)
+                        const takenByOthers = totalAssignedForItem(item.id, Math.max(2, splitCount)) - myQty
+                        const maxForThisPerson = item.quantity - takenByOthers
+                        if (maxForThisPerson <= 0 && myQty === 0) return null // اتاخدت بالكامل من ناس تانيين
+                        return (
+                          <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: `1px solid ${S.border}` }}>
+                            <span style={{ fontSize: 11, color: S.white, flex: 1 }}>{item.menu_items?.name_en || item.menu_items?.name} <span style={{ color: S.muted }}>(×{item.quantity} total)</span></span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <button onClick={() => setPersonItemQty(prev => ({ ...prev, [`${item.id}::${p.idx}`]: Math.max(0, myQty - 1) }))}
+                                disabled={myQty <= 0}
+                                style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: myQty <= 0 ? S.muted : S.white, cursor: myQty <= 0 ? 'not-allowed' : 'pointer', fontSize: 13 }}>−</button>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: S.gold, minWidth: 14, textAlign: 'center' }}>{myQty}</span>
+                              <button onClick={() => setPersonItemQty(prev => ({ ...prev, [`${item.id}::${p.idx}`]: myQty + 1 }))}
+                                disabled={myQty >= maxForThisPerson}
+                                style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: myQty >= maxForThisPerson ? S.muted : S.white, cursor: myQty >= maxForThisPerson ? 'not-allowed' : 'pointer', fontSize: 13 }}>+</button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
                     {[
                       { k: 'cash', label: '💵 Cash', color: S.green },
@@ -516,7 +541,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
                     disabled={!personMethods[p.idx]}
                     onClick={() => setPersonPaid(prev => ({ ...prev, [p.idx]: !prev[p.idx] }))}
                     style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: personPaid[p.idx] ? S.green : (personMethods[p.idx] ? S.gold : S.border), color: personPaid[p.idx] ? '#fff' : S.navy, cursor: personMethods[p.idx] ? 'pointer' : 'not-allowed', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: personMethods[p.idx] ? 1 : 0.5 }}>
-                    {personPaid[p.idx] ? '✅ دفع' : 'تسجيل الدفع'}
+                    {personPaid[p.idx] ? '✅ Paid' : 'Mark as Paid'}
                   </button>
                 </div>
               ))}
@@ -548,11 +573,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
           <button onClick={() => onTransfer(order)} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 Transfer</button>
           {splitMode ? (
             <button onClick={paySplit} disabled={saving || !allSplitPeoplePaid || unassignedItemsCount > 0} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: (allSplitPeoplePaid && unassignedItemsCount === 0) ? `linear-gradient(135deg, ${S.gold}, ${S.gold2})` : S.border, color: (allSplitPeoplePaid && unassignedItemsCount === 0) ? S.navy : S.muted, cursor: (allSplitPeoplePaid && unassignedItemsCount === 0) ? 'pointer' : 'not-allowed', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
-              {saving ? '⏳...' : '✅ إنهاء الفاتورة المقسّمة'}
+              {saving ? '⏳...' : '✅ Finalize Split Bill'}
             </button>
           ) : (
             <button onClick={pay} disabled={saving} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
-              {saving ? '⏳...' : discountType === 'free' ? '🎁 Complimentaryة' : '✅ Confirm Payment'}
+              {saving ? '⏳...' : discountType === 'free' ? '🎁 Complimentary' : '✅ Confirm Payment'}
             </button>
           )}
         </div>
@@ -1373,7 +1398,6 @@ export default function CashierPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
                 {filtered.map(order => {
                   const st = STATUS_LABELS[order.status] || STATUS_LABELS['confirmed']
-                  const table = tables.find(t => t.id === order.table_id)
                   return (
                     <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${order.status === 'confirmed' ? S.blue + '60' : S.border}`, overflow: 'hidden' }}>
                       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1383,8 +1407,8 @@ export default function CashierPage() {
                             <span style={{ background: st.bg, color: st.color, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{st.emoji} {st.label}</span>
                           </div>
                           <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()} · ago {timeAgo(order.created_at)}</div>
-                          {table?.occupied_since && ['confirmed','preparing','ready'].includes(order.status) && (
-                            <div style={{ fontSize: 11, color: S.amber, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(table.occupied_since)}</div>
+                          {lastOrderTime(order) && ['confirmed','preparing','ready'].includes(order.status) && (
+                            <div style={{ fontSize: 11, color: S.amber, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(lastOrderTime(order)!)}</div>
                           )}
                         </div>
                         <div style={{ textAlign: 'left' }}>

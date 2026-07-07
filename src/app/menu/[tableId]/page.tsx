@@ -179,9 +179,26 @@ const filteredItems = items
     })
   }
 
+  // ✅ نحفظ بيانات أول شخص (المنظم) في قاعدة عملاء المطعم، لو دخل رقم موبايله
+  async function saveGameOrganizerAsCustomer() {
+    const firstName = gameNames[0]?.trim()
+    const phone = gamePhone.trim()
+    if (!firstName || !phone) return
+    try {
+      const { data: existing } = await sb.from('customers').select('id').eq('phone', phone).maybeSingle()
+      if (!existing) {
+        await sb.from('customers').insert([{ name: firstName, phone, loyalty_points: 0, notes: '🎲 Added via "Who\'s Paying the Bill?" game' }])
+      }
+    } catch {
+      // تجاهل أي خطأ هنا عشان مايأثرش على تجربة اللعبة نفسها
+    }
+  }
+
   function playPayGame() {
     const validNames = gameNames.map(n => n.trim()).filter(Boolean)
     if (validNames.length < 2 || gameSpinning) return
+    if (!gamePhone.trim()) { alert('Please enter a mobile number to play'); return }
+    saveGameOrganizerAsCustomer()
     setGameWinner(null)
     setGameSpinning(true)
     const n = validNames.length
@@ -537,16 +554,16 @@ const filteredItems = items
                     value={gamePhone}
                     disabled={gameSpinning}
                     onChange={e => setGamePhone(e.target.value)}
-                    placeholder="📱 Mobile number (organizer only)"
-                    style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:12, border:`1px solid ${C.border}`, background:C.bg, color:C.white, fontSize:13, marginBottom:14, direction:'ltr', textAlign:'left' }}
+                    placeholder="📱 Mobile number (required) *"
+                    style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:12, border:`1px solid ${gamePhone.trim() ? C.border : 'rgba(239,68,68,.4)'}`, background:C.bg, color:C.white, fontSize:13, marginBottom:14, direction:'ltr', textAlign:'left' }}
                   />
 
                   <button
                     onClick={playPayGame}
-                    disabled={gameSpinning || gameNames.map(n => n.trim()).filter(Boolean).length < 2}
+                    disabled={gameSpinning || gameNames.map(n => n.trim()).filter(Boolean).length < 2 || !gamePhone.trim()}
                     style={{
                       width:'100%', padding:'13px', borderRadius:14, border:'none',
-                      background: gameSpinning ? C.border : `linear-gradient(135deg,${C.blue1},${C.blue2})`,
+                      background: (gameSpinning || !gamePhone.trim()) ? C.border : `linear-gradient(135deg,${C.blue1},${C.blue2})`,
                       color:C.white, fontWeight:900, fontSize:14,
                       cursor: gameSpinning ? 'default' : 'pointer', opacity: gameSpinning ? 0.7 : 1,
                     }}>

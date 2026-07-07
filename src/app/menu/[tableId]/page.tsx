@@ -96,7 +96,7 @@ export default function CustomerMenuPage() {
       setTable(tbl)
       const [cats, itms] = await Promise.all([
         sb.from('menu_categories').select('id,name,name_en,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items') .select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)') .eq('is_available', true) .eq('is_active', true) 
+        sb.from('menu_items') .select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)') .eq('is_available', true) .eq('is_active', true) 
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
@@ -120,8 +120,11 @@ const filteredItems = items
     const aDiscount = (a.discount_percent || 0) > 0 ? 0 : 1
     const bDiscount = (b.discount_percent || 0) > 0 ? 0 : 1
     if (aDiscount !== bDiscount) return aDiscount - bDiscount
-    const aOrder = (a as any).menu_categories?.sort_order ?? 99
-    const bOrder = (b as any).menu_categories?.sort_order ?? 99
+    const aCatOrder = (a as any).menu_categories?.sort_order ?? 99
+    const bCatOrder = (b as any).menu_categories?.sort_order ?? 99
+    if (aCatOrder !== bCatOrder) return aCatOrder - bCatOrder
+    const aOrder = (a as any).sort_order ?? 0
+    const bOrder = (b as any).sort_order ?? 0
     return aOrder - bOrder
   })
 

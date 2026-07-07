@@ -158,6 +158,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const [personItemQty, setPersonItemQty] = useState<Record<string, number>>({}) // key: `${itemId}::${personIdx}` → qty assigned to that person
   const [personMethods, setPersonMethods] = useState<Record<number, 'cash' | 'visa' | 'online'>>({})
   const [personPaid, setPersonPaid] = useState<Record<number, boolean>>({})
+  // ✅ مودال تأكيد الدفع (بدل window.confirm) - عشان يظهر منسق في نص الشاشة
+  const [confirmAction, setConfirmAction] = useState<'pay' | 'split' | null>(null)
 
   useEffect(() => {
     sb.from('customers').select('id,name,phone,email,loyalty_points').order('name').limit(200)
@@ -223,7 +225,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     : 0
   const allSplitPeoplePaid = splitPeople.length > 0 && splitPeople.every(p => personPaid[p.idx])
 
-  async function pay() {
+  async function doPay() {
     setSaving(true)
 
     // 1. Mark all active orders for this table as paid
@@ -249,10 +251,19 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     setSaving(false)
     onPaid()
   }
+  // ✅ زرار "Confirm Payment" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ الدفع على طول
+  function pay() {
+    setConfirmAction('pay')
+  }
 
   // ✅ إنهاء الفاتورة بعد ما كل شخص دفع نصيبه بطريقته
-  async function paySplit() {
+  // ✅ زرار "Finalize Split Bill" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ على طول
+  function paySplit() {
     if (!allSplitPeoplePaid) return
+    setConfirmAction('split')
+  }
+
+  async function doPaySplit() {
     setSaving(true)
 
     // نسجل كل دفعة على حدة في order_split_payments للأرشفة والتقارير
@@ -572,7 +583,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={printReceipt} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
-          <button onClick={() => onTransfer(order)} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 Transfer</button>
+          {isCashierRole && (
+            <button onClick={() => onTransfer(order)} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 Transfer</button>
+          )}
           {splitMode && isCashierRole ? (
             <button onClick={paySplit} disabled={saving || !allSplitPeoplePaid || unassignedItemsCount > 0} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: (allSplitPeoplePaid && unassignedItemsCount === 0) ? `linear-gradient(135deg, ${S.gold}, ${S.gold2})` : S.border, color: (allSplitPeoplePaid && unassignedItemsCount === 0) ? S.navy : S.muted, cursor: (allSplitPeoplePaid && unassignedItemsCount === 0) ? 'pointer' : 'not-allowed', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
               {saving ? '⏳...' : '✅ Finalize Split Bill'}
@@ -584,6 +597,35 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
           )}
         </div>
       </div>
+
+      {/* ✅ Payment Confirmation Modal - centered on screen */}
+      {confirmAction && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.gold}`, width: '100%', maxWidth: 380, padding: 28, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <div style={{ fontSize: 40, marginBottom: 14 }}>⚠️</div>
+            <div style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 10 }}>
+              {confirmAction === 'split' ? 'Confirm Split Bill?' : 'Confirm Payment?'}
+            </div>
+            <div style={{ color: S.muted, fontSize: 13, marginBottom: 8, lineHeight: 1.6 }}>
+              {confirmAction === 'split'
+                ? <>Finalize this split bill for <span style={{ color: S.gold, fontWeight: 800 }}>MYR {total.toFixed(2)}</span>?</>
+                : <>Confirm payment of <span style={{ color: S.gold, fontWeight: 800 }}>MYR {total.toFixed(2)}</span> via <span style={{ color: S.gold, fontWeight: 800 }}>{discountType === 'free' ? 'Complimentary (Free)' : method.toUpperCase()}</span>?</>
+              }
+            </div>
+            <div style={{ color: S.red, fontSize: 11, marginBottom: 22 }}>This will close the table and cannot be undone.</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmAction(null)} style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                Cancel
+              </button>
+              <button
+                onClick={() => { const action = confirmAction; setConfirmAction(null); if (action === 'split') doPaySplit(); else doPay() }}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+                ✅ Yes, Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

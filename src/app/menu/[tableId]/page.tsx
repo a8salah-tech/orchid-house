@@ -74,6 +74,7 @@ export default function CustomerMenuPage() {
   const [phase, setPhase]           = useState<Phase>('menu')
   const [submitting, setSubmitting] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
+  const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
@@ -186,8 +187,14 @@ const filteredItems = items
     if (!firstName || !phone) return
     try {
       const { data: existing } = await sb.from('customers').select('id').eq('phone', phone).maybeSingle()
-      if (!existing) {
-        await sb.from('customers').insert([{ name: firstName, phone, loyalty_points: 0, notes: '🎲 Added via "Who\'s Paying the Bill?" game' }])
+      let customerId = existing?.id
+      if (!customerId) {
+        const { data: created } = await sb.from('customers').insert([{ name: firstName, phone, loyalty_points: 0, notes: '🎲 Added via "Who\'s Paying the Bill?" game' }]).select('id').single()
+        customerId = created?.id
+      }
+      // ✅ نربط العميل بالأوردر الفعلي اللي هو أكده - عشان الطاولة والمبلغ يظهروا في صفحة "قاعدة بيانات العملاء"
+      if (customerId && confirmedOrderId) {
+        await sb.from('orders').update({ customer_id: customerId }).eq('id', confirmedOrderId)
       }
     } catch {
       // تجاهل أي خطأ هنا عشان مايأثرش على تجربة اللعبة نفسها
@@ -395,6 +402,7 @@ const filteredItems = items
     }).eq('id', table.id)
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
+    setConfirmedOrderId(orderId)
     setPhase('done')
     isSubmittingRef.current = false
     setSubmitting(false)

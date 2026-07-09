@@ -133,10 +133,15 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   const [bookings, setBookings] = useState<any[]>([])
+  const [customerOrders, setCustomerOrders] = useState<any[]>([])
 
   useEffect(() => {
     sb.from('bookings').select('*').eq('customer_id', customer.id).order('booking_date', { ascending: false }).limit(10)
       .then(({ data }) => setBookings(data || []))
+    // ✅ سجل الطلبات - يوضح رقم/اسم الطاولة والمبلغ لكل طلب مرتبط بالعميل ده
+    // (بما في ذلك العملاء اللي اتسجلوا من لعبة "مين هيدفع؟" واللي اترتبطوا بالكاشير وقت الدفع)
+    sb.from('orders').select('id,total_amount,status,created_at,paid_at,tables(number,name)').eq('customer_id', customer.id).order('created_at', { ascending: false }).limit(10)
+      .then(({ data }) => setCustomerOrders(data || []))
   }, [customer.id])
 
   async function addPoints(pts: number) {
@@ -201,6 +206,32 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
             ))}
           </div>
         </div>
+
+        {/* Order History */}
+        {customerOrders.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: S.white, fontWeight: 700, marginBottom: 10 }}>🧾 Order History</div>
+            <div style={{ background: S.navy3, borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>
+                  {['Date', 'Table', 'Amount', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {customerOrders.map(o => (
+                    <tr key={o.id}>
+                      <td style={tdS}>{new Date(o.created_at).toLocaleDateString('en-GB')}</td>
+                      <td style={tdS}>{o.tables?.name || (o.tables?.number ? `Table ${o.tables.number}` : '—')}</td>
+                      <td style={{ ...tdS, color: S.gold, fontWeight: 700 }}>MYR {(o.total_amount || 0).toFixed(2)}</td>
+                      <td style={tdS}>
+                        <span style={{ background: o.status === 'paid' ? S.greenB : o.status === 'cancelled' ? S.redB : S.amberB, color: o.status === 'paid' ? S.green : o.status === 'cancelled' ? S.red : S.amber, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>{o.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Bookings */}
         {bookings.length > 0 && (

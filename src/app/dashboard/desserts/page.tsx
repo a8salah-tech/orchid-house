@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,6 +38,29 @@ type DessertsOrder = {
   }[]
 }
 
+// ✅ Cake-related types (daily production + table distribution)
+type CakeProduction = {
+  id: string
+  production_date: string
+  quantity: number
+  photo_urls: string[]
+  produced_by_name: string | null
+  notes: string | null
+  created_at: string
+}
+type CakeTableLog = {
+  id: string
+  table_id: string | null
+  quantity: number
+  source: 'menu_order' | 'manual'
+  logged_by_name: string | null
+  notes: string | null
+  created_at: string
+  tables?: { number: number; name: string }
+}
+type TableRow = { id: string; number: number; name: string; branch_id: string | null }
+type Branch = { id: string; name: string }
+
 function elapsed(iso: string) {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
   const m = Math.floor(sec / 60)
@@ -51,14 +75,117 @@ function urgencyColor(iso: string) {
   return S.pink
 }
 
+// ✅ Upload cake photos to Supabase Storage (instead of base64) - same pattern used across the project
+async function uploadCakePhoto(sb: ReturnType<typeof createClient>, file: File): Promise<string | null> {
+  const ext = file.name.split('.').pop() || 'jpg'
+  const path = `cake_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+  const { data, error } = await sb.storage.from('cake-photos').upload(path, file, { upsert: true, contentType: file.type })
+  if (error) { console.error('Cake photo upload error:', error); return null }
+  const { data: urlData } = sb.storage.from('cake-photos').getPublicUrl(data.path)
+  return urlData.publicUrl
+}
+
+const CAKE_CATEGORY_ID = 'c349a109-48e3-4e13-af7f-c3bfe381b335' // "Cake" category in menu_categories
+
 export default function DessertsPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  const { employee } = useAuth()
+  const currentUserName = employee?.name || 'Unknown User'
+
+  const [mainTab, setMainTab] = useState<'orders' | 'cake'>('orders')
 
   const [orders, setOrders] = useState<DessertsOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [tick, setTick]     = useState(0)
   const [notif, setNotif]   = useState(false)
+
+  // ✅ Cake section: daily production + table distribution
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [tables, setTables] = useState<TableRow[]>([])
+  const [cakeProductions, setCakeProductions] = useState<CakeProduction[]>([])
+  const [cakeTableLogs, setCakeTableLogs] = useState<CakeTableLog[]>([])
+  const [cakeLoading, setCakeLoading] = useState(false)
+
+  // ✅ Date being viewed/searched - defaults to today, but can browse any past day
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [viewDate, setViewDate] = useState(todayStr)
+
+  // Production entry form
+  const [prodQty, setProdQty] = useState('')
+  const [prodNotes, setProdNotes] = useState('')
+  const [prodFiles, setProdFiles] = useState<File[]>([])
+  const [prodSaving, setProdSaving] = useState(false)
+
+  // Manual table distribution form
+  const [logBranchId, setLogBranchId] = useState('')
+  const [logTableId, setLogTableId] = useState('')
+  const [logQty, setLogQty] = useState('1')
+  const [logNotes, setLogNotes] = useState('')
+  const [logSaving, setLogSaving] = useState(false)
+
+  const fetchCakeData = useCallback(async () => {
+    setCakeLoading(true)
+    const [br, tbl, prod, logs] = await Promise.all([
+      sb.from('branches').select('id,name').eq('is_active', true).order('name'),
+      sb.from('tables').select('id,number,name,branch_id').order('number'),
+      sb.from('cake_production_log').select('*').eq('production_date', viewDate).order('created_at', { ascending: false }),
+      sb.from('cake_table_log').select('*, tables(number,name)').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
+    ])
+    setBranches(br.data || [])
+    setTables(tbl.data || [])
+    setCakeProductions(prod.data || [])
+    setCakeTableLogs(logs.data || [])
+    setCakeLoading(false)
+  }, [sb, viewDate])
+
+  useEffect(() => { if (mainTab === 'cake') fetchCakeData() }, [mainTab, fetchCakeData])
+
+  async function submitCakeProduction() {
+    const qty = parseInt(prodQty)
+    if (!qty || qty <= 0) { alert('Please enter a valid number of cakes'); return }
+    setProdSaving(true)
+    const photoUrls: string[] = []
+    for (const file of prodFiles) {
+      const url = await uploadCakePhoto(sb, file)
+      if (url) photoUrls.push(url)
+    }
+    const { error } = await sb.from('cake_production_log').insert([{
+      production_date: viewDate,
+      quantity: qty,
+      photo_urls: photoUrls,
+      produced_by_name: currentUserName,
+      notes: prodNotes.trim() || null,
+    }])
+    setProdSaving(false)
+    if (error) { alert('Error: ' + error.message); return }
+    setProdQty(''); setProdNotes(''); setProdFiles([])
+    fetchCakeData()
+  }
+
+  async function submitCakeTableLog() {
+    if (!logBranchId) { alert('Please select a branch'); return }
+    if (!logTableId) { alert('Please select a table'); return }
+    const qty = parseInt(logQty)
+    if (!qty || qty <= 0) { alert('Please enter a valid quantity'); return }
+    setLogSaving(true)
+    const { error } = await sb.from('cake_table_log').insert([{
+      table_id: logTableId,
+      quantity: qty,
+      source: 'manual',
+      logged_by_name: currentUserName,
+      notes: logNotes.trim() || null,
+    }])
+    setLogSaving(false)
+    if (error) { alert('Error: ' + error.message); return }
+    setLogTableId(''); setLogQty('1'); setLogNotes('')
+    fetchCakeData()
+  }
+
+  const tablesForSelectedBranch = tables.filter(t => t.branch_id === logBranchId)
+  const totalProducedForDate = cakeProductions.reduce((s, p) => s + p.quantity, 0)
+  const totalDistributedForDate = cakeTableLogs.reduce((s, l) => s + l.quantity, 0)
+  const remainingForDate = totalProducedForDate - totalDistributedForDate
 
   const fetchOrders = useCallback(async () => {
     const { data } = await sb
@@ -97,7 +224,7 @@ export default function DessertsPage() {
     return () => { sb.removeChannel(channel) }
   }, [sb, fetchOrders])
 
-  // Timer كل ثانية
+  // Timer - updates every second
   useEffect(() => {
     const t = setInterval(() => setTick(p => p + 1), 1000)
     return () => clearInterval(t)
@@ -109,7 +236,7 @@ export default function DessertsPage() {
     if (order) {
       const remaining = order.order_items.filter(i => i.id !== itemId && i.status !== 'ready')
       if (remaining.length === 0) {
-// بعد ✅
+// Re-check all items to avoid a race condition where two items are marked ready simultaneously
 const { data: allItems } = await sb
   .from('order_items')
   .select('id, status')
@@ -133,10 +260,15 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
       {/* Header */}
       <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 24px', display: 'flex', alignItems: 'center', height: 60, gap: 12, position: 'sticky', top: 0, zIndex: 100 }}>
         <h1 style={{ color: S.pink, fontSize: 20, fontWeight: 900 }}>🍰 شاشة الحلويات</h1>
-        <div style={{ color: S.muted, fontSize: 13 }}>{orders.length} طلب قيد التحضير</div>
+        <div style={{ display: 'flex', gap: 6, marginRight: 12 }}>
+          <button onClick={() => setMainTab('orders')} style={{ padding: '7px 14px', borderRadius: 9, border: `1px solid ${mainTab === 'orders' ? S.pink : S.border}`, background: mainTab === 'orders' ? S.pinkB : 'transparent', color: mainTab === 'orders' ? S.pink : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📋 Orders</button>
+          <button onClick={() => setMainTab('cake')} style={{ padding: '7px 14px', borderRadius: 9, border: `1px solid ${mainTab === 'cake' ? S.gold : S.border}`, background: mainTab === 'cake' ? S.gold3 : 'transparent', color: mainTab === 'cake' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🎂 Cake</button>
+        </div>
+        {mainTab === 'orders' && <div style={{ color: S.muted, fontSize: 13 }}>{orders.length} طلب قيد التحضير</div>}
         <div style={{ marginRight: 'auto', fontSize: 12, color: S.muted }}>🟢 متصل · يتجدد تلقائياً</div>
       </div>
 
+      {mainTab === 'orders' ? (
       <div style={{ padding: 20 }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: S.muted, fontSize: 18 }}>⏳</div>
@@ -194,6 +326,159 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
           </div>
         )}
       </div>
+      ) : (
+      <div style={{ padding: 20, direction: 'ltr' }}>
+
+        {/* ── Date search bar ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '12px 16px' }}>
+          <span style={{ color: S.muted, fontSize: 13 }}>🔍 View date:</span>
+          <input type="date" value={viewDate} max={todayStr} onChange={e => setViewDate(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13 }} />
+          {viewDate !== todayStr && (
+            <button onClick={() => setViewDate(todayStr)} style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+              Back to Today
+            </button>
+          )}
+          <span style={{ color: S.muted, fontSize: 12, marginLeft: 'auto' }}>
+            {viewDate === todayStr ? 'Showing today' : `Showing ${viewDate}`}
+          </span>
+        </div>
+
+        {/* ── Summary tabs for the selected date ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.gold}40`, padding: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, fontWeight: 900, color: S.gold }}>{totalProducedForDate}</div>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>🎂 Produced</div>
+          </div>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.pink}40`, padding: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, fontWeight: 900, color: S.pink }}>{totalDistributedForDate}</div>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>🍽️ Distributed</div>
+          </div>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${remainingForDate < 0 ? S.red : S.green}40`, padding: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, fontWeight: 900, color: remainingForDate < 0 ? S.red : S.green }}>{remainingForDate}</div>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>📦 Remaining</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
+
+          {/* ── Forms column ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Production entry form */}
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.gold}40`, padding: 16 }}>
+              <div style={{ color: S.gold, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📦 Log Today's Cake Production</div>
+              <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Logging as: <span style={{ color: S.white, fontWeight: 700 }}>{currentUserName}</span></div>
+              <input type="number" min={1} value={prodQty} onChange={e => setProdQty(e.target.value)} placeholder="Number of cakes"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }} />
+              <textarea value={prodNotes} onChange={e => setProdNotes(e.target.value)} placeholder="Notes (optional)" rows={2}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 8, resize: 'vertical' }} />
+              <label style={{ display: 'block', padding: '10px 12px', borderRadius: 10, border: `1px dashed ${S.border}`, color: S.muted, fontSize: 12, textAlign: 'center', cursor: 'pointer', marginBottom: 10 }}>
+                📷 {prodFiles.length > 0 ? `${prodFiles.length} photo(s) selected` : 'Add proof photos (optional)'}
+                <input type="file" accept="image/*" multiple capture="environment" style={{ display: 'none' }}
+                  onChange={e => setProdFiles(Array.from(e.target.files || []))} />
+              </label>
+              <button onClick={submitCakeProduction} disabled={prodSaving}
+                style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.gold, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: prodSaving ? 0.6 : 1 }}>
+                {prodSaving ? '⏳ Saving...' : '✅ Log Production'}
+              </button>
+            </div>
+
+            {/* Manual table distribution form */}
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.pink}40`, padding: 16 }}>
+              <div style={{ color: S.pink, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>🍽️ Log Cake Given to a Table (Manual)</div>
+              <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Logging as: <span style={{ color: S.white, fontWeight: 700 }}>{currentUserName}</span></div>
+
+              <select value={logBranchId} onChange={e => { setLogBranchId(e.target.value); setLogTableId('') }}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }}>
+                <option value="">-- Select Branch --</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+
+              <select value={logTableId} onChange={e => setLogTableId(e.target.value)} disabled={!logBranchId}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8, opacity: logBranchId ? 1 : 0.5 }}>
+                <option value="">{logBranchId ? '-- Select Table --' : '-- Select a branch first --'}</option>
+                {tablesForSelectedBranch.map(t => <option key={t.id} value={t.id}>{t.name || `Table ${t.number}`}</option>)}
+              </select>
+
+              <input type="number" min={1} value={logQty} onChange={e => setLogQty(e.target.value)} placeholder="Number of cakes"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }} />
+              <input value={logNotes} onChange={e => setLogNotes(e.target.value)} placeholder="Notes (optional)"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 10 }} />
+              <button onClick={submitCakeTableLog} disabled={logSaving}
+                style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.pink, color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: logSaving ? 0.6 : 1 }}>
+                {logSaving ? '⏳ Saving...' : '✅ Log Distribution'}
+              </button>
+            </div>
+          </div>
+
+          {/* ── Logs column ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* Production log for selected date */}
+            <div>
+              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>📦 Production Log ({cakeProductions.length})</div>
+              {cakeLoading ? (
+                <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
+              ) : cakeProductions.length === 0 ? (
+                <div style={{ color: S.muted, fontSize: 13, background: S.navy2, borderRadius: 12, padding: 16, textAlign: 'center' }}>No production logged for this date yet</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {cakeProductions.map(p => (
+                    <div key={p.id} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: 12, display: 'flex', gap: 12 }}>
+                      {p.photo_urls?.length > 0 && (
+                        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                          {p.photo_urls.slice(0, 3).map((url, i) => (
+                            <img key={i} src={url} alt="Cake" style={{ width: 46, height: 46, borderRadius: 8, objectFit: 'cover', border: `1px solid ${S.border}` }} />
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>🎂 {p.quantity} cake(s)</span>
+                          <span style={{ color: S.muted, fontSize: 11 }}>{new Date(p.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        <div style={{ color: S.muted, fontSize: 12, marginTop: 2 }}>By: {p.produced_by_name || '—'}</div>
+                        {p.notes && <div style={{ color: S.amber, fontSize: 11, marginTop: 2 }}>⚠️ {p.notes}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Table distribution log for selected date */}
+            <div>
+              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>🍽️ Table Distribution Log ({cakeTableLogs.length})</div>
+              {cakeLoading ? (
+                <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
+              ) : cakeTableLogs.length === 0 ? (
+                <div style={{ color: S.muted, fontSize: 13, background: S.navy2, borderRadius: 12, padding: 16, textAlign: 'center' }}>No cakes distributed on this date yet</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {cakeTableLogs.map(l => (
+                    <div key={l.id} style={{ background: S.navy2, borderRadius: 10, border: `1px solid ${S.border}`, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ color: S.white, fontWeight: 700, fontSize: 13 }}>
+                          {l.tables?.name || `Table ${l.tables?.number ?? '—'}`}
+                        </span>
+                        <span style={{ color: S.gold, fontWeight: 800, marginLeft: 8 }}>×{l.quantity}</span>
+                        {l.source === 'menu_order' ? (
+                          <span style={{ background: S.purpleB, color: S.purple, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>📱 From Menu</span>
+                        ) : (
+                          <span style={{ background: S.pinkB, color: S.pink, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>✋ Manual — {l.logged_by_name || '—'}</span>
+                        )}
+                      </div>
+                      <span style={{ color: S.muted, fontSize: 11 }}>{new Date(l.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      )}
     </div>
   )
 }

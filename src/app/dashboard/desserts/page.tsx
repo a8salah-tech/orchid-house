@@ -45,6 +45,7 @@ type CakeProduction = {
   quantity: number
   photo_urls: string[]
   produced_by_name: string | null
+  branch_id: string | null
   notes: string | null
   created_at: string
 }
@@ -56,7 +57,7 @@ type CakeTableLog = {
   logged_by_name: string | null
   notes: string | null
   created_at: string
-  tables?: { number: number; name: string }
+  tables?: { number: number; name: string; branch_id: string | null }
 }
 type TableRow = { id: string; number: number; name: string; branch_id: string | null }
 type Branch = { id: string; name: string }
@@ -111,7 +112,11 @@ export default function DessertsPage() {
   const todayStr = new Date().toISOString().slice(0, 10)
   const [viewDate, setViewDate] = useState(todayStr)
 
+  // ✅ Branch filter tabs at the top - shows stats for a specific branch or all branches combined
+  const [branchFilter, setBranchFilter] = useState('') // '' = All Branches
+
   // Production entry form
+  const [prodBranchId, setProdBranchId] = useState('')
   const [prodQty, setProdQty] = useState('')
   const [prodNotes, setProdNotes] = useState('')
   const [prodFiles, setProdFiles] = useState<File[]>([])
@@ -130,7 +135,7 @@ export default function DessertsPage() {
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
       sb.from('tables').select('id,number,name,branch_id').order('number'),
       sb.from('cake_production_log').select('*').eq('production_date', viewDate).order('created_at', { ascending: false }),
-      sb.from('cake_table_log').select('*, tables(number,name)').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
+      sb.from('cake_table_log').select('*, tables(number,name,branch_id)').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
     ])
     setBranches(br.data || [])
     setTables(tbl.data || [])
@@ -142,6 +147,7 @@ export default function DessertsPage() {
   useEffect(() => { if (mainTab === 'cake') fetchCakeData() }, [mainTab, fetchCakeData])
 
   async function submitCakeProduction() {
+    if (!prodBranchId) { alert('Please select a branch'); return }
     const qty = parseInt(prodQty)
     if (!qty || qty <= 0) { alert('Please enter a valid number of cakes'); return }
     setProdSaving(true)
@@ -155,11 +161,12 @@ export default function DessertsPage() {
       quantity: qty,
       photo_urls: photoUrls,
       produced_by_name: currentUserName,
+      branch_id: prodBranchId,
       notes: prodNotes.trim() || null,
     }])
     setProdSaving(false)
     if (error) { alert('Error: ' + error.message); return }
-    setProdQty(''); setProdNotes(''); setProdFiles([])
+    setProdQty(''); setProdNotes(''); setProdFiles([]); setProdBranchId('')
     fetchCakeData()
   }
 
@@ -183,9 +190,16 @@ export default function DessertsPage() {
   }
 
   const tablesForSelectedBranch = tables.filter(t => t.branch_id === logBranchId)
-  const totalProducedForDate = cakeProductions.reduce((s, p) => s + p.quantity, 0)
-  const totalDistributedForDate = cakeTableLogs.reduce((s, l) => s + l.quantity, 0)
+
+  // ✅ Data filtered by the selected branch tab (empty = All Branches)
+  const visibleProductions = branchFilter ? cakeProductions.filter(p => p.branch_id === branchFilter) : cakeProductions
+  const visibleTableLogs = branchFilter ? cakeTableLogs.filter(l => l.tables?.branch_id === branchFilter) : cakeTableLogs
+
+  const totalProducedForDate = visibleProductions.reduce((s, p) => s + p.quantity, 0)
+  const totalDistributedForDate = visibleTableLogs.reduce((s, l) => s + l.quantity, 0)
   const remainingForDate = totalProducedForDate - totalDistributedForDate
+
+
 
   const fetchOrders = useCallback(async () => {
     const { data } = await sb
@@ -329,6 +343,20 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
       ) : (
       <div style={{ padding: 20, direction: 'ltr' }}>
 
+        {/* ── Branch filter tabs ── */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+          <button onClick={() => setBranchFilter('')}
+            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === '' ? S.gold : S.border}`, background: branchFilter === '' ? S.gold3 : 'transparent', color: branchFilter === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+            🏢 All Branches
+          </button>
+          {branches.map(b => (
+            <button key={b.id} onClick={() => setBranchFilter(b.id)}
+              style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === b.id ? S.gold : S.border}`, background: branchFilter === b.id ? S.gold3 : 'transparent', color: branchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+              {b.name}
+            </button>
+          ))}
+        </div>
+
         {/* ── Date search bar ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '12px 16px' }}>
           <span style={{ color: S.muted, fontSize: 13 }}>🔍 View date:</span>
@@ -340,7 +368,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
             </button>
           )}
           <span style={{ color: S.muted, fontSize: 12, marginLeft: 'auto' }}>
-            {viewDate === todayStr ? 'Showing today' : `Showing ${viewDate}`}
+            {branchFilter ? branches.find(b => b.id === branchFilter)?.name : 'All Branches'} · {viewDate === todayStr ? 'Showing today' : `Showing ${viewDate}`}
           </span>
         </div>
 
@@ -369,6 +397,11 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.gold}40`, padding: 16 }}>
               <div style={{ color: S.gold, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📦 Log Today's Cake Production</div>
               <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Logging as: <span style={{ color: S.white, fontWeight: 700 }}>{currentUserName}</span></div>
+              <select value={prodBranchId} onChange={e => setProdBranchId(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }}>
+                <option value="">-- Select Branch --</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
               <input type="number" min={1} value={prodQty} onChange={e => setProdQty(e.target.value)} placeholder="Number of cakes"
                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }} />
               <textarea value={prodNotes} onChange={e => setProdNotes(e.target.value)} placeholder="Notes (optional)" rows={2}
@@ -417,14 +450,14 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
 
             {/* Production log for selected date */}
             <div>
-              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>📦 Production Log ({cakeProductions.length})</div>
+              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>📦 Production Log ({visibleProductions.length})</div>
               {cakeLoading ? (
                 <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
-              ) : cakeProductions.length === 0 ? (
+              ) : visibleProductions.length === 0 ? (
                 <div style={{ color: S.muted, fontSize: 13, background: S.navy2, borderRadius: 12, padding: 16, textAlign: 'center' }}>No production logged for this date yet</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {cakeProductions.map(p => (
+                  {visibleProductions.map(p => (
                     <div key={p.id} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: 12, display: 'flex', gap: 12 }}>
                       {p.photo_urls?.length > 0 && (
                         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -449,14 +482,14 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
 
             {/* Table distribution log for selected date */}
             <div>
-              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>🍽️ Table Distribution Log ({cakeTableLogs.length})</div>
+              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>🍽️ Table Distribution Log ({visibleTableLogs.length})</div>
               {cakeLoading ? (
                 <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
-              ) : cakeTableLogs.length === 0 ? (
+              ) : visibleTableLogs.length === 0 ? (
                 <div style={{ color: S.muted, fontSize: 13, background: S.navy2, borderRadius: 12, padding: 16, textAlign: 'center' }}>No cakes distributed on this date yet</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {cakeTableLogs.map(l => (
+                  {visibleTableLogs.map(l => (
                     <div key={l.id} style={{ background: S.navy2, borderRadius: 10, border: `1px solid ${S.border}`, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <span style={{ color: S.white, fontWeight: 700, fontSize: 13 }}>

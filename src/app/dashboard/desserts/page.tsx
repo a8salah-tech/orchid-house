@@ -91,10 +91,21 @@ const CAKE_CATEGORY_ID = 'c349a109-48e3-4e13-af7f-c3bfe381b335' // "Cake" catego
 export default function DessertsPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
-  const { employee } = useAuth()
+  const { employee, permissions } = useAuth()
+  const isAdmin = permissions?.all === true
   const currentUserName = employee?.name || 'Unknown User'
 
   const [mainTab, setMainTab] = useState<'orders' | 'cake'>('orders')
+
+  // ✅ Responsive: detect mobile viewport so the cake section can stack into a single column
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
 
   const [orders, setOrders] = useState<DessertsOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -128,33 +139,82 @@ export default function DessertsPage() {
   const [logQty, setLogQty] = useState('1')
   const [logNotes, setLogNotes] = useState('')
   const [logSaving, setLogSaving] = useState(false)
+  const prodFileInputRef = useRef<HTMLInputElement>(null)
+
+  // ✅ Cumulative data (all days up to & including viewDate) - used to compute the real running "Remaining" total
+  const [cumProductions, setCumProductions] = useState<{ quantity: number; branch_id: string | null }[]>([])
+  const [cumTableLogs, setCumTableLogs] = useState<{ quantity: number; tables?: { branch_id: string | null } }[]>([])
 
   const fetchCakeData = useCallback(async () => {
     setCakeLoading(true)
-    const [br, tbl, prod, logs] = await Promise.all([
+    const [br, tbl, prod, logs, cumProd, cumLogs] = await Promise.all([
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
       sb.from('tables').select('id,number,name,branch_id').order('number'),
       sb.from('cake_production_log').select('*').eq('production_date', viewDate).order('created_at', { ascending: false }),
       sb.from('cake_table_log').select('*, tables(number,name,branch_id)').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
+      // ✅ everything ever produced up to and including viewDate (for the cumulative "Remaining" figure)
+      sb.from('cake_production_log').select('quantity, branch_id').lte('production_date', viewDate),
+      // ✅ everything ever distributed up to and including viewDate
+      sb.from('cake_table_log').select('quantity, tables(branch_id)').lt('created_at', `${viewDate}T23:59:59.999`),
     ])
     setBranches(br.data || [])
     setTables(tbl.data || [])
     setCakeProductions(prod.data || [])
     setCakeTableLogs(logs.data || [])
+    setCumProductions((cumProd.data as any) || [])
+    setCumTableLogs((cumLogs.data as any) || [])
     setCakeLoading(false)
   }, [sb, viewDate])
 
   useEffect(() => { if (mainTab === 'cake') fetchCakeData() }, [mainTab, fetchCakeData])
 
+  // ✅ Monthly stats - admin only
+  const [statsMonth, setStatsMonth] = useState(todayStr.slice(0, 7)) // 'YYYY-MM'
+  const [monthProduced, setMonthProduced] = useState(0)
+  const [monthDistributed, setMonthDistributed] = useState(0)
+  const [monthStatsLoading, setMonthStatsLoading] = useState(false)
+
+  const fetchMonthlyStats = useCallback(async () => {
+    if (!isAdmin) return
+    setMonthStatsLoading(true)
+    const [y, m] = statsMonth.split('-').map(Number)
+    const monthStart = `${statsMonth}-01`
+    const nextMonthStart = new Date(y, m, 1).toISOString().slice(0, 10) // first day of the following month
+    const [prod, dist] = await Promise.all([
+      sb.from('cake_production_log').select('quantity, branch_id').gte('production_date', monthStart).lt('production_date', nextMonthStart),
+      sb.from('cake_table_log').select('quantity, tables(branch_id)').gte('created_at', `${monthStart}T00:00:00`).lt('created_at', `${nextMonthStart}T00:00:00`),
+    ])
+    const prodData = (prod.data as any[]) || []
+    const distData = (dist.data as any[]) || []
+    const prodFiltered = branchFilter ? prodData.filter(p => p.branch_id === branchFilter) : prodData
+    const distFiltered = branchFilter ? distData.filter(l => l.tables?.branch_id === branchFilter) : distData
+    setMonthProduced(prodFiltered.reduce((s, p) => s + p.quantity, 0))
+    setMonthDistributed(distFiltered.reduce((s, l) => s + l.quantity, 0))
+    setMonthStatsLoading(false)
+  }, [sb, statsMonth, isAdmin, branchFilter])
+
+  useEffect(() => { if (mainTab === 'cake' && isAdmin) fetchMonthlyStats() }, [mainTab, isAdmin, fetchMonthlyStats])
+
   async function submitCakeProduction() {
     if (!prodBranchId) { alert('Please select a branch'); return }
     const qty = parseInt(prodQty)
     if (!qty || qty <= 0) { alert('Please enter a valid number of cakes'); return }
+    if (prodFiles.length === 0) { alert('Please add at least one proof photo'); return }
     setProdSaving(true)
     const photoUrls: string[] = []
     for (const file of prodFiles) {
       const url = await uploadCakePhoto(sb, file)
       if (url) photoUrls.push(url)
+    }
+    // ✅ Stop and warn if every photo failed to upload (e.g. storage bucket misconfigured) —
+    // instead of silently saving a "proof" record with no proof at all
+    if (photoUrls.length === 0) {
+      setProdSaving(false)
+      alert('Photo upload failed. Please check your connection and try again — the entry was NOT saved.')
+      return
+    }
+    if (photoUrls.length < prodFiles.length) {
+      alert(`Note: only ${photoUrls.length} of ${prodFiles.length} photo(s) uploaded successfully. Continuing with those.`)
     }
     const { error } = await sb.from('cake_production_log').insert([{
       production_date: viewDate,
@@ -189,6 +249,22 @@ export default function DessertsPage() {
     fetchCakeData()
   }
 
+  // ✅ Delete a production log entry (e.g. test/mistaken entries)
+  async function deleteCakeProduction(id: string) {
+    if (!confirm('Delete this production entry? This cannot be undone.')) return
+    const { error } = await sb.from('cake_production_log').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    fetchCakeData()
+  }
+
+  // ✅ Delete a table distribution log entry
+  async function deleteCakeTableLog(id: string) {
+    if (!confirm('Delete this distribution entry? This cannot be undone.')) return
+    const { error } = await sb.from('cake_table_log').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    fetchCakeData()
+  }
+
   const tablesForSelectedBranch = tables.filter(t => t.branch_id === logBranchId)
 
   // ✅ Data filtered by the selected branch tab (empty = All Branches)
@@ -197,7 +273,14 @@ export default function DessertsPage() {
 
   const totalProducedForDate = visibleProductions.reduce((s, p) => s + p.quantity, 0)
   const totalDistributedForDate = visibleTableLogs.reduce((s, l) => s + l.quantity, 0)
-  const remainingForDate = totalProducedForDate - totalDistributedForDate
+
+  // ✅ Running/cumulative remaining = everything ever produced minus everything ever distributed, up to viewDate
+  // (a leftover cake from a previous day carries over instead of resetting to 0 each day)
+  const cumProducedFiltered = branchFilter ? cumProductions.filter(p => p.branch_id === branchFilter) : cumProductions
+  const cumDistributedFiltered = branchFilter ? cumTableLogs.filter(l => l.tables?.branch_id === branchFilter) : cumTableLogs
+  const cumulativeProduced = cumProducedFiltered.reduce((s, p) => s + p.quantity, 0)
+  const cumulativeDistributed = cumDistributedFiltered.reduce((s, l) => s + l.quantity, 0)
+  const remainingForDate = cumulativeProduced - cumulativeDistributed
 
 
 
@@ -272,14 +355,14 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
       )}
 
       {/* Header */}
-      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 24px', display: 'flex', alignItems: 'center', height: 60, gap: 12, position: 'sticky', top: 0, zIndex: 100 }}>
-        <h1 style={{ color: S.pink, fontSize: 20, fontWeight: 900 }}>🍰 شاشة الحلويات</h1>
-        <div style={{ display: 'flex', gap: 6, marginRight: 12 }}>
+      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: isMobile ? '10px 12px' : '0 24px', display: 'flex', alignItems: 'center', height: isMobile ? 'auto' : 60, minHeight: isMobile ? undefined : 60, gap: isMobile ? 8 : 12, position: 'sticky', top: 0, zIndex: 100, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+        <h1 style={{ color: S.pink, fontSize: isMobile ? 16 : 20, fontWeight: 900, margin: 0 }}>🍰 شاشة الحلويات</h1>
+        <div style={{ display: 'flex', gap: 6, marginRight: isMobile ? 0 : 12 }}>
           <button onClick={() => setMainTab('orders')} style={{ padding: '7px 14px', borderRadius: 9, border: `1px solid ${mainTab === 'orders' ? S.pink : S.border}`, background: mainTab === 'orders' ? S.pinkB : 'transparent', color: mainTab === 'orders' ? S.pink : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📋 Orders</button>
           <button onClick={() => setMainTab('cake')} style={{ padding: '7px 14px', borderRadius: 9, border: `1px solid ${mainTab === 'cake' ? S.gold : S.border}`, background: mainTab === 'cake' ? S.gold3 : 'transparent', color: mainTab === 'cake' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🎂 Cake</button>
         </div>
         {mainTab === 'orders' && <div style={{ color: S.muted, fontSize: 13 }}>{orders.length} طلب قيد التحضير</div>}
-        <div style={{ marginRight: 'auto', fontSize: 12, color: S.muted }}>🟢 متصل · يتجدد تلقائياً</div>
+        {!isMobile && <div style={{ marginRight: 'auto', fontSize: 12, color: S.muted }}>🟢 متصل · يتجدد تلقائياً</div>}
       </div>
 
       {mainTab === 'orders' ? (
@@ -341,7 +424,35 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
         )}
       </div>
       ) : (
-      <div style={{ padding: 20, direction: 'ltr' }}>
+      <div style={{ padding: isMobile ? '12px' : 20, direction: 'ltr' }}>
+
+        {/* ── Monthly Stats (Admin Only) ── */}
+        {isAdmin && (
+          <div style={{ background: `linear-gradient(135deg, ${S.navy2}, ${S.navy3})`, border: `1px solid ${S.gold}60`, borderRadius: 16, padding: isMobile ? 12 : 16, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+              <span style={{ color: S.gold, fontWeight: 800, fontSize: 14 }}>👑 Admin Only — Monthly Stats</span>
+              <input type="month" value={statsMonth} max={todayStr.slice(0, 7)} onChange={e => setStatsMonth(e.target.value)}
+                style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, marginLeft: isMobile ? 0 : 'auto' }} />
+            </div>
+            {monthStatsLoading ? (
+              <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+                <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: S.gold }}>{monthProduced}</div>
+                  <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>🎂 Cakes produced this month</div>
+                </div>
+                <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: S.pink }}>{monthDistributed}</div>
+                  <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>🍽️ Cakes distributed this month</div>
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: S.muted, marginTop: 8 }}>
+              {branchFilter ? `Filtered to: ${branches.find(b => b.id === branchFilter)?.name}` : 'Showing all branches combined'}
+            </div>
+          </div>
+        )}
 
         {/* ── Branch filter tabs ── */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -358,7 +469,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
         </div>
 
         {/* ── Date search bar ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '12px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: isMobile ? '10px 12px' : '12px 16px', flexWrap: 'wrap' }}>
           <span style={{ color: S.muted, fontSize: 13 }}>🔍 View date:</span>
           <input type="date" value={viewDate} max={todayStr} onChange={e => setViewDate(e.target.value)}
             style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13 }} />
@@ -367,28 +478,28 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
               Back to Today
             </button>
           )}
-          <span style={{ color: S.muted, fontSize: 12, marginLeft: 'auto' }}>
+          <span style={{ color: S.muted, fontSize: 12, marginLeft: isMobile ? 0 : 'auto' }}>
             {branchFilter ? branches.find(b => b.id === branchFilter)?.name : 'All Branches'} · {viewDate === todayStr ? 'Showing today' : `Showing ${viewDate}`}
           </span>
         </div>
 
         {/* ── Summary tabs for the selected date ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.gold}40`, padding: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, fontWeight: 900, color: S.gold }}>{totalProducedForDate}</div>
-            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>🎂 Produced</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: isMobile ? 8 : 12, marginBottom: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.gold}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
+            <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.gold }}>{totalProducedForDate}</div>
+            <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>🎂 Produced{!isMobile && ' (this day)'}</div>
           </div>
-          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.pink}40`, padding: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, fontWeight: 900, color: S.pink }}>{totalDistributedForDate}</div>
-            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>🍽️ Distributed</div>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.pink}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
+            <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.pink }}>{totalDistributedForDate}</div>
+            <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>🍽️ Distributed{!isMobile && ' (this day)'}</div>
           </div>
-          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${remainingForDate < 0 ? S.red : S.green}40`, padding: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, fontWeight: 900, color: remainingForDate < 0 ? S.red : S.green }}>{remainingForDate}</div>
-            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>📦 Remaining</div>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${remainingForDate < 0 ? S.red : S.green}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
+            <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: remainingForDate < 0 ? S.red : S.green }}>{remainingForDate}</div>
+            <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>📦 Remaining{!isMobile && ' (running total)'}</div>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '360px 1fr', gap: isMobile ? 16 : 20, alignItems: 'start' }}>
 
           {/* ── Forms column ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -406,11 +517,12 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }} />
               <textarea value={prodNotes} onChange={e => setProdNotes(e.target.value)} placeholder="Notes (optional)" rows={2}
                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 8, resize: 'vertical' }} />
-              <label style={{ display: 'block', padding: '10px 12px', borderRadius: 10, border: `1px dashed ${S.border}`, color: S.muted, fontSize: 12, textAlign: 'center', cursor: 'pointer', marginBottom: 10 }}>
-                📷 {prodFiles.length > 0 ? `${prodFiles.length} photo(s) selected` : 'Add proof photos (optional)'}
-                <input type="file" accept="image/*" multiple capture="environment" style={{ display: 'none' }}
-                  onChange={e => setProdFiles(Array.from(e.target.files || []))} />
-              </label>
+              <button type="button" onClick={() => prodFileInputRef.current?.click()}
+                style={{ display: 'block', width: '100%', padding: '10px 12px', borderRadius: 10, border: `1px dashed ${prodFiles.length > 0 ? S.green : S.red}`, background: 'transparent', color: prodFiles.length > 0 ? S.green : S.muted, fontSize: 12, textAlign: 'center', cursor: 'pointer', marginBottom: 10 }}>
+                📷 {prodFiles.length > 0 ? `${prodFiles.length} photo(s) selected: ${prodFiles.map(f => f.name).join(', ')}` : 'Add proof photo(s) (required)'}
+              </button>
+              <input ref={prodFileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+                onChange={e => setProdFiles(Array.from(e.target.files || []))} />
               <button onClick={submitCakeProduction} disabled={prodSaving}
                 style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.gold, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: prodSaving ? 0.6 : 1 }}>
                 {prodSaving ? '⏳ Saving...' : '✅ Log Production'}
@@ -474,6 +586,10 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                         <div style={{ color: S.muted, fontSize: 12, marginTop: 2 }}>By: {p.produced_by_name || '—'}</div>
                         {p.notes && <div style={{ color: S.amber, fontSize: 11, marginTop: 2 }}>⚠️ {p.notes}</div>}
                       </div>
+                      {isAdmin && (
+                        <button onClick={() => deleteCakeProduction(p.id)} title="Delete"
+                          style={{ alignSelf: 'flex-start', background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', fontSize: 12, padding: '4px 8px', flexShrink: 0 }}>🗑️</button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -502,7 +618,13 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                           <span style={{ background: S.pinkB, color: S.pink, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>✋ Manual — {l.logged_by_name || '—'}</span>
                         )}
                       </div>
-                      <span style={{ color: S.muted, fontSize: 11 }}>{new Date(l.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ color: S.muted, fontSize: 11 }}>{new Date(l.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {isAdmin && (
+                          <button onClick={() => deleteCakeTableLog(l.id)} title="Delete"
+                            style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', fontSize: 11, padding: '3px 7px' }}>🗑️</button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

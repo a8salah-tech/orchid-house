@@ -111,6 +111,8 @@ export default function DessertsPage() {
   const [loading, setLoading] = useState(true)
   const [tick, setTick]     = useState(0)
   const [notif, setNotif]   = useState(false)
+  // ✅ لعرض صورة الكيك مكبّرة عند الضغط عليها
+  const [viewerImage, setViewerImage] = useState<string | null>(null)
 
   // ✅ Cake section: daily production + table distribution
   const [branches, setBranches] = useState<Branch[]>([])
@@ -574,7 +576,8 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                       {p.photo_urls?.length > 0 && (
                         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                           {p.photo_urls.slice(0, 3).map((url, i) => (
-                            <img key={i} src={url} alt="Cake" style={{ width: 46, height: 46, borderRadius: 8, objectFit: 'cover', border: `1px solid ${S.border}` }} />
+                            <img key={i} src={url} alt="Cake" onClick={() => setViewerImage(url)}
+                              style={{ width: 46, height: 46, borderRadius: 8, objectFit: 'cover', border: `1px solid ${S.border}`, cursor: 'pointer' }} />
                           ))}
                         </div>
                       )}
@@ -633,6 +636,16 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
           </div>
         </div>
       </div>
+      )}
+
+      {/* ✅ Image Viewer / Lightbox */}
+      {viewerImage && (
+        <div onClick={() => setViewerImage(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out' }}>
+          <img src={viewerImage} alt="Cake" style={{ maxWidth: '92%', maxHeight: '92%', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }} />
+          <button onClick={() => setViewerImage(null)}
+            style={{ position: 'fixed', top: 20, right: 20, width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
       )}
     </div>
   )

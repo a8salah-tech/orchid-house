@@ -24,6 +24,7 @@ const S = {
 type OrderItem = {
   id: string; quantity: number; notes: string
   status: string; destination: string
+  created_at: string; ready_at: string | null
   menu_items: { id: string; name: string; name_en: string }
 }
 
@@ -49,6 +50,19 @@ function urgencyColor(iso: string) {
   if (min > 20) return S.red
   if (min > 10) return S.amber
   return S.green
+}
+
+// ✅ يحسب مدة تحضير الصنف - من وقت ما دخل الطلب لحد ما اتعمل جاهز (أو لحد دلوقتي لو لسه شغال عليه)
+// نفس شكل عرض عداد الأوردر بالظبط (H:MM:SS لو زادت عن ساعة، وإلا MM:SS)
+function itemDuration(startIso: string, endIso?: string | null) {
+  const start = new Date(startIso).getTime()
+  const end = endIso ? new Date(endIso).getTime() : Date.now()
+  const sec = Math.max(0, Math.floor((end - start) / 1000))
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 // ══ Waste/Return Modal ══
@@ -133,6 +147,13 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
   const allItems = orders.flatMap(o => o.order_items.filter(i => i.status === 'ready'))
   const totalItems = allItems.reduce((s, i) => s + i.quantity, 0)
 
+  // ✅ متوسط وقت التحضير لكل الأصناف اللي اتعملت جاهزة، محسوب من created_at لحد ready_at
+  const itemsWithTiming = allItems.filter(i => i.ready_at)
+  const avgPrepSeconds = itemsWithTiming.length > 0
+    ? Math.round(itemsWithTiming.reduce((s, i) => s + (new Date(i.ready_at!).getTime() - new Date(i.created_at).getTime()) / 1000, 0) / itemsWithTiming.length)
+    : 0
+  const avgPrepLabel = avgPrepSeconds > 0 ? `${Math.floor(avgPrepSeconds / 60)}:${String(avgPrepSeconds % 60).padStart(2, '0')}` : '—'
+
   function printReport() {
     const win = window.open('', '_blank')
     if (!win) return
@@ -175,6 +196,7 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
     <div class="summary">
       <div class="box"><div class="val">${orders.length}</div><div>Orders</div></div>
       <div class="box"><div class="val">${totalItems}</div><div>Items Prepared</div></div>
+      <div class="box"><div class="val">${avgPrepLabel}</div><div>Avg Prep Time</div></div>
       <div class="box"><div class="val">${waste.length}</div><div>Waste/Returns</div></div>
     </div>
     <h4>Orders</h4>
@@ -207,10 +229,11 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
         </div>
 
         {/* Summary */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
           {[
             { label: 'Total Orders', value: orders.length, color: S.white },
             { label: 'Items Prepared', value: totalItems, color: S.green },
+            { label: 'Avg Prep Time', value: avgPrepLabel, color: S.blue },
             { label: 'Waste / Returns', value: waste.length, color: S.red },
           ].map((s, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 14, padding: '14px 18px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
@@ -289,7 +312,7 @@ export default function KitchenPage() {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name),
-      order_items(id, quantity, notes, status, destination, menu_items(id, name, name_en))
+      order_items(id, quantity, notes, status, destination, created_at, ready_at, menu_items(id, name, name_en))
     `).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: true })
 
     const filtered = ((data as any) || []).map((o: KitchenOrder) => ({
@@ -328,13 +351,15 @@ export default function KitchenPage() {
   }, [])
 
   async function markItemReady(itemId: string, orderId: string) {
-    await sb.from('order_items').update({ status: 'ready' }).eq('id', itemId)
-    const order = orders.find(o => o.id === orderId)
-    if (order) {
-      const remaining = order.order_items.filter(i => i.id !== itemId && !['ready','cancelled','returned','replaced'].includes(i.status))
-      if (remaining.length === 0) {
-        await sb.from('orders').update({ status: 'ready' }).eq('id', orderId)
-      }
+    await sb.from('order_items').update({ status: 'ready', ready_at: new Date().toISOString() }).eq('id', itemId)
+    // ✅ Fix: نتأكد من حالة كل الأصناف مباشرة من قاعدة البيانات (مش من الـ state القديمة في الذاكرة)
+    // السبب الأصلي للمشكلة: لو الشيف ضغط "Ready" على أكتر من صنف بسرعة قبل ما الصفحة تتحدث،
+    // الفحص القديم كان بيعتمد على بيانات قديمة فيسيب الأوردر "معلّق" حتى لو كل الأصناف فعلاً جاهزة
+    const { data: allItems } = await sb.from('order_items').select('id, status, destination').eq('order_id', orderId)
+    const kitchenItems = (allItems || []).filter(i => i.destination === 'kitchen')
+    const allKitchenReady = kitchenItems.length > 0 && kitchenItems.every(i => ['ready', 'cancelled', 'returned', 'replaced'].includes(i.status))
+    if (allKitchenReady) {
+      await sb.from('orders').update({ status: 'ready' }).eq('id', orderId)
     }
     fetchOrders()
   }
@@ -420,6 +445,11 @@ export default function KitchenPage() {
                           <div style={{ color: item.status === 'ready' ? S.green : S.white, fontWeight: 700, fontSize: 14 }}>
                             {item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}
                             <span style={{ color: S.gold, marginLeft: 6, fontWeight: 900 }}>×{item.quantity}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: item.status === 'ready' ? S.green : S.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                            {item.status === 'ready'
+                              ? (item.ready_at ? `✓ took ${itemDuration(item.created_at, item.ready_at)}` : '✓ Ready (time not tracked)')
+                              : `⏱ ${itemDuration(item.created_at)}`}
                           </div>
                           {item.notes && <div style={{ color: S.amber, fontSize: 11, marginTop: 2 }}>⚠️ {item.notes}</div>}
                         </div>

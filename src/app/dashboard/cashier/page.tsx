@@ -143,6 +143,14 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const sb = createClient()
   const { employee, permissions } = useAuth()
   const isCashierRole = permissions?.all === true || ['cashier', 'assistant_cashier'].includes(employee?.role || '')
+  const isAdminUser = permissions?.all === true
+  // ✅ اسم الفرع الحقيقي للطاولة - عشان الأدمن يفرّق بين طاولات نفس الاسم في فروع مختلفة (زي "Table 1" في House و KLCC)
+  const [orderBranchName, setOrderBranchName] = useState<string | null>(null)
+  useEffect(() => {
+    if (!isAdminUser) return
+    sb.from('tables').select('branch_id, branches(name)').eq('id', order.table_id).maybeSingle()
+      .then(({ data }) => setOrderBranchName((data as any)?.branches?.name || null))
+  }, [isAdminUser, order.table_id])
   const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'free'>('cash')
   const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
   const [discountValue, setDiscountValue] = useState('')
@@ -182,7 +190,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     c.email?.toLowerCase().includes(customerSearch.toLowerCase())
   ).slice(0, 8)
 
-  const subtotal = order.order_items.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+  const subtotal = order.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
   const discountAmt = discountType === 'none' ? 0
     : discountType === 'free' ? subtotal
     : discountType === 'percent' ? subtotal * (parseFloat(discountValue) || 0) / 100
@@ -218,7 +226,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     // splitType === 'items'
     const n = Math.max(2, splitCount)
     const perPersonSubtotal: number[] = Array.from({ length: n }, () => 0)
-    for (const item of order.order_items) {
+    for (const item of order.order_items.filter(i => i.status !== 'cancelled')) {
       for (let p = 0; p < n; p++) {
         perPersonSubtotal[p] += getPersonQty(item.id, p) * item.unit_price
       }
@@ -230,7 +238,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     })
   })()
   const unassignedItemsCount = splitMode && splitType === 'items'
-    ? order.order_items.filter(i => totalAssignedForItem(i.id, Math.max(2, splitCount)) < i.quantity).length
+    ? order.order_items.filter(i => i.status !== 'cancelled' && totalAssignedForItem(i.id, Math.max(2, splitCount)) < i.quantity).length
     : 0
   const allSplitPeoplePaid = splitPeople.length > 0 && splitPeople.every(p => personPaid[p.idx])
 
@@ -349,7 +357,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     <div class="row"><span>Table:</span><span>${order.tables?.name || 'Table ' + order.tables?.number}</span></div>
     <div class="row"><span>Order #:</span><span>${order.id.slice(-6).toUpperCase()}</span></div>
     <div class="line"></div>
-    ${order.order_items.map(i => `
+    ${order.order_items.filter(i => i.status !== 'cancelled').map(i => `
     <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name}${i.size_name ? ' (' + i.size_name + ')' : ''} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
     ${i.notes ? `<div style="font-size:10px;color:#666;padding-right:10px">* ${i.notes}</div>` : ''}
     `).join('')}
@@ -386,7 +394,10 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
 
         {/* Order Summary */}
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{order.tables?.name || `Table ${order.tables?.number}`} · #{order.id.slice(-6).toUpperCase()}</div>
+          <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>
+            {order.tables?.name || `Table ${order.tables?.number}`} · #{order.id.slice(-6).toUpperCase()}
+            {orderBranchName && <span style={{ background: S.purpleB, color: S.purple, borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 700, marginLeft: 8 }}>🏢 {orderBranchName}</span>}
+          </div>
           {groupItemsByRound(order.order_items).map((round, ri) => (
             <div key={ri}>
               {ri > 0 && (
@@ -399,10 +410,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
               {round.map(i => (
                 <div key={i.id} style={{ padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
-                    <span style={{ color: S.gold }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
                   </div>
                   {i.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 2 }}>📝 {i.notes}</div>}
+                  {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginTop: 2 }}>❌ Cancelled: {i.cancel_reason}</div>}
                 </div>
               ))}
             </div>
@@ -543,7 +555,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
                   {/* ✅ لو وضع "تحديد أصناف كل شخص": يظهر جنب كل شخص الأصناف المتبقية بس (اللي لسه محدش خدها) */}
                   {splitType === 'items' && (
                     <div style={{ marginBottom: 10, background: S.card, borderRadius: 8, padding: 8 }}>
-                      {order.order_items.map(item => {
+                      {order.order_items.filter(item => item.status !== 'cancelled').map(item => {
                         const myQty = getPersonQty(item.id, p.idx)
                         // أقصى حاجة ممكن الشخص ده ياخدها = الكمية الكلية ناقص اللي اتاخد من باقي الناس (مش هو)
                         const takenByOthers = totalAssignedForItem(item.id, Math.max(2, splitCount)) - myQty
@@ -1498,12 +1510,17 @@ export default function CashierPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
                 {filtered.map(order => {
                   const st = STATUS_LABELS[order.status] || STATUS_LABELS['confirmed']
+                  // ✅ اسم الفرع الحقيقي للطاولة دي - عشان الأدمن يفرّق بين "Table 1" بتاعة House و"Table 1" بتاعة KLCC (نفس الاسم بالظبط في الفروع)
+                  const orderBranchName = isAdmin ? branches.find(b => b.id === tables.find(t => t.id === order.table_id)?.branch_id)?.name : null
                   return (
                     <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${order.status === 'confirmed' ? S.blue + '60' : S.border}`, overflow: 'hidden' }}>
                       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                             <span style={{ color: S.white, fontWeight: 800, fontSize: 15 }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
+                            {orderBranchName && (
+                              <span style={{ background: S.purpleB, color: S.purple, borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>🏢 {orderBranchName}</span>
+                            )}
                             <span style={{ background: st.bg, color: st.color, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{st.emoji} {st.label}</span>
                           </div>
                           <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()} · ago {timeAgo(order.created_at)}</div>

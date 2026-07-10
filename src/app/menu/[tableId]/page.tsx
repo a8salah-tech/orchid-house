@@ -185,19 +185,31 @@ const filteredItems = items
     const firstName = gameNames[0]?.trim()
     const phone = gamePhone.trim()
     if (!firstName || !phone) return
+    // ✅ تسجيل تشخيصي بصمت في قاعدة البيانات (مفيش أي تأثير على تجربة العميل) عشان نلاقي سبب مشكلة عدم ربط الأوردر
+    async function log(step: string, success: boolean, error_message: string | null, customerId?: string | null) {
+      try {
+        await sb.from('game_link_debug_log').insert([{
+          confirmed_order_id: confirmedOrderId, customer_id: customerId || null, phone, step, success, error_message,
+        }])
+      } catch { /* تجاهل - التسجيل نفسه لازم مايعطلش اللعبة */ }
+    }
     try {
-      const { data: existing } = await sb.from('customers').select('id').eq('phone', phone).maybeSingle()
+      const { data: existing, error: findErr } = await sb.from('customers').select('id').eq('phone', phone).maybeSingle()
+      await log('find_customer', !findErr, findErr?.message || null, existing?.id)
       let customerId = existing?.id
       if (!customerId) {
-        const { data: created } = await sb.from('customers').insert([{ name: firstName, phone, loyalty_points: 0, notes: '🎲 Added via "Who\'s Paying the Bill?" game' }]).select('id').single()
+        const { data: created, error: insertErr } = await sb.from('customers').insert([{ name: firstName, phone, loyalty_points: 0, notes: '🎲 Added via "Who\'s Paying the Bill?" game' }]).select('id').single()
+        await log('insert_customer', !insertErr, insertErr?.message || null, created?.id)
         customerId = created?.id
       }
-      // ✅ نربط العميل بالأوردر الفعلي اللي هو أكده - عشان الطاولة والمبلغ يظهروا في صفحة "قاعدة بيانات العملاء"
       if (customerId && confirmedOrderId) {
-        await sb.from('orders').update({ customer_id: customerId }).eq('id', confirmedOrderId)
+        const { error: linkErr } = await sb.from('orders').update({ customer_id: customerId }).eq('id', confirmedOrderId)
+        await log('link_order', !linkErr, linkErr?.message || null, customerId)
+      } else {
+        await log('skipped_link', false, `customerId=${customerId || 'null'} confirmedOrderId=${confirmedOrderId || 'null'}`, customerId)
       }
-    } catch {
-      // تجاهل أي خطأ هنا عشان مايأثرش على تجربة اللعبة نفسها
+    } catch (e: any) {
+      await log('exception', false, e?.message || String(e))
     }
   }
 

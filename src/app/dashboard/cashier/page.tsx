@@ -91,12 +91,13 @@ function timeElapsedSince(dateStr?: string): string {
 }
 
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
-type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; menu_items: { name: string; name_en: string } }
+type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
   discount_amount: number; discount_type: string; payment_method: string
   service_charge: number; sst_amount: number; shift: string
   notes: string; created_at: string; confirmed_at: string; paid_at?: string
+  customer_id?: string | null; cancel_reason?: string | null
   tables: { number: number; name: string }
   order_items: OrderItem[]
 }
@@ -166,6 +167,14 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       .then(({ data }) => setCustomers(data || []))
   }, [])
 
+  // ✅ لو الأوردر أصلاً مرتبط بعميل (مثلاً من لعبة "مين هيدفع؟" في صفحة المنيو)، نجيب بياناته ونحطه كمختار تلقائيًا
+  // بدل ما يفضل فاضي ويتمسح الربط لو الكاشير أكد الدفع من غير ما يختار العميل يدوي تاني
+  useEffect(() => {
+    if (!order.customer_id) return
+    sb.from('customers').select('id,name,phone,email,loyalty_points').eq('id', order.customer_id).maybeSingle()
+      .then(({ data }) => { if (data) setSelectedCustomer(data) })
+  }, [order.customer_id])
+
   const filteredCustomers = customers.filter(c =>
     !customerSearch ||
     c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -225,6 +234,16 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     : 0
   const allSplitPeoplePaid = splitPeople.length > 0 && splitPeople.every(p => personPaid[p.idx])
 
+  // ✅ تحديث "Total Spent" و"Total Visits" في جدول customers وقت الدفع الفعلي (مش وقت التأكيد بس)
+  async function bumpCustomerStats(customerId: string, amount: number) {
+    const { data: cust } = await sb.from('customers').select('total_spent, total_visits').eq('id', customerId).maybeSingle()
+    if (!cust) return
+    await sb.from('customers').update({
+      total_spent: (cust.total_spent || 0) + amount,
+      total_visits: (cust.total_visits || 0) + 1,
+    }).eq('id', customerId)
+  }
+
   async function doPay() {
     setSaving(true)
 
@@ -240,6 +259,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       paid_at: new Date().toISOString(),
       customer_id: selectedCustomer?.id || null,
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
+
+    // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
+    if (selectedCustomer?.id) {
+      await bumpCustomerStats(selectedCustomer.id, total)
+    }
 
     // 2. Reset table to available
     await sb.from('tables').update({
@@ -291,6 +315,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       paid_at: new Date().toISOString(),
       customer_id: selectedCustomer?.id || null,
     }).eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
+
+    // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
+    if (selectedCustomer?.id) {
+      await bumpCustomerStats(selectedCustomer.id, total)
+    }
 
     await sb.from('tables').update({
       status: 'available',
@@ -1086,7 +1115,7 @@ export default function CashierPage() {
   }, [isAdmin, branches, adminBranchFilter])
 
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -1107,7 +1136,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -1212,11 +1241,36 @@ export default function CashierPage() {
     fetchAll()
   }
 
-  async function cancelOrder(order: Order) {
-    if (!confirm('Are you sure you want to cancel this order?')) return
-    // إلغاء كل الطلبات النشطة للطاولة
-    await sb.from('orders').update({ status: 'cancelled' }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
-    await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null, reserved_at: null }).eq('id', order.table_id)
+  // ✅ إلغاء فاتورة كاملة أو صنف واحد - بسبب إجباري، متاح للكاشير بس
+  const [cancelOrderTarget, setCancelOrderTarget] = useState<Order | null>(null)
+  const [cancelItemTarget, setCancelItemTarget] = useState<{ orderId: string; itemId: string; itemName: string } | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelSaving, setCancelSaving] = useState(false)
+
+  async function doCancelOrder() {
+    if (!cancelOrderTarget || !cancelReason.trim()) return
+    setCancelSaving(true)
+    await sb.from('orders').update({ status: 'cancelled', cancel_reason: cancelReason.trim() })
+      .eq('table_id', cancelOrderTarget.table_id).in('status', ['confirmed', 'preparing', 'ready'])
+    await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null, reserved_at: null })
+      .eq('id', cancelOrderTarget.table_id)
+    setCancelSaving(false)
+    setCancelOrderTarget(null)
+    setCancelReason('')
+    fetchAll()
+  }
+
+  async function doCancelItem() {
+    if (!cancelItemTarget || !cancelReason.trim()) return
+    setCancelSaving(true)
+    await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim() }).eq('id', cancelItemTarget.itemId)
+    // ✅ نعيد حساب إجمالي الفاتورة بعد إلغاء الصنف عشان مايفضلش محسوب في المبلغ المطلوب من العميل
+    const { data: items } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', cancelItemTarget.orderId)
+    const newTotal = (items || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
+    await sb.from('orders').update({ total_amount: newTotal }).eq('id', cancelItemTarget.orderId)
+    setCancelSaving(false)
+    setCancelItemTarget(null)
+    setCancelReason('')
     fetchAll()
   }
 
@@ -1477,10 +1531,18 @@ export default function CashierPage() {
                             )}
                             {round.map(i => (
                               <div key={i.id} style={{ padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{ color: S.white }}>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none', flex: 1 }}>
+                                    {i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                                  </span>
+                                  {isCashierRole && i.status !== 'cancelled' && !['paid', 'cancelled'].includes(order.status) && (
+                                    <button onClick={() => setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name })}
+                                      title="Cancel this item"
+                                      style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '2px 6px', flexShrink: 0 }}>✕</button>
+                                  )}
                                 </div>
                                 {i.notes && <div style={{ fontSize: 10, color: S.amber, marginTop: 1 }}>📝 {i.notes}</div>}
+                                {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 10, color: S.red, marginTop: 1 }}>❌ Cancelled: {i.cancel_reason}</div>}
                               </div>
                             ))}
                           </div>
@@ -1497,8 +1559,8 @@ export default function CashierPage() {
                         {['confirmed','preparing','ready'].includes(order.status) && (
                           <button onClick={() => setPayOrder(order)} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 Pay</button>
                         )}
-                        {['confirmed','preparing'].includes(order.status) && (
-                          <button onClick={() => cancelOrder(order)} style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
+                        {isCashierRole && ['confirmed','preparing'].includes(order.status) && (
+                          <button onClick={() => setCancelOrderTarget(order)} style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
                         )}
                       </div>
                     </div>
@@ -1532,6 +1594,38 @@ export default function CashierPage() {
       )}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
       {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => { setShowShiftReport(false); setShiftStarted(false); setShiftStart(null); localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start') }} />}
+
+      {/* ✅ مودال سبب الإلغاء الإجباري - للفاتورة الكاملة أو لصنف واحد */}
+      {(cancelOrderTarget || cancelItemTarget) && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.red}`, width: '100%', maxWidth: 400, padding: 28, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <div style={{ fontSize: 40, marginBottom: 14 }}>⚠️</div>
+            <div style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 10 }}>
+              {cancelOrderTarget ? `Cancel Order — ${cancelOrderTarget.tables?.name || `Table ${cancelOrderTarget.tables?.number}`}` : `Cancel Item — ${cancelItemTarget?.itemName}`}
+            </div>
+            <div style={{ color: S.red, fontSize: 11, marginBottom: 16 }}>This cannot be undone. A reason is required.</div>
+            <textarea
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              placeholder="Reason for cancellation (required)..."
+              rows={3}
+              autoFocus
+              style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${cancelReason.trim() ? S.border : S.red}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 20, fontFamily: 'Tajawal, sans-serif', resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { setCancelOrderTarget(null); setCancelItemTarget(null); setCancelReason('') }} style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                Back
+              </button>
+              <button
+                onClick={cancelOrderTarget ? doCancelOrder : doCancelItem}
+                disabled={!cancelReason.trim() || cancelSaving}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: cancelReason.trim() ? S.red : S.border, color: cancelReason.trim() ? '#fff' : S.muted, cursor: cancelReason.trim() ? 'pointer' : 'not-allowed', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: cancelSaving ? 0.7 : 1 }}>
+                {cancelSaving ? '⏳...' : '❌ Confirm Cancellation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

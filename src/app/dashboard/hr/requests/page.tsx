@@ -344,7 +344,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
 
     // إضافة معلومات تصحيح الحضور للوصف
     const correctionInfo = form.request_type === 'attendance_correction'
-      ? `\n\nتاريخ الحضور: ${form.start_date}\nوقت الدخول الصح: ${form.correct_checkin || '—'}\nوقت الخروج الصح: ${form.correct_checkout || '—'}`
+      ? `\n\nتاريخ الحضور: ${form.start_date}\nوقت الدخول الصحيح: ${form.correct_checkin || '—'}\nوقت الخروج الصحيح: ${form.correct_checkout || '—'}`
       : ''
 
     const { error } = await supabase.from('employee_requests').insert([{
@@ -458,12 +458,12 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
               <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 12 }}>🕐 أوقات الحضور الصحيحة</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وقت الدخول الصح</label>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وقت الدخول الصحيح</label>
                   <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.correct_checkin}
                     onChange={e => setForm(p => ({ ...p, correct_checkin: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وقت الخروج الصح</label>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وقت الخروج الصحيح</label>
                   <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.correct_checkout}
                     onChange={e => setForm(p => ({ ...p, correct_checkout: e.target.value }))} />
                 </div>
@@ -528,7 +528,9 @@ function RequestDetailModal({ request, currentUser, isAdmin, onClose, onUpdate, 
       const checkinMatch  = desc.match(/وقت الدخول الصح:\s*(\d{2}:\d{2})/)
       const checkoutMatch = desc.match(/وقت الخروج الصح:\s*(\d{2}:\d{2})/)
       const updateData: any = {}
-      if (checkinMatch?.[1]) updateData.check_in_time = `${request.start_date}T${checkinMatch[1]}:00`
+      // ✅ Fix: لازم نحدد إزاحة توقيت ماليزيا (+08:00) صراحة، وإلا الوقت المحلي بيتخزن كأنه UTC مباشرة
+      // (مثال: 10:06 صباحًا ماليزيا كانت بتتخزن 10:06 UTC بدل التحويل الصحيح لـ 02:06 UTC — فرق 8 ساعات)
+      if (checkinMatch?.[1]) updateData.check_in_time = `${request.start_date}T${checkinMatch[1]}:00+08:00`
       if (checkoutMatch?.[1]) {
         // ✅ معالجة الشيفتات الليلية: لو وقت الخروج أصغر من وقت الدخول رقميًا، فالخروج في اليوم التالي
         let checkoutDate = request.start_date
@@ -537,7 +539,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, onClose, onUpdate, 
           nextDay.setDate(nextDay.getDate() + 1)
           checkoutDate = nextDay.toISOString().split('T')[0]
         }
-        updateData.check_out_time = `${checkoutDate}T${checkoutMatch[1]}:00`
+        updateData.check_out_time = `${checkoutDate}T${checkoutMatch[1]}:00+08:00`
       }
       updateData.is_manual = true
       updateData.notes = `تم تصحيحه بموافقة ${approvedBy}`

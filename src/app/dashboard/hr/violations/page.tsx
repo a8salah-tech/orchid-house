@@ -61,6 +61,8 @@ export default function ViolationsPage() {
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
   const canAdd = isAdmin || isBranchManager || isDeptManager || isSupervisor || permissions?.violations === true
   const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
+  // ✅ بعد اعتماد التقييم، يظهر تفاصيله بس لمدير القسم والأدمن (حتى مدير الفرع مايشوفوش بعد الاعتماد)
+  const canViewApprovedEvaluations = isAdmin || isDeptManager
 
   const [violations, setViolations] = useState<any[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -578,19 +580,29 @@ export default function ViolationsPage() {
             const total = calcTotal(sc)
             const grade = getGrade(total, isAr)
             const canEdit = ex?.status !== 'approved' && new Date().getDate() <= 20
+            // ✅ لو التقييم معتمد وأنا مش مدير قسم أو أدمن، أشوف بس الاسم من غير أي تفاصيل
+            const isApprovedAndRestricted = ex?.status === 'approved' && !canViewApprovedEvaluations
             return (
               <div key={emp.id} style={{background:S.navy2,borderRadius:16,border:`1px solid ${ex?.status==='approved'?S.green+'40':S.border}`,padding:20,marginBottom:14}}>
-                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,paddingBottom:14,borderBottom:`1px solid ${S.border}`}}>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom: isApprovedAndRestricted ? 0 : 16,paddingBottom: isApprovedAndRestricted ? 0 : 14,borderBottom: isApprovedAndRestricted ? 'none' : `1px solid ${S.border}`}}>
                   <div style={{width:42,height:42,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:800,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
                   <div style={{flex:1}}>
                     <div style={{fontSize:14,fontWeight:700,color:S.white}}>{emp.name} {emp.name_en||''}</div>
                     <div style={{fontSize:12,color:S.muted}}>{emp.department}</div>
                   </div>
-                  <div style={{textAlign:'center'}}>
-                    <div style={{fontSize:20,fontWeight:900,color:grade.color}}>{total.toFixed(1)}%</div>
-                    <div style={{fontSize:11,fontWeight:700,color:grade.color,background:grade.color+'20',borderRadius:20,padding:'2px 8px'}}>{grade.label}</div>
-                  </div>
+                  {!isApprovedAndRestricted && (
+                    <div style={{textAlign:'center'}}>
+                      <div style={{fontSize:20,fontWeight:900,color:grade.color}}>{total.toFixed(1)}%</div>
+                      <div style={{fontSize:11,fontWeight:700,color:grade.color,background:grade.color+'20',borderRadius:20,padding:'2px 8px'}}>{grade.label}</div>
+                    </div>
+                  )}
                 </div>
+                {isApprovedAndRestricted ? (
+                  <div style={{background:S.card,borderRadius:10,padding:'12px 14px',fontSize:12,color:S.muted,textAlign:'center'}}>
+                    🔒 {isAr ? 'تم اعتماد هذا التقييم — التفاصيل تظهر فقط لمدير القسم والإدارة' : 'This evaluation has been approved — details visible to Department Manager & Admin only'}
+                  </div>
+                ) : (
+                <>
                 <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
                   {CRITERIA.map(c => (
                     <div key={c.key}>
@@ -674,6 +686,8 @@ export default function ViolationsPage() {
                       {evalSaving===emp.id?'⏳':(isAr?'✅ اعتماد':'✅ Approve')}
                     </button>
                   </div>
+                )}
+                </>
                 )}
               </div>
             )

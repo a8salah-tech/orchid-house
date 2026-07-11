@@ -64,6 +64,16 @@ interface InvoiceItem {
   contents_per_unit?: number; contents_unit_name?: string
   contents_manual?: string
   sst_percent?: string
+  discount_type?: 'percent' | 'amount'
+  discount_value?: string
+}
+
+// ✅ يحسب قيمة الخصم الفعلية (مبلغ) لصنف واحد - بيدعم نسبة % أو مبلغ ثابت
+function calcItemDiscount(item: InvoiceItem, grossAmount: number): number {
+  const val = parseFloat(item.discount_value || '0') || 0
+  if (val <= 0) return 0
+  if (item.discount_type === 'amount') return Math.min(val, grossAmount)
+  return grossAmount * (val / 100) // النوع الافتراضي: نسبة مئوية
 }
 
 // ── AI Scanner ──
@@ -456,6 +466,8 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     supplier_invoice_number: '',
     invoice_date: new Date().toISOString().split('T')[0], notes: '',
     sst_percent: '',
+    discount_type: 'percent' as 'percent' | 'amount',
+    discount_value: '',
   })
 
   // جلب أصناف المستودع المختار مباشرة من قاعدة البيانات (مصدر موثوق 100%، بدل الاعتماد على البيانات الممررة من الصفحة الأب)
@@ -586,12 +598,23 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     if (items.some(i => !i.product_id || !i.quantity || !i.unit_price)) { alert('يرجى إكمال بيانات الأصناف'); return }
     setSaving(true)
     try {
-      const subtotal = items.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
-      const totalSSTAmount = items.reduce((s, i) => {
-        const sub = parseFloat(i.quantity) * parseFloat(i.unit_price)
-        return s + Math.round(sub * (parseFloat(i.sst_percent || '0') / 100) * 100) / 100
+      // ✅ الترتيب الصحيح: مجموع خام → خصم كل صنف → صافي الصنف → SST على الصافي → مجموع بعد الضريبة → خصم الفاتورة كاملة → الإجمالي النهائي
+      const grossSubtotalSave = items.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
+      const itemDiscountsTotalSave = items.reduce((s, i) => {
+        const gross = parseFloat(i.quantity) * parseFloat(i.unit_price)
+        return s + calcItemDiscount(i, gross)
       }, 0)
-      const total = Math.round((subtotal + totalSSTAmount) * 100) / 100
+      const totalSSTAmount = items.reduce((s, i) => {
+        const gross = parseFloat(i.quantity) * parseFloat(i.unit_price)
+        const net = gross - calcItemDiscount(i, gross)
+        return s + Math.round(net * (parseFloat(i.sst_percent || '0') / 100) * 100) / 100
+      }, 0)
+      const beforeInvoiceDiscountSave = (grossSubtotalSave - itemDiscountsTotalSave) + totalSSTAmount
+      const invoiceDiscountVal = parseFloat(form.discount_value || '0') || 0
+      const invoiceDiscountAmtSave = invoiceDiscountVal <= 0 ? 0
+        : form.discount_type === 'amount' ? Math.min(invoiceDiscountVal, beforeInvoiceDiscountSave)
+        : beforeInvoiceDiscountSave * (invoiceDiscountVal / 100)
+      const total = Math.max(0, Math.round((beforeInvoiceDiscountSave - invoiceDiscountAmtSave) * 100) / 100)
       const { data: inv, error: invErr } = await supabase.from('purchase_invoices').insert([{
         supplier_id: form.supplier_id || null,
         warehouse_id: form.warehouse_id,
@@ -603,6 +626,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
         status: 'confirmed',
         created_by: employeeId || null,
         sst_amount: totalSSTAmount || null,
+        discount_type: invoiceDiscountVal > 0 ? form.discount_type : null,
+        discount_value: invoiceDiscountVal > 0 ? invoiceDiscountVal : null,
+        discount_amount: invoiceDiscountAmtSave || null,
       }]).select().single()
       if (invErr) throw invErr
       if (invoiceImages.length > 0) {
@@ -613,7 +639,10 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
       for (const item of items) {
         const itemSSTPercent = parseFloat(item.sst_percent || '0') || 0
         const itemSub = parseFloat(item.quantity) * parseFloat(item.unit_price)
-        const itemSSTAmount = Math.round(itemSub * itemSSTPercent / 100 * 100) / 100
+        const itemDiscountAmt = calcItemDiscount(item, itemSub)
+        const itemNet = itemSub - itemDiscountAmt
+        const itemSSTAmount = Math.round(itemNet * itemSSTPercent / 100 * 100) / 100
+        const itemDiscountVal = parseFloat(item.discount_value || '0') || 0
         await supabase.from('purchase_invoice_items').insert([{
           invoice_id: inv.id, product_id: item.product_id,
           quantity: parseFloat(item.quantity), unit_price: parseFloat(item.unit_price),
@@ -621,6 +650,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
           notes: item.contents_manual ? `محتويات الوحدة: ${item.contents_manual}` : null,
           sst_percent: itemSSTPercent || null,
           sst_amount: itemSSTAmount || null,
+          discount_type: itemDiscountVal > 0 ? (item.discount_type || 'percent') : null,
+          discount_value: itemDiscountVal > 0 ? itemDiscountVal : null,
+          discount_amount: itemDiscountAmt || null,
         }])
         const actualQty = parseFloat(item.quantity)
         await supabase.from('stock_movements').insert([{
@@ -638,7 +670,26 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     }
   }
 
-  const total = items.reduce((s, i) => s + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)), 0)
+  // ✅ حسابات الملخص الكاملة: المجموع الخام، خصومات الأصناف، الضريبة (على الصافي بعد خصم الصنف)، وخصم الفاتورة (على الإجمالي بعد الضريبة)
+  const grossSubtotal = items.reduce((s, i) => s + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)), 0)
+  const itemDiscountsTotal = items.reduce((s, i) => {
+    const gross = (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)
+    return s + calcItemDiscount(i, gross)
+  }, 0)
+  const netSubtotal = grossSubtotal - itemDiscountsTotal
+  const totalSSTAmountPreview = items.reduce((s, i) => {
+    const gross = (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)
+    const net = gross - calcItemDiscount(i, gross)
+    return s + net * (parseFloat(i.sst_percent || '0') / 100)
+  }, 0)
+  const beforeInvoiceDiscount = netSubtotal + totalSSTAmountPreview
+  const invoiceDiscountAmt = (() => {
+    const val = parseFloat(form.discount_value || '0') || 0
+    if (val <= 0) return 0
+    if (form.discount_type === 'amount') return Math.min(val, beforeInvoiceDiscount)
+    return beforeInvoiceDiscount * (val / 100)
+  })()
+  const total = grossSubtotal // ✅ نبقي على الاسم القديم "total" = المجموع الخام، عشان مانكسرش أي استخدام تاني ليه في الكود
   const matchedCount = items.filter(i => i.matched).length
 
   return (
@@ -855,24 +906,53 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                 </div>
 
                 {item.quantity && item.unit_price && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <label style={{ fontSize: 11, color: S.muted }}>SST %</label>
-                      <input
-                        type="number" min="0" max="100" step="0.1"
-                        value={item.sst_percent || ''}
-                        onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, sst_percent: e.target.value } : it))}
-                        placeholder="0"
-                        style={{ ...inp, width: 60, padding: '4px 8px', fontSize: 12, textAlign: 'center' }}
-                      />
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <label style={{ fontSize: 11, color: S.muted }}>SST %</label>
+                        <input
+                          type="number" min="0" max="100" step="0.1"
+                          value={item.sst_percent || ''}
+                          onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, sst_percent: e.target.value } : it))}
+                          placeholder="0"
+                          style={{ ...inp, width: 60, padding: '4px 8px', fontSize: 12, textAlign: 'center' }}
+                        />
+                      </div>
+                      {/* ✅ خصم على الصنف - نسبة % أو مبلغ ثابت */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <label style={{ fontSize: 11, color: S.muted }}>خصم</label>
+                        <input
+                          type="number" min="0" step="0.1"
+                          value={item.discount_value || ''}
+                          onChange={e => setItems(p => p.map((it, idx) => idx === i ? { ...it, discount_value: e.target.value } : it))}
+                          placeholder="0"
+                          style={{ ...inp, width: 60, padding: '4px 8px', fontSize: 12, textAlign: 'center' }}
+                        />
+                        <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: `1px solid ${S.border}` }}>
+                          {(['percent', 'amount'] as const).map(t => (
+                            <button key={t} type="button"
+                              onClick={() => setItems(p => p.map((it, idx) => idx === i ? { ...it, discount_type: t } : it))}
+                              style={{ padding: '4px 8px', fontSize: 11, border: 'none', cursor: 'pointer', background: (item.discount_type || 'percent') === t ? S.gold : 'transparent', color: (item.discount_type || 'percent') === t ? S.navy : S.muted, fontWeight: 700 }}>
+                              {t === 'percent' ? '%' : 'MYR'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'left', fontSize: 12, color: S.gold, fontWeight: 600 }}>
+                    <div style={{ textAlign: 'left', fontSize: 12, color: S.gold, fontWeight: 600, marginTop: 6 }}>
                       {(() => {
                         const subtotal = parseFloat(item.quantity) * parseFloat(item.unit_price)
-                        const sst = subtotal * (parseFloat(item.sst_percent || '0') / 100)
-                        return sst > 0
-                          ? <span>{formatMYR(subtotal)} <span style={{ color: '#F59E0B' }}>+SST {formatMYR(sst)}</span> = {formatMYR(subtotal + sst)}</span>
-                          : formatMYR(subtotal)
+                        const discountAmt = calcItemDiscount(item, subtotal)
+                        const netAmt = subtotal - discountAmt
+                        const sst = netAmt * (parseFloat(item.sst_percent || '0') / 100)
+                        return (
+                          <span>
+                            {formatMYR(subtotal)}
+                            {discountAmt > 0 && <span style={{ color: S.red }}> −خصم {formatMYR(discountAmt)}</span>}
+                            {sst > 0 && <span style={{ color: '#F59E0B' }}> +SST {formatMYR(sst)}</span>}
+                            {(discountAmt > 0 || sst > 0) && <span> = {formatMYR(netAmt + sst)}</span>}
+                          </span>
+                        )
                       })()}
                     </div>
                   </div>
@@ -881,25 +961,60 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
             ))}
 
             <div style={{ background: S.navy3, borderRadius: 12, padding: '16px 18px', marginTop: 8 }}>
-              {/* المجموع قبل الضريبة */}
+              {/* المجموع قبل أي خصم */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ color: S.muted, fontSize: 13 }}>المجموع قبل الضريبة</span>
-                <span style={{ color: S.white, fontSize: 15, fontWeight: 700 }}>{formatMYR(total)}</span>
+                <span style={{ color: S.muted, fontSize: 13 }}>المجموع قبل الخصم</span>
+                <span style={{ color: S.white, fontSize: 15, fontWeight: 700 }}>{formatMYR(grossSubtotal)}</span>
               </div>
-              {/* SST إجمالي الأصناف الخاضعة */}
-              {items.reduce((s, it) => s + (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)*(parseFloat(it.sst_percent||'0')/100), 0) > 0 && (
+              {/* خصومات الأصناف */}
+              {itemDiscountsTotal > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ color: '#F59E0B', fontSize: 13 }}>SST (الأصناف الخاضعة)</span>
-                  <span style={{ color: '#F59E0B', fontSize: 15, fontWeight: 700 }}>
-                    {formatMYR(items.reduce((s, it) => s + (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)*(parseFloat(it.sst_percent||'0')/100), 0))}
-                  </span>
+                  <span style={{ color: S.red, fontSize: 13 }}>خصم الأصناف</span>
+                  <span style={{ color: S.red, fontSize: 15, fontWeight: 700 }}>− {formatMYR(itemDiscountsTotal)}</span>
                 </div>
               )}
+              {/* SST إجمالي الأصناف الخاضعة (محسوبة على الصافي بعد خصم الصنف) */}
+              {totalSSTAmountPreview > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ color: '#F59E0B', fontSize: 13 }}>SST (الأصناف الخاضعة)</span>
+                  <span style={{ color: '#F59E0B', fontSize: 15, fontWeight: 700 }}>{formatMYR(totalSSTAmountPreview)}</span>
+                </div>
+              )}
+
+              {/* ✅ خصم على الفاتورة كاملة - نسبة % أو مبلغ ثابت */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingTop: 8, borderTop: `1px dashed rgba(255,255,255,0.08)` }}>
+                <span style={{ color: S.muted, fontSize: 13 }}>خصم على الفاتورة كاملة</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="number" min="0" step="0.1"
+                    value={form.discount_value}
+                    onChange={e => setForm(p => ({ ...p, discount_value: e.target.value }))}
+                    placeholder="0"
+                    style={{ ...inp, width: 70, padding: '4px 8px', fontSize: 12, textAlign: 'center' }}
+                  />
+                  <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: `1px solid ${S.border}` }}>
+                    {(['percent', 'amount'] as const).map(t => (
+                      <button key={t} type="button"
+                        onClick={() => setForm(p => ({ ...p, discount_type: t }))}
+                        style={{ padding: '4px 8px', fontSize: 11, border: 'none', cursor: 'pointer', background: form.discount_type === t ? S.gold : 'transparent', color: form.discount_type === t ? S.navy : S.muted, fontWeight: 700 }}>
+                        {t === 'percent' ? '%' : 'MYR'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {invoiceDiscountAmt > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ color: S.red, fontSize: 13 }}>قيمة خصم الفاتورة</span>
+                  <span style={{ color: S.red, fontSize: 15, fontWeight: 700 }}>− {formatMYR(invoiceDiscountAmt)}</span>
+                </div>
+              )}
+
               {/* الإجمالي النهائي */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: `1px solid rgba(255,255,255,0.07)` }}>
                 <span style={{ color: S.muted, fontSize: 14 }}>الإجمالي النهائي</span>
                 <span style={{ color: S.gold, fontSize: 22, fontWeight: 800 }}>
-                  {formatMYR(total + items.reduce((s, it) => s + (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)*(parseFloat(it.sst_percent||'0')/100), 0))}
+                  {formatMYR(Math.max(0, beforeInvoiceDiscount - invoiceDiscountAmt))}
                 </span>
               </div>
             </div>
@@ -969,6 +1084,8 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
     warehouse_id: invoice.warehouse_id || '',
     notes: invoice.notes || '',
     sst_percent: String((invoice as any).sst_percent || ''),
+    discount_type: ((invoice as any).discount_type || 'percent') as 'percent' | 'amount',
+    discount_value: String((invoice as any).discount_value || ''),
   })
   const [editItems, setEditItems] = useState<any[]>([])
   const [editWarehouseProducts, setEditWarehouseProducts] = useState<any[]>([])
@@ -1023,7 +1140,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
     async function loadItems() {
       const { data: rawItems } = await supabase
         .from('purchase_invoice_items')
-        .select('id, invoice_id, product_id, quantity, unit_price, unit_id, notes')
+        .select('id, invoice_id, product_id, quantity, unit_price, unit_id, notes, sst_percent, sst_amount, discount_type, discount_value, discount_amount')
         .eq('invoice_id', invoice.id)
       if (!rawItems || rawItems.length === 0) { setItems([]); setEditItems([]); setLoadingItems(false); return }
       const productIds = [...new Set(rawItems.map((i: any) => i.product_id))]
@@ -1031,7 +1148,12 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
       const prodMap = Object.fromEntries((prods || []).map((p: any) => [p.id, p.name]))
       const loaded = rawItems.map((i: any) => ({ ...i, product_name: prodMap[i.product_id] || '—' }))
       setItems(loaded)
-      setEditItems(loaded.map((i: any) => ({ id: i.id, product_id: i.product_id, quantity: String(i.quantity), unit_price: String(i.unit_price), unit_id: i.unit_id || '' })))
+      setEditItems(loaded.map((i: any) => ({
+        id: i.id, product_id: i.product_id, quantity: String(i.quantity), unit_price: String(i.unit_price), unit_id: i.unit_id || '',
+        sst_percent: i.sst_percent != null ? String(i.sst_percent) : '',
+        discount_type: i.discount_type || 'percent',
+        discount_value: i.discount_value != null ? String(i.discount_value) : '',
+      })))
       setLoadingItems(false)
     }
     async function loadNotes() {
@@ -1072,19 +1194,39 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
     if (editItems.some(i => !i.product_id || !i.quantity || !i.unit_price)) { alert('يرجى إكمال بيانات الأصناف'); return }
     if (!editReason.trim()) { alert('يرجى كتابة سبب التعديل'); return }
     setSaving(true)
-    const subtotal = editItems.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
-    const totalSSTAmount = editItems.reduce((s, i) => {
-      const sub = parseFloat(i.quantity) * parseFloat(i.unit_price)
-      return s + Math.round(sub * (parseFloat(i.sst_percent || '0') / 100) * 100) / 100
+    // ✅ نفس ترتيب الحساب المستخدم في فاتورة جديدة: خام → خصم الصنف → صافي → SST على الصافي → خصم الفاتورة → الإجمالي
+    const grossSubtotalEdit = editItems.reduce((s, i) => s + (parseFloat(i.quantity) * parseFloat(i.unit_price)), 0)
+    const itemDiscountsTotalEdit = editItems.reduce((s, i) => {
+      const gross = parseFloat(i.quantity) * parseFloat(i.unit_price)
+      return s + calcItemDiscount(i, gross)
     }, 0)
-    const total = Math.round((subtotal + totalSSTAmount) * 100) / 100
-    await supabase.from('purchase_invoices').update({ invoice_number: editForm.invoice_number || null, invoice_date: editForm.invoice_date, supplier_id: editForm.supplier_id || null, warehouse_id: editForm.warehouse_id || null, notes: editForm.notes || null, total_amount: total, sst_amount: totalSSTAmount || null }).eq('id', invoice.id)
+    const totalSSTAmount = editItems.reduce((s, i) => {
+      const gross = parseFloat(i.quantity) * parseFloat(i.unit_price)
+      const net = gross - calcItemDiscount(i, gross)
+      return s + Math.round(net * (parseFloat(i.sst_percent || '0') / 100) * 100) / 100
+    }, 0)
+    const beforeInvoiceDiscountEdit = (grossSubtotalEdit - itemDiscountsTotalEdit) + totalSSTAmount
+    const editInvoiceDiscountVal = parseFloat(editForm.discount_value || '0') || 0
+    const editInvoiceDiscountAmt = editInvoiceDiscountVal <= 0 ? 0
+      : editForm.discount_type === 'amount' ? Math.min(editInvoiceDiscountVal, beforeInvoiceDiscountEdit)
+      : beforeInvoiceDiscountEdit * (editInvoiceDiscountVal / 100)
+    const total = Math.max(0, Math.round((beforeInvoiceDiscountEdit - editInvoiceDiscountAmt) * 100) / 100)
+    await supabase.from('purchase_invoices').update({
+      invoice_number: editForm.invoice_number || null, invoice_date: editForm.invoice_date, supplier_id: editForm.supplier_id || null, warehouse_id: editForm.warehouse_id || null, notes: editForm.notes || null,
+      total_amount: total, sst_amount: totalSSTAmount || null,
+      discount_type: editInvoiceDiscountVal > 0 ? editForm.discount_type : null,
+      discount_value: editInvoiceDiscountVal > 0 ? editInvoiceDiscountVal : null,
+      discount_amount: editInvoiceDiscountAmt || null,
+    }).eq('id', invoice.id)
     await supabase.from('purchase_invoice_items').delete().eq('invoice_id', invoice.id)
     await supabase.from('stock_movements').delete().eq('invoice_id', invoice.id)
     for (const item of editItems) {
       const itemSSTPercent = parseFloat(item.sst_percent || '0') || 0
       const itemSub = parseFloat(item.quantity) * parseFloat(item.unit_price)
-      const itemSSTAmount = Math.round(itemSub * itemSSTPercent / 100 * 100) / 100
+      const itemDiscountAmt = calcItemDiscount(item, itemSub)
+      const itemNet = itemSub - itemDiscountAmt
+      const itemSSTAmount = Math.round(itemNet * itemSSTPercent / 100 * 100) / 100
+      const itemDiscountVal = parseFloat(item.discount_value || '0') || 0
       await supabase.from('purchase_invoice_items').insert([{
         invoice_id: invoice.id,
         product_id: item.product_id,
@@ -1093,6 +1235,9 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
         unit_id: item.unit_id || null,
         sst_percent: itemSSTPercent || null,
         sst_amount: itemSSTAmount || null,
+        discount_type: itemDiscountVal > 0 ? (item.discount_type || 'percent') : null,
+        discount_value: itemDiscountVal > 0 ? itemDiscountVal : null,
+        discount_amount: itemDiscountAmt || null,
       }])
       if (editForm.warehouse_id) {
         await supabase.from('stock_movements').insert([{
@@ -1128,7 +1273,26 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
     onDeleted()
   }
 
-  const editTotal = editItems.reduce((s, i) => s + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)), 0)
+  // ✅ حسابات ملخص التعديل - نفس منطق فاتورة جديدة بالظبط
+  const editGrossSubtotal = editItems.reduce((s, i) => s + ((parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)), 0)
+  const editItemDiscountsTotal = editItems.reduce((s, i) => {
+    const gross = (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)
+    return s + calcItemDiscount(i, gross)
+  }, 0)
+  const editTotalSST = editItems.reduce((s, i) => {
+    const gross = (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_price) || 0)
+    const net = gross - calcItemDiscount(i, gross)
+    return s + net * (parseFloat(i.sst_percent || '0') / 100)
+  }, 0)
+  const editBeforeInvoiceDiscount = (editGrossSubtotal - editItemDiscountsTotal) + editTotalSST
+  const editInvoiceDiscountPreview = (() => {
+    const val = parseFloat(editForm.discount_value || '0') || 0
+    if (val <= 0) return 0
+    if (editForm.discount_type === 'amount') return Math.min(val, editBeforeInvoiceDiscount)
+    return editBeforeInvoiceDiscount * (val / 100)
+  })()
+  const editTotal = editGrossSubtotal // ✅ الاسم القديم "editTotal" = المجموع الخام، عشان مانكسرش أي استخدام تاني ليه
+
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
@@ -1157,8 +1321,9 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
                 { label: 'المورد', value: invoice.warehouse_suppliers?.name || '—', icon: '🤝' },
                 { label: 'المستودع', value: invoice.warehouses?.name || '—', icon: '🏭' },
                 { label: 'التاريخ', value: invoice.invoice_date, icon: '📅' },
-                { label: 'المجموع قبل الضريبة', value: formatMYR((invoice.total_amount || 0) - ((invoice as any).sst_amount || 0)), icon: '💵' },
-                ...((invoice as any).sst_percent ? [{ label: `SST (${(invoice as any).sst_percent}%)`, value: formatMYR((invoice as any).sst_amount || 0), icon: '🧾', amber: true }] : []),
+                { label: 'الصافي قبل الضريبة', value: formatMYR((invoice.total_amount || 0) - ((invoice as any).sst_amount || 0) + ((invoice as any).discount_amount || 0)), icon: '💵' },
+                ...((invoice as any).discount_amount ? [{ label: `خصم الفاتورة${(invoice as any).discount_type === 'percent' ? ` (${(invoice as any).discount_value}%)` : ''}`, value: '− ' + formatMYR((invoice as any).discount_amount || 0), icon: '🏷️', amber: true }] : []),
+                ...((invoice as any).sst_amount ? [{ label: `SST`, value: formatMYR((invoice as any).sst_amount || 0), icon: '🧾', amber: true }] : []),
                 { label: 'الإجمالي النهائي', value: `MYR ${Number(invoice.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2 })}`, icon: '💰', green: true },
                 { label: 'أدخلها', value: (invoice as any).employees?.name || '—', icon: '👤' },
               ].map((r, i) => (
@@ -1295,10 +1460,18 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
                 <input style={inpD} value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} placeholder="اختياري" />
               </div>
               <div>
-                <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>نسبة SST %</label>
+                <label style={{ fontSize: 11, color: S2.muted, display: 'block', marginBottom: 4 }}>خصم على الفاتورة كاملة</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input type="number" min="0" max="100" step="0.1" style={{ ...inpD, width: 100, textAlign: 'center' }} value={editForm.sst_percent} onChange={e => setEditForm(p => ({ ...p, sst_percent: e.target.value }))} placeholder="0" />
-                  <span style={{ color: S2.muted, fontSize: 13 }}>%</span>
+                  <input type="number" min="0" step="0.1" style={{ ...inpD, width: 100, textAlign: 'center' }} value={editForm.discount_value} onChange={e => setEditForm(p => ({ ...p, discount_value: e.target.value }))} placeholder="0" />
+                  <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: `1px solid rgba(255,255,255,0.10)` }}>
+                    {(['percent', 'amount'] as const).map(t => (
+                      <button key={t} type="button"
+                        onClick={() => setEditForm(p => ({ ...p, discount_type: t }))}
+                        style={{ padding: '5px 10px', fontSize: 12, border: 'none', cursor: 'pointer', background: editForm.discount_type === t ? S2.gold : 'transparent', color: editForm.discount_type === t ? S2.navy : S2.muted, fontWeight: 700 }}>
+                        {t === 'percent' ? '%' : 'MYR'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1310,14 +1483,58 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {editItems.map((item, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 6, alignItems: 'center', background: S2.card, borderRadius: 10, padding: '8px 10px' }}>
-                    <select style={{ ...inpD, padding: '7px 10px' }} value={item.product_id} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, product_id: e.target.value } : x))}>
-                      <option value="">الصنف</option>
-                      {(editWarehouseProducts.length > 0 ? editWarehouseProducts : products.filter((p: any) => p.warehouse_id === editForm.warehouse_id)).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                    <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="الكمية" value={item.quantity} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, quantity: e.target.value } : x))} />
-                    <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="السعر" value={item.unit_price} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, unit_price: e.target.value } : x))} />
-                    <button onClick={() => setEditItems(p => p.filter((_, xi) => xi !== i))} style={{ background: S2.redB, border: `1px solid ${S2.red}`, borderRadius: 8, color: S2.red, cursor: 'pointer', padding: '7px 10px', fontSize: 14 }}>✕</button>
+                  <div key={i} style={{ background: S2.card, borderRadius: 10, padding: '8px 10px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 6, alignItems: 'center' }}>
+                      <select style={{ ...inpD, padding: '7px 10px' }} value={item.product_id} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, product_id: e.target.value } : x))}>
+                        <option value="">الصنف</option>
+                        {(editWarehouseProducts.length > 0 ? editWarehouseProducts : products.filter((p: any) => p.warehouse_id === editForm.warehouse_id)).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="الكمية" value={item.quantity} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, quantity: e.target.value } : x))} />
+                      <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="السعر" value={item.unit_price} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, unit_price: e.target.value } : x))} />
+                      <button onClick={() => setEditItems(p => p.filter((_, xi) => xi !== i))} style={{ background: S2.redB, border: `1px solid ${S2.red}`, borderRadius: 8, color: S2.red, cursor: 'pointer', padding: '7px 10px', fontSize: 14 }}>✕</button>
+                    </div>
+                    {item.quantity && item.unit_price && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <label style={{ fontSize: 11, color: S2.muted }}>SST %</label>
+                          <input type="number" min="0" max="100" step="0.1" value={item.sst_percent || ''}
+                            onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, sst_percent: e.target.value } : x))}
+                            placeholder="0" style={{ ...inpD, width: 60, padding: '4px 8px', fontSize: 12, textAlign: 'center' }} />
+                        </div>
+                        {/* ✅ خصم على الصنف - نسبة % أو مبلغ ثابت */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <label style={{ fontSize: 11, color: S2.muted }}>خصم</label>
+                          <input type="number" min="0" step="0.1" value={item.discount_value || ''}
+                            onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, discount_value: e.target.value } : x))}
+                            placeholder="0" style={{ ...inpD, width: 60, padding: '4px 8px', fontSize: 12, textAlign: 'center' }} />
+                          <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: `1px solid rgba(255,255,255,0.10)` }}>
+                            {(['percent', 'amount'] as const).map(t => (
+                              <button key={t} type="button"
+                                onClick={() => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, discount_type: t } : x))}
+                                style={{ padding: '4px 8px', fontSize: 11, border: 'none', cursor: 'pointer', background: (item.discount_type || 'percent') === t ? S2.gold : 'transparent', color: (item.discount_type || 'percent') === t ? S2.navy : S2.muted, fontWeight: 700 }}>
+                                {t === 'percent' ? '%' : 'MYR'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{ marginLeft: 'auto', fontSize: 12, color: S2.gold, fontWeight: 600 }}>
+                          {(() => {
+                            const gross = parseFloat(item.quantity) * parseFloat(item.unit_price)
+                            const disc = calcItemDiscount(item, gross)
+                            const net = gross - disc
+                            const sst = net * (parseFloat(item.sst_percent || '0') / 100)
+                            return (
+                              <span>
+                                MYR {gross.toFixed(2)}
+                                {disc > 0 && <span style={{ color: S2.red }}> −{disc.toFixed(2)}</span>}
+                                {sst > 0 && <span style={{ color: '#F59E0B' }}> +{sst.toFixed(2)}</span>}
+                                {(disc > 0 || sst > 0) && <span> = {(net + sst).toFixed(2)}</span>}
+                              </span>
+                            )
+                          })()}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {editItems.length === 0 && (
@@ -1327,18 +1544,30 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
               {editItems.length > 0 && (
                 <div style={{ background: S2.navy3, borderRadius: 12, padding: '14px 16px', marginTop: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, color: S2.muted }}>المجموع قبل الضريبة</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: S2.white }}>MYR {editTotal.toFixed(2)}</span>
+                    <span style={{ fontSize: 13, color: S2.muted }}>المجموع قبل الخصم</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: S2.white }}>MYR {editGrossSubtotal.toFixed(2)}</span>
                   </div>
-                  {parseFloat(editForm.sst_percent || '0') > 0 && (
+                  {editItemDiscountsTotal > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <span style={{ fontSize: 13, color: '#F59E0B' }}>SST ({editForm.sst_percent}%)</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>MYR {(editTotal * parseFloat(editForm.sst_percent) / 100).toFixed(2)}</span>
+                      <span style={{ fontSize: 13, color: S2.red }}>خصم الأصناف</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: S2.red }}>− MYR {editItemDiscountsTotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {editTotalSST > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: '#F59E0B' }}>SST (الأصناف الخاضعة)</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>MYR {editTotalSST.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {editInvoiceDiscountPreview > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: S2.red }}>خصم الفاتورة كاملة</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: S2.red }}>− MYR {editInvoiceDiscountPreview.toFixed(2)}</span>
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: `1px solid rgba(255,255,255,0.07)` }}>
                     <span style={{ fontSize: 13, color: S2.muted }}>الإجمالي النهائي</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: S2.green }}>MYR {(editTotal + editTotal * parseFloat(editForm.sst_percent || '0') / 100).toFixed(2)}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: S2.green }}>MYR {Math.max(0, editBeforeInvoiceDiscount - editInvoiceDiscountPreview).toFixed(2)}</span>
                   </div>
                 </div>
               )}

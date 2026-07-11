@@ -210,34 +210,40 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr' }}>
 
       {/* ══ HEADER ══ */}
-      <header style={{ position: 'fixed', top: 0, right: 0, left: 0, zIndex: 100, height: 60, background: S.navy2, borderBottom: `1px solid ${S.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button onClick={() => setSidebarOpen(p => !p)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 20, padding: 4 }}>☰</button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <img src="/logo.png" alt="Orchid" style={{ width: 100, height: 100, borderRadius: 12, objectFit: 'contain' }} />
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
-              <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>
-              <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.041.01</div>
-            </div>
+      <header style={{ position: 'fixed', top: 0, right: 0, left: 0, zIndex: 100, height: 60, background: S.navy2, borderBottom: `1px solid ${S.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMobile ? '0 10px' : '0 20px', gap: isMobile ? 8 : 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 14, minWidth: 0 }}>
+          <button onClick={() => setSidebarOpen(p => !p)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: S.muted, fontSize: 20, padding: 4, flexShrink: 0 }}>☰</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, minWidth: 0 }}>
+            <img src="/logo.png" alt="Orchid" style={{ width: isMobile ? 34 : 100, height: isMobile ? 34 : 100, borderRadius: isMobile ? 6 : 12, objectFit: 'contain', flexShrink: 0 }} />
+            {!isMobile && (
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
+                <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>
+                <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.041.01</div>
+              </div>
+            )}
           </div>
         </div>
 
-        <div style={{ fontSize: 14, color: S.muted, flex: 1, textAlign: 'center' }}>
+        <div style={{ fontSize: isMobile ? 12 : 14, color: S.muted, flex: 1, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
           {currentPageLabel ? (isAr ? currentPageLabel.label : currentPageLabel.label_en) : t.dashboard}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={toggleLang} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', letterSpacing: 1 }}>
-            {lang === 'ar' ? 'EN' : 'عر'}
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10 }}>
+          {!isMobile && (
+            <button onClick={toggleLang} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', letterSpacing: 1 }}>
+              {lang === 'ar' ? 'EN' : 'عر'}
+            </button>
+          )}
           <NotificationBell />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: '6px 12px', border: `1px solid ${S.border}` }}>
-            <div style={{ textAlign: isAr ? 'right' : 'left' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>{employee?.name || 'User'}</div>
-              <div style={{ fontSize: 10, color: roleInfo.color }}>{roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}</div>
-            </div>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: S.goldB, border: `1px solid ${S.gold3}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: S.gold }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: isMobile ? '4px 8px' : '6px 12px', border: `1px solid ${S.border}` }}>
+            {!isMobile && (
+              <div style={{ textAlign: isAr ? 'right' : 'left' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>{employee?.name || 'User'}</div>
+                <div style={{ fontSize: 10, color: roleInfo.color }}>{roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}</div>
+              </div>
+            )}
+            <div style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, borderRadius: 8, background: S.goldB, border: `1px solid ${S.gold3}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: S.gold, flexShrink: 0 }}>
               {employee?.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
           </div>

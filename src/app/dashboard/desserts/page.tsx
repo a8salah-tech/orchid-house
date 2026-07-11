@@ -93,6 +93,10 @@ export default function DessertsPage() {
   const sb = sbRef.current
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
+  // ✅ مشرف ومدير الصالة يتثبت فرعهم على فرعهم بس ومايقدروش يشوفوا الفرع التاني
+  // (الأدمن وmanager/supervisor المطبخ - اللي بيغطوا الحلويات - بيشوفوا الفرعين زي ما هو)
+  const isHallRole = ['hall_supervisor', 'hall_manager'].includes(employee?.role || '')
+  const lockedBranchId = isHallRole && !isAdmin ? (employee?.branch_id || '') : null
   const currentUserName = employee?.name || 'Unknown User'
 
   const [mainTab, setMainTab] = useState<'orders' | 'cake'>('orders')
@@ -127,6 +131,8 @@ export default function DessertsPage() {
 
   // ✅ Branch filter tabs at the top - shows stats for a specific branch or all branches combined
   const [branchFilter, setBranchFilter] = useState('') // '' = All Branches
+  // ✅ تثبيت الفرع تلقائيًا لمشرف/مدير الصالة على فرعهم بس
+  useEffect(() => { if (lockedBranchId) setBranchFilter(lockedBranchId) }, [lockedBranchId])
 
   // Production entry form
   const [prodBranchId, setProdBranchId] = useState('')
@@ -142,6 +148,8 @@ export default function DessertsPage() {
   const [logNotes, setLogNotes] = useState('')
   const [logSaving, setLogSaving] = useState(false)
   const prodFileInputRef = useRef<HTMLInputElement>(null)
+  // ✅ تثبيت فرع الفورمز تلقائيًا لمشرف/مدير الصالة على فرعهم بس
+  useEffect(() => { if (lockedBranchId) setLogBranchId(lockedBranchId) }, [lockedBranchId])
 
   // ✅ Cumulative data (all days up to & including viewDate) - used to compute the real running "Remaining" total
   const [cumProductions, setCumProductions] = useState<{ quantity: number; branch_id: string | null }[]>([])
@@ -457,18 +465,27 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
         )}
 
         {/* ── Branch filter tabs ── */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-          <button onClick={() => setBranchFilter('')}
-            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === '' ? S.gold : S.border}`, background: branchFilter === '' ? S.gold3 : 'transparent', color: branchFilter === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-            🏢 All Branches
-          </button>
-          {branches.map(b => (
-            <button key={b.id} onClick={() => setBranchFilter(b.id)}
-              style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === b.id ? S.gold : S.border}`, background: branchFilter === b.id ? S.gold3 : 'transparent', color: branchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-              {b.name}
+        {lockedBranchId ? (
+          // ✅ مشرف/مدير الصالة: شارة ثابتة بفرعهم بس، مفيش أي إمكانية للتبديل
+          <div style={{ marginBottom: 14 }}>
+            <span style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, fontSize: 13, fontWeight: 700, display: 'inline-block' }}>
+              🏢 {branches.find(b => b.id === lockedBranchId)?.name || 'Your Branch'}
+            </span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <button onClick={() => setBranchFilter('')}
+              style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === '' ? S.gold : S.border}`, background: branchFilter === '' ? S.gold3 : 'transparent', color: branchFilter === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+              🏢 All Branches
             </button>
-          ))}
-        </div>
+            {branches.map(b => (
+              <button key={b.id} onClick={() => setBranchFilter(b.id)}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === b.id ? S.gold : S.border}`, background: branchFilter === b.id ? S.gold3 : 'transparent', color: branchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                {b.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ── Date search bar ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: isMobile ? '10px 12px' : '12px 16px', flexWrap: 'wrap' }}>
@@ -506,7 +523,8 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
           {/* ── Forms column ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-            {/* Production entry form */}
+            {/* Production entry form - المطبخ بس، مش متاح لمشرف/مدير الصالة */}
+            {!isHallRole && (
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.gold}40`, padding: 16 }}>
               <div style={{ color: S.gold, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📦 Log Today's Cake Production</div>
               <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Logging as: <span style={{ color: S.white, fontWeight: 700 }}>{currentUserName}</span></div>
@@ -530,14 +548,14 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                 {prodSaving ? '⏳ Saving...' : '✅ Log Production'}
               </button>
             </div>
-
+            )}
             {/* Manual table distribution form */}
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.pink}40`, padding: 16 }}>
               <div style={{ color: S.pink, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>🍽️ Log Cake Given to a Table (Manual)</div>
               <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Logging as: <span style={{ color: S.white, fontWeight: 700 }}>{currentUserName}</span></div>
 
-              <select value={logBranchId} onChange={e => { setLogBranchId(e.target.value); setLogTableId('') }}
-                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }}>
+              <select value={logBranchId} onChange={e => { setLogBranchId(e.target.value); setLogTableId('') }} disabled={!!lockedBranchId}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8, opacity: lockedBranchId ? 0.7 : 1 }}>
                 <option value="">-- Select Branch --</option>
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>

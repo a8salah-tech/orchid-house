@@ -97,7 +97,7 @@ type Order = {
   discount_amount: number; discount_type: string; payment_method: string
   service_charge: number; sst_amount: number; shift: string
   notes: string; created_at: string; confirmed_at: string; paid_at?: string
-  customer_id?: string | null; cancel_reason?: string | null
+  customer_id?: string | null; cancel_reason?: string | null; paid_by_name?: string | null
   tables: { number: number; name: string }
   order_items: OrderItem[]
 }
@@ -144,6 +144,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const { employee, permissions } = useAuth()
   const isCashierRole = permissions?.all === true || ['cashier', 'assistant_cashier'].includes(employee?.role || '')
   const isAdminUser = permissions?.all === true
+  // ✅ Fix: حماية من تنفيذ الدفع مرتين لو حصل ضغط مزدوج سريع على "Confirm" (كان بيضاعف إحصائيات العميل)
+  const isPayingRef = useRef(false)
   // ✅ اسم الفرع الحقيقي للطاولة - عشان الأدمن يفرّق بين طاولات نفس الاسم في فروع مختلفة (زي "Table 1" في House و KLCC)
   const [orderBranchName, setOrderBranchName] = useState<string | null>(null)
   useEffect(() => {
@@ -253,6 +255,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   }
 
   async function doPay() {
+    if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
+    isPayingRef.current = true
     setSaving(true)
 
     // 1. Mark all active orders for this table as paid
@@ -266,6 +270,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       total_amount: total,
       paid_at: new Date().toISOString(),
       customer_id: selectedCustomer?.id || null,
+      paid_by: employee?.id || null,
+      paid_by_name: employee?.name || null,
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
@@ -296,6 +302,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   }
 
   async function doPaySplit() {
+    if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
+    isPayingRef.current = true
     setSaving(true)
 
     // نسجل كل دفعة على حدة في order_split_payments للأرشفة والتقارير
@@ -322,6 +330,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       total_amount: total,
       paid_at: new Date().toISOString(),
       customer_id: selectedCustomer?.id || null,
+      paid_by: employee?.id || null,
+      paid_by_name: employee?.name || null,
     }).eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
@@ -659,8 +669,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
                 Cancel
               </button>
               <button
+                disabled={saving}
                 onClick={() => { const action = confirmAction; setConfirmAction(null); if (action === 'split') doPaySplit(); else doPay() }}
-                style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.6 : 1 }}>
                 ✅ Yes, Confirm
               </button>
             </div>
@@ -1029,6 +1040,15 @@ export default function CashierPage() {
   const isAdmin = permissions?.all === true
   const isCashierRole = isAdmin || ['cashier','assistant_cashier'].includes(employee?.role || '')
 
+  // ✅ كشف الموبايل عشان نظبط تنسيق الهيدر والتابات فوق
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const [orders, setOrders] = useState<Order[]>([])
   const [tables, setTables] = useState<TableRow[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -1118,7 +1138,36 @@ export default function CashierPage() {
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [transferOrder, setTransferOrder] = useState<Order | null>(null)
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
-  const [view, setView] = useState<'orders' | 'tables'>('tables')
+  const [view, setView] = useState<'orders' | 'tables' | 'archive'>('tables')
+  // ✅ تاب الأرشيف - بحث في الفواتير المقفولة (مدفوعة/ملغية) بالتاريخ أو رقم الطاولة
+  const [archiveDate, setArchiveDate] = useState('')
+  const [archiveTableSearch, setArchiveTableSearch] = useState('')
+  const [archiveResults, setArchiveResults] = useState<Order[]>([])
+  const [archiveLoading, setArchiveLoading] = useState(false)
+  const [archiveSearched, setArchiveSearched] = useState(false)
+
+  const searchArchive = useCallback(async () => {
+    setArchiveLoading(true)
+    setArchiveSearched(true)
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
+    let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
+    if (archiveDate) {
+      q = q.gte('created_at', `${archiveDate}T00:00:00`).lt('created_at', `${archiveDate}T23:59:59.999`)
+    }
+    const { data } = await q
+    let results = (data as any as Order[]) || []
+    // ✅ فلترة برقم الطاولة (بحث نصي بسيط على اسم/رقم الطاولة)
+    if (archiveTableSearch.trim()) {
+      const s = archiveTableSearch.trim().toLowerCase()
+      results = results.filter(o => {
+        const tblName = (o.tables?.name || '').toLowerCase()
+        const tblNum = String(o.tables?.number || '')
+        return tblName.includes(s) || tblNum.includes(s)
+      })
+    }
+    setArchiveResults(results)
+    setArchiveLoading(false)
+  }, [sb, archiveDate, archiveTableSearch])
   const [adminBranchFilter, setAdminBranchFilter] = useState<string>('')
 
   // أول ما الفروع توصل، الأدمن يبدأ بأول فرع تلقائيًا
@@ -1127,7 +1176,7 @@ export default function CashierPage() {
   }, [isAdmin, branches, adminBranchFilter])
 
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -1148,7 +1197,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -1345,11 +1394,12 @@ export default function CashierPage() {
       )}
 
       {/* Header */}
-      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '10px 16px', zIndex: 10 }}>
+      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: isMobile ? '8px 10px' : '10px 16px', zIndex: 10 }}>
         {/* Row 1 */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <h1 style={{ color: S.gold, fontSize: 17, fontWeight: 900 }}>🏧 Cashier</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <h1 style={{ color: S.gold, fontSize: isMobile ? 15 : 17, fontWeight: 900 }}>🏧 Cashier</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: 'wrap' }}>
+            {!isMobile && (
             <button onClick={() => {
               try {
                 const ctx = getCtx()
@@ -1363,18 +1413,22 @@ export default function CashierPage() {
               style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${soundEnabled ? S.green : S.amber}`, background: soundEnabled ? S.greenB : S.amberB, color: soundEnabled ? S.green : S.amber, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               {soundEnabled ? '🔊 Sound On' : '🔔 Enable Sound'}
             </button>
+            )}
             {activeCount > 0 && (
               <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 12, color: S.red, fontWeight: 700 }}>{activeCount} active</div>
             )}
-            <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 Tables</button>
-            <button onClick={() => setView('orders')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : 'transparent', color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 Orders</button>
+            <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 {isMobile ? '' : 'Tables'}</button>
+            <button onClick={() => setView('orders')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : 'transparent', color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 {isMobile ? '' : 'Orders'}</button>
             {isCashierRole && (
-              <button onClick={() => setView('shift' as any)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'shift' ? S.teal : S.border}`, background: (view as string) === 'shift' ? S.tealB : 'transparent', color: (view as string) === 'shift' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 Shift</button>
+              <button onClick={() => { setView('archive'); if (!archiveSearched) searchArchive() }} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'archive' ? S.purple : S.border}`, background: (view as string) === 'archive' ? S.purpleB : 'transparent', color: (view as string) === 'archive' ? S.purple : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📦 {isMobile ? '' : 'Archive'}</button>
+            )}
+            {isCashierRole && (
+              <button onClick={() => setView('shift' as any)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'shift' ? S.teal : S.border}`, background: (view as string) === 'shift' ? S.tealB : 'transparent', color: (view as string) === 'shift' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 {isMobile ? '' : 'Shift'}</button>
             )}
           </div>
         </div>
         {/* Row 2: Shift */}
-        {isCashierRole && <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {isCashierRole && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <select value={shift} onChange={e => setShift(e.target.value as any)} style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 10px', color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
             <option value="shift1">Shift 1</option>
             <option value="shift2">Shift 2</option>
@@ -1392,7 +1446,7 @@ export default function CashierPage() {
 
       {/* Row 3: Branch Selector (Admin only) */}
       {isAdmin && branches.length > 0 && (
-        <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>🏪 Branch:</span>
           {branches.map(b => (
             <button key={b.id} onClick={() => setAdminBranchFilter(b.id)}
@@ -1403,7 +1457,7 @@ export default function CashierPage() {
         </div>
       )}
 
-      <div style={{ padding: 16, maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ padding: isMobile ? 10 : 16, maxWidth: 1200, margin: '0 auto' }}>
         {/* Tables Stats Bar — for the currently displayed branch */}
         <div style={{ marginBottom: 16 }}>
           {currentBranchName && (
@@ -1485,10 +1539,64 @@ export default function CashierPage() {
               })}
             </div>
           </div>
+        ) : view === 'archive' && isCashierRole ? (
+          /* ══ ARCHIVE VIEW ══ */
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', background: S.card, borderRadius: 12, padding: 12, border: `1px solid ${S.border}` }}>
+              <span style={{ fontSize: 12, color: S.muted, fontWeight: 700 }}>📦 Archive Search</span>
+              <input type="date" value={archiveDate} onChange={e => setArchiveDate(e.target.value)}
+                style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12 }} />
+              <input type="text" value={archiveTableSearch} onChange={e => setArchiveTableSearch(e.target.value)}
+                placeholder="Table number/name..."
+                style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, flex: isMobile ? '1 1 100%' : undefined, minWidth: 140 }} />
+              <button onClick={searchArchive} disabled={archiveLoading}
+                style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+                {archiveLoading ? '⏳...' : '🔍 Search'}
+              </button>
+              {(archiveDate || archiveTableSearch) && (
+                <button onClick={() => { setArchiveDate(''); setArchiveTableSearch(''); searchArchive() }}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                  ✕ Clear
+                </button>
+              )}
+            </div>
+
+            {archiveLoading ? (
+              <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
+            ) : archiveResults.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>
+                <div style={{ fontSize: 40, marginBottom: 10 }}>📦</div>
+                {archiveSearched ? 'No invoices found for this search' : 'Search by date and/or table number'}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
+                {archiveResults.map(order => (
+                  <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.green + '40'}`, padding: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ color: S.white, fontWeight: 800, fontSize: 14 }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
+                      <span style={{ background: order.status === 'cancelled' ? S.redB : S.greenB, color: order.status === 'cancelled' ? S.red : S.green, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                        {order.status === 'cancelled' ? '❌ Cancelled' : '✅ Paid'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>
+                      {new Date(order.created_at).toLocaleString('en-GB')}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: S.gold, marginBottom: 6 }}>MYR {(order.total_amount || 0).toFixed(2)}</div>
+                    {order.payment_method && <div style={{ fontSize: 11, color: S.teal, marginBottom: 4 }}>{order.payment_method === 'cash' ? '💵' : order.payment_method === 'visa' ? '💳' : '📱'} {order.payment_method}</div>}
+                    {order.paid_by_name && <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 {order.paid_by_name}</div>}
+                    {order.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginBottom: 4 }}>❌ {order.cancel_reason}</div>}
+                    <div style={{ borderTop: `1px solid ${S.border}`, marginTop: 8, paddingTop: 8, fontSize: 12, color: S.muted }}>
+                      {order.order_items.filter(i => i.status !== 'cancelled').map(i => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         ) : (
           /* ══ ORDERS VIEW ══ */
           <div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
               {[
                 { key: 'active', label: 'Active' },
                 { key: 'all',    label: 'All' },
@@ -1532,6 +1640,9 @@ export default function CashierPage() {
                           <div style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>MYR {(order.total_amount || 0).toFixed(2)}</div>
                           {order.payment_method && order.status === 'paid' && (
                             <div style={{ fontSize: 10, color: S.teal }}>{order.payment_method === 'cash' ? '💵' : order.payment_method === 'visa' ? '💳' : '📱'} {order.payment_method}</div>
+                          )}
+                          {order.status === 'paid' && order.paid_by_name && (
+                            <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>👤 {order.paid_by_name}</div>
                           )}
                         </div>
                       </div>

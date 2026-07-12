@@ -1172,6 +1172,8 @@ export default function CashierPage() {
   // ✅ Fix: الأدمن يبدأ بـ"كل الفروع" افتراضيًا (بدل ما يتفلتر تلقائيًا على أول فرع في القايمة من غير ما يلاحظ)
   // - ده كان سبب مباشر لمشاكل "الأوردر مش ظاهر" رغم إنه موجود فعليًا، لمجرد إن الأدمن كان شايف فرع تاني
 
+  const [fetchError, setFetchError] = useState<string | null>(null)
+
   const fetchAll = useCallback(async () => {
     const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
     let tablesQuery = sb.from('tables').select('*').order('number')
@@ -1183,6 +1185,17 @@ export default function CashierPage() {
       sb.from('orders').select(SEL).in('status', ['confirmed','preparing','ready']).order('created_at', { ascending: false }),
       tablesQuery,
     ])
+    // ✅ Fix: لو الاستعلام فشل (عمود ناقص، RLS، إلخ) كان بيفضل صامت والطلبات كلها تختفي من غير أي تنبيه
+    // دلوقتي بنسجل الخطأ في الـ console ونعرض تحذير واضح بدل الاختفاء الصامت
+    if (activeRes.error) {
+      console.error('fetchAll orders error:', activeRes.error)
+      setFetchError(activeRes.error.message)
+    } else if (tablesRes.error) {
+      console.error('fetchAll tables error:', tablesRes.error)
+      setFetchError(tablesRes.error.message)
+    } else {
+      setFetchError(null)
+    }
     const allowedTables = tablesRes.data || []
     const allowedTableIds = new Set(allowedTables.map((t: any) => t.id))
     // ✅ غير الأدمن: نستثني طلبات الفروع التانية حتى لو رجعت في نفس الاستعلام (orders مفيهاش branch_id مباشر)
@@ -1461,6 +1474,12 @@ export default function CashierPage() {
       )}
 
       <div style={{ padding: isMobile ? 10 : 16, maxWidth: 1200, margin: '0 auto' }}>
+        {fetchError && (
+          <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 12, padding: '12px 16px', marginBottom: 16, color: S.red, fontSize: 13, fontWeight: 700 }}>
+            ⚠️ Failed to load orders/tables — data may be incomplete or missing until this is fixed:
+            <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4, direction: 'ltr', textAlign: 'left' }}>{fetchError}</div>
+          </div>
+        )}
         {/* Tables Stats Bar — for the currently displayed branch */}
         <div style={{ marginBottom: 16 }}>
           {currentBranchName && (

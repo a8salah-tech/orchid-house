@@ -1178,7 +1178,9 @@ export default function CashierPage() {
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
     const [activeRes, tablesRes] = await Promise.all([
-      sb.from('orders').select(SEL).in('status', ['confirmed','preparing','ready']).order('created_at', { ascending: false }).limit(100),
+      // ✅ Fix عاجل: شلنا الـ limit(100) - كان بيقطع أي طلب نشط زيادة عن أحدث 100 طلب،
+      // فطاولات كانت بتفضل "مشغولة" في جدول الطاولات بس الطلب نفسه يختفي من القايمة (بيفتح "Add Order" فاضية بدل الطلب الحقيقي)
+      sb.from('orders').select(SEL).in('status', ['confirmed','preparing','ready']).order('created_at', { ascending: false }),
       tablesQuery,
     ])
     const allowedTables = tablesRes.data || []

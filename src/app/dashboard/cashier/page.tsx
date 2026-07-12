@@ -1169,11 +1169,8 @@ export default function CashierPage() {
     setArchiveLoading(false)
   }, [sb, archiveDate, archiveTableSearch])
   const [adminBranchFilter, setAdminBranchFilter] = useState<string>('')
-
-  // أول ما الفروع توصل، الأدمن يبدأ بأول فرع تلقائيًا
-  useEffect(() => {
-    if (isAdmin && branches.length > 0 && !adminBranchFilter) setAdminBranchFilter(branches[0].id)
-  }, [isAdmin, branches, adminBranchFilter])
+  // ✅ Fix: الأدمن يبدأ بـ"كل الفروع" افتراضيًا (بدل ما يتفلتر تلقائيًا على أول فرع في القايمة من غير ما يلاحظ)
+  // - ده كان سبب مباشر لمشاكل "الأوردر مش ظاهر" رغم إنه موجود فعليًا، لمجرد إن الأدمن كان شايف فرع تاني
 
   const fetchAll = useCallback(async () => {
     const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
@@ -1448,6 +1445,10 @@ export default function CashierPage() {
       {isAdmin && branches.length > 0 && (
         <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>🏪 Branch:</span>
+          <button onClick={() => setAdminBranchFilter('')}
+            style={{ padding: '6px 16px', borderRadius: 20, border: `1px solid ${!adminBranchFilter ? S.gold : S.border}`, background: !adminBranchFilter ? S.gold3 : 'transparent', color: !adminBranchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: !adminBranchFilter ? 700 : 400 }}>
+            🌐 All Branches
+          </button>
           {branches.map(b => (
             <button key={b.id} onClick={() => setAdminBranchFilter(b.id)}
               style={{ padding: '6px 16px', borderRadius: 20, border: `1px solid ${adminBranchFilter === b.id ? S.gold : S.border}`, background: adminBranchFilter === b.id ? S.gold3 : 'transparent', color: adminBranchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: adminBranchFilter === b.id ? 700 : 400 }}>

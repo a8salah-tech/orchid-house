@@ -51,6 +51,7 @@ const ROLES: Record<string, { label: string; color: string; bg: string; icon: st
   kitchen_cleaner:      { label: 'عامل نظافة مطبخ', color: '#86EFAC', bg: 'rgba(134,239,172,0.12)', icon: '🧹' },
   hall_cleaner:         { label: 'عامل نظافة صالة', color: '#6EE7B7', bg: 'rgba(110,231,183,0.12)', icon: '🧽' },
   warehouse_keeper: { label: 'أمين المستودع', color: '#F97316', bg: 'rgba(249,115,22,0.12)', icon: '🏭' },
+  warehouse_manager: { label: 'مدير المستودعات', color: '#EA580C', bg: 'rgba(234,88,12,0.12)', icon: '🏭' },
   employee:             { label: 'موظف',           color: S.muted,   bg: S.card2,                  icon: '👤' },
 }
 

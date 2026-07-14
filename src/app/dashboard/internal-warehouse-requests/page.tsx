@@ -87,7 +87,7 @@ function RequestCard({ req, role, onOpen }: { req: InternalRequest; role: string
     rejected:  { color: S.red,   bg: S.redB,   icon: '❌', label: 'مرفوض' },
   }
   const st = statusColors[req.status] || statusColors.pending
-  const needsAction = role === 'warehouse_keeper' && req.status === 'pending'
+  const needsAction = ['warehouse_keeper','warehouse_manager'].includes(role) && req.status === 'pending'
 
   return (
     <div onClick={onOpen} style={{ background: needsAction ? 'rgba(245,158,11,0.05)' : S.card2, border: `1px solid ${needsAction ? S.amber+'50' : S.border}`, borderRadius: 14, padding: '14px 18px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
@@ -350,7 +350,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   }, [])
   const role = currentEmployee?.role || ''
 
-  const canApprove = role === 'warehouse_keeper' && request.status === 'pending'
+  const canApprove = ['warehouse_keeper','warehouse_manager'].includes(role) && request.status === 'pending'
 
   async function approve() {
     if (!actionBy.trim()) { alert('يرجى إدخال اسمك'); return }
@@ -607,18 +607,21 @@ export default function InternalWarehouseRequestsPage() {
     sb.from('branches').select('id,name').eq('is_active', true).then(({ data }) => setBranches(data || []))
   }, [])
   useEffect(() => {
-    // الأدوار غير admin تتقفل على فرعها تلقائيًا
-    if (!isAdmin && myBranchId) setActiveBranch(myBranchId)
-  }, [isAdmin, myBranchId])
+    // الأدوار غير admin/مدير المستودعات تتقفل على فرعها تلقائيًا
+    if (!isAdmin && role !== 'warehouse_manager' && myBranchId) setActiveBranch(myBranchId)
+  }, [isAdmin, role, myBranchId])
 
   const isBranchManager = role === 'branch_manager'
   const isWarehouseKeeper = role === 'warehouse_keeper'
+  // ✅ دور جديد: مدير المستودعات - يشوف ويعالج طلبات كل الفروع مع بعض (زي الأدمن في موضوع رؤية الفروع بس)
+  const isWarehouseManager = role === 'warehouse_manager'
+  const canSeeAllBranches = isAdmin || isWarehouseManager
   const canCreate = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, ...SENIOR_ROLES].includes(role)
 
-  // طلبات الفرع النشط (أو كل الفروع لو activeBranch فاضي و admin)
+  // طلبات الفرع النشط (أو كل الفروع لو activeBranch فاضي و admin/مدير المستودعات)
   const branchRequests = activeBranch ? requests.filter(r => r.branch_id === activeBranch) : requests
-  // الأدوار غير admin تشوف بس تاب فرعها
-  const visibleBranches = isAdmin ? branches : branches.filter(b => b.id === myBranchId)
+  // الأدوار غير admin/مدير المستودعات تشوف بس تاب فرعها
+  const visibleBranches = canSeeAllBranches ? branches : branches.filter(b => b.id === myBranchId)
 
   // تعريف التابات (الحالة: قيد الانتظار/معتمدة/مرفوضة)
   const allTabs = [
@@ -658,7 +661,7 @@ export default function InternalWarehouseRequestsPage() {
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'طلب مستلزمات مباشرة من مستودع الفرع — يحتاج موافقة أمين المستودع' : 'Direct requests from the branch internal warehouse'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {isAdmin && (
+          {canSeeAllBranches && (
             <button onClick={() => setShowReport(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               📊 {isAr ? 'تقرير مقارن' : 'Comparison Report'}
             </button>
@@ -674,7 +677,7 @@ export default function InternalWarehouseRequestsPage() {
       {/* Branch Tabs */}
       {visibleBranches.length > 1 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-          {isAdmin && (
+          {canSeeAllBranches && (
             <button onClick={() => setActiveBranch('')}
               style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === '' ? S.gold : S.border}`, background: activeBranch === '' ? S.gold3 : 'transparent', color: activeBranch === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === '' ? 700 : 400 }}>
               🌐 {isAr ? 'الإجمالي (الكل)' : 'All Branches'}

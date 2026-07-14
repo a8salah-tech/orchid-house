@@ -55,6 +55,7 @@ const ROLE_LABELS: Record<string, { ar: string; en: string; icon: string; color:
   bar_assistant:       { ar: 'مساعد بار',     en: 'Bar Assistant',      icon: '🧃', color: '#5EEAD4' },
   hall_worker:         { ar: 'عامل صالة',     en: 'Hall Worker',        icon: '🪑', color: '#93C5FD' },
   warehouse_keeper:    { ar: 'أمين المستودع', en: 'Warehouse Keeper',   icon: '🏭', color: '#F97316' },
+  warehouse_manager:   { ar: 'مدير المستودعات', en: 'Warehouse Manager', icon: '🏭', color: '#EA580C' },
   employee:            { ar: 'موظف',          en: 'Employee',           icon: '👤', color: S.muted },
 }
 
@@ -92,7 +93,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'نقاط الولاء',          label_en: 'Loyalty Points',    icon: '🎁', path: '/dashboard/loyalty',   permission: 'loyalty' },
   ]},
   { group: 'التسويق والنمو', items: [
-    { label: 'كوبونات الخصم', label_en: 'Coupons',       icon: '🎫', path: '/dashboard/coupons',       permission: 'marketing' },
+    { label: 'كوبونات الخصم', label_en: 'Coupons',       icon: '🎫', path: '/dashboard/coupons',       permission: 'admin_only' },
     { label: 'الإشعارات',     label_en: 'Notifications', icon: '📲', path: '/dashboard/notifications', permission: 'marketing' },
    { label: 'التسويق', label_en: 'Marketing Hub', icon: '📣', path: '/dashboard/marketing', permission: null },
   ]},
@@ -106,7 +107,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'سياسات العمل',    label_en: 'Work Policies', icon: '📜', path: '/dashboard/hr/policies',  permission: 'my_requests' },
     { label: 'راتبي', label_en: 'My Salary', icon: '💰', path: '/dashboard/hr/my-salary', permission: 'my_requests' },
     { label: 'دوامي', label_en: 'My Schedule', icon: '📅', path: '/dashboard/hr/my-schedule', permission: 'my_requests' },
-    { label: 'الموظفون',        label_en: 'Employees',     icon: '👷', path: '/dashboard/hr/employees', permission: 'hr' },
+    { label: 'الموظفون',        label_en: 'Employees',     icon: '👷', path: '/dashboard/hr/employees', permission: 'admin_only' },
     { label: 'المخالفات', label_en: 'Violations', icon: '⚠️', path: '/dashboard/hr/violations', permission: 'violations' },
     { label: 'طلبات الموظفين',  label_en: 'Staff Requests',icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
     { label: 'طلب يونيفورم',    label_en: 'Uniform Request', icon: '👔', path: '/dashboard/hr/uniform-requests', permission: 'my_requests' },
@@ -196,6 +197,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     ALL_MENU.map(group => ({
       ...group,
       items: group.items.filter(item =>
+        // ✅ عناصر "admin_only" تظهر للأدمن بس، حتى لو الموظف عنده صلاحية hr أو marketing عامة
+        item.permission === 'admin_only' ? isAdmin :
         item.permission === null || item.permission === 'all_employees' || isAdmin || hasPermission(item.permission)
       )
     })).filter(group => group.items.length > 0)

@@ -71,6 +71,7 @@ const ROLE_LABELS: Record<string, { label: string; label_en: string; icon: strin
   hall_supervisor:    { label: 'مشرف الصالة',  label_en: 'Hall Supervisor',    icon: '🍽️' },
   bar_supervisor:     { label: 'مشرف البار',   label_en: 'Bar Supervisor',     icon: '☕' },
   cashier:            { label: 'كاشير',         label_en: 'Cashier',            icon: '💰' },
+  warehouse_manager:  { label: 'مدير المستودعات', label_en: 'Warehouse Manager', icon: '🏭' },
   employee:           { label: 'موظف',          label_en: 'Employee',           icon: '👤' },
 }
 
@@ -82,7 +83,7 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   const greeting = isAr ? (hour < 12 ? 'صباح الخير' : hour < 17 ? 'مساء الخير' : 'مساء النور') : (hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening')
 
   const role = employee?.role || 'employee'
-  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','employee','warehouse_keeper','hall_cleaner','kitchen_cleaner']
+  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner']
   const KITCHEN_ROLES = ['kitchen_manager','kitchen_supervisor']
   const HALL_ROLES = ['hall_manager','hall_supervisor']
   const BAR_ROLES = ['bar_manager','bar_supervisor']
@@ -96,11 +97,11 @@ function EmployeeDashboard({ employee }: { employee: any }) {
     { icon: '☕', label: isAr ? 'البار' : 'Bar',                       path: '/dashboard/bar',               show: [...BAR_ROLES] },
     { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',                path: '/dashboard/tables',            show: [...HALL_ROLES,'cashier'] },
     { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',                path: '/dashboard/cashier',           show: ['cashier'] },
-    { icon: '🏭', label: isAr ? 'المستودع' : 'Warehouse',             path: '/dashboard/warehouse',         show: ['warehouse_keeper'] },
+    { icon: '🏭', label: isAr ? 'المستودع' : 'Warehouse',             path: '/dashboard/warehouse',         show: ['warehouse_keeper','warehouse_manager'] },
     // ── الإدارة (مديرين فقط) ──
     { icon: '👷', label: isAr ? 'الموظفون' : 'Employees',             path: '/dashboard/hr/employees',      show: [...MANAGER_ROLES] },
     { icon: '📅', label: isAr ? 'الشيفتات' : 'Shifts',                path: '/dashboard/hr/shifts',         show: [...MANAGER_ROLES] },
-    { icon: '📦', label: isAr ? 'طلبات الفروع' : 'Branch Requests',  path: '/dashboard/branch-requests',   show: [...SUPERVISOR_ROLES,...MANAGER_ROLES,'warehouse_keeper'] },
+    { icon: '📦', label: isAr ? 'طلبات الفروع' : 'Branch Requests',  path: '/dashboard/branch-requests',   show: [...SUPERVISOR_ROLES,...MANAGER_ROLES,'warehouse_keeper','warehouse_manager'] },
     // ── الشخصي (للجميع) ──
     { icon: '🗓️', label: isAr ? 'دوامي' : 'My Schedule',             path: '/dashboard/hr/my-schedule',    show: [...ALL_NON_ADMIN] },
     { icon: '⏰', label: isAr ? 'الحضور' : 'Attendance',              path: '/dashboard/hr/attendance',     show: [...ALL_NON_ADMIN] },

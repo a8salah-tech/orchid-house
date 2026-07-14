@@ -478,9 +478,10 @@ function ImageViewerModal({ imageUrl, onClose }: { imageUrl: string; onClose: ()
 // ══════════════════════════════════════════
 // NewInvoiceModal
 // ══════════════════════════════════════════
-function NewInvoiceModal({ products: initialProducts, suppliers, units, warehouses, unitConversions, employeeId, onClose, onSaved }: {
+function NewInvoiceModal({ products: initialProducts, suppliers, units, warehouses, unitConversions, employeeId, onClose, onSaved, onConversionAdded }: {
   products: Product[]; suppliers: Supplier[]; units: Unit[]
   warehouses: { id: string; name: string }[]; unitConversions: any[]; employeeId?: string; onClose: () => void; onSaved: () => void
+  onConversionAdded?: (conv: any) => void
 }) {
   const supabase = createClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -564,6 +565,27 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
 
   // فقط أصناف المستودع المختار حالياً في الفورم — مجلوبة مباشرة من قاعدة البيانات
   const availableProducts = form.warehouse_id ? warehouseProducts : localProducts
+  // ✅ جديد: إضافة معامل تحويل مباشرة من فورم الفاتورة لو مش موجود
+  const [addingConvForIndex, setAddingConvForIndex] = useState<number | null>(null)
+  const [newConvFactor, setNewConvFactor] = useState('')
+
+  async function saveNewConversion(itemIndex: number, productId: string, fromUnitId: string, toUnitId: string) {
+    const factor = parseFloat(newConvFactor)
+    if (!factor || factor <= 0) { alert('من فضلك أدخل رقم صحيح أكبر من صفر'); return }
+    const { data: created, error } = await supabase.from('unit_conversions').insert([{
+      product_id: productId, from_unit_id: fromUnitId, to_unit_id: toUnitId, factor,
+    }]).select('product_id, from_unit_id, to_unit_id, factor, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)').single()
+    if (error || !created) {
+      alert('حصل خطأ أثناء حفظ معامل التحويل: ' + (error?.message || ''))
+      return
+    }
+    onConversionAdded?.(created)
+    setItems(p => p.map((it, idx) => idx === itemIndex ? {
+      ...it, contents_per_unit: factor, contents_unit_name: (created as any).to_unit?.name,
+    } : it))
+    setAddingConvForIndex(null)
+    setNewConvFactor('')
+  }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || [])
@@ -984,6 +1006,40 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                         {item.quantity && <span style={{ color: S.gold }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)}</span>}
                       </div>
                     )}
+                    {/* ✅ جديد: تحذير واضح لو الوحدة المختارة مالهاش معامل تحويل متسجل، مع إمكانية إضافته فورًا من هنا */}
+                    {item.matched && item.unit_id && !item.contents_per_unit && (() => {
+                      const baseUnitId = availableProducts.find(p => p.id === item.product_id) ? (availableProducts.find(p => p.id === item.product_id) as any)?.unit_id : null
+                      if (!baseUnitId || baseUnitId === item.unit_id) return null // نفس الوحدة الأساسية، مفيش داعي لمعامل تحويل
+                      const baseUnitSymbol = units.find(u => u.id === baseUnitId)?.symbol || ''
+                      return (
+                        <div style={{ marginTop: 6, padding: '8px 10px', background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 8 }}>
+                          <div style={{ fontSize: 11, color: S.amber, fontWeight: 700, marginBottom: 6 }}>
+                            ⚠️ لا يوجد معامل تحويل بين "{units.find(u => u.id === item.unit_id)?.symbol}" و"{baseUnitSymbol}" — الكمية ستُسجَّل 1:1 بدون تحويل!
+                          </div>
+                          {addingConvForIndex === i ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: S.white, whiteSpace: 'nowrap' }}>1 {units.find(u => u.id === item.unit_id)?.symbol} =</span>
+                              <input type="number" min="0" step="0.01" value={newConvFactor} onChange={e => setNewConvFactor(e.target.value)}
+                                style={{ ...inp, width: 70, padding: '4px 8px', fontSize: 12 }} placeholder="عدد" />
+                              <span style={{ fontSize: 11, color: S.white, whiteSpace: 'nowrap' }}>{baseUnitSymbol}</span>
+                              <button onClick={() => saveNewConversion(i, item.product_id, item.unit_id, baseUnitId)}
+                                style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                                حفظ
+                              </button>
+                              <button onClick={() => { setAddingConvForIndex(null); setNewConvFactor('') }}
+                                style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11 }}>
+                                إلغاء
+                              </button>
+                            </div>
+                          ) : (
+                            <button onClick={() => { setAddingConvForIndex(i); setNewConvFactor('') }}
+                              style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${S.amber}`, background: 'transparent', color: S.amber, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                              ✏️ تحديد معامل التحويل الآن
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                   <div>
                     <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>
@@ -1187,6 +1243,26 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
     discount_value: String((invoice as any).discount_value || ''),
   })
   const [editItems, setEditItems] = useState<any[]>([])
+  // ✅ جديد: إضافة معامل تحويل مباشرة من فورم التعديل لو مش موجود
+  const [addingConvForEditIndex, setAddingConvForEditIndex] = useState<number | null>(null)
+  const [newEditConvFactor, setNewEditConvFactor] = useState('')
+
+  async function saveNewEditConversion(itemIndex: number, productId: string, fromUnitId: string, toUnitId: string) {
+    const factor = parseFloat(newEditConvFactor)
+    if (!factor || factor <= 0) { alert('من فضلك أدخل رقم صحيح أكبر من صفر'); return }
+    const { data: created, error } = await supabase.from('unit_conversions').insert([{
+      product_id: productId, from_unit_id: fromUnitId, to_unit_id: toUnitId, factor,
+    }]).select('product_id, from_unit_id, to_unit_id, factor, from_unit:units!unit_conversions_from_unit_id_fkey(name,symbol), to_unit:units!unit_conversions_to_unit_id_fkey(name,symbol)').single()
+    if (error || !created) {
+      alert('حصل خطأ أثناء حفظ معامل التحويل: ' + (error?.message || ''))
+      return
+    }
+    setEditItems(p => p.map((it, idx) => idx === itemIndex ? {
+      ...it, contents_per_unit: factor, contents_unit_name: (created as any).to_unit?.name,
+    } : it))
+    setAddingConvForEditIndex(null)
+    setNewEditConvFactor('')
+  }
   const [editWarehouseProducts, setEditWarehouseProducts] = useState<any[]>([])
   const [loadingEditProducts, setLoadingEditProducts] = useState(false)
   // ميزة: ملاحظات الفاتورة (يدوية + سجل تعديلات)
@@ -1247,12 +1323,16 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
       const prodMap = Object.fromEntries((prods || []).map((p: any) => [p.id, p.name]))
       const loaded = rawItems.map((i: any) => ({ ...i, product_name: prodMap[i.product_id] || '—' }))
       setItems(loaded)
-      setEditItems(loaded.map((i: any) => ({
-        id: i.id, product_id: i.product_id, quantity: String(i.quantity), unit_price: String(i.unit_price), unit_id: i.unit_id || '',
-        sst_percent: i.sst_percent != null ? String(i.sst_percent) : '',
-        discount_type: i.discount_type || 'percent',
-        discount_value: i.discount_value != null ? String(i.discount_value) : '',
-      })))
+      setEditItems(loaded.map((i: any) => {
+        const conv = (unitConversions || []).find((c: any) => c.product_id === i.product_id && c.from_unit_id === i.unit_id)
+        return {
+          id: i.id, product_id: i.product_id, quantity: String(i.quantity), unit_price: String(i.unit_price), unit_id: i.unit_id || '',
+          sst_percent: i.sst_percent != null ? String(i.sst_percent) : '',
+          discount_type: i.discount_type || 'percent',
+          discount_value: i.discount_value != null ? String(i.discount_value) : '',
+          contents_per_unit: conv?.factor, contents_unit_name: conv?.to_unit?.name,
+        }
+      }))
       setLoadingItems(false)
     }
     async function loadNotes() {
@@ -1587,15 +1667,67 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {editItems.map((item, i) => (
                   <div key={i} style={{ background: S2.card, borderRadius: 10, padding: '8px 10px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 6, alignItems: 'center' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 6, alignItems: 'center' }}>
                       <select style={{ ...inpD, padding: '7px 10px' }} value={item.product_id} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, product_id: e.target.value } : x))}>
                         <option value="">الصنف</option>
                         {(editWarehouseProducts.length > 0 ? editWarehouseProducts : products.filter((p: any) => p.warehouse_id === editForm.warehouse_id)).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                       <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="الكمية" value={item.quantity} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, quantity: e.target.value } : x))} />
                       <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="السعر" value={item.unit_price} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, unit_price: e.target.value } : x))} />
+                      {/* ✅ جديد: عرض/تعديل الوحدة - كانت غايبة تمامًا في وضع التعديل */}
+                      <select style={{ ...inpD, padding: '7px 10px' }} value={item.unit_id || ''} onChange={e => {
+                        const conv = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.from_unit_id === e.target.value)
+                        setEditItems(p => p.map((x, xi) => xi === i ? {
+                          ...x, unit_id: e.target.value,
+                          contents_per_unit: conv?.factor, contents_unit_name: conv?.to_unit?.name,
+                        } : x))
+                      }}>
+                        <option value="">الوحدة</option>
+                        {units.map((u: any) => <option key={u.id} value={u.id}>{u.symbol}</option>)}
+                      </select>
                       <button onClick={() => setEditItems(p => p.filter((_, xi) => xi !== i))} style={{ background: S2.redB, border: `1px solid ${S2.red}`, borderRadius: 8, color: S2.red, cursor: 'pointer', padding: '7px 10px', fontSize: 14 }}>✕</button>
                     </div>
+                    {item.contents_per_unit && item.contents_unit_name && (
+                      <div style={{ fontSize: 10, color: S2.blue, marginTop: 6, fontWeight: 600 }}>
+                        📦 1 وحدة = {item.contents_per_unit} {item.contents_unit_name}
+                        {item.quantity && <span style={{ color: S2.gold }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)}</span>}
+                      </div>
+                    )}
+                    {/* ✅ جديد: تحذير لو الوحدة مالهاش معامل تحويل، مع إمكانية إضافته فورًا */}
+                    {item.product_id && item.unit_id && !item.contents_per_unit && (() => {
+                      const prodList = editWarehouseProducts.length > 0 ? editWarehouseProducts : products
+                      const baseUnitId = (prodList.find((p: any) => p.id === item.product_id) as any)?.unit_id
+                      if (!baseUnitId || baseUnitId === item.unit_id) return null
+                      const baseUnitSymbol = units.find((u: any) => u.id === baseUnitId)?.symbol || ''
+                      return (
+                        <div style={{ marginTop: 6, padding: '8px 10px', background: S2.amberB, border: `1px solid ${S2.amber}`, borderRadius: 8 }}>
+                          <div style={{ fontSize: 11, color: S2.amber, fontWeight: 700, marginBottom: 6 }}>
+                            ⚠️ لا يوجد معامل تحويل بين "{units.find((u: any) => u.id === item.unit_id)?.symbol}" و"{baseUnitSymbol}" — الكمية ستُسجَّل 1:1 بدون تحويل!
+                          </div>
+                          {addingConvForEditIndex === i ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: S2.white, whiteSpace: 'nowrap' }}>1 {units.find((u: any) => u.id === item.unit_id)?.symbol} =</span>
+                              <input type="number" min="0" step="0.01" value={newEditConvFactor} onChange={e => setNewEditConvFactor(e.target.value)}
+                                style={{ ...inpD, width: 70, padding: '4px 8px', fontSize: 12 }} placeholder="عدد" />
+                              <span style={{ fontSize: 11, color: S2.white, whiteSpace: 'nowrap' }}>{baseUnitSymbol}</span>
+                              <button onClick={() => saveNewEditConversion(i, item.product_id, item.unit_id, baseUnitId)}
+                                style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: S2.green, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                                حفظ
+                              </button>
+                              <button onClick={() => { setAddingConvForEditIndex(null); setNewEditConvFactor('') }}
+                                style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S2.border}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 11 }}>
+                                إلغاء
+                              </button>
+                            </div>
+                          ) : (
+                            <button onClick={() => { setAddingConvForEditIndex(i); setNewEditConvFactor('') }}
+                              style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${S2.amber}`, background: 'transparent', color: S2.amber, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                              ✏️ تحديد معامل التحويل الآن
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
                     {item.quantity && item.unit_price && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2028,6 +2160,7 @@ export default function PurchasesPage() {
           warehouses={canSeeAllBranches ? warehouses : warehouses.filter(w => (w.branch_id || 'main') === (myBranchId || 'main'))}
           employeeId={employee?.id}
           unitConversions={unitConversions}
+          onConversionAdded={(conv) => setUnitConversions(prev => [...prev, conv])}
           onClose={() => setShowNew(false)}
           onSaved={() => { setShowNew(false); fetchAll() }}
         />

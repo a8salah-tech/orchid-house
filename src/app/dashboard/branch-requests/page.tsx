@@ -36,6 +36,8 @@ const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلوي
 const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']
 const MANAGER_ROLES = ['kitchen_manager', 'hall_manager', 'bar_manager']
 const SENIOR_ROLES = ['admin', 'branch_manager']
+// ✅ أدوار المستودع - أمين المستودع (فرع/عملية) ومدير المستودعات (يشوف ويعالج الفرعين مع بعض)
+const WAREHOUSE_ROLES = ['warehouse_keeper', 'warehouse_manager']
 
 // ✅ بعض الموظفين مسجل قسمهم بالإنجليزي (Hall/Kitchen/Bar) بدل العربي (الصالة/المطبخ/البار)
 // هذه الدالة توحّد القيمتين كمتساويتين عند المقارنة
@@ -273,7 +275,7 @@ function RequestCard({ req, role, onOpen }: { req: BranchRequest; role: string; 
   const st = statusColors[req.status] || statusColors.pending
   const needsAction =
     ([...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && req.status === 'pending') ||
-    (role === 'warehouse_keeper' && ['manager_approved','branch_approved'].includes(req.status)) ||
+    (WAREHOUSE_ROLES.includes(role) && ['manager_approved','branch_approved'].includes(req.status)) ||
     ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && req.status === 'warehouse_processing')
 
   return (
@@ -470,7 +472,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
 
   const canApprove = [...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && request.status === 'pending'
   const canEditItems = MANAGER_ROLES.includes(role) && request.status === 'pending'
-  const canWarehouse = (role === 'warehouse_keeper' || SENIOR_ROLES.includes(role)) && ['manager_approved','branch_approved'].includes(request.status)
+  const canWarehouse = (WAREHOUSE_ROLES.includes(role) || SENIOR_ROLES.includes(role)) && ['manager_approved','branch_approved'].includes(request.status)
 
   async function startEditItems() {
     setEditedItems((request.branch_request_items || []).map(i => ({
@@ -770,6 +772,9 @@ export default function BranchRequestsPage() {
   const isDeptManager = MANAGER_ROLES.includes(role)
   const isSupervisor = SUPERVISOR_ROLES.includes(role)
   const isWarehouse = role === 'warehouse_keeper'
+  // ✅ دور جديد: مدير المستودعات - يشوف طلبات كل الفروع مع بعض (زي الأدمن في موضوع رؤية الفروع بس)
+  const isWarehouseManager = role === 'warehouse_manager'
+  const canSeeAllBranches = isAdmin || isWarehouseManager
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -785,14 +790,14 @@ export default function BranchRequestsPage() {
     sb.from('branches').select('id,name').eq('is_active', true).then(({ data }) => setBranches(data || []))
   }, [])
   useEffect(() => {
-    // الأدوار غير admin/warehouse_keeper تتقفل على فرعها تلقائيًا
-    if (!isAdmin && myBranchId) setActiveBranch(myBranchId)
-  }, [isAdmin, myBranchId])
+    // الأدوار غير admin/مدير المستودعات تتقفل على فرعها تلقائيًا
+    if (!canSeeAllBranches && myBranchId) setActiveBranch(myBranchId)
+  }, [canSeeAllBranches, myBranchId])
 
-  // طلبات الفرع النشط (أو كل الفروع لو activeBranch فاضي و admin)
+  // طلبات الفرع النشط (أو كل الفروع لو activeBranch فاضي و admin/مدير المستودعات)
   const branchRequests = activeBranch ? requests.filter(r => r.branch_id === activeBranch) : requests
-  // الأدوار غير admin تشوف بس تاب فرعها
-  const visibleBranches = isAdmin ? branches : branches.filter(b => b.id === myBranchId)
+  // الأدوار غير admin/مدير المستودعات تشوف بس تاب فرعها
+  const visibleBranches = canSeeAllBranches ? branches : branches.filter(b => b.id === myBranchId)
 
   // فلترة إضافية حسب القسم لمديري ومشرفي الأقسام (بعد فلترة الفرع)
   const deptScopedRequests = (() => {
@@ -846,7 +851,7 @@ export default function BranchRequestsPage() {
   })
 
   const canCreate = [...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role)
-  const canSeeDeptProducts = isAdmin || isWarehouse
+  const canSeeDeptProducts = isAdmin || isWarehouse || isWarehouseManager
 
   // تقرير مقارن لكل فرع (admin فقط)
   const comparisonReport = branches.map(b => {
@@ -871,7 +876,7 @@ export default function BranchRequestsPage() {
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'نظام طلب المستلزمات من المستودع' : 'Branch supply request system'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {isAdmin && (
+          {canSeeAllBranches && (
             <button onClick={() => setShowReport(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               📊 {isAr ? 'تقرير مقارن' : 'Comparison Report'}
             </button>
@@ -906,7 +911,7 @@ export default function BranchRequestsPage() {
       {/* Branch Tabs */}
       {visibleBranches.length > 1 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-          {isAdmin && (
+          {canSeeAllBranches && (
             <button onClick={() => setActiveBranch('')}
               style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${activeBranch === '' ? S.gold : S.border}`, background: activeBranch === '' ? S.gold3 : 'transparent', color: activeBranch === '' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeBranch === '' ? 700 : 400 }}>
               🌐 {isAr ? 'الإجمالي (الكل)' : 'All Branches'}

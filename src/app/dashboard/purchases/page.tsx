@@ -94,7 +94,7 @@ async function scanInvoiceWithAI(base64Image: string, products: Product[]): Prom
 // ══════════════════════════════════════════
 // ProductSearchInput — بحث ذكي للأصناف
 // ══════════════════════════════════════════
-function ProductSearchInput({ products, value, productName, matched, onChange, onAddNew, loading }: {
+function ProductSearchInput({ products, value, productName, matched, onChange, onAddNew, loading, otherWarehouseProducts, onUseFromOtherWarehouse }: {
   products: Product[]
   value: string
   productName: string
@@ -102,6 +102,8 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
   onChange: (id: string, name: string, lastPrice: number) => void
   onAddNew: (name: string) => void
   loading?: boolean
+  otherWarehouseProducts?: (Product & { warehouse_name?: string })[]
+  onUseFromOtherWarehouse?: (p: Product) => void
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -117,6 +119,14 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
         (p.name_en || '').toLowerCase().includes(query.toLowerCase())
       ).slice(0, 30)
 
+  // ✅ لو مفيش نتايج (أو نتايج قليلة) في المستودع الحالي، نلاقي هل نفس الصنف موجود جاهز في مستودع تاني بنفس الاسم
+  const crossWarehouseMatches = query.trim().length >= 2 && otherWarehouseProducts
+    ? otherWarehouseProducts.filter(p =>
+        (p.name.toLowerCase().includes(query.toLowerCase()) || (p.name_en || '').toLowerCase().includes(query.toLowerCase()))
+        && !filtered.some(fp => fp.name.trim().toLowerCase() === p.name.trim().toLowerCase())
+      ).slice(0, 10)
+    : []
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
@@ -129,6 +139,11 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
 
   function handleSelect(p: Product) {
     onChange(p.id, p.name, p.last_purchase_price || 0)
+    setQuery(''); setOpen(false)
+  }
+
+  function handleUseOther(p: Product) {
+    onUseFromOtherWarehouse?.(p)
     setQuery(''); setOpen(false)
   }
 
@@ -187,7 +202,7 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
 
           {filtered.length === 0 && query.trim() !== '' ? (
             <div style={{ padding: '12px 16px', fontSize: 13, color: S.muted, textAlign: 'center' }}>
-              لا نتائج لـ "<strong style={{ color: S.white }}>{query}</strong>"
+              لا نتائج لـ "<strong style={{ color: S.white }}>{query}</strong>" في هذا المستودع
             </div>
           ) : filtered.map((p, i) => (
             <div
@@ -216,6 +231,36 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
               </div>
             </div>
           ))}
+
+          {/* ✅ جديد: الصنف موجود جاهز في مستودع تاني بنفس الاسم - نعرضه كخيار سريع بدل ما يتكتب من الأول */}
+          {crossWarehouseMatches.length > 0 && (
+            <>
+              <div style={{ padding: '7px 12px', background: 'rgba(139,92,246,0.08)', fontSize: 11, color: S.purple, fontWeight: 700, borderTop: `1px solid ${S.border}` }}>
+                🔗 موجود جاهز في مستودع تاني — إضافته هنا بنفس بياناته
+              </div>
+              {crossWarehouseMatches.map(p => (
+                <div
+                  key={`other-${p.id}`}
+                  onMouseDown={() => handleUseOther(p)}
+                  style={{
+                    padding: '9px 14px', cursor: 'pointer',
+                    background: 'rgba(139,92,246,0.05)',
+                    borderBottom: `1px solid ${S.border}`,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, color: S.white }}>{p.name}</div>
+                    {p.name_en && <div style={{ fontSize: 11, color: S.muted }}>{p.name_en}</div>}
+                  </div>
+                  <div style={{ textAlign: 'left', flexShrink: 0, marginRight: 8 }}>
+                    <div style={{ fontSize: 10, color: S.purple }}>📦 {p.warehouse_name}</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>{p.category}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
 
           {query.trim() !== '' && (
             <div
@@ -458,6 +503,24 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
   const [warehouseProducts, setWarehouseProducts] = useState<Product[]>([])
   const [loadingWarehouseProducts, setLoadingWarehouseProducts] = useState(false)
 
+  // ✅ جديد: كل أصناف المستودعات التانية (مرة واحدة بس عند فتح المودال) - عشان نقدر نلاقي نفس الصنف لو موجود في مستودع تاني
+  const [allWarehouseProducts, setAllWarehouseProducts] = useState<(Product & { warehouse_name?: string })[]>([])
+  useEffect(() => {
+    supabase
+      .from('warehouse_products')
+      .select('*, units(symbol)')
+      .eq('is_active', true)
+      .then(({ data, error }) => {
+        if (!error && data) {
+          const withWhName = (data as Product[]).map(p => ({
+            ...p,
+            warehouse_name: warehouses.find(w => w.id === p.warehouse_id)?.name || '',
+          }))
+          setAllWarehouseProducts(withWhName)
+        }
+      })
+  }, [])
+
   const [items, setItems] = useState<InvoiceItem[]>([{
     product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: ''
   }])
@@ -469,6 +532,11 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     discount_type: 'percent' as 'percent' | 'amount',
     discount_value: '',
   })
+
+  // ✅ أصناف موجودة في مستودعات تانية (غير المستودع المختار حاليًا) - عشان نعرضها كخيار "موجود جاهز"
+  const otherWarehouseProducts = form.warehouse_id
+    ? allWarehouseProducts.filter(p => p.warehouse_id !== form.warehouse_id)
+    : []
 
   // جلب أصناف المستودع المختار مباشرة من قاعدة البيانات (مصدر موثوق 100%، بدل الاعتماد على البيانات الممررة من الصفحة الأب)
   useEffect(() => {
@@ -577,10 +645,6 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
     }
   }
 
-  function addItem() {
-    setItems(p => [...p, { product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }])
-  }
-
   function setItem(i: number, k: string, v: string) {
     setItems(p => p.map((it, idx) => {
       if (idx !== i) return it
@@ -590,6 +654,37 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
       }
       return { ...it, [k]: v }
     }))
+  }
+
+  // ✅ جديد: لو الصنف موجود جاهز في مستودع تاني، ننسخه للمستودع الحالي بنفس بياناته (الاسم، الكاتيجوري، الوحدة)
+  // بدل ما نضطر ندخّل بيانات صنف جديد من الصفر - المخزون بيبدأ من صفر لأنه مخزون منفصل لكل مستودع
+  async function useProductFromOtherWarehouse(sourceProduct: Product, itemIndex: number) {
+    if (!form.warehouse_id) return
+    const { data: created, error } = await supabase.from('warehouse_products').insert([{
+      name: sourceProduct.name,
+      name_en: sourceProduct.name_en || null,
+      category: sourceProduct.category,
+      unit_id: (sourceProduct as any).unit_id || null,
+      current_stock: 0,
+      last_purchase_price: sourceProduct.last_purchase_price || 0,
+      min_stock: (sourceProduct as any).min_stock || 0,
+      warehouse_id: form.warehouse_id,
+      is_active: true,
+    }]).select('*, units(symbol)').single()
+    if (error || !created) {
+      alert('حصل خطأ أثناء إضافة الصنف للمستودع: ' + (error?.message || ''))
+      return
+    }
+    const newProduct = created as Product
+    setWarehouseProducts(prev => [...prev, newProduct])
+    setItems(p => p.map((it, idx) => idx === itemIndex ? {
+      ...it, product_id: newProduct.id, product_name: newProduct.name, matched: true,
+      unit_price: newProduct.last_purchase_price ? String(newProduct.last_purchase_price) : it.unit_price,
+    } : it))
+  }
+
+  function addItem() {
+    setItems(p => [...p, { product_id: '', product_name: '', quantity: '', unit_price: '', unit_id: '', matched: false, contents_manual: '' }])
   }
 
   async function save() {
@@ -841,6 +936,8 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                     productName={item.product_name}
                     matched={item.matched}
                     loading={loadingWarehouseProducts}
+                    otherWarehouseProducts={otherWarehouseProducts}
+                    onUseFromOtherWarehouse={(p) => useProductFromOtherWarehouse(p, i)}
                     onChange={(id, name, lastPrice) => {
                       setItems(p => p.map((it, idx) => idx === i ? {
                         ...it, product_id: id, product_name: name, matched: true,

@@ -749,7 +749,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
           discount_value: itemDiscountVal > 0 ? itemDiscountVal : null,
           discount_amount: itemDiscountAmt || null,
         }])
-        const actualQty = parseFloat(item.quantity)
+        // ✅ Fix حرج: لازم نضرب الكمية في معامل التحويل (contents_per_unit) لو الصنف اتشرى بوحدة مختلفة عن وحدة التخزين الأساسية
+        // مثال: لو اشتريت "1 صندوق" وكل صندوق = 25 كيس (وحدة التخزين)، لازم يتسجل في المخزون 25 كيس مش 1 بس
+        const actualQty = parseFloat(item.quantity) * (item.contents_per_unit || 1)
         await supabase.from('stock_movements').insert([{
           movement_type: 'in', product_id: item.product_id,
           warehouse_id: form.warehouse_id, quantity: actualQty,
@@ -1162,8 +1164,8 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
 // ══════════════════════════════════════════
 // InvoiceDetailModal
 // ══════════════════════════════════════════
-function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, currentEmployeeId, currentEmployeeName, onClose, onViewImage, onDeleted, onSaved }: {
-  invoice: any; products: any[]; suppliers: any[]; units: any[]; warehouses: any[]
+function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, unitConversions, currentEmployeeId, currentEmployeeName, onClose, onViewImage, onDeleted, onSaved }: {
+  invoice: any; products: any[]; suppliers: any[]; units: any[]; warehouses: any[]; unitConversions?: any[]
   currentEmployeeId?: string; currentEmployeeName?: string
   onClose: () => void; onViewImage: (url: string) => void; onDeleted: () => void; onSaved: () => void
 }) {
@@ -1337,11 +1339,15 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, c
         discount_amount: itemDiscountAmt || null,
       }])
       if (editForm.warehouse_id) {
+        // ✅ Fix حرج (نفس إصلاح الفاتورة الجديدة): لازم نضرب الكمية في معامل التحويل الصحيح
+        // بنلاقيه من unit_id المحفوظ مع الصنف نفسه (الوحدة اللي اتشرى بيها وقت إنشاء الفاتورة الأصلية)
+        const conv = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.from_unit_id === item.unit_id)
+        const actualQty = parseFloat(item.quantity) * (conv?.factor || 1)
         await supabase.from('stock_movements').insert([{
           product_id: item.product_id,
           warehouse_id: editForm.warehouse_id,
           movement_type: 'in',
-          quantity: parseFloat(item.quantity),
+          quantity: actualQty,
           invoice_id: invoice.id,
           notes: 'تعديل فاتورة مشتريات',
         }])
@@ -2005,6 +2011,7 @@ export default function PurchasesPage() {
       {selectedInvoice && (
         <InvoiceDetailModal
           invoice={selectedInvoice} products={products} suppliers={suppliers} units={units} warehouses={warehouses}
+          unitConversions={unitConversions}
           currentEmployeeId={employee?.id} currentEmployeeName={employee?.name}
           onClose={() => setSelectedInvoice(null)}
           onViewImage={(url) => setViewerImage(url)}

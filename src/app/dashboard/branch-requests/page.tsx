@@ -760,7 +760,7 @@ function exFullName(p: { name?: string; name_en?: string } | null | undefined) {
   return [p.name, p.name_en].filter(Boolean).join(' ')
 }
 
-function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches: { id: string; name: string }[]; sb: any; isAr: boolean }) {
+function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any; branches: { id: string; name: string }[]; sb: any; isAr: boolean; isAdmin: boolean }) {
   const role = employee?.role || ''
   const myBranchId = employee?.branch_id || ''
   const ALLOWED_EX_ROLES = [...SUPERVISOR_ROLES, ...MANAGER_ROLES]
@@ -776,7 +776,7 @@ function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches
   const [employees, setEmployees] = useState<any[]>([])
   const [exchanges, setExchanges] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'sent' | 'received'>('received')
+  const [tab, setTab] = useState<'sent' | 'received' | 'all'>(isAdmin ? 'all' : 'received')
 
   const [showNew, setShowNew] = useState(false)
   const [newTargetBranch, setNewTargetBranch] = useState('')
@@ -787,17 +787,19 @@ function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
+    // ✅ مدير النظام يشوف كل الطلبات في كل الفروع، مش بس اللي بعتها أو اتوجهت له
+    let exQuery = sb.from('inter_branch_exchanges')
+      .select('*, from_branch:branches!inter_branch_exchanges_from_branch_id_fkey(name), to_branch:branches!inter_branch_exchanges_to_branch_id_fkey(name), requester:employees!inter_branch_exchanges_requested_by_fkey(name,name_en), assignee:employees!inter_branch_exchanges_assigned_to_fkey(name,name_en), items:inter_branch_exchange_items(*)')
+      .order('created_at', { ascending: false })
+    if (!isAdmin) exQuery = exQuery.or(`requested_by.eq.${employee?.id},assigned_to.eq.${employee?.id}`)
     const [empRes, exRes] = await Promise.all([
       sb.from('employees').select('id,name,name_en,role,branch_id').eq('is_active', true).in('role', ALLOWED_EX_ROLES),
-      sb.from('inter_branch_exchanges')
-        .select('*, from_branch:branches!inter_branch_exchanges_from_branch_id_fkey(name), to_branch:branches!inter_branch_exchanges_to_branch_id_fkey(name), requester:employees!inter_branch_exchanges_requested_by_fkey(name,name_en), assignee:employees!inter_branch_exchanges_assigned_to_fkey(name,name_en), items:inter_branch_exchange_items(*)')
-        .or(`requested_by.eq.${employee?.id},assigned_to.eq.${employee?.id}`)
-        .order('created_at', { ascending: false }),
+      exQuery,
     ])
     setEmployees(empRes.data || [])
     setExchanges(exRes.data || [])
     setLoading(false)
-  }, [sb, employee?.id])
+  }, [sb, employee?.id, isAdmin])
 
   useEffect(() => { if (employee?.id) fetchAll() }, [employee?.id, fetchAll])
 
@@ -863,12 +865,18 @@ function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches
     )
   }
 
-  const list = tab === 'sent' ? sentRequests : receivedRequests
+  const list = tab === 'all' ? exchanges : tab === 'sent' ? sentRequests : receivedRequests
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button onClick={() => setTab('all')}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'all' ? S.gold : S.border}`, background: tab === 'all' ? S.gold3 : 'transparent', color: tab === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'all' ? 700 : 400 }}>
+              🗂️ كل الطلبات
+            </button>
+          )}
           <button onClick={() => setTab('received')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'received' ? S.gold : S.border}`, background: tab === 'received' ? S.gold3 : 'transparent', color: tab === 'received' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'received' ? 700 : 400, display: 'flex', alignItems: 'center', gap: 6 }}>
             📥 طلبات موجهة لي
@@ -881,7 +889,7 @@ function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches
           </button>
         </div>
         <button onClick={() => { resetNewForm(); setShowNew(true) }}
-          style={{ padding: '10px 20px', borderRadius: 12, border: 'none', background: `S.gold`, color: S.navy, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+          style={{ padding: '10px 20px', borderRadius: 12, border: 'none', background: S.gold, color: S.navy, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
           ➕ طلب جديد
         </button>
       </div>
@@ -890,8 +898,8 @@ function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches
         <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
       ) : list.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60 }}>
-          <div style={{ fontSize: 40, marginBottom: 10 }}>{tab === 'received' ? '📥' : '📤'}</div>
-          <div style={{ fontSize: 14, color: S.muted }}>{tab === 'received' ? 'لا توجد طلبات موجهة إليك حاليًا' : 'لم تقم بإرسال أي طلب بعد'}</div>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>{tab === 'all' ? '🗂️' : tab === 'received' ? '📥' : '📤'}</div>
+          <div style={{ fontSize: 14, color: S.muted }}>{tab === 'all' ? 'لا توجد أي طلبات تبادل حتى الآن' : tab === 'received' ? 'لا توجد طلبات موجهة إليك حاليًا' : 'لم تقم بإرسال أي طلب بعد'}</div>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
@@ -904,7 +912,9 @@ function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches
                 <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: S.white }}>
-                      {tab === 'received' ? `من: ${ex.from_branch?.name} (${exFullName(ex.requester)})` : `إلى: ${ex.to_branch?.name} (${exFullName(ex.assignee)})`}
+                      {tab === 'all'
+                        ? `${ex.from_branch?.name} (${exFullName(ex.requester)}) ← ${ex.to_branch?.name} (${exFullName(ex.assignee)})`
+                        : tab === 'received' ? `من: ${ex.from_branch?.name} (${exFullName(ex.requester)})` : `إلى: ${ex.to_branch?.name} (${exFullName(ex.assignee)})`}
                     </div>
                     <div style={{ fontSize: 11, color: S.muted }}>{new Date(ex.created_at).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' })}</div>
                   </div>
@@ -999,7 +1009,7 @@ function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches
                 إلغاء
               </button>
               <button onClick={sendRequest} disabled={saving}
-                style={{ flex: 1, padding: 12, borderRadius: 12, border: 'none', background: `S.gold`, color: S.navy, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.6 : 1 }}>
+                style={{ flex: 1, padding: 12, borderRadius: 12, border: 'none', background: S.gold, color: S.navy, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.6 : 1 }}>
                 {saving ? '⏳ جاري الإرسال...' : '📤 إرسال الطلب'}
               </button>
             </div>
@@ -1263,7 +1273,7 @@ export default function BranchRequestsPage() {
       )}
 
       {mainView === 'exchange' && (
-        <ExchangeTab employee={employee} branches={branches} sb={sb} isAr={isAr} />
+        <ExchangeTab employee={employee} branches={branches} sb={sb} isAr={isAr} isAdmin={isAdmin} />
       )}
 
       {showNew && <NewRequestModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployee={employee} />}

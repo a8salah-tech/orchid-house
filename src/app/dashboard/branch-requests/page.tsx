@@ -747,6 +747,269 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
 }
 
 // ══ الصفحة الرئيسية ══
+// ✅ جديد: مكون "التبادل بين الفروع" - طلبات أصناف حرة بين مشرفين/مدراء الأقسام في فروع مختلفة (بدون ربط بمخزون)
+const EX_STATUS_INFO: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  pending:   { label: 'بانتظار الموافقة', color: S.amber, bg: S.amberB, icon: '⏳' },
+  accepted:  { label: 'جاري التجهيز',     color: S.blue,  bg: S.blueB,  icon: '📦' },
+  completed: { label: 'تم الاستلام',       color: S.green, bg: S.greenB, icon: '✅' },
+  cancelled: { label: 'ملغي',              color: S.red,   bg: S.redB,   icon: '❌' },
+}
+type ExItem = { id?: string; item_name: string; quantity: string; unit: string; notes: string }
+function exFullName(p: { name?: string; name_en?: string } | null | undefined) {
+  if (!p) return ''
+  return [p.name, p.name_en].filter(Boolean).join(' ')
+}
+
+function ExchangeTab({ employee, branches, sb, isAr }: { employee: any; branches: { id: string; name: string }[]; sb: any; isAr: boolean }) {
+  const role = employee?.role || ''
+  const myBranchId = employee?.branch_id || ''
+  const ALLOWED_EX_ROLES = [...SUPERVISOR_ROLES, ...MANAGER_ROLES]
+
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  const [employees, setEmployees] = useState<any[]>([])
+  const [exchanges, setExchanges] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<'sent' | 'received'>('received')
+
+  const [showNew, setShowNew] = useState(false)
+  const [newTargetBranch, setNewTargetBranch] = useState('')
+  const [newTargetPerson, setNewTargetPerson] = useState('')
+  const [newNotes, setNewNotes] = useState('')
+  const [newItems, setNewItems] = useState<ExItem[]>([{ item_name: '', quantity: '', unit: '', notes: '' }])
+  const [saving, setSaving] = useState(false)
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true)
+    const [empRes, exRes] = await Promise.all([
+      sb.from('employees').select('id,name,name_en,role,branch_id').eq('is_active', true).in('role', ALLOWED_EX_ROLES),
+      sb.from('inter_branch_exchanges')
+        .select('*, from_branch:branches!inter_branch_exchanges_from_branch_id_fkey(name), to_branch:branches!inter_branch_exchanges_to_branch_id_fkey(name), requester:employees!inter_branch_exchanges_requested_by_fkey(name,name_en), assignee:employees!inter_branch_exchanges_assigned_to_fkey(name,name_en), items:inter_branch_exchange_items(*)')
+        .or(`requested_by.eq.${employee?.id},assigned_to.eq.${employee?.id}`)
+        .order('created_at', { ascending: false }),
+    ])
+    setEmployees(empRes.data || [])
+    setExchanges(exRes.data || [])
+    setLoading(false)
+  }, [sb, employee?.id])
+
+  useEffect(() => { if (employee?.id) fetchAll() }, [employee?.id, fetchAll])
+
+  const sentRequests = exchanges.filter(e => e.requested_by === employee?.id)
+  const receivedRequests = exchanges.filter(e => e.assigned_to === employee?.id)
+  const pendingReceivedCount = receivedRequests.filter(e => e.status === 'pending').length
+  const pendingSentCount = sentRequests.filter(e => e.status === 'accepted').length
+  const targetBranchPeople = employees.filter(e => e.branch_id === newTargetBranch)
+
+  function addItemRow() { setNewItems(p => [...p, { item_name: '', quantity: '', unit: '', notes: '' }]) }
+  function removeItemRow(i: number) { setNewItems(p => p.filter((_, idx) => idx !== i)) }
+  function updateItemRow(i: number, key: keyof ExItem, val: string) { setNewItems(p => p.map((it, idx) => idx === i ? { ...it, [key]: val } : it)) }
+  function resetNewForm() {
+    setNewTargetBranch(''); setNewTargetPerson(''); setNewNotes('')
+    setNewItems([{ item_name: '', quantity: '', unit: '', notes: '' }])
+  }
+  function repeatRequest(ex: any) {
+    setNewTargetBranch(ex.to_branch_id)
+    setNewTargetPerson(ex.assigned_to)
+    setNewNotes('')
+    setNewItems((ex.items || []).map((it: any) => ({ item_name: it.item_name, quantity: String(it.quantity), unit: it.unit || '', notes: it.notes || '' })))
+    setShowNew(true)
+  }
+
+  async function sendRequest() {
+    if (!newTargetBranch) { alert('من فضلك اختر الفرع'); return }
+    if (!newTargetPerson) { alert('من فضلك اختر الشخص المطلوب منه'); return }
+    const validItems = newItems.filter(it => it.item_name.trim() && parseFloat(it.quantity) > 0)
+    if (validItems.length === 0) { alert('من فضلك أضف صنف واحد على الأقل بكمية صحيحة'); return }
+    setSaving(true)
+    const { data: created, error } = await sb.from('inter_branch_exchanges').insert([{
+      from_branch_id: myBranchId, to_branch_id: newTargetBranch,
+      requested_by: employee?.id, assigned_to: newTargetPerson,
+      status: 'pending', notes: newNotes.trim() || null,
+    }]).select().single()
+    if (error || !created) { alert('حصل خطأ: ' + (error?.message || '')); setSaving(false); return }
+    await sb.from('inter_branch_exchange_items').insert(
+      validItems.map(it => ({ exchange_id: created.id, item_name: it.item_name.trim(), quantity: parseFloat(it.quantity), unit: it.unit.trim() || null, notes: it.notes.trim() || null }))
+    )
+    setSaving(false); setShowNew(false); resetNewForm(); fetchAll()
+  }
+
+  async function acceptRequest(id: string) {
+    await sb.from('inter_branch_exchanges').update({ status: 'accepted', accepted_at: new Date().toISOString() }).eq('id', id)
+    fetchAll()
+  }
+  async function completeRequest(id: string) {
+    await sb.from('inter_branch_exchanges').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', id)
+    fetchAll()
+  }
+  async function cancelRequest(id: string) {
+    if (!confirm('إلغاء هذا الطلب؟')) return
+    await sb.from('inter_branch_exchanges').update({ status: 'cancelled' }).eq('id', id)
+    fetchAll()
+  }
+
+  if (!ALLOWED_EX_ROLES.includes(role) && role !== 'admin') {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
+        <div style={{ fontSize: 14, color: S.muted }}>هذا القسم مخصص للمشرفين ومدراء الأقسام فقط</div>
+      </div>
+    )
+  }
+
+  const list = tab === 'sent' ? sentRequests : receivedRequests
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setTab('received')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'received' ? S.gold : S.border}`, background: tab === 'received' ? S.gold3 : 'transparent', color: tab === 'received' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'received' ? 700 : 400, display: 'flex', alignItems: 'center', gap: 6 }}>
+            📥 طلبات موجهة لي
+            {pendingReceivedCount > 0 && <span style={{ background: S.red, color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{pendingReceivedCount}</span>}
+          </button>
+          <button onClick={() => setTab('sent')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'sent' ? S.gold : S.border}`, background: tab === 'sent' ? S.gold3 : 'transparent', color: tab === 'sent' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'sent' ? 700 : 400, display: 'flex', alignItems: 'center', gap: 6 }}>
+            📤 طلباتي
+            {pendingSentCount > 0 && <span style={{ background: S.blue, color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{pendingSentCount}</span>}
+          </button>
+        </div>
+        <button onClick={() => { resetNewForm(); setShowNew(true) }}
+          style={{ padding: '10px 20px', borderRadius: 12, border: 'none', background: `S.gold`, color: S.navy, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+          ➕ طلب جديد
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
+      ) : list.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60 }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>{tab === 'received' ? '📥' : '📤'}</div>
+          <div style={{ fontSize: 14, color: S.muted }}>{tab === 'received' ? 'لا توجد طلبات موجهة إليك حاليًا' : 'لم تقم بإرسال أي طلب بعد'}</div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
+          {list.map(ex => {
+            const st = EX_STATUS_INFO[ex.status] || EX_STATUS_INFO.pending
+            const isRecipient = ex.assigned_to === employee?.id
+            const isSender = ex.requested_by === employee?.id
+            return (
+              <div key={ex.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${st.color}40`, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: S.white }}>
+                      {tab === 'received' ? `من: ${ex.from_branch?.name} (${exFullName(ex.requester)})` : `إلى: ${ex.to_branch?.name} (${exFullName(ex.assignee)})`}
+                    </div>
+                    <div style={{ fontSize: 11, color: S.muted }}>{new Date(ex.created_at).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                  </div>
+                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
+                </div>
+                <div style={{ padding: '12px 16px' }}>
+                  {(ex.items || []).map((it: any) => (
+                    <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+                      <span style={{ color: S.white }}>{it.item_name}</span>
+                      <span style={{ color: S.gold, fontWeight: 700 }}>{it.quantity} {it.unit}</span>
+                    </div>
+                  ))}
+                  {ex.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 6 }}>📝 {ex.notes}</div>}
+                </div>
+                <div style={{ padding: '10px 16px', borderTop: `1px solid ${S.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {isRecipient && ex.status === 'pending' && (
+                    <button onClick={() => acceptRequest(ex.id)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: S.blue, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      ✅ استلمت الطلب وسأقوم بتجهيزه
+                    </button>
+                  )}
+                  {isSender && ex.status === 'accepted' && (
+                    <button onClick={() => completeRequest(ex.id)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      ✅ استلمت الصنف
+                    </button>
+                  )}
+                  {isSender && ex.status === 'pending' && (
+                    <button onClick={() => cancelRequest(ex.id)} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: 'transparent', color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      ✕ إلغاء
+                    </button>
+                  )}
+                  {isSender && (
+                    <button onClick={() => repeatRequest(ex)} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.purple}`, background: 'transparent', color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      🔁 كرر الطلب
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {showNew && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', padding: isMobile ? 18 : 26 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: S.white }}>➕ طلب تبادل جديد</div>
+              <button onClick={() => setShowNew(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>🏪 الفرع اللي هتطلب منه</label>
+              <select value={newTargetBranch} onChange={e => { setNewTargetBranch(e.target.value); setNewTargetPerson('') }}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, fontFamily: 'Tajawal, sans-serif' }}>
+                <option value="">-- اختر الفرع --</option>
+                {branches.filter(b => b.id !== myBranchId).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>👤 الشخص المطلوب منه</label>
+              <select value={newTargetPerson} onChange={e => setNewTargetPerson(e.target.value)} disabled={!newTargetBranch}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, fontFamily: 'Tajawal, sans-serif', opacity: newTargetBranch ? 1 : 0.5 }}>
+                <option value="">{newTargetBranch ? '-- اختر الشخص --' : '-- اختر الفرع أولاً --'}</option>
+                {targetBranchPeople.map(p => <option key={p.id} value={p.id}>{exFullName(p)}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>📦 الأصناف</label>
+              {newItems.map((it, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                  <input value={it.item_name} onChange={e => updateItemRow(i, 'item_name', e.target.value)} placeholder="اسم الصنف"
+                    style={{ flex: 2, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                  <input type="number" value={it.quantity} onChange={e => updateItemRow(i, 'quantity', e.target.value)} placeholder="الكمية"
+                    style={{ flex: 1, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                  <input value={it.unit} onChange={e => updateItemRow(i, 'unit', e.target.value)} placeholder="الوحدة"
+                    style={{ flex: 1, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                  {newItems.length > 1 && (
+                    <button onClick={() => removeItemRow(i)} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '8px 10px', fontSize: 13, flexShrink: 0 }}>✕</button>
+                  )}
+                </div>
+              ))}
+              <button onClick={addItemRow} style={{ padding: '7px 14px', borderRadius: 8, border: `1px dashed ${S.gold}`, background: 'transparent', color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ➕ إضافة صنف آخر
+              </button>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>📝 ملاحظات (اختياري)</label>
+              <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} rows={2}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', resize: 'vertical' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 12, borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                إلغاء
+              </button>
+              <button onClick={sendRequest} disabled={saving}
+                style={{ flex: 1, padding: 12, borderRadius: 12, border: 'none', background: `S.gold`, color: S.navy, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.6 : 1 }}>
+                {saving ? '⏳ جاري الإرسال...' : '📤 إرسال الطلب'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function BranchRequestsPage() {
   const sb = createClient()
   const { employee } = useAuth()
@@ -762,6 +1025,8 @@ export default function BranchRequestsPage() {
   const [activeBranch, setActiveBranch] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
   const [showReport, setShowReport] = useState(false)
   const [search, setSearch] = useState('')
+  // ✅ جديد: تبديل بين "طلبات الفروع" العادية و"التبادل بين الفروع" كتاب داخلي في نفس الصفحة
+  const [mainView, setMainView] = useState<'requests' | 'exchange'>('requests')
 
   const role = employee?.role || ''
   const myBranchId = employee?.branch_id || ''
@@ -908,6 +1173,23 @@ export default function BranchRequestsPage() {
         </div>
       </div>
 
+      {/* ✅ جديد: تبديل بين طلبات الفروع والتبادل بين الفروع */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        <button onClick={() => setMainView('requests')}
+          style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${mainView === 'requests' ? S.gold : S.border}`, background: mainView === 'requests' ? S.gold3 : 'transparent', color: mainView === 'requests' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainView === 'requests' ? 700 : 400 }}>
+          📦 {isAr ? 'طلبات الفروع' : 'Branch Requests'}
+        </button>
+        {(SUPERVISOR_ROLES.includes(role) || MANAGER_ROLES.includes(role) || isAdmin) && (
+          <button onClick={() => setMainView('exchange')}
+            style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${mainView === 'exchange' ? S.gold : S.border}`, background: mainView === 'exchange' ? S.gold3 : 'transparent', color: mainView === 'exchange' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainView === 'exchange' ? 700 : 400 }}>
+            🔄 {isAr ? 'التبادل بين الفروع' : 'Inter-Branch Exchange'}
+          </button>
+        )}
+      </div>
+
+      {mainView === 'requests' && (
+      <>
+
       {/* Branch Tabs */}
       {visibleBranches.length > 1 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -975,6 +1257,13 @@ export default function BranchRequestsPage() {
             <RequestCard key={req.id} req={req} role={role} onOpen={() => setSelected(req)} />
           ))}
         </div>
+      )}
+
+      </>
+      )}
+
+      {mainView === 'exchange' && (
+        <ExchangeTab employee={employee} branches={branches} sb={sb} isAr={isAr} />
       )}
 
       {showNew && <NewRequestModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} currentEmployee={employee} />}

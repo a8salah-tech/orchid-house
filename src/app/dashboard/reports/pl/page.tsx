@@ -72,31 +72,77 @@ export default function PLReportPage() {
   const [data, setData] = useState<PLData | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // ✅ جديد: اختيار الفرع - فاضي = كل الفروع مجمّعة مع بعض
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [branchFilter, setBranchFilter] = useState('')
+
+  // ✅ جديد: كشف الموبايل عشان نظبط التنسيق
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  useEffect(() => {
+    sb.from('branches').select('id,name').eq('is_active', true).order('name')
+      .then(({ data }) => setBranches(data || []))
+  }, [sb])
+
+  // ✅ Fix حرج: Supabase بيرجع 1000 صف بالحد الأقصى افتراضيًا لأي استعلام من غير Range صريح.
+  // من غير الدالة دي، أي شهر/فرع فيه أكتر من 1000 طلب مدفوع كانت كل الأرقام المالية بتتقطع بصمت عند أول 1000 بس.
+  async function fetchAllRows<T = any>(buildQuery: (from: number, to: number) => any, pageSize = 1000): Promise<T[]> {
+    let allRows: T[] = []
+    let from = 0
+    while (true) {
+      const { data, error } = await buildQuery(from, from + pageSize - 1)
+      if (error) { console.error('fetchAllRows error:', error); break }
+      allRows = allRows.concat(data || [])
+      if (!data || data.length < pageSize) break
+      from += pageSize
+    }
+    return allRows
+  }
+
   const fetchPL = useCallback(async () => {
     setLoading(true)
 
     const startDate = `${year}-${String(month).padStart(2,'0')}-01`
     const endDate = new Date(year, month, 0).toISOString().split('T')[0]
 
-    const [ordersRes, purchasesRes, payrollRes] = await Promise.all([
-      sb.from('orders')
-        .select('total_amount,discount_amount,service_charge,sst_amount,payment_method,status')
-        .eq('status', 'paid')
-        .gte('paid_at', startDate)
-        .lte('paid_at', endDate + 'T23:59:59'),
-      sb.from('purchase_invoices')
-        .select('total_amount')
-        .gte('invoice_date', startDate)
-        .lte('invoice_date', endDate),
-      sb.from('payroll_records')
-        .select('amount_due, payroll_months!inner(month, year)')
-        .eq('payroll_months.month', month)
-        .eq('payroll_months.year', year),
+    // ✅ الاستعلام دايمًا بنفس الشكل الثابت (فيه الـ join مع tables/warehouses/employees)
+    // عشان نظام الأنواع في Supabase مش بيقدر يحلل جملة select() شرطية (Ternary) صح
+    const [orders, purchases, payrollRecs] = await Promise.all([
+      fetchAllRows((from, to) => {
+        let q = sb.from('orders')
+          .select('total_amount,discount_amount,service_charge,sst_amount,payment_method,status,tables!inner(branch_id)')
+          .eq('status', 'paid')
+          .gte('paid_at', startDate)
+          .lte('paid_at', endDate + 'T23:59:59')
+          .range(from, to)
+        if (branchFilter) q = q.eq('tables.branch_id', branchFilter)
+        return q
+      }),
+      fetchAllRows((from, to) => {
+        let q = sb.from('purchase_invoices')
+          .select('total_amount,warehouses!inner(branch_id)')
+          .gte('invoice_date', startDate)
+          .lte('invoice_date', endDate)
+          .range(from, to)
+        if (branchFilter) q = q.eq('warehouses.branch_id', branchFilter)
+        return q
+      }),
+      fetchAllRows((from, to) => {
+        let q = sb.from('payroll_records')
+          .select('amount_due, payroll_months!inner(month, year), employees!inner(branch_id)')
+          .eq('payroll_months.month', month)
+          .eq('payroll_months.year', year)
+          .range(from, to)
+        if (branchFilter) q = q.eq('employees.branch_id', branchFilter)
+        return q
+      }),
     ])
-
-    const orders = ordersRes.data || []
-    const purchases = purchasesRes.data || []
-    const payrollRecs = payrollRes.data || []
 
     // Revenue calculations
     const paid_orders = orders.filter(o => o.payment_method !== 'free').length
@@ -140,7 +186,7 @@ export default function PLReportPage() {
       cash_sales, visa_sales, online_sales,
     })
     setLoading(false)
-  }, [sb, month, year])
+  }, [sb, month, year, branchFilter])
 
   useEffect(() => { fetchPL() }, [fetchPL])
 
@@ -165,7 +211,7 @@ export default function PLReportPage() {
       @media print { @page { size: A4; margin: 15mm; } }
     </style></head><body>
     <h1>🌸 Orchid Group — Profit & Loss Statement</h1>
-    <h3>${MONTHS[month-1]} ${year}</h3>
+    <h3>${MONTHS[month-1]} ${year} ${branchFilter ? '— ' + (branches.find(b => b.id === branchFilter)?.name || '') : '— All Branches'}</h3>
     <table>
       <tr class="section"><td colspan="3">REVENUE</td></tr>
       <tr><td>Gross Sales</td><td class="right">${fmt(data.gross_sales)}</td><td class="right">100.0%</td></tr>
@@ -205,37 +251,54 @@ export default function PLReportPage() {
     <div style={{ fontFamily: 'Tajawal, sans-serif', color: S.white, direction: 'rtl' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'flex-start', marginBottom: isMobile ? 16 : 24, flexWrap: 'wrap', gap: 12, flexDirection: isMobile ? 'column' : 'row' }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>📉 تقرير الأرباح والخسائر</h1>
+          <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 900, marginBottom: 4 }}>📉 تقرير الأرباح والخسائر</h1>
           <p style={{ fontSize: 13, color: S.muted }}>Profit & Loss Statement</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <select value={month} onChange={e => setMonth(+e.target.value)}
-            style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '8px 14px', color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+            style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '8px 14px', color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', flex: isMobile ? '1 1 45%' : undefined }}>
             {MONTHS.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
           </select>
           <select value={year} onChange={e => setYear(+e.target.value)}
-            style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '8px 14px', color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+            style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '8px 14px', color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', flex: isMobile ? '1 1 45%' : undefined }}>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <button onClick={printReport} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة</button>
+          <button onClick={printReport} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? '1 1 100%' : undefined }}>🖨️ طباعة</button>
         </div>
       </div>
+
+      {/* ✅ جديد: تابات اختيار الفرع */}
+      {branches.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          <button onClick={() => setBranchFilter('')}
+            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${!branchFilter ? S.gold : S.border}`, background: !branchFilter ? S.gold3 : 'transparent', color: !branchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: !branchFilter ? 700 : 400 }}>
+            🌐 كل الفروع
+          </button>
+          {branches.map(b => (
+            <button key={b.id} onClick={() => setBranchFilter(b.id)}
+              style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === b.id ? S.gold : S.border}`, background: branchFilter === b.id ? S.gold3 : 'transparent', color: branchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: branchFilter === b.id ? 700 : 400 }}>
+              🏪 {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 80, color: S.muted }}>⏳ جاري التحميل...</div>
       ) : !data ? null : (
         <>
           {/* Period */}
-          <div style={{ background: S.gold3, border: `1px solid ${S.gold}40`, borderRadius: 12, padding: '12px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ background: S.gold3, border: `1px solid ${S.gold}40`, borderRadius: 12, padding: '12px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 20 }}>📅</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: S.gold }}>{MONTHS[month-1]} {year}</span>
-            <span style={{ fontSize: 12, color: S.muted, marginRight: 'auto' }}>Profit & Loss Statement</span>
+            <span style={{ fontSize: 12, color: S.muted }}>· {branchFilter ? branches.find(b => b.id === branchFilter)?.name : 'كل الفروع'}</span>
+            <span style={{ fontSize: 12, color: S.muted, marginRight: isMobile ? 0 : 'auto' }}>Profit & Loss Statement</span>
           </div>
 
           {/* KPI Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 14, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fit,minmax(180px,1fr))', gap: isMobile ? 10 : 14, marginBottom: isMobile ? 16 : 24 }}>
             {[
               { label: 'إجمالي الإيرادات', label_en: 'Total Revenue', value: fmt(data.total_revenue), color: S.gold, bg: S.gold3, icon: '💰' },
               { label: 'إجمالي الربح', label_en: 'Gross Profit', value: fmt(data.gross_profit), color: data.gross_profit >= 0 ? S.green : S.red, bg: data.gross_profit >= 0 ? S.greenB : S.redB, icon: '📊' },
@@ -244,26 +307,26 @@ export default function PLReportPage() {
               { label: 'عدد الطلبات', label_en: 'Orders', value: data.orders_count.toString(), color: S.blue, bg: S.blueB, icon: '🧾' },
               { label: 'متوسط الفاتورة', label_en: 'Avg Order', value: fmt(data.avg_order), color: S.purple, bg: S.purpleB, icon: '🎯' },
             ].map((k, i) => (
-              <div key={i} style={{ background: k.bg, border: `1px solid ${k.color}30`, borderRadius: 16, padding: '18px 20px' }}>
-                <div style={{ fontSize: 22, marginBottom: 8 }}>{k.icon}</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: k.color, marginBottom: 4 }}>{k.value}</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{k.label}</div>
+              <div key={i} style={{ background: k.bg, border: `1px solid ${k.color}30`, borderRadius: 16, padding: isMobile ? '12px 14px' : '18px 20px' }}>
+                <div style={{ fontSize: isMobile ? 18 : 22, marginBottom: 8 }}>{k.icon}</div>
+                <div style={{ fontSize: isMobile ? 16 : 20, fontWeight: 900, color: k.color, marginBottom: 4 }}>{k.value}</div>
+                <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 700, color: S.white }}>{k.label}</div>
                 <div style={{ fontSize: 10, color: S.muted }}>{k.label_en}</div>
               </div>
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 16 : 20 }}>
 
             {/* P&L Statement */}
             <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-              <div style={{ padding: '16px 20px', borderBottom: `1px solid ${S.border}`, background: S.navy3 }}>
+              <div style={{ padding: isMobile ? '12px 14px' : '16px 20px', borderBottom: `1px solid ${S.border}`, background: S.navy3 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>📋 قائمة الدخل</div>
                 <div style={{ fontSize: 11, color: S.muted }}>Income Statement</div>
               </div>
 
               {/* Revenue Section */}
-              <div style={{ padding: '14px 20px', borderBottom: `1px solid ${S.border}`, background: 'rgba(201,168,76,0.05)' }}>
+              <div style={{ padding: isMobile ? '10px 14px' : '14px 20px', borderBottom: `1px solid ${S.border}`, background: 'rgba(201,168,76,0.05)' }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: S.gold, letterSpacing: 1, marginBottom: 10 }}>REVENUE — الإيرادات</div>
                 {[
                   { label: 'المبيعات الإجمالية', en: 'Gross Sales', value: data.gross_sales, color: S.white },
@@ -289,7 +352,7 @@ export default function PLReportPage() {
               </div>
 
               {/* COGS Section */}
-              <div style={{ padding: '14px 20px', borderBottom: `1px solid ${S.border}`, background: 'rgba(239,68,68,0.03)' }}>
+              <div style={{ padding: isMobile ? '10px 14px' : '14px 20px', borderBottom: `1px solid ${S.border}`, background: 'rgba(239,68,68,0.03)' }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: S.red, letterSpacing: 1, marginBottom: 10 }}>COGS — تكلفة البضاعة المباعة</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
                   <div>
@@ -308,7 +371,7 @@ export default function PLReportPage() {
               </div>
 
               {/* OpEx Section */}
-              <div style={{ padding: '14px 20px', borderBottom: `1px solid ${S.border}`, background: 'rgba(239,68,68,0.03)' }}>
+              <div style={{ padding: isMobile ? '10px 14px' : '14px 20px', borderBottom: `1px solid ${S.border}`, background: 'rgba(239,68,68,0.03)' }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: S.amber, letterSpacing: 1, marginBottom: 10 }}>OPERATING EXPENSES — مصاريف التشغيل</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
                   <div>
@@ -340,10 +403,10 @@ export default function PLReportPage() {
 
               {/* Payment Breakdown */}
               <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-                <div style={{ padding: '14px 20px', borderBottom: `1px solid ${S.border}`, background: S.navy3 }}>
+                <div style={{ padding: isMobile ? '10px 14px' : '14px 20px', borderBottom: `1px solid ${S.border}`, background: S.navy3 }}>
                   <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>💳 تفصيل طرق الدفع</div>
                 </div>
-                <div style={{ padding: '14px 20px' }}>
+                <div style={{ padding: isMobile ? '10px 14px' : '14px 20px' }}>
                   {[
                     { label: 'نقدي', en: 'Cash', value: data.cash_sales, color: S.green, icon: '💵' },
                     { label: 'فيزا / بطاقة', en: 'Visa / Card', value: data.visa_sales, color: S.blue, icon: '💳' },
@@ -368,10 +431,10 @@ export default function PLReportPage() {
 
               {/* Order Summary */}
               <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-                <div style={{ padding: '14px 20px', borderBottom: `1px solid ${S.border}`, background: S.navy3 }}>
+                <div style={{ padding: isMobile ? '10px 14px' : '14px 20px', borderBottom: `1px solid ${S.border}`, background: S.navy3 }}>
                   <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>📊 ملخص الطلبات</div>
                 </div>
-                <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ padding: isMobile ? '10px 14px' : '14px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {[
                     { label: 'إجمالي الطلبات', en: 'Total Orders', value: data.orders_count, color: S.white },
                     { label: 'طلبات مدفوعة', en: 'Paid Orders', value: data.paid_orders, color: S.green },

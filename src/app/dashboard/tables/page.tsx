@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import QRCode from 'qrcode'
+import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -250,6 +251,9 @@ function LayoutEditorModal({ tables, branches, onClose, onSaved }: {
 export default function TablesPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  // ✅ حماية حقيقية على مستوى الصفحة نفسها - أدمن بس، حتى لو حد دخل بالرابط المباشر من غير المرور بالقايمة الجانبية
+  const { permissions, loading: authLoading } = useAuth()
+  const isAdmin = permissions?.all === true
   const [tables, setTables]   = useState<Table[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -459,6 +463,23 @@ export default function TablesPage() {
     available: branchFiltered.filter(t => t.status === 'available').length,
     reserved:  branchFiltered.filter(t => t.status === 'reserved').length,
     occupied:  branchFiltered.filter(t => t.status === 'occupied').length,
+  }
+
+  // ✅ حاجز الحماية - قبل أي عرض فعلي لأي محتوى في الصفحة
+  if (authLoading) {
+    return (
+      <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, textAlign: 'center', padding: 80 }}>
+        ⏳
+      </div>
+    )
+  }
+  if (!isAdmin) {
+    return (
+      <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, textAlign: 'center', padding: 80 }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
+        <div style={{ fontSize: 16, color: S.muted }}>هذه الصفحة مخصصة للإدارة فقط</div>
+      </div>
+    )
   }
 
   return (

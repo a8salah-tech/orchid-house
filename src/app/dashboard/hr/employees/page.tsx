@@ -611,12 +611,18 @@ async function activateRegistration(reg: Registration) {
   }
   const mappedDept = deptMap[reg.department] || reg.department || null
     // ⑧ البحث عن الفرع بالاسم
-const branchMap: Record<string, string> = {
-  'Orchid House KLCC': 'اوركيد فرع KLCC',
-  'Orchid House':      'اوركيد هاوس',
-}
-  const mappedName = branchMap[parsed.branch_name || ''] || parsed.branch_name
-  const matchedBranch = branches.find(b => b.name === mappedName)
+    // ✅ Fix حرج: الخريطة القديمة كانت بتترجم الاسم الإنجليزي لعربي ("Orchid House" → "اوركيد هاوس")
+    // بس الفروع الحقيقية في قاعدة البيانات أسماؤها إنجليزي بسيط ("Orchid House", "Orchid KLCC") —
+    // فالترجمة دي كانت بتاخد اسم مش موجود خالص، والمطابقة كانت بتفشل تمامًا، وده سبب تحويل آخر 4 موظفين لفرع غلط
+    // الحل: مطابقة مباشرة بعد تنظيف المسافات وتوحيد حالة الأحرف، من غير أي ترجمة
+    const regBranchName = (parsed.branch_name || '').trim().toLowerCase()
+    const matchedBranch = branches.find(b => b.name.trim().toLowerCase() === regBranchName)
+
+    // ✅ Fix: لو فشلت مطابقة الفرع خالص، نوقف ونطلب تأكيد بدل ما نسجل الموظف بصمت من غير فرع
+    if (!matchedBranch) {
+      const proceed = confirm(`⚠️ تعذّر التعرف على الفرع "${parsed.branch_name || 'غير محدد'}" المكتوب في طلب التسجيل.\n\nهل تريد المتابعة وتسجيل الموظف بدون فرع؟ (يمكنك تحديد فرعه يدويًا بعد ذلك من صفحة تعديل الموظف)`)
+      if (!proceed) return
+    }
 
   const { data: newEmp, error } = await supabase.from('employees').insert([{
     name: reg.name, name_en: reg.name_en || null, phone: reg.phone || null,

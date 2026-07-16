@@ -405,21 +405,19 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
 
         let wp: any = null
         if (itemName && branchWhId) {
-          const { data } = await sb.from('warehouse_products')
+          // ✅ Fix: مطابقة الأسماء بعد تنظيفها من المسافات الزايدة في الطرفين
+          // (كان فيه أصناف متسجلة بمسافة زايدة في آخر الاسم، فالمطابقة الدقيقة .ilike كانت بتفشل)
+          const { data: candidates } = await sb.from('warehouse_products')
             .select('id, unit_id, warehouse_id, name')
             .eq('warehouse_id', branchWhId)
-            .ilike('name', itemName.trim())
-            .maybeSingle()
-          wp = data
+          wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
         }
         // fallback: نسخة المستودع الرئيسي لو الفرع ما عندوش نسخة
         if (!wp) {
-          const { data } = await sb.from('warehouse_products')
+          const { data: candidates } = await sb.from('warehouse_products')
             .select('id, unit_id, warehouse_id, name')
             .eq('warehouse_id', MAIN_WAREHOUSE_ID)
-            .ilike('name', itemName.trim())
-            .maybeSingle()
-          wp = data
+          wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
         }
         if (!wp) {
           failedItems.push(`${itemName || productId} — لم يتم العثور على هذا الصنف في أي مستودع`)
@@ -440,6 +438,11 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
               } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
                 qty = receivedQty / conv.factor
               }
+            } else {
+              // ✅ Fix حرج: لو مفيش معامل تحويل مسجل بأي اتجاه، نوقف خصم الصنف ده تمامًا
+              // بدل ما نخصم الرقم الخام غلط (نفس سبب كارثة الموز والبطيخ في طلبات المستودع الداخلي)
+              failedItems.push(`${wp.name} — لا يوجد معامل تحويل مسجّل بين الوحدة المطلوبة ووحدة التخزين الأساسية. من فضلك سجّل معامل التحويل أولاً ثم أعد تأكيد الاستلام`)
+              continue
             }
           }
           await sb.from('stock_movements').insert([{

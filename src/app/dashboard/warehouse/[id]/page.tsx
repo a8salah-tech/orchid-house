@@ -1002,8 +1002,9 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
     // ✅ Fix: نختار التحويل الذي وحدته الكبيرة (from_unit_id) تطابق وحدة المخزون الأساسية للصنف (unit_id)
     // بدل أخذ أول تحويل عشوائي — مثال: الموز وحدته الأساسية "كرتون"، لازم نختار "1 كرتون = 13 كيلو"
     // مش "1 كيلو = 1000 غرام" (ده تحويل داخلي مش مرتبط بوحدة المخزون)
-    const conv = unitConversionsAll.find((c: any) => c.product_id === product.id && c.from_unit_id === product.unit_id)
-      || unitConversionsAll.find((c: any) => c.product_id === product.id)
+    const directConv = unitConversionsAll.find((c: any) => c.product_id === product.id && c.from_unit_id === product.unit_id)
+    const fallbackConv = unitConversionsAll.find((c: any) => c.product_id === product.id)
+    const conv = directConv || fallbackConv
     if (!conv || !conv.factor || conv.factor <= 1) {
       return {
         big: null,
@@ -1014,9 +1015,19 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
       }
     }
     const factor = conv.factor
-    const bigQty = Math.floor(product.current_stock / factor)
-    // ✅ Fix: تقريب لمنع أخطاء الفاصلة العائمة في JS (مثال: 6.899999999999999 بدل 6.9)
-    const smallQty = Math.round((product.current_stock % factor) * 100) / 100
+    let bigQty: number, smallQty: number
+    if (conv.from_unit_id === product.unit_id) {
+      // ✅ Fix حرج: الرصيد متسجل بالفعل بالوحدة الكبيرة نفسها (from_unit = وحدة المخزون الأساسية)
+      // زي "ببروني لحم" — current_stock مباشرة بالكرتون، والتحويل هنا "1 كرتون = 5 كيس" لغرض العرض بس
+      // فلازم ناخد الجزء الصحيح من الرقم مباشرة، مش نقسم على factor (كان بيدي رقم غلط تمامًا)
+      bigQty = Math.floor(product.current_stock)
+      smallQty = Math.round((product.current_stock - bigQty) * factor * 100) / 100
+    } else {
+      // الحالة التانية: الرصيد متسجل بالوحدة الصغيرة (زي كيس)، والتحويل بيجمعها لوحدة كبيرة (كرتون) للعرض
+      bigQty = Math.floor(product.current_stock / factor)
+      // ✅ Fix: تقريب لمنع أخطاء الفاصلة العائمة في JS (مثال: 6.899999999999999 بدل 6.9)
+      smallQty = Math.round((product.current_stock % factor) * 100) / 100
+    }
     return {
       big: bigQty,
       bigUnit: conv.from_unit?.symbol || '',

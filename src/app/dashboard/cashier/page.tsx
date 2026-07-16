@@ -147,13 +147,19 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   // ✅ Fix: حماية من تنفيذ الدفع مرتين لو حصل ضغط مزدوج سريع على "Confirm" (كان بيضاعف إحصائيات العميل)
   const isPayingRef = useRef(false)
   // ✅ اسم الفرع الحقيقي للطاولة - عشان الأدمن يفرّق بين طاولات نفس الاسم في فروع مختلفة (زي "Table 1" في House و KLCC)
+  // ✅ وكمان محتاجين branch_id دايمًا (مش بس للأدمن) عشان القيد المحاسبي التلقائي يتسجل للفرع الصح
   const [orderBranchName, setOrderBranchName] = useState<string | null>(null)
+  const [orderBranchId, setOrderBranchId] = useState<string | null>(null)
   useEffect(() => {
-    if (!isAdminUser) return
     sb.from('tables').select('branch_id, branches(name)').eq('id', order.table_id).maybeSingle()
-      .then(({ data }) => setOrderBranchName((data as any)?.branches?.name || null))
+      .then(({ data }) => {
+        setOrderBranchId((data as any)?.branch_id || null)
+        if (isAdminUser) setOrderBranchName((data as any)?.branches?.name || null)
+      })
   }, [isAdminUser, order.table_id])
   const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'free'>('cash')
+  // ✅ جديد: تحديد البنك لما تكون طريقة الدفع فيزا - عشان تقرير اليومية يقدر يفرّق بين البنكين
+  const [cardBank, setCardBank] = useState<'maybank' | 'bsn' | ''>('')
   const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
   const [discountValue, setDiscountValue] = useState('')
   const [saving, setSaving] = useState(false)
@@ -254,6 +260,49 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     }).eq('id', customerId)
   }
 
+  // ✅ جديد: إنشاء قيد محاسبي تلقائي في "سندات القيد" وقت إقفال أي فاتورة مبيعات
+  const SALES_ACCOUNTS: Record<string, { code: string; name: string }> = {
+    cash:   { code: '1101', name: 'الصندوق النقدي - الكاشير' },
+    visa:   { code: '1111', name: 'مستحقات العملاء - بطاقات ائتمان' },
+    online: { code: '1105', name: 'المدفوعات الإلكترونية المعلقة' },
+  }
+  async function createSalesJournalEntry(debitLines: { method: string; amount: number }[], salesAmt: number, serviceChargeAmt: number, sstAmt: number, tableName: string) {
+    if (!orderBranchId) { console.error('createSalesJournalEntry: مفيش branch_id، هنتجاهل القيد التلقائي'); return }
+    const lines: any[] = []
+    let sortOrder = 0
+    const byMethod = new Map<string, number>()
+    for (const dl of debitLines) {
+      if (dl.amount <= 0) continue
+      byMethod.set(dl.method, (byMethod.get(dl.method) || 0) + dl.amount)
+    }
+    byMethod.forEach((amt, method) => {
+      const acc = SALES_ACCOUNTS[method] || SALES_ACCOUNTS.cash
+      lines.push({ account_code: acc.code, account_name: acc.name, description: `مبيعات - ${tableName}`, debit: Math.round(amt * 100) / 100, credit: 0, sort_order: sortOrder++ })
+    })
+    if (salesAmt > 0) lines.push({ account_code: '4100', account_name: 'إيرادات المبيعات', description: `مبيعات - ${tableName}`, debit: 0, credit: Math.round(salesAmt * 100) / 100, sort_order: sortOrder++ })
+    if (serviceChargeAmt > 0) lines.push({ account_code: '4121', account_name: 'رسوم الخدمة 10%', description: `رسوم خدمة - ${tableName}`, debit: 0, credit: Math.round(serviceChargeAmt * 100) / 100, sort_order: sortOrder++ })
+    if (sstAmt > 0) lines.push({ account_code: '2121', account_name: 'ضريبة SST المستحقة', description: `SST - ${tableName}`, debit: 0, credit: Math.round(sstAmt * 100) / 100, sort_order: sortOrder++ })
+
+    const totalDebit = lines.reduce((s, l) => s + l.debit, 0)
+    const totalCredit = lines.reduce((s, l) => s + l.credit, 0)
+    if (totalDebit <= 0 || Math.abs(totalDebit - totalCredit) > 0.05) {
+      console.error('createSalesJournalEntry: القيد غير متوازن، هنتجاهله', totalDebit, totalCredit)
+      return
+    }
+
+    const today = new Date().toISOString().split('T')[0]
+    const { count } = await sb.from('journal_entries').select('id', { count: 'exact', head: true }).eq('entry_type', 'sales')
+    const entryNumber = `SI-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`
+
+    const { data: entry, error: entryErr } = await sb.from('journal_entries').insert([{
+      entry_number: entryNumber, entry_type: 'sales', date: today,
+      description: `فاتورة مبيعات - ${tableName}`, total_amount: totalDebit, status: 'posted',
+      branch_id: orderBranchId,
+    }]).select('id').single()
+    if (entryErr || !entry?.id) { console.error('createSalesJournalEntry insert error:', entryErr?.message); return }
+    await sb.from('journal_entry_lines').insert(lines.map(l => ({ ...l, entry_id: entry.id })))
+  }
+
   async function doPay() {
     if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
     isPayingRef.current = true
@@ -263,6 +312,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     await sb.from('orders').update({
       status: 'paid',
       payment_method: discountType === 'free' ? 'free' : method,
+      card_bank: method === 'visa' ? (cardBank || null) : null,
       discount_amount: discountAmt,
       discount_type: discountType === 'free' ? 'free' : discountType,
       service_charge: serviceCharge,
@@ -279,6 +329,15 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       await bumpCustomerStats(selectedCustomer.id, total)
     }
 
+    // ✅ قيد محاسبي تلقائي لفاتورة المبيعات دي
+    if (discountType !== 'free' && total > 0) {
+      await createSalesJournalEntry(
+        [{ method, amount: total }],
+        afterDiscount, serviceCharge, sst,
+        order.tables?.name || `Table ${order.tables?.number}`
+      )
+    }
+
     // 2. Reset table to available
     await sb.from('tables').update({
       status: 'available',
@@ -291,6 +350,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   }
   // ✅ زرار "Confirm Payment" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ الدفع على طول
   function pay() {
+    if (method === 'visa' && !cardBank) { alert('من فضلك حدد البنك (Maybank / BSN)'); return }
     setConfirmAction('pay')
   }
 
@@ -337,6 +397,15 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
     if (selectedCustomer?.id) {
       await bumpCustomerStats(selectedCustomer.id, total)
+    }
+
+    // ✅ قيد محاسبي تلقائي - مع سطر مدين منفصل لكل طريقة دفع استُخدمت في التقسيم
+    if (discountType !== 'free' && total > 0) {
+      await createSalesJournalEntry(
+        splitPeople.map(p => ({ method: personMethods[p.idx] || 'cash', amount: p.amount })),
+        afterDiscount, serviceCharge, sst,
+        order.tables?.name || `Table ${order.tables?.number}`
+      )
     }
 
     await sb.from('tables').update({
@@ -524,6 +593,17 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
                 </button>
               ))}
             </div>
+            {/* ✅ جديد: اختيار البنك إجباري لما تكون فيزا */}
+            {method === 'visa' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 8 }}>
+                {[{ k: 'maybank', label: '🏦 Maybank' }, { k: 'bsn', label: '🏦 BSN' }].map(b => (
+                  <button key={b.k} onClick={() => setCardBank(b.k as any)}
+                    style={{ padding: '8px', borderRadius: 10, border: `1px solid ${cardBank === b.k ? S.gold : S.border}`, background: cardBank === b.k ? S.gold3 : 'transparent', color: cardBank === b.k ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: cardBank === b.k ? 700 : 400 }}>
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

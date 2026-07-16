@@ -781,6 +781,33 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
           movement_date: form.invoice_date,
         }])
       }
+      // ✅ قيد محاسبي تلقائي: مدين المخزون (1120)، دائن الذمم الدائنة - الموردون (2101)
+      if (total > 0) {
+        try {
+          const { data: wh } = await supabase.from('warehouses').select('branch_id').eq('id', form.warehouse_id).maybeSingle()
+          const branchId = (wh as any)?.branch_id
+          if (branchId) {
+            const supplierName = suppliers.find(s => s.id === form.supplier_id)?.name || 'مورد غير محدد'
+            const { count } = await supabase.from('journal_entries').select('id', { count: 'exact', head: true }).eq('entry_type', 'purchase')
+            const entryNumber = `PI-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`
+            const { data: entry, error: entryErr } = await supabase.from('journal_entries').insert([{
+              entry_number: entryNumber, entry_type: 'purchase', date: form.invoice_date,
+              description: `فاتورة مشتريات - ${supplierName}`, reference: form.supplier_invoice_number || null,
+              total_amount: total, status: 'posted', branch_id: branchId,
+            }]).select('id').single()
+            if (!entryErr && entry?.id) {
+              await supabase.from('journal_entry_lines').insert([
+                { entry_id: entry.id, account_code: '1120', account_name: 'المخزون', description: `فاتورة مشتريات - ${supplierName}`, debit: total, credit: 0, sort_order: 0 },
+                { entry_id: entry.id, account_code: '2101', account_name: 'الذمم الدائنة - الموردون', description: `فاتورة مشتريات - ${supplierName}`, debit: 0, credit: total, sort_order: 1 },
+              ])
+            } else {
+              console.error('purchase journal entry error:', entryErr?.message)
+            }
+          }
+        } catch (jeErr) {
+          console.error('purchase journal entry exception:', jeErr)
+        }
+      }
       onSaved()
     } catch (e: unknown) {
       alert('خطأ: ' + (e instanceof Error ? e.message : String(e)))

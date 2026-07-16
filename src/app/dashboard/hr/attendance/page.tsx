@@ -493,6 +493,15 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [reportData,   setReportData]   = useState<any[]>([])
   const [loadingReport, setLoadingReport] = useState(false)
 
+  // ✅ جديد: كشف الموبايل عشان نظبط تنسيق الشبكات والأزرار
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     const [att, emps, brs] = await Promise.all([
@@ -735,7 +744,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   style={{ background: filterBranch === bs.branch.id ? S.blueB : S.navy2, border: `1px solid ${filterBranch === bs.branch.id ? S.blue : S.border}`, borderRadius: 14, padding: '14px 16px', cursor: 'pointer', transition: 'all .15s' }}
                 >
                   <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🏪 {bs.branch.name}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 6 }}>
                     <div><div style={{ fontSize: 9, color: S.muted }}>Total</div><div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{bs.total}</div></div>
                     <div><div style={{ fontSize: 9, color: S.muted }}>{isAr ? 'حاضر' : 'Present'}</div><div style={{ fontSize: 16, fontWeight: 800, color: S.green }}>{bs.present}</div></div>
                     <div><div style={{ fontSize: 9, color: S.muted }}>{isAr ? 'غائب' : 'Absent'}</div><div style={{ fontSize: 16, fontWeight: 800, color: S.red }}>{bs.absent}</div></div>
@@ -755,7 +764,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isMobile ? 8 : 12, marginBottom: 20 }}>
             {[
               { label: 'Present',     value: checkedIn,  color: S.green, bg: S.greenB, icon: '✅' },
               { label: 'Checked Out', value: checkedOut, color: S.blue,  bg: S.blueB,  icon: '🔴' },

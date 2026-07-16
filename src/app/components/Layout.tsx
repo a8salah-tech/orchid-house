@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from './AuthProvider'
 import NotificationBell from './NotificationBell'
 import { LanguageContext } from './LanguageContext'
@@ -132,6 +133,45 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
 
+  // ✅ جديد: تغيير كلمة المرور الشخصية من الهيدر
+  const sbRef = useRef(createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  ))
+  const sb = sbRef.current
+  const [showPasswordForm, setShowPasswordForm] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [pwSaving, setPwSaving] = useState(false)
+  const [pwError, setPwError] = useState('')
+  const [pwSuccess, setPwSuccess] = useState(false)
+  const [showNewPw, setShowNewPw] = useState(false)
+  const [showConfirmPw, setShowConfirmPw] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowPasswordForm(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  async function savePassword() {
+    setPwError('')
+    if (!newPassword || newPassword.length < 6) { setPwError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return }
+    if (newPassword !== confirmPassword) { setPwError('كلمتا المرور غير متطابقتين'); return }
+    setPwSaving(true)
+    const { error } = await sb.auth.updateUser({ password: newPassword })
+    setPwSaving(false)
+    if (error) { setPwError(error.message); return }
+    setPwSuccess(true)
+    setNewPassword(''); setConfirmPassword('')
+    setTimeout(() => { setPwSuccess(false); setShowPasswordForm(false) }, 1800)
+  }
+
   useEffect(() => {
     function checkMobile() {
       const mobile = window.innerWidth < 768
@@ -222,7 +262,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
                 <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>
-                <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.041.35</div>
+                <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.041.01</div>
               </div>
             )}
           </div>
@@ -239,16 +279,56 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </button>
           )}
           <NotificationBell />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: isMobile ? '4px 8px' : '6px 12px', border: `1px solid ${S.border}` }}>
-            {!isMobile && (
-              <div style={{ textAlign: isAr ? 'right' : 'left' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>{employee?.name || 'User'}</div>
-                <div style={{ fontSize: 10, color: roleInfo.color }}>{roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}</div>
+          <div ref={userMenuRef} style={{ position: 'relative' }}>
+            <div onClick={() => setShowPasswordForm(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: isMobile ? '4px 8px' : '6px 12px', border: `1px solid ${S.border}`, cursor: 'pointer' }}>
+              {!isMobile && (
+                <div style={{ textAlign: isAr ? 'right' : 'left' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>{employee?.name || 'User'}</div>
+                  <div style={{ fontSize: 10, color: roleInfo.color }}>{roleInfo.icon} {isAr ? roleInfo.ar : roleInfo.en}</div>
+                </div>
+              )}
+              <div style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, borderRadius: 8, background: S.goldB, border: `1px solid ${S.gold3}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: S.gold, flexShrink: 0 }}>
+                {employee?.name?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+            </div>
+
+            {/* ✅ جديد: فورم تغيير كلمة المرور المنسدل */}
+            {showPasswordForm && (
+              <div style={{ position: 'absolute', top: '110%', [isAr ? 'left' : 'right']: 0, width: 260, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, zIndex: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, marginBottom: 12 }}>🔑 تغيير كلمة المرور</div>
+                {pwSuccess ? (
+                  <div style={{ fontSize: 12, color: S.green, textAlign: 'center', padding: '8px 0' }}>✅ تم تغيير كلمة المرور بنجاح</div>
+                ) : (
+                  <>
+                    <div style={{ position: 'relative', marginBottom: 8 }}>
+                      <input type={showNewPw ? 'text' : 'password'} placeholder="كلمة المرور الجديدة" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 34px 8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+                      <button type="button" onClick={() => setShowNewPw(v => !v)} style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', [isAr ? 'left' : 'right']: 8, background: 'transparent', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 14, padding: 0 }}>
+                        {showNewPw ? '🙈' : '👁️'}
+                      </button>
+                    </div>
+                    <div style={{ position: 'relative', marginBottom: 8 }}>
+                      <input type={showConfirmPw ? 'text' : 'password'} placeholder="تأكيد كلمة المرور" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 34px 8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+                      <button type="button" onClick={() => setShowConfirmPw(v => !v)} style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', [isAr ? 'left' : 'right']: 8, background: 'transparent', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 14, padding: 0 }}>
+                        {showConfirmPw ? '🙈' : '👁️'}
+                      </button>
+                    </div>
+                    {pwError && <div style={{ fontSize: 11, color: S.red, marginBottom: 8 }}>{pwError}</div>}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => { setShowPasswordForm(false); setNewPassword(''); setConfirmPassword(''); setPwError('') }}
+                        style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                        إلغاء
+                      </button>
+                      <button onClick={savePassword} disabled={pwSaving}
+                        style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', background: S.gold, color: S.navy, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pwSaving ? 0.6 : 1 }}>
+                        {pwSaving ? '⏳...' : 'حفظ'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
-            <div style={{ width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, borderRadius: 8, background: S.goldB, border: `1px solid ${S.gold3}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: S.gold, flexShrink: 0 }}>
-              {employee?.name?.charAt(0)?.toUpperCase() || '?'}
-            </div>
           </div>
         </div>
       </header>

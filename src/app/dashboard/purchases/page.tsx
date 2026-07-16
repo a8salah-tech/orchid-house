@@ -1017,10 +1017,18 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                     <select style={inp} value={item.unit_id} onChange={e => {
                       setItem(i, 'unit_id', e.target.value)
                       if (item.product_id && e.target.value) {
-                        const conv = unitConversions.find(c => c.product_id === item.product_id && c.from_unit_id === e.target.value)
+                        // ✅ Fix حرج: معامل التحويل ممكن يكون متسجل بأي اتجاه -
+                        // إما "وحدة الشراء → الوحدة الأساسية" (نضرب) أو "الوحدة الأساسية → وحدة الشراء" (نقسم)
+                        // كان الكود بيدوّر على اتجاه واحد بس، فلو الاتجاه عكسي كان بيسجل الكمية الخام غلط بالكامل
+                        const convDirect = unitConversions.find(c => c.product_id === item.product_id && c.from_unit_id === e.target.value)
+                        const convReverse = unitConversions.find(c => c.product_id === item.product_id && c.to_unit_id === e.target.value)
+                        let factor: number | undefined
+                        let unitName: string | undefined
+                        if (convDirect) { factor = convDirect.factor; unitName = convDirect.to_unit?.name }
+                        else if (convReverse) { factor = convReverse.factor ? 1 / convReverse.factor : undefined; unitName = convReverse.from_unit?.name }
                         setItems(p => p.map((it, idx) => idx === i ? {
                           ...it, unit_id: e.target.value,
-                          contents_per_unit: conv?.factor, contents_unit_name: conv?.to_unit?.name,
+                          contents_per_unit: factor, contents_unit_name: unitName,
                         } : it))
                       }
                     }}>
@@ -1351,13 +1359,17 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
       const loaded = rawItems.map((i: any) => ({ ...i, product_name: prodMap[i.product_id] || '—' }))
       setItems(loaded)
       setEditItems(loaded.map((i: any) => {
-        const conv = (unitConversions || []).find((c: any) => c.product_id === i.product_id && c.from_unit_id === i.unit_id)
+        // ✅ Fix حرج: دعم الاتجاهين لمعامل التحويل (نفس منطق الفاتورة الجديدة)
+        const convDirect = (unitConversions || []).find((c: any) => c.product_id === i.product_id && c.from_unit_id === i.unit_id)
+        const convReverse = (unitConversions || []).find((c: any) => c.product_id === i.product_id && c.to_unit_id === i.unit_id)
+        const factor = convDirect ? convDirect.factor : (convReverse?.factor ? 1 / convReverse.factor : undefined)
+        const unitName = convDirect ? convDirect.to_unit?.name : convReverse?.from_unit?.name
         return {
           id: i.id, product_id: i.product_id, quantity: String(i.quantity), unit_price: String(i.unit_price), unit_id: i.unit_id || '',
           sst_percent: i.sst_percent != null ? String(i.sst_percent) : '',
           discount_type: i.discount_type || 'percent',
           discount_value: i.discount_value != null ? String(i.discount_value) : '',
-          contents_per_unit: conv?.factor, contents_unit_name: conv?.to_unit?.name,
+          contents_per_unit: factor, contents_unit_name: unitName,
         }
       }))
       setLoadingItems(false)
@@ -1448,8 +1460,11 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
       if (editForm.warehouse_id) {
         // ✅ Fix حرج (نفس إصلاح الفاتورة الجديدة): لازم نضرب الكمية في معامل التحويل الصحيح
         // بنلاقيه من unit_id المحفوظ مع الصنف نفسه (الوحدة اللي اتشرى بيها وقت إنشاء الفاتورة الأصلية)
-        const conv = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.from_unit_id === item.unit_id)
-        const actualQty = parseFloat(item.quantity) * (conv?.factor || 1)
+        // ✅ Fix إضافي حرج: معامل التحويل ممكن يكون متسجل بأي اتجاه (وحدة الشراء→الأساسية أو العكس)
+        const convDirect = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.from_unit_id === item.unit_id)
+        const convReverse = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.to_unit_id === item.unit_id)
+        const factor = convDirect ? convDirect.factor : (convReverse?.factor ? 1 / convReverse.factor : 1)
+        const actualQty = parseFloat(item.quantity) * factor
         await supabase.from('stock_movements').insert([{
           product_id: item.product_id,
           warehouse_id: editForm.warehouse_id,
@@ -1703,10 +1718,14 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                       <input style={{ ...inpD, padding: '7px 10px' }} type="number" placeholder="السعر" value={item.unit_price} onChange={e => setEditItems(p => p.map((x, xi) => xi === i ? { ...x, unit_price: e.target.value } : x))} />
                       {/* ✅ جديد: عرض/تعديل الوحدة - كانت غايبة تمامًا في وضع التعديل */}
                       <select style={{ ...inpD, padding: '7px 10px' }} value={item.unit_id || ''} onChange={e => {
-                        const conv = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.from_unit_id === e.target.value)
+                        // ✅ Fix حرج: دعم الاتجاهين لمعامل التحويل
+                        const convDirect = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.from_unit_id === e.target.value)
+                        const convReverse = (unitConversions || []).find((c: any) => c.product_id === item.product_id && c.to_unit_id === e.target.value)
+                        const factor = convDirect ? convDirect.factor : (convReverse?.factor ? 1 / convReverse.factor : undefined)
+                        const unitName = convDirect ? convDirect.to_unit?.name : convReverse?.from_unit?.name
                         setEditItems(p => p.map((x, xi) => xi === i ? {
                           ...x, unit_id: e.target.value,
-                          contents_per_unit: conv?.factor, contents_unit_name: conv?.to_unit?.name,
+                          contents_per_unit: factor, contents_unit_name: unitName,
                         } : x))
                       }}>
                         <option value="">الوحدة</option>

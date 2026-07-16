@@ -9,7 +9,7 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const { order_id, user_agent } = await request.json()
+    const { order_id, user_agent, device_model } = await request.json()
     if (!order_id) {
       return NextResponse.json({ error: 'order_id is required' }, { status: 400 })
     }
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       order_id,
       ip_address: ip,
       user_agent: user_agent || request.headers.get('user-agent') || null,
+      device_model: device_model || null,
     }])
 
     if (error) {

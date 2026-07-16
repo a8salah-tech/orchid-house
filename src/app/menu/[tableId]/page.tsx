@@ -415,12 +415,22 @@ const filteredItems = items
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
     setConfirmedOrderId(orderId)
-    // ✅ تسجيل IP وuser-agent للأوردر ده - في الخلفية، مش بيأثر على تجربة العميل لو فشل
-    fetch('/api/log-order-meta', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId, user_agent: navigator.userAgent }),
-    }).catch(() => { /* تجاهل أي خطأ هنا عمدًا */ })
+    // ✅ تسجيل IP وuser-agent وموديل الجهاز (لو متاح - أندرويد+Chrome بس) للأوردر ده - في الخلفية
+    ;(async () => {
+      let deviceModel: string | null = null
+      try {
+        const uaData = (navigator as any).userAgentData
+        if (uaData?.getHighEntropyValues) {
+          const info = await uaData.getHighEntropyValues(['model'])
+          deviceModel = info.model || null
+        }
+      } catch { /* آيفون أو متصفح تاني مبيدعمش الميزة دي - نتجاهل ونكمل عادي */ }
+      fetch('/api/log-order-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, user_agent: navigator.userAgent, device_model: deviceModel }),
+      }).catch(() => { /* تجاهل أي خطأ هنا عمدًا */ })
+    })()
     setPhase('done')
     isSubmittingRef.current = false
     setSubmitting(false)

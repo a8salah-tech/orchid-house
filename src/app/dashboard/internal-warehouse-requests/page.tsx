@@ -360,10 +360,12 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     const { data: wh, error: whErr } = await sb.from('warehouses').select('id').eq('branch_id', request.branch_id).maybeSingle()
     if (whErr || !wh?.id) { alert('لم يتم العثور على مستودع لهذا الفرع'); setUpdating(false); return }
 
-    // 2) لكل صنف: تحويل الكمية المعتمدة لوحدة المخزون الأساسية (لو الوحدة المختارة في الطلب مختلفة)، ثم تسجيل حركة صرف
-    // ✅ Fix: لا نحدّث current_stock يدويًا هنا — الـ trigger (trigger_update_stock) يقوم بهذا
-    // تلقائيًا عند إدراج حركة stock_movements. كان التحديث اليدوي السابق يتسبب في خصم الكمية مرتين.
+    // ✅ Fix (جذري - مرحلة ١): نتحقق من كل الأصناف الأول من غير ما نخصم أي حاجة خالص
+    // (كل شيء أو ولا حاجة - عشان مانخصمش لأصناف نجحت ثم نكتشف صنف فشل بعدهم فيفضل المخزون في حالة ناقصة)
     const failedItems: string[] = []
+    const plannedMovements: { product_id: string; warehouse_id: string; movement_type: 'out'; quantity: number; movement_date: string; notes: string }[] = []
+    const plannedUpdates: { itemId: string; payload: any }[] = []
+
     for (const item of (request.internal_warehouse_request_items || [])) {
       const requestedQty = approvedQtys[item.id] ?? item.quantity_requested
       // ✅ Fix (نهائي وبسيط): ندور على الصنف بالاسم في مستودع الفرع اللي طالب
@@ -385,49 +387,60 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         failedItems.push(`${itemName || (item as any).product_id} — لم يتم العثور على هذا الصنف في مستودع هذا الفرع`)
         continue
       }
-      {
-        // ✅ Fix: لو وحدة الطلب (item.unit_id) مختلفة عن الوحدة الأساسية للصنف (wp.unit_id)،
-        // نحوّل الكمية باستخدام unit_conversions المطابقة تحديدًا لوحدة الطلب
-        // (الصنف ممكن يكون له أكثر من معادلة تحويل، مثل كرتون→كيلو وكرتون→غرام، فلازم نحدد المطابق بالذات)
-        let qty = requestedQty
-        // ✅ إضافة: لو أمين المستودع صحّح الوحدة (لأن مقدّم الطلب أدخلها غلط)، نستخدم الوحدة المصحَّحة بدل الأصلية
-        const itemUnitId = editedUnits[item.id] || (item as any).unit_id
-        if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
-          const { data: conv } = await sb.from('unit_conversions')
-            .select('from_unit_id, to_unit_id, factor')
-            .eq('product_id', wp.id)
-            .or(`and(from_unit_id.eq.${itemUnitId},to_unit_id.eq.${wp.unit_id}),and(from_unit_id.eq.${wp.unit_id},to_unit_id.eq.${itemUnitId})`)
-            .maybeSingle()
-          if (conv) {
-            if (conv.from_unit_id === itemUnitId && conv.to_unit_id === wp.unit_id) {
-              qty = requestedQty * conv.factor
-            } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
-              qty = requestedQty / conv.factor
-            }
+      // ✅ Fix: لو وحدة الطلب (item.unit_id) مختلفة عن الوحدة الأساسية للصنف (wp.unit_id)،
+      // نحوّل الكمية باستخدام unit_conversions المطابقة تحديدًا لوحدة الطلب
+      // (الصنف ممكن يكون له أكثر من معادلة تحويل، مثل كرتون→كيلو وكرتون→غرام، فلازم نحدد المطابق بالذات)
+      let qty = requestedQty
+      // ✅ إضافة: لو أمين المستودع صحّح الوحدة (لأن مقدّم الطلب أدخلها غلط)، نستخدم الوحدة المصحَّحة بدل الأصلية
+      const itemUnitId = editedUnits[item.id] || (item as any).unit_id
+      if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
+        const { data: conv } = await sb.from('unit_conversions')
+          .select('from_unit_id, to_unit_id, factor')
+          .eq('product_id', wp.id)
+          .or(`and(from_unit_id.eq.${itemUnitId},to_unit_id.eq.${wp.unit_id}),and(from_unit_id.eq.${wp.unit_id},to_unit_id.eq.${itemUnitId})`)
+          .maybeSingle()
+        if (conv) {
+          if (conv.from_unit_id === itemUnitId && conv.to_unit_id === wp.unit_id) {
+            qty = requestedQty * conv.factor
+          } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
+            qty = requestedQty / conv.factor
           }
+        } else {
+          // ✅ Fix حرج: لو مفيش معامل تحويل مسجل، نوقف اعتماد الصنف ده تمامًا بدل ما نخصم الرقم الخام غلط
+          // (ده كان سبب مباشر لخصم آلاف الوحدات غلط من المخزون - زي طلب "4360 غرام" بيتخصم كأنه 4360 "كرتون")
+          failedItems.push(`${wp.name} — لا يوجد معامل تحويل مسجّل من الوحدة المطلوبة إلى وحدة التخزين الأساسية. من فضلك سجّل معامل التحويل أولاً من صفحة المشتريات ثم أعد الاعتماد`)
+          continue
         }
-        await sb.from('stock_movements').insert([{
-          product_id: wp.id,
-          warehouse_id: wh.id,
-          movement_type: 'out',
-          quantity: qty,
-          movement_date: new Date().toISOString().slice(0, 10),
-          notes: `طلب مستودع داخلي #${request.request_number} — ${request.department}`,
-        }])
       }
+      plannedMovements.push({
+        product_id: wp.id,
+        warehouse_id: wh.id,
+        movement_type: 'out',
+        quantity: qty,
+        movement_date: new Date().toISOString().slice(0, 10),
+        notes: `طلب مستودع داخلي #${request.request_number} — ${request.department}`,
+      })
       // ✅ إضافة: تحديث الوحدة كذلك لو أمين المستودع صحّحها، بالإضافة للكمية المعتمدة كما كان
       const updatePayload: any = { quantity_approved: requestedQty }
       if (editedUnits[item.id] && editedUnits[item.id] !== (item as any).unit_id) {
         updatePayload.unit_id = editedUnits[item.id]
       }
-      await sb.from('internal_warehouse_request_items').update(updatePayload).eq('id', item.id)
+      plannedUpdates.push({ itemId: item.id, payload: updatePayload })
     }
 
-    // ✅ Fix (جذري): لو فيه أي صنف فشل خصمه، نوقف العملية ونمنع تعليم الطلب كـ"معتمد" بدل الاستمرار بصمت
+    // ✅ Fix (جذري): لو فيه أي صنف فشل، نوقف العملية بالكامل من غير ما نخصم أي حاجة خالص
     if (failedItems.length > 0) {
       setUpdating(false)
       alert('⚠️ تعذّر اعتماد الطلب بسبب مشاكل في الأصناف التالية:\n\n' + failedItems.join('\n') + '\n\nلم يتم خصم أي كمية ولم يتم اعتماد الطلب.')
       return
+    }
+
+    // ✅ مرحلة ٢: كل الأصناف سليمة - ننفذ الخصم الفعلي وتحديث الأصناف
+    for (const mv of plannedMovements) {
+      await sb.from('stock_movements').insert([mv])
+    }
+    for (const upd of plannedUpdates) {
+      await sb.from('internal_warehouse_request_items').update(upd.payload).eq('id', upd.itemId)
     }
 
     // 3) تحديث حالة الطلب

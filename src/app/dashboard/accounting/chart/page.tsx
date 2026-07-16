@@ -124,13 +124,67 @@ export default function ChartOfAccountsPage() {
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(new Set(['1000','2000','3000','4000','5000','6000','7000','8000']))
   const [view, setView] = useState<'tree' | 'flat'>('tree')
 
+  // ✅ جديد: اختيار الفرع - فاضي = الرصيد الإجمالي المخزّن (زي ما هو حاليًا)، فرع محدد = رصيد محسوب ديناميكيًا من القيود بتاعته بس
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [branchFilter, setBranchFilter] = useState('')
+
+  // ✅ Fix حرج: Supabase بيرجع 1000 صف كحد أقصى افتراضيًا من غير Range صريح - بيقطع البيانات بصمت لو زادت
+  async function fetchAllRows<T = any>(buildQuery: (from: number, to: number) => any, pageSize = 1000): Promise<T[]> {
+    let allRows: T[] = []
+    let from = 0
+    while (true) {
+      const { data, error } = await buildQuery(from, from + pageSize - 1)
+      if (error) {
+        console.error('fetchAllRows error:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint)
+        break
+      }
+      allRows = allRows.concat(data || [])
+      if (!data || data.length < pageSize) break
+      from += pageSize
+    }
+    return allRows
+  }
+
   const fetchAccounts = useCallback(async () => {
-    const { data } = await sb.from('chart_of_accounts').select('*').eq('is_active', true).order('code')
-    const accs = (data as Account[]) || []
-    setAccounts(accs)
-    setTree(buildTree(accs))
+    setLoading(true)
+    const [accs, brs] = await Promise.all([
+      fetchAllRows<Account>((from, to) =>
+        sb.from('chart_of_accounts').select('*').eq('is_active', true).order('code').range(from, to)
+      ),
+      sb.from('branches').select('id,name').eq('is_active', true).order('name').then(r => r.data || []),
+    ])
+    setBranches(brs)
+
+    if (!branchFilter) {
+      // ✅ كل الفروع مع بعض: نستخدم الرصيد الإجمالي المخزّن زي ما هو بالظبط (مفيش تغيير في السلوك الحالي)
+      setAccounts(accs)
+      setTree(buildTree(accs))
+      setLoading(false)
+      return
+    }
+
+    // ✅ فرع محدد: نحسب الرصيد ديناميكيًا من بنود القيود (journal_entry_lines) المرتبطة بقيود الفرع ده بس
+    const lines = await fetchAllRows<{ account_code: string; debit: number; credit: number }>((from, to) =>
+      sb.from('journal_entry_lines')
+        .select('account_code, debit, credit, journal_entries!inner(branch_id)')
+        .eq('journal_entries.branch_id', branchFilter)
+        .range(from, to)
+    )
+    const balanceByCode = new Map<string, number>()
+    for (const l of lines) {
+      const prev = balanceByCode.get(l.account_code) || 0
+      balanceByCode.set(l.account_code, prev + (l.debit || 0) - (l.credit || 0))
+    }
+    // ✅ معادلة محاسبية قياسية: الأصول والمصروفات = مدين - دائن؛ الالتزامات وحقوق الملكية والإيرادات = دائن - مدين (عكس الإشارة)
+    const accsForBranch = accs.map(a => {
+      const raw = balanceByCode.get(a.code) || 0
+      const balance = (a.type === 'liability' || a.type === 'equity' || a.type === 'revenue') ? -raw : raw
+      return { ...a, balance }
+    })
+    setAccounts(accsForBranch)
+    setTree(buildTree(accsForBranch))
     setLoading(false)
-  }, [sb])
+  }, [sb, branchFilter])
 
   useEffect(() => { fetchAccounts() }, [fetchAccounts])
 
@@ -177,7 +231,7 @@ export default function ChartOfAccountsPage() {
       @media print{@page{size:A4;margin:10mm;}}
     </style></head><body>
     <h2>🌸 Orchid House — Chart of Accounts</h2>
-    <h3>Printed: ${new Date().toLocaleDateString('en-GB', { year:'numeric',month:'long',day:'numeric' })}</h3>
+    <h3>${branchFilter ? branches.find(b => b.id === branchFilter)?.name || '' : 'All Branches'} · Printed: ${new Date().toLocaleDateString('en-GB', { year:'numeric',month:'long',day:'numeric' })}</h3>
     <table><thead><tr>
       <th>Account Name</th><th>English</th><th>Code</th><th>Type</th><th>Balance</th>
     </tr></thead><tbody>${rows}</tbody></table>
@@ -217,6 +271,22 @@ export default function ChartOfAccountsPage() {
           <button onClick={printReport} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
         </div>
       </div>
+
+      {/* ✅ جديد: تابات اختيار الفرع */}
+      {branches.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={() => setBranchFilter('')}
+            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${!branchFilter ? S.gold : S.border}`, background: !branchFilter ? S.gold3 : 'transparent', color: !branchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: !branchFilter ? 700 : 400 }}>
+            🌐 كل الفروع
+          </button>
+          {branches.map(b => (
+            <button key={b.id} onClick={() => setBranchFilter(b.id)}
+              style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${branchFilter === b.id ? S.gold : S.border}`, background: branchFilter === b.id ? S.gold3 : 'transparent', color: branchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: branchFilter === b.id ? 700 : 400 }}>
+              🏪 {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 24 }}>

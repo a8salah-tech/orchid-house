@@ -140,8 +140,8 @@ function printVoucher(entry: Entry, lines: Line[]) {
 }
 
 // ══ Entry Form Modal ══
-function EntryModal({ entry, accounts, onClose, onSaved }: {
-  entry?: Entry | null; accounts: Account[]; onClose: () => void; onSaved: () => void
+function EntryModal({ entry, accounts, branches, onClose, onSaved }: {
+  entry?: Entry | null; accounts: Account[]; branches: { id: string; name: string }[]; onClose: () => void; onSaved: () => void
 }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
@@ -156,6 +156,8 @@ function EntryModal({ entry, accounts, onClose, onSaved }: {
     bank_name: entry?.bank_name || '',
     description: entry?.description || '',
     notes: entry?.notes || '',
+    // ✅ الفرع - إجباري لأي قيد جديد من دلوقتي، القيود القديمة (من غير هذا الحقل) هتفضل بدون فرع محدد
+    branch_id: (entry as any)?.branch_id || '',
   })
 
   const [lines, setLines] = useState<Omit<Line,'id'>[]>(
@@ -201,6 +203,7 @@ function EntryModal({ entry, accounts, onClose, onSaved }: {
 
   async function save(status: 'draft' | 'posted') {
     if (!form.description.trim()) { alert('البيان مطلوب'); return }
+    if (!form.branch_id) { alert('يرجى اختيار الفرع'); return }
     if (lines.some(l => !l.account_code)) { alert('يرجى اختيار الحساب لكل بند'); return }
     if (!isBalanced) { alert('القيد غير متوازن — المدين ≠ الدائن'); return }
 
@@ -226,6 +229,7 @@ function EntryModal({ entry, accounts, onClose, onSaved }: {
       total_amount: totalDebit,
       status,
       notes: form.notes || null,
+      branch_id: form.branch_id,
     }
 
     let entryId = entry?.id
@@ -285,6 +289,13 @@ function EntryModal({ entry, accounts, onClose, onSaved }: {
 
         {/* Form Fields */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:16 }}>
+          <div>
+            <label style={{ fontSize:12, color:S.muted, display:'block', marginBottom:5 }}>🏪 الفرع *</label>
+            <select style={inp} value={form.branch_id} onChange={e => setForm(p=>({...p,branch_id:e.target.value}))}>
+              <option value="">-- اختر الفرع --</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
           <div>
             <label style={{ fontSize:12, color:S.muted, display:'block', marginBottom:5 }}>التاريخ *</label>
             <input type="date" style={inp} value={form.date} onChange={e => setForm(p=>({...p,date:e.target.value}))} />
@@ -413,6 +424,7 @@ export default function JournalEntriesPage() {
 
   const [entries, setEntries] = useState<Entry[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [editEntry, setEditEntry] = useState<Entry | null>(null)
@@ -422,12 +434,14 @@ export default function JournalEntriesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
-    const [entriesRes, accountsRes] = await Promise.all([
+    const [entriesRes, accountsRes, branchesRes] = await Promise.all([
       sb.from('journal_entries').select('*, journal_entry_lines(*)').order('date', { ascending: false }).order('created_at', { ascending: false }).limit(200),
       sb.from('chart_of_accounts').select('code,name,name_en,type').eq('is_active', true).order('code'),
+      sb.from('branches').select('id,name').eq('is_active', true).order('name'),
     ])
     setEntries((entriesRes.data as any) || [])
     setAccounts((accountsRes.data as any) || [])
+    setBranches(branchesRes.data || [])
     setLoading(false)
   }, [sb])
 
@@ -628,7 +642,7 @@ export default function JournalEntriesPage() {
       )}
 
       {(showAdd || editEntry) && (
-        <EntryModal entry={editEntry} accounts={accounts} onClose={() => { setShowAdd(false); setEditEntry(null) }} onSaved={() => { setShowAdd(false); setEditEntry(null); fetchAll() }} />
+        <EntryModal entry={editEntry} accounts={accounts} branches={branches} onClose={() => { setShowAdd(false); setEditEntry(null) }} onSaved={() => { setShowAdd(false); setEditEntry(null); fetchAll() }} />
       )}
     </div>
   )

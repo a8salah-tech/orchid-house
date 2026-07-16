@@ -67,6 +67,23 @@ export default function DailyReportPage() {
   const [saved, setSaved] = useState(false)
   const [existingId, setExistingId] = useState<string | null>(null)
   const [view, setView] = useState<'form' | 'history'>('form')
+  // ✅ جديد: الفرع - إجباري، وأساس سحب الأرقام تلقائيًا من النظام
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [branchFilter, setBranchFilter] = useState('')
+  const [pulling, setPulling] = useState<1 | 2 | 'top' | null>(null)
+
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  useEffect(() => {
+    sb.from('branches').select('id,name').eq('is_active', true).order('name')
+      .then(({ data }) => setBranches(data || []))
+  }, [sb])
 
   const fetchReports = useCallback(async () => {
     const { data } = await sb.from('daily_reports')
@@ -81,9 +98,9 @@ export default function DailyReportPage() {
   // لما يغير التاريخ يجيب التقرير لو موجود
   useEffect(() => {
     async function loadReport() {
-      if (!form.report_date) return
+      if (!form.report_date || !branchFilter) return
       const { data } = await sb.from('daily_reports')
-        .select('*').eq('report_date', form.report_date).single()
+        .select('*').eq('report_date', form.report_date).eq('branch_id', branchFilter).maybeSingle()
       if (data) {
         setExistingId(data.id)
         setForm({
@@ -143,7 +160,7 @@ export default function DailyReportPage() {
       }
     }
     loadReport()
-  }, [form.report_date, sb])
+  }, [form.report_date, branchFilter, sb])
 
   function setShift(n: 1 | 2, field: string, val: string) {
     setForm(p => ({ ...p, [`shift${n}`]: { ...p[`shift${n}` as 'shift1' | 'shift2'], [field]: val } }))
@@ -151,10 +168,119 @@ export default function DailyReportPage() {
 
   function n(v: string) { return parseFloat(v) || 0 }
 
+  // ✅ جديد: سحب أرقام الشيفت من بيانات حقيقية (الأوردرات المدفوعة + المصروفات + طلبات التوصيل المسجّلة)
+  async function pullShiftFromSystem(num: 1 | 2) {
+    if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
+    if (!form.report_date) { alert('من فضلك اختر التاريخ أولاً'); return }
+    setPulling(num)
+    const shiftKey = `shift${num}`
+    const dayStart = `${form.report_date}T00:00:00`
+    const dayEnd = `${form.report_date}T23:59:59.999`
+
+    const [ordersRes, expRes, delRes] = await Promise.all([
+      sb.from('orders')
+        .select('total_amount, discount_amount, payment_method, card_bank, shift, tables!inner(branch_id)')
+        .eq('status', 'paid').eq('shift', shiftKey)
+        .eq('tables.branch_id', branchFilter)
+        .gte('paid_at', dayStart).lte('paid_at', dayEnd),
+      sb.from('daily_cash_expenses').select('amount,status')
+        .eq('branch_id', branchFilter).eq('shift', shiftKey).eq('expense_date', form.report_date),
+      sb.from('delivery_platform_orders').select('amount,platform')
+        .eq('branch_id', branchFilter).eq('shift', shiftKey).eq('order_date', form.report_date),
+    ])
+
+    const orders = ordersRes.data || []
+    const expenses = expRes.data || []
+    const delivery = delRes.data || []
+
+    const salesTotal = orders.reduce((s, o) => s + (o.total_amount || 0), 0)
+    const discountsTotal = orders.reduce((s, o) => s + (o.discount_amount || 0), 0)
+    const visaMaybank = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
+    const visaBsn = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
+    const kababOnline = delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0)
+    const gOnline = delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0)
+    const paidExpenses = expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
+    const pendingExpenses = expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
+
+    setForm(p => ({
+      ...p,
+      [shiftKey]: {
+        ...(p as any)[shiftKey],
+        paid_expenses: String(paidExpenses),
+        pending_expenses: String(pendingExpenses),
+        visa_maybank: String(visaMaybank),
+        visa_bsn: String(visaBsn),
+        kabab_online: String(kababOnline),
+        g_online: String(gOnline),
+        discounts: String(discountsTotal),
+        total_balance: String(salesTotal),
+      },
+    }))
+    setPulling(null)
+  }
+
+  // ✅ سحب إجماليات اليوم كله (المستوى العلوي: المبيعات، جراب، فودباندا، فواتير المشتريات)
+  async function pullDayTotalsFromSystem() {
+    if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
+    if (!form.report_date) { alert('من فضلك اختر التاريخ أولاً'); return }
+    setPulling('top')
+    const dayStart = `${form.report_date}T00:00:00`
+    const dayEnd = `${form.report_date}T23:59:59.999`
+
+    const [ordersRes, delRes, purchasesRes, expRes] = await Promise.all([
+      sb.from('orders')
+        .select('total_amount, discount_amount, payment_method, card_bank, tables!inner(branch_id)')
+        .eq('status', 'paid').eq('tables.branch_id', branchFilter)
+        .gte('paid_at', dayStart).lte('paid_at', dayEnd),
+      sb.from('delivery_platform_orders').select('amount,platform')
+        .eq('branch_id', branchFilter).eq('order_date', form.report_date),
+      sb.from('purchase_invoices')
+        .select('total_amount, warehouses!inner(branch_id)')
+        .eq('warehouses.branch_id', branchFilter).eq('invoice_date', form.report_date),
+      sb.from('daily_cash_expenses').select('amount,status')
+        .eq('branch_id', branchFilter).eq('expense_date', form.report_date),
+    ])
+
+    const orders = ordersRes.data || []
+    const delivery = delRes.data || []
+    const purchases = purchasesRes.data || []
+    const expenses = expRes.data || []
+    const paidExpensesTotal = expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
+    const pendingExpensesTotal = expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
+
+    const salesTotal = orders.reduce((s, o) => s + (o.total_amount || 0), 0)
+    const discountsTotal = orders.reduce((s, o) => s + (o.discount_amount || 0), 0)
+    const visaMaybank = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
+    const visaBsn = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
+    const kababOnline = delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0)
+    const gOnline = delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0)
+    const grabTotal = delivery.filter(d => d.platform === 'grab').reduce((s, d) => s + (d.amount || 0), 0)
+    const foodpandaTotal = delivery.filter(d => d.platform === 'foodpanda').reduce((s, d) => s + (d.amount || 0), 0)
+    const purchasesTotal = purchases.reduce((s, pInv) => s + (pInv.total_amount || 0), 0)
+
+    setForm(p => ({
+      ...p,
+      total_sales_report: String(salesTotal),
+      total_paid_expenses: String(paidExpensesTotal),
+      total_pending_expenses: String(pendingExpensesTotal),
+      total_visa_maybank: String(visaMaybank),
+      total_visa_bsn: String(visaBsn),
+      total_kabab_online: String(kababOnline),
+      total_g_online: String(gOnline),
+      total_discounts: String(discountsTotal),
+      grab: String(grabTotal),
+      foodpanda: String(foodpandaTotal),
+      total_purchased_bills: String(purchasesTotal),
+    }))
+    setPulling(null)
+  }
+
   async function saveReport() {
+    if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
     setSaving(true)
     const payload = {
       report_date: form.report_date,
+      branch_id: branchFilter,
       shift1_date: form.shift1.date || null,
       shift1_cashier_name: form.shift1.cashier_name || null,
       shift1_received_balance: n(form.shift1.received_balance),
@@ -236,7 +362,7 @@ export default function DailyReportPage() {
         @media print { @page { margin: 10mm; } }
       </style>
     </head><body>
-      <h2>ORCHID HOUSE RESTAURANT – Daily Report<br><small>${form.report_date}</small></h2>
+      <h2>ORCHID HOUSE RESTAURANT – Daily Report<br><small>${form.report_date} — ${branches.find(b => b.id === branchFilter)?.name || ''}</small></h2>
 
       <table>
         <tr>
@@ -332,14 +458,57 @@ const label = (text: string) => (
 )
 
   function ShiftSection({ num, shift }: { num: 1 | 2; shift: ReturnType<typeof emptyShift> }) {
+    const shiftKey = `shift${num}`
+    const [expDesc, setExpDesc] = useState('')
+    const [expAmount, setExpAmount] = useState('')
+    const [expStatus, setExpStatus] = useState<'paid' | 'pending'>('paid')
+    const [expSaving, setExpSaving] = useState(false)
+
+    const [delPlatform, setDelPlatform] = useState<'kabab_online' | 'g_online' | 'grab' | 'foodpanda'>('kabab_online')
+    const [delAmount, setDelAmount] = useState('')
+    const [delSaving, setDelSaving] = useState(false)
+
+    async function addExpense() {
+      if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
+      if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('من فضلك أدخل الوصف والمبلغ صح'); return }
+      if (!shift.cashier_name.trim()) { alert('من فضلك أدخل اسم الكاشير للشيفت ده أولاً'); return }
+      setExpSaving(true)
+      await sb.from('daily_cash_expenses').insert([{
+        branch_id: branchFilter, expense_date: form.report_date, shift: shiftKey,
+        cashier_name: shift.cashier_name, description: expDesc.trim(),
+        amount: parseFloat(expAmount), status: expStatus,
+      }])
+      setExpSaving(false)
+      setExpDesc(''); setExpAmount('')
+      pullShiftFromSystem(num)
+    }
+
+    async function addDelivery() {
+      if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
+      if (!(parseFloat(delAmount) > 0)) { alert('من فضلك أدخل المبلغ صح'); return }
+      if (!shift.cashier_name.trim()) { alert('من فضلك أدخل اسم الكاشير للشيفت ده أولاً'); return }
+      setDelSaving(true)
+      await sb.from('delivery_platform_orders').insert([{
+        branch_id: branchFilter, order_date: form.report_date, shift: shiftKey,
+        cashier_name: shift.cashier_name, platform: delPlatform, amount: parseFloat(delAmount),
+      }])
+      setDelSaving(false)
+      setDelAmount('')
+      pullShiftFromSystem(num)
+    }
+
     return (
       <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}` }}>
+        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: num === 1 ? S.blue : '#8B5CF6' }}>
             {num === 1 ? '🌅' : '🌙'} Shift {num}
           </div>
+          <button onClick={() => pullShiftFromSystem(num)} disabled={pulling === num}
+            style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pulling === num ? 0.6 : 1 }}>
+            {pulling === num ? '⏳ Pulling...' : '🔄 Pull from System'}
+          </button>
         </div>
-        <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ padding: isMobile ? 14 : 20, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
           {/* Left column */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -393,34 +562,68 @@ const label = (text: string) => (
             </div>
           </div>
         </div>
+
+        {/* ✅ جديد: إضافة سريعة لمصروف أو طلب توصيل - بيتسجلوا فورًا ويتحسبوا تلقائيًا */}
+        <div style={{ padding: isMobile ? '0 14px 14px' : '0 20px 20px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+          <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.red, marginBottom: 10 }}>💸 إضافة مصروف نقدي</div>
+            <input style={{ ...inp, marginBottom: 8 }} placeholder="الوصف" value={expDesc} onChange={e => setExpDesc(e.target.value)} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <input style={numInp} type="number" placeholder="المبلغ" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+              <select style={inp} value={expStatus} onChange={e => setExpStatus(e.target.value as any)}>
+                <option value="paid">مدفوع</option>
+                <option value="pending">معلق</option>
+              </select>
+            </div>
+            <button onClick={addExpense} disabled={expSaving}
+              style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.red, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: expSaving ? 0.6 : 1 }}>
+              {expSaving ? '⏳...' : '➕ إضافة المصروف'}
+            </button>
+          </div>
+
+          <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.blue, marginBottom: 10 }}>🛵 إضافة طلب توصيل</div>
+            <select style={{ ...inp, marginBottom: 8 }} value={delPlatform} onChange={e => setDelPlatform(e.target.value as any)}>
+              <option value="kabab_online">Kabab Online</option>
+              <option value="g_online">G Online</option>
+              <option value="grab">Grab</option>
+              <option value="foodpanda">Foodpanda</option>
+            </select>
+            <input style={{ ...numInp, marginBottom: 8, width: '100%', boxSizing: 'border-box' }} type="number" placeholder="المبلغ" value={delAmount} onChange={e => setDelAmount(e.target.value)} />
+            <button onClick={addDelivery} disabled={delSaving}
+              style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.blue, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: delSaving ? 0.6 : 1 }}>
+              {delSaving ? '⏳...' : '➕ إضافة الطلب'}
+            </button>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
     <div style={{ minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; } input[type=number]::-webkit-inner-spin-button { opacity: 0.3; }`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; } input[type=number]::-webkit-inner-spin-button { opacity: 0.3; } select option { background: #0F2040; color: #FAFAF8; }`}</style>
 
       {/* Header */}
-      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 24px', display: 'flex', alignItems: 'center', height: 60, gap: 16, position: 'sticky', top: 0, zIndex: 100 }}>
-        <h1 style={{ color: S.gold, fontSize: 18, fontWeight: 900 }}>📊 Daily Report</h1>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: isMobile ? '10px 14px' : '0 24px', display: 'flex', alignItems: 'center', height: isMobile ? 'auto' : 60, gap: isMobile ? 8 : 16, position: 'sticky', top: 0, zIndex: 100, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+        <h1 style={{ color: S.gold, fontSize: isMobile ? 15 : 18, fontWeight: 900 }}>📊 Daily Report</h1>
+        <div style={{ marginLeft: isMobile ? 0 : 'auto', display: 'flex', gap: isMobile ? 6 : 10, alignItems: 'center', flexWrap: 'wrap', width: isMobile ? '100%' : undefined }}>
           <button onClick={() => setView(v => v === 'form' ? 'history' : 'form')}
-            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            style={{ padding: isMobile ? '7px 12px' : '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.muted, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', flex: isMobile ? 1 : undefined }}>
             {view === 'form' ? '📋 History' : '📝 Form'}
           </button>
           <button onClick={printReport}
-            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            style={{ padding: isMobile ? '7px 12px' : '8px 16px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>
             🖨️ Print
           </button>
           <button onClick={saveReport} disabled={saving}
-            style={{ padding: '8px 20px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: saving ? 0.7 : 1 }}>
+            style={{ padding: isMobile ? '7px 14px' : '8px 20px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: saving ? 0.7 : 1, flex: isMobile ? 1 : undefined }}>
             {saving ? '⏳ Saving...' : saved ? '✅ Saved!' : '💾 Save Report'}
           </button>
         </div>
       </div>
 
-      <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ padding: isMobile ? 14 : 24, maxWidth: 1200, margin: '0 auto' }}>
 
         {view === 'history' ? (
           /* History View */
@@ -446,12 +649,18 @@ const label = (text: string) => (
         ) : (
           /* Form View */
           <>
-            {/* Date Selector */}
-            <div style={{ background: S.navy2, borderRadius: 14, padding: '16px 20px', marginBottom: 20, border: `1px solid ${S.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
+            {/* Date & Branch Selector */}
+            <div style={{ background: S.navy2, borderRadius: 14, padding: '16px 20px', marginBottom: 20, border: `1px solid ${S.border}`, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: S.white }}>📅 Report Date:</div>
               <input style={{ ...inp, width: 'auto', fontSize: 15, fontWeight: 700 }} type="date"
                 value={form.report_date}
                 onChange={e => setForm(p => ({ ...p, report_date: e.target.value }))} />
+              <div style={{ fontSize: 14, fontWeight: 700, color: S.white }}>🏪 Branch:</div>
+              <select style={{ ...inp, width: 'auto', minWidth: 160, borderColor: !branchFilter ? S.red : undefined }}
+                value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
+                <option value="">-- Select Branch --</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
               {existingId && <div style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ Report exists — editing</div>}
               {!existingId && <div style={{ fontSize: 12, color: S.muted }}>New report</div>}
             </div>
@@ -462,10 +671,14 @@ const label = (text: string) => (
 
             {/* Totals */}
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
-              <div style={{ background: 'rgba(201,168,76,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}` }}>
+              <div style={{ background: 'rgba(201,168,76,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>📊 Totals & Summary</div>
+                <button onClick={pullDayTotalsFromSystem} disabled={pulling === 'top'}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: 'rgba(255,255,255,0.06)', color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pulling === 'top' ? 0.6 : 1 }}>
+                  {pulling === 'top' ? '⏳ Pulling...' : '🔄 Pull Day Totals from System'}
+                </button>
               </div>
-              <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div style={{ padding: isMobile ? 14 : 20, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
                 {/* Left totals */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

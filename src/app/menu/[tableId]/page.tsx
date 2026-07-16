@@ -415,6 +415,12 @@ const filteredItems = items
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
     setConfirmedOrderId(orderId)
+    // ✅ تسجيل IP وuser-agent للأوردر ده - في الخلفية، مش بيأثر على تجربة العميل لو فشل
+    fetch('/api/log-order-meta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId, user_agent: navigator.userAgent }),
+    }).catch(() => { /* تجاهل أي خطأ هنا عمدًا */ })
     setPhase('done')
     isSubmittingRef.current = false
     setSubmitting(false)

@@ -342,6 +342,14 @@ export default function PayrollPage() {
   const [search,        setSearch]        = useState('')
   const [payslipRecord, setPayslipRecord] = useState<PayrollRecord | null>(null)
 
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const empMap = useMemo(() => Object.fromEntries(employees.map(e => [e.id, e])), [employees])
 
   const fetchAll = useCallback(async () => {
@@ -379,16 +387,23 @@ export default function PayrollPage() {
       setEmployees(emps)
     }
 
-    // ✅ فلتر موظفي الفرع المختار
-    const filteredEmps = branch ? emps.filter(e => e.branch_id === branch.id) : emps
+    // ✅ حساب بداية ونهاية الشهر أولاً عشان نقدر نستخدمهم في الفلترة
+    const monthStart = `${month.year}-${String(month.month).padStart(2,'0')}-01`
+    const monthEnd   = new Date(month.year, month.month, 0).toISOString().split('T')[0]
+
+    // ✅ فلتر موظفي الفرع المختار + استبعاد أي موظف كان متوقف بالكامل قبل بداية الشهر ده
+    // (لو اتوقف جوه الشهر نفسه، بيفضل ظاهر عشان راتبه المتناسب لحد يوم التوقف)
+    const filteredEmps = emps.filter(e => {
+      if (branch && e.branch_id !== branch.id) return false
+      if (e.deactivated_at && e.deactivated_at < monthStart) return false
+      if (e.is_active === false && !e.deactivated_at) return false
+      return true
+    })
 
     const { data } = await sb.from('payroll_records')
       .select('*, employees(id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name))')
       .eq('payroll_month_id', month.id)
 
-    // جيب المخالفات والغياب للشهر
-    const monthStart = `${month.year}-${String(month.month).padStart(2,'0')}-01`
-    const monthEnd   = new Date(month.year, month.month, 0).toISOString().split('T')[0]
     const empIds = filteredEmps.map(e => e.id)
 
     const [violRes, absRes, lateRes] = await Promise.all([
@@ -652,10 +667,10 @@ export default function PayrollPage() {
       `}</style>
 
       {/* HEADER */}
-      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 24px', display: 'flex', alignItems: 'center', height: 60, gap: 16, flexWrap: 'wrap' }}>
-        <h1 style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>💰 Payroll Management</h1>
+      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: isMobile ? '10px 14px' : '0 24px', display: 'flex', alignItems: 'center', height: isMobile ? 'auto' : 60, gap: isMobile ? 8 : 16, flexWrap: 'wrap' }}>
+        <h1 style={{ fontSize: isMobile ? 15 : 18, fontWeight: 900, color: S.gold }}>💰 Payroll Management</h1>
         {selectedMonth && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, marginLeft: isMobile ? 0 : 'auto', flexWrap: 'wrap', width: isMobile ? '100%' : undefined }}>
             <span style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>
               {MONTHS[selectedMonth.month - 1]} {selectedMonth.year}
               {selectedBranch && <span style={{ color: S.gold, marginRight: 8 }}> — {selectedBranch.name}</span>}
@@ -663,23 +678,23 @@ export default function PayrollPage() {
             <span style={{ background: selectedMonth.status === 'finalized' ? S.greenB : S.amberB, color: selectedMonth.status === 'finalized' ? S.green : S.amber, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>
               {selectedMonth.status === 'finalized' ? '✅ Finalized' : '📝 Draft'}
             </span>
-            <input style={{ ...inp, width: 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
-            <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Sheet</button>
-            <button onClick={printAllPayslips} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📄 Print All Payslips</button>
+            <input style={{ ...inp, width: isMobile ? '100%' : 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
+            <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>🖨️ Print Sheet</button>
+            <button onClick={printAllPayslips} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>📄 Print All Payslips</button>
             {isAdmin && selectedMonth.status !== 'finalized' && (
               <>
-                <button onClick={saveAll} disabled={saving} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                <button onClick={saveAll} disabled={saving} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>
                   {saving ? '⏳...' : saved ? '✅ Saved!' : '💾 Save'}
                 </button>
-                <button onClick={finalizeMonth} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Finalize</button>
+                <button onClick={finalizeMonth} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>🔒 Finalize</button>
               </>
             )}
-            <button onClick={() => { setSelectedMonth(null); setSelectedBranch(null) }} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>← Back</button>
+            <button onClick={() => { setSelectedMonth(null); setSelectedBranch(null) }} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', flex: isMobile ? 1 : undefined }}>← Back</button>
           </div>
         )}
       </div>
 
-      <div style={{ padding: 20 }}>
+      <div style={{ padding: isMobile ? 12 : 20 }}>
 
         {!selectedMonth ? (
           <>

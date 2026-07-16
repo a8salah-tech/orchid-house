@@ -376,12 +376,12 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
 
       let wp: any = null
       if (itemName) {
-        const { data } = await sb.from('warehouse_products')
+        // ✅ Fix: نجيب كل أصناف المستودع ونقارن الأسماء بعد تنظيفها من المسافات الزايدة في الطرفين
+        // (كان فيه أصناف متسجلة بمسافة زايدة في آخر الاسم، فالمطابقة الدقيقة .ilike كانت بتفشل وتمنع الاعتماد بالغلط)
+        const { data: candidates } = await sb.from('warehouse_products')
           .select('id, unit_id, warehouse_id, name')
           .eq('warehouse_id', wh.id)
-          .ilike('name', itemName.trim())
-          .maybeSingle()
-        wp = data
+        wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
       }
       if (!wp) {
         failedItems.push(`${itemName || (item as any).product_id} — لم يتم العثور على هذا الصنف في مستودع هذا الفرع`)

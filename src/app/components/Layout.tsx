@@ -69,6 +69,7 @@ const ALL_MENU: MenuGroup[] = [
   ]},
 { group: 'إدارة المخزون', items: [
     { label: 'المستودعات',   label_en: 'Warehouses',      icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },
+    { label: 'إعدادات المستودع', label_en: 'Warehouse Settings', icon: '🔧', path: '/dashboard/warehouse/fix-units', permission: 'warehouse' },
     { label: 'تقارير الجرد', label_en: 'Inventory Reports', icon: '📋', path: '/dashboard/inventory-reports', permission: 'inventory_reports' },
     { label: 'حركة صنف',     label_en: 'Item Movement',   icon: '📜', path: '/dashboard/item-movement',  permission: 'item_movement' },
     { label: 'المشتريات',    label_en: 'Purchases',       icon: '🛒', path: '/dashboard/purchases',       permission: 'purchases' },
@@ -244,9 +245,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     })).filter(group => group.items.length > 0)
   , [permissions, employee])
 
-  const currentPageLabel = ALL_MENU.flatMap(g => g.items).find(i =>
-    i.path === pathname || (i.path !== '/dashboard' && pathname.startsWith(i.path))
-  )
+  // ✅ Fix: نعطي الأولوية للتطابق الحرفي الكامل (زي "إعدادات المستودع") قبل التطابق الجزئي (زي "المستودعات")
+  // عشان مسار فرعي زي "/dashboard/warehouse/fix-units" ميفعّلش عنصر تاني بس لأن مساره "يبدأ بيه"
+  const allMenuItems = ALL_MENU.flatMap(g => g.items)
+  const currentPageLabel = allMenuItems.find(i => i.path === pathname)
+    || allMenuItems.find(i => i.path !== '/dashboard' && pathname.startsWith(i.path))
 
   return (
     <LanguageContext.Provider value={{ lang, isAr }}>
@@ -373,7 +376,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
                   {/* Items */}
                   {!isCollapsed && group.items.map((item, ii) => {
-                    const active = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path))
+                    // ✅ Fix: لو المسار الحالي مطابق حرفيًا لعنصر تاني في القايمة كلها، نمنع أي عنصر تاني (زي الأب) من التفعيل بالخطأ بسبب "يبدأ بـ"
+                    const hasExactMatchElsewhere = allMenuItems.some(i => i.path === pathname)
+                    const active = pathname === item.path
+                      || (!hasExactMatchElsewhere && item.path !== '/dashboard' && pathname.startsWith(item.path))
                     return (
                       <button key={ii} onClick={() => { router.push(item.path); if (isMobile) setSidebarOpen(false) }}
                         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', background: active ? S.gold3 : 'transparent', border: 'none',

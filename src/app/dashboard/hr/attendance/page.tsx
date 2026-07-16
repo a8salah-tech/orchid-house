@@ -838,30 +838,30 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                           </td>
                           <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>{r.notes || '—'}</td>
                           {isAdmin && (
-                            <td style={{ padding: '12px 14px' }}>
-                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <td style={{ padding: '12px 14px', minWidth: isMobile ? 130 : undefined }}>
+                              <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 4 : 6, flexWrap: isMobile ? undefined : 'wrap' }}>
                                 <button onClick={() => startEditingTime(r.id, 'check_in_time', r.check_in_time)}
-                                  style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                  style={{ padding: '5px 8px', borderRadius: 6, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', width: isMobile ? '100%' : undefined, whiteSpace: 'nowrap' }}>
                                   ✏️ تعديل الدخول
                                 </button>
                                 <button onClick={() => startEditingTime(r.id, 'check_out_time', r.check_out_time)}
-                                  style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                  style={{ padding: '5px 8px', borderRadius: 6, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', width: isMobile ? '100%' : undefined, whiteSpace: 'nowrap' }}>
                                   ✏️ تعديل الخروج
                                 </button>
                                 {r.check_in_time && (
                                   <button onClick={() => clearAttendanceField(r.id, 'check_in_time', r.employees?.name || emp?.name || '—')}
-                                    style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.amber}`, background: 'transparent', color: S.amber, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                    style={{ padding: '5px 8px', borderRadius: 6, border: `1px solid ${S.amber}`, background: 'transparent', color: S.amber, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', width: isMobile ? '100%' : undefined, whiteSpace: 'nowrap' }}>
                                     🗑️ مسح الدخول
                                   </button>
                                 )}
                                 {r.check_out_time && (
                                   <button onClick={() => clearAttendanceField(r.id, 'check_out_time', r.employees?.name || emp?.name || '—')}
-                                    style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.amber}`, background: 'transparent', color: S.amber, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                    style={{ padding: '5px 8px', borderRadius: 6, border: `1px solid ${S.amber}`, background: 'transparent', color: S.amber, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', width: isMobile ? '100%' : undefined, whiteSpace: 'nowrap' }}>
                                     🗑️ مسح الخروج
                                   </button>
                                 )}
                                 <button onClick={() => deleteAttendanceRecord(r.id, r.employees?.name || emp?.name || '—', r.date)}
-                                  style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.red}`, background: 'transparent', color: S.red, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                  style={{ padding: '5px 8px', borderRadius: 6, border: `1px solid ${S.red}`, background: 'transparent', color: S.red, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', width: isMobile ? '100%' : undefined, whiteSpace: 'nowrap' }}>
                                   ❌ حذف السجل
                                 </button>
                               </div>

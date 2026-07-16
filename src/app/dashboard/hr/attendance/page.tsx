@@ -572,6 +572,56 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
   // إحصائيات الفروع
   const isAdminView = ['admin','branch_manager'].includes(empInfo?.role || '')
+  // ✅ جديد: الأدمن بس (مش مدير فرع) يقدر يحذف/يصحح سجلات الحضور
+  const isAdmin = empInfo?.role === 'admin'
+
+  // ✅ جديد: تعديل وقت الدخول/الخروج مباشرة (بدل المسح بس)
+  const [editingCell, setEditingCell] = useState<{ recordId: string; field: 'check_in_time' | 'check_out_time' } | null>(null)
+  const [editValue, setEditValue] = useState('')
+
+  // تحويل وقت ISO لصيغة datetime-local (بتوقيت ماليزيا UTC+8، زي باقي النظام)
+  function toDatetimeLocal(iso?: string) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    const local = new Date(d.getTime() + 8 * 60 * 60 * 1000) // UTC+8
+    return local.toISOString().slice(0, 16)
+  }
+
+  function startEditingTime(recordId: string, field: 'check_in_time' | 'check_out_time', currentValue?: string) {
+    setEditingCell({ recordId, field })
+    setEditValue(toDatetimeLocal(currentValue))
+  }
+
+  async function saveEditedTime(empName: string) {
+    if (!editingCell || !editValue) return
+    const label = editingCell.field === 'check_in_time' ? 'الدخول' : 'الخروج'
+    if (!confirm(`⚠️ هل أنت متأكد من تعديل وقت ${label} للموظف "${empName}"؟`)) return
+    // ✅ الحقل datetime-local بيرجع وقت محلي (ماليزيا UTC+8)، لازم نحوله لـ UTC قبل الحفظ
+    const localDate = new Date(editValue + ':00')
+    const utcIso = new Date(localDate.getTime() - 8 * 60 * 60 * 1000).toISOString()
+    const { error } = await sb.from('attendance').update({ [editingCell.field]: utcIso }).eq('id', editingCell.recordId)
+    if (error) { alert('حصل خطأ: ' + error.message); return }
+    setEditingCell(null)
+    fetchData()
+  }
+
+  // ✅ جديد: مسح وقت الدخول أو الخروج لسجل معين (بدون حذف السجل كله) - مع تأكيد صريح
+  async function clearAttendanceField(recordId: string, field: 'check_in_time' | 'check_out_time', empName: string) {
+    const label = field === 'check_in_time' ? 'الدخول' : 'الخروج'
+    if (!confirm(`⚠️ هل أنت متأكد من مسح وقت ${label} للموظف "${empName}"؟\n\nهذا الإجراء لا يمكن التراجع عنه.`)) return
+    const { error } = await sb.from('attendance').update({ [field]: null }).eq('id', recordId)
+    if (error) { alert('حصل خطأ: ' + error.message); return }
+    fetchData()
+  }
+
+  // ✅ جديد: حذف سجل الحضور بالكامل (اليوم كله لهذا الموظف) - تأكيد مضاعف لأنه إجراء أقوى
+  async function deleteAttendanceRecord(recordId: string, empName: string, recordDate: string) {
+    if (!confirm(`⚠️ هل أنت متأكد من حذف سجل حضور "${empName}" ليوم ${recordDate} بالكامل؟\n\nسيتم حذف وقتي الدخول والخروج معًا. هذا الإجراء لا يمكن التراجع عنه.`)) return
+    if (!confirm('تأكيد نهائي: سيتم حذف السجل بشكل كامل ولا يمكن استرجاعه. متابعة؟')) return
+    const { error } = await sb.from('attendance').delete().eq('id', recordId)
+    if (error) { alert('حصل خطأ: ' + error.message); return }
+    fetchData()
+  }
   const branchStats = branches.map(b => {
     const brEmps    = employees.filter(e => e.branch_id === b.id)
     const brRecords = records.filter(r => brEmps.some(e => e.id === r.employee_id))
@@ -727,7 +777,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                   <thead>
                     <tr style={{ background: S.navy3 }}>
-                      {['Employee', 'Branch', 'Dept', 'Check In', 'In Dist.', 'Check Out', 'Out Dist.', 'Duration', 'Status', 'Notes'].map(h => (
+                      {['Employee', 'Branch', 'Dept', 'Check In', 'In Dist.', 'Check Out', 'Out Dist.', 'Duration', 'Status', 'Notes', ...(isAdmin ? ['Actions'] : [])].map(h => (
                         <th key={h} style={{ padding: '12px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -745,11 +795,29 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                             {(r.employees as any)?.branches?.name || (emp as any)?.branches?.name || '—'}
                           </td>
                           <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>{r.employees?.department || emp?.department || '—'}</td>
-                          <td style={{ padding: '12px 14px', fontSize: 13, color: r.check_in_time ? S.green : S.muted }}>{formatTime(r.check_in_time)}</td>
+                          <td style={{ padding: '12px 14px', fontSize: 13, color: r.check_in_time ? S.green : S.muted }}>
+                            {isAdmin && editingCell && editingCell.recordId === r.id && editingCell.field === 'check_in_time' ? (
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                <input type="datetime-local" value={editValue} onChange={e => setEditValue(e.target.value)}
+                                  style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 11, fontFamily: 'inherit' }} />
+                                <button onClick={() => saveEditedTime(r.employees?.name || emp?.name || '—')} style={{ padding: '3px 6px', borderRadius: 6, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 10 }}>✔️</button>
+                                <button onClick={() => setEditingCell(null)} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 10 }}>✕</button>
+                              </div>
+                            ) : formatTime(r.check_in_time)}
+                          </td>
                           <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>
                             {r.check_in_distance != null ? `${r.check_in_distance}m` : '—'}
                           </td>
-                          <td style={{ padding: '12px 14px', fontSize: 13, color: r.check_out_time ? S.blue : S.muted }}>{formatTime(r.check_out_time)}</td>
+                          <td style={{ padding: '12px 14px', fontSize: 13, color: r.check_out_time ? S.blue : S.muted }}>
+                            {isAdmin && editingCell && editingCell.recordId === r.id && editingCell.field === 'check_out_time' ? (
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                <input type="datetime-local" value={editValue} onChange={e => setEditValue(e.target.value)}
+                                  style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 11, fontFamily: 'inherit' }} />
+                                <button onClick={() => saveEditedTime(r.employees?.name || emp?.name || '—')} style={{ padding: '3px 6px', borderRadius: 6, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 10 }}>✔️</button>
+                                <button onClick={() => setEditingCell(null)} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 10 }}>✕</button>
+                              </div>
+                            ) : formatTime(r.check_out_time)}
+                          </td>
                           <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>
                             {r.check_out_distance != null ? `${r.check_out_distance}m` : '—'}
                           </td>
@@ -760,6 +828,36 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                             </span>
                           </td>
                           <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>{r.notes || '—'}</td>
+                          {isAdmin && (
+                            <td style={{ padding: '12px 14px' }}>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button onClick={() => startEditingTime(r.id, 'check_in_time', r.check_in_time)}
+                                  style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                  ✏️ تعديل الدخول
+                                </button>
+                                <button onClick={() => startEditingTime(r.id, 'check_out_time', r.check_out_time)}
+                                  style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                  ✏️ تعديل الخروج
+                                </button>
+                                {r.check_in_time && (
+                                  <button onClick={() => clearAttendanceField(r.id, 'check_in_time', r.employees?.name || emp?.name || '—')}
+                                    style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.amber}`, background: 'transparent', color: S.amber, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                    🗑️ مسح الدخول
+                                  </button>
+                                )}
+                                {r.check_out_time && (
+                                  <button onClick={() => clearAttendanceField(r.id, 'check_out_time', r.employees?.name || emp?.name || '—')}
+                                    style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.amber}`, background: 'transparent', color: S.amber, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                    🗑️ مسح الخروج
+                                  </button>
+                                )}
+                                <button onClick={() => deleteAttendanceRecord(r.id, r.employees?.name || emp?.name || '—', r.date)}
+                                  style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.red}`, background: 'transparent', color: S.red, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>
+                                  ❌ حذف السجل
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       )
                     })}
@@ -777,6 +875,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                           <span style={{ background: S.redB, color: S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>❌ absent</span>
                         </td>
                         <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>—</td>
+                        {isAdmin && <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>—</td>}
                       </tr>
                     ))}
                   </tbody>

@@ -85,6 +85,7 @@ function RequestCard({ req, role, onOpen }: { req: InternalRequest; role: string
     pending:   { color: S.amber, bg: S.amberB, icon: '⏳', label: 'قيد الانتظار' },
     approved:  { color: S.green, bg: S.greenB, icon: '✅', label: 'تمت الموافقة والخصم' },
     rejected:  { color: S.red,   bg: S.redB,   icon: '❌', label: 'مرفوض' },
+    partial:   { color: S.orange, bg: S.orangeB, icon: '⏸️', label: 'معلّق' },
   }
   const st = statusColors[req.status] || statusColors.pending
   const needsAction = ['warehouse_keeper','warehouse_manager'].includes(role) && req.status === 'pending'
@@ -120,7 +121,9 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [allDeptProducts, setAllDeptProducts] = useState<Record<string, any[]>>({ المطبخ: [], البار: [], الصالة: [] })
   const [branchWarehouseProductIds, setBranchWarehouseProductIds] = useState<Set<string>>(new Set())
   const [units, setUnits] = useState<any[]>([])
-  const [items, setItems] = useState([{ product_id: '', product_name: '', available_locally: true, qty: '', unit_id: '', notes: '' }])
+  // ✅ جديد: معاملات التحويل - عشان نحدد الوحدات المسموحة فقط لكل صنف (الأساسية + أي وحدة فرعية مسجلة له)
+  const [unitConversions, setUnitConversions] = useState<any[]>([])
+  const [items, setItems] = useState<{ product_id: string; product_name: string; available_locally: boolean; qty: string; unit_id: string; base_unit_id: string; notes: string }[]>([{ product_id: '', product_name: '', available_locally: true, qty: '', unit_id: '', base_unit_id: '', notes: '' }])
   const [search, setSearch] = useState('')
   const [activeDeptTab, setActiveDeptTab] = useState('المطبخ')
   const [monthlyConsumption, setMonthlyConsumption] = useState<Record<string, number>>({})
@@ -174,6 +177,8 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
     })
 
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
+    // ✅ جديد: جلب كل معاملات التحويل عشان نستخدمها في قفل الوحدة المسموحة لكل صنف
+    sb.from('unit_conversions').select('product_id, from_unit_id, to_unit_id, factor').then(({ data }) => setUnitConversions(data || []))
 
     // متوسط الاستهلاك الشهري لكل صنف من حركات الصرف (out) خلال آخر 30 يوم
     const since = new Date(); since.setDate(since.getDate() - 30)
@@ -188,6 +193,18 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   }, [])
 
   const currentDeptProducts = allDeptProducts[activeDeptTab] || []
+  // ✅ جديد: الوحدات المسموحة لصنف معيّن = وحدته الأساسية + أي وحدة فرعية مسجّل لها معامل تحويل حقيقي لنفس الصنف
+  // عشان نمنع مقدّم الطلب من اختيار وحدة عشوائية غلط زي ما كان بيحصل قبل كده
+  function validUnitsForProduct(productId: string, baseUnitId?: string) {
+    const relevantUnitIds = new Set<string>()
+    if (baseUnitId) relevantUnitIds.add(baseUnitId)
+    for (const c of unitConversions) {
+      if (c.product_id !== productId) continue
+      relevantUnitIds.add(c.from_unit_id)
+      relevantUnitIds.add(c.to_unit_id)
+    }
+    return units.filter(u => relevantUnitIds.has(u.id))
+  }
   // ✅ Fix: قائمة موحّدة بكل الأصناف من كل الأقسام (بدون تكرار بالاسم) — تُستخدم وقت وجود نص بحث فعلي
   // عشان البحث يلاقي أي صنف حتى لو مش مربوط بالقسم النشط حاليًا، بدل قصر البحث على تبويب واحد فقط
   const allProductsFlat = useMemo(() => {
@@ -266,7 +283,8 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                     if (isSelected) setItems(prev => prev.filter(it => it.product_id !== p.id))
                     else {
                       const unitId = p.unit_id || (p.units ? units.find((u:any) => u.symbol === p.units?.symbol)?.id||'' : '')
-                      setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, product_name: p.name, available_locally: availableLocally, qty: '', unit_id: unitId, notes: '' }])
+                      // ✅ Fix: نحفظ الوحدة الأساسية للصنف ونقفل عليها كقيمة افتراضية، عشان مقدّم الطلب ميختارش وحدة غلط
+                      setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, product_name: p.name, available_locally: availableLocally, qty: '', unit_id: unitId, base_unit_id: unitId, notes: '' }])
                     }
                   }} style={{ background: isSelected ? S.gold3 : 'rgba(255,255,255,0.03)', borderRadius: 10, border: `1px solid ${isSelected ? S.gold : !availableLocally ? S.amber+'40' : S.border}`, padding: '10px 12px', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
@@ -306,10 +324,22 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     <input type="number" style={{ ...inp, direction: 'ltr', fontSize: 12 }} value={item.qty} onChange={e => setItems(p => p.map((it,idx) => idx===i ? { ...it, qty: e.target.value } : it))} placeholder="الكمية" />
-                    <select style={{ ...inp, cursor: 'pointer', background: S.navy3, fontSize: 12 }} value={item.unit_id} onChange={e => setItems(p => p.map((it,idx) => idx===i ? { ...it, unit_id: e.target.value } : it))}>
-                      <option value="">الوحدة</option>
-                      {units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
+                    {/* ✅ Fix: الوحدة مقفولة على الوحدات الصحيحة المسجّلة لهذا الصنف فقط (الأساسية + أي وحدة فرعية لها معامل تحويل حقيقي) */}
+                    {(() => {
+                      const validUnits = validUnitsForProduct(item.product_id, item.base_unit_id)
+                      if (validUnits.length <= 1) {
+                        return (
+                          <div style={{ ...inp, background: S.navy3, display: 'flex', alignItems: 'center', color: S.gold, fontWeight: 700, fontSize: 12 }}>
+                            🔒 {validUnits[0]?.name || units.find(u => u.id === item.unit_id)?.name || 'الوحدة'}
+                          </div>
+                        )
+                      }
+                      return (
+                        <select style={{ ...inp, cursor: 'pointer', background: S.navy3, fontSize: 12 }} value={item.unit_id} onChange={e => setItems(p => p.map((it,idx) => idx===i ? { ...it, unit_id: e.target.value } : it))}>
+                          {validUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                      )
+                    })()}
                   </div>
                   <input style={{ ...inp, fontSize: 11, marginTop: 6 }} value={item.notes} onChange={e => setItems(p => p.map((it,idx) => idx===i ? { ...it, notes: e.target.value } : it))} placeholder="📝 ملاحظات للصنف..." />
                 </div>
@@ -345,6 +375,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const [editedUnits, setEditedUnits] = useState<Record<string, string>>(
     Object.fromEntries((request.internal_warehouse_request_items || []).map(i => [i.id, (i as any).unit_id || '']))
   )
+  // ✅ جديد: التحقق من توفر الكمية قبل الاعتماد الفعلي + إمكانية استبعاد صنف واحد بعينه من الطلب
+  const [shortfalls, setShortfalls] = useState<{ itemId: string; name: string; requestedInBase: number; available: number; unitSymbol: string }[] | null>(null)
+  const [cancelledItems, setCancelledItems] = useState<Set<string>>(new Set())
+  const [checkingAvailability, setCheckingAvailability] = useState(false)
   useEffect(() => {
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
   }, [])
@@ -355,18 +389,24 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   async function approve() {
     if (!actionBy.trim()) { alert('يرجى إدخال اسمك'); return }
     setUpdating(true)
+    setCheckingAvailability(true)
 
     // 1) جلب مستودع الفرع الخاص بهذا الطلب
     const { data: wh, error: whErr } = await sb.from('warehouses').select('id').eq('branch_id', request.branch_id).maybeSingle()
-    if (whErr || !wh?.id) { alert('لم يتم العثور على مستودع لهذا الفرع'); setUpdating(false); return }
+    if (whErr || !wh?.id) { alert('لم يتم العثور على مستودع لهذا الفرع'); setUpdating(false); setCheckingAvailability(false); return }
 
     // ✅ Fix (جذري - مرحلة ١): نتحقق من كل الأصناف الأول من غير ما نخصم أي حاجة خالص
     // (كل شيء أو ولا حاجة - عشان مانخصمش لأصناف نجحت ثم نكتشف صنف فشل بعدهم فيفضل المخزون في حالة ناقصة)
     const failedItems: string[] = []
+    // ✅ جديد: أصناف الكمية المطلوبة فيها أكبر من المتاح فعليًا في المستودع - نوقف ونعرض تنبيه تفاعلي بدل ما نرفض الطلب كله
+    const newShortfalls: { itemId: string; name: string; requestedInBase: number; available: number; unitSymbol: string }[] = []
     const plannedMovements: { product_id: string; warehouse_id: string; movement_type: 'out'; quantity: number; movement_date: string; notes: string }[] = []
     const plannedUpdates: { itemId: string; payload: any }[] = []
 
     for (const item of (request.internal_warehouse_request_items || [])) {
+      // ✅ جديد: تجاهل أي صنف تم استبعاده يدويًا من أمين المستودع بالكامل
+      if (cancelledItems.has(item.id)) continue
+
       const requestedQty = approvedQtys[item.id] ?? item.quantity_requested
       // ✅ Fix (نهائي وبسيط): ندور على الصنف بالاسم في مستودع الفرع اللي طالب
       // بدل الاعتماد على product_id المحفوظ (ممكن يكون لفرع تاني)
@@ -379,7 +419,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         // ✅ Fix: نجيب كل أصناف المستودع ونقارن الأسماء بعد تنظيفها من المسافات الزايدة في الطرفين
         // (كان فيه أصناف متسجلة بمسافة زايدة في آخر الاسم، فالمطابقة الدقيقة .ilike كانت بتفشل وتمنع الاعتماد بالغلط)
         const { data: candidates } = await sb.from('warehouse_products')
-          .select('id, unit_id, warehouse_id, name')
+          .select('id, unit_id, warehouse_id, name, current_stock, units(symbol)')
           .eq('warehouse_id', wh.id)
         wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
       }
@@ -412,6 +452,17 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
           continue
         }
       }
+
+      // ✅ جديد: التحقق من توفر الكمية فعليًا في المخزون قبل أي خصم - عشان نتجنب الأرصدة السالبة تمامًا
+      if (qty > (wp.current_stock || 0)) {
+        newShortfalls.push({
+          itemId: item.id, name: wp.name,
+          requestedInBase: qty, available: wp.current_stock || 0,
+          unitSymbol: wp.units?.symbol || '',
+        })
+        continue
+      }
+
       plannedMovements.push({
         product_id: wp.id,
         warehouse_id: wh.id,
@@ -431,7 +482,17 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // ✅ Fix (جذري): لو فيه أي صنف فشل، نوقف العملية بالكامل من غير ما نخصم أي حاجة خالص
     if (failedItems.length > 0) {
       setUpdating(false)
+      setCheckingAvailability(false)
       alert('⚠️ تعذّر اعتماد الطلب بسبب مشاكل في الأصناف التالية:\n\n' + failedItems.join('\n') + '\n\nلم يتم خصم أي كمية ولم يتم اعتماد الطلب.')
+      return
+    }
+
+    // ✅ جديد: لو فيه أصناف كميتها غير متاحة بالكامل، نوقف ونعرض تنبيه تفاعلي في المنتصف
+    // بدل ما نرفض الطلب كله أو نخصم كمية أكبر من المتاح فعليًا
+    if (newShortfalls.length > 0) {
+      setShortfalls(newShortfalls)
+      setUpdating(false)
+      setCheckingAvailability(false)
       return
     }
 
@@ -442,14 +503,37 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     for (const upd of plannedUpdates) {
       await sb.from('internal_warehouse_request_items').update(upd.payload).eq('id', upd.itemId)
     }
+    // ✅ جديد: تعليم الأصناف المستبعدة في قاعدة البيانات
+    for (const itemId of cancelledItems) {
+      await sb.from('internal_warehouse_request_items').update({ is_cancelled: true, quantity_approved: 0 }).eq('id', itemId)
+    }
 
-    // 3) تحديث حالة الطلب
+    // 3) تحديث حالة الطلب - "معلّق" لو تم استبعاد صنف واحد على الأقل، وإلا "معتمدة" بالكامل
+    const finalStatus = cancelledItems.size > 0 ? 'partial' : 'approved'
     await sb.from('internal_warehouse_requests').update({
-      status: 'approved', approved_by: actionBy, approved_at: new Date().toISOString(),
+      status: finalStatus, approved_by: actionBy, approved_at: new Date().toISOString(),
     }).eq('id', request.id)
 
     setUpdating(false)
+    setCheckingAvailability(false)
     onUpdate()
+  }
+
+  // ✅ جديد: تعديل الكمية المطلوبة تلقائيًا للحد المتاح فعليًا، عشان أمين المستودع يقدر يعتمد الطلب فورًا بعد التعديل
+  function adjustToAvailable(itemId: string, requestedInBase: number, available: number) {
+    const item = (request.internal_warehouse_request_items || []).find(i => i.id === itemId)
+    if (!item) return
+    // نحسب الكمية الجديدة بنفس وحدة الطلب الأصلية (مش وحدة المخزون الأساسية بالضرورة)
+    const ratio = available / requestedInBase
+    const newQty = Math.max(0, (approvedQtys[itemId] ?? item.quantity_requested) * ratio)
+    setApprovedQtys(p => ({ ...p, [itemId]: Math.floor(newQty * 100) / 100 }))
+    setShortfalls(null)
+  }
+
+  // ✅ جديد: استبعاد صنف بعينه من الطلب بالكامل (يبقى الطلب "معلّق" ويُعتمد باقي الأصناف)
+  function excludeItem(itemId: string) {
+    setCancelledItems(prev => new Set(prev).add(itemId))
+    setShortfalls(null)
   }
 
   async function reject() {
@@ -498,17 +582,20 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
           <div style={{ padding: '10px 14px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.gold }}>
             الأصناف ({request.internal_warehouse_request_items?.length || 0})
           </div>
-          {(request.internal_warehouse_request_items || []).map((item, i) => (
-            <div key={i} style={{ padding: '12px 14px', borderBottom: i < (request.internal_warehouse_request_items?.length||0)-1 ? `1px solid ${S.border}` : 'none' }}>
+          {(request.internal_warehouse_request_items || []).map((item, i) => {
+            const isExcluded = cancelledItems.has(item.id)
+            return (
+            <div key={i} style={{ padding: '12px 14px', borderBottom: i < (request.internal_warehouse_request_items?.length||0)-1 ? `1px solid ${S.border}` : 'none', opacity: isExcluded ? 0.45 : 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{item.warehouse_products?.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: S.white, textDecoration: isExcluded ? 'line-through' : 'none' }}>{item.warehouse_products?.name}</div>
                   {item.warehouse_products?.name_en && <div style={{ fontSize: 11, color: S.muted }}>{item.warehouse_products.name_en}</div>}
                   {item.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 3 }}>📝 {item.notes}</div>}
+                  {isExcluded && <div style={{ fontSize: 11, color: S.red, fontWeight: 700, marginTop: 3 }}>🚫 مستبعد من هذا الاعتماد</div>}
                 </div>
                 <div style={{ textAlign: 'left', flexShrink: 0 }}>
-                  {canApprove ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                  {canApprove && !isExcluded ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <input type="number" min="0" value={approvedQtys[item.id] ?? item.quantity_requested}
                         onChange={e => setApprovedQtys(p => ({ ...p, [item.id]: parseFloat(e.target.value) || 0 }))}
                         style={{ width: 80, textAlign: 'center', background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.blue}40`, borderRadius: 8, padding: '6px 8px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }} />
@@ -517,18 +604,55 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
                         style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${S.amber}40`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.amber, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
                         {units.map(u => <option key={u.id} value={u.id} style={{ background: S.navy2, color: S.white }}>{u.symbol || u.name}</option>)}
                       </select>
+                      {/* ✅ جديد: استبعاد هذا الصنف بعينه من الطلب - يبقى الطلب "معلّق" ويُعتمد باقي الأصناف */}
+                      <button onClick={() => excludeItem(item.id)} title="استبعاد هذا الصنف من الاعتماد"
+                        style={{ background: 'transparent', border: `1px solid ${S.red}40`, borderRadius: 8, color: S.red, cursor: 'pointer', fontSize: 12, padding: '6px 8px' }}>
+                        🚫
+                      </button>
                     </div>
+                  ) : isExcluded && canApprove ? (
+                    <button onClick={() => setCancelledItems(prev => { const next = new Set(prev); next.delete(item.id); return next })}
+                      style={{ background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 8, color: S.muted, cursor: 'pointer', fontSize: 11, padding: '6px 10px', fontFamily: 'Tajawal, sans-serif' }}>
+                      ↩️ تراجع عن الاستبعاد
+                    </button>
                   ) : (
                     <div style={{ fontSize: 13, fontWeight: 700, color: S.blue }}>{item.quantity_requested} {item.units?.symbol}</div>
                   )}
-                  {(item.quantity_approved||0) > 0 && request.status === 'approved' && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>تم خصم: {item.quantity_approved} {item.units?.symbol}</div>}
+                  {(item.quantity_approved||0) > 0 && (request.status === 'approved' || request.status === 'partial') && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>تم خصم: {item.quantity_approved} {item.units?.symbol}</div>}
+                  {(item as any).is_cancelled && <div style={{ fontSize: 11, color: S.red, marginTop: 4 }}>🚫 تم استبعاده من الطلب</div>}
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
 
-        {/* حالة الرفض */}
+        {/* ✅ جديد: تنبيه واضح في المنتصف لو فيه أصناف كميتها غير متاحة بالكامل */}
+        {shortfalls && shortfalls.length > 0 && (
+          <div style={{ background: S.amberB, border: `1.5px solid ${S.amber}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: S.amber, marginBottom: 10 }}>⚠️ الكمية المطلوبة غير متاحة بالكامل في المستودع</div>
+            {shortfalls.map(s => (
+              <div key={s.itemId} style={{ background: S.navy2, borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{s.name}</div>
+                <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>
+                  المطلوب: <span style={{ color: S.red, fontWeight: 700 }}>{s.requestedInBase.toFixed(2)} {s.unitSymbol}</span>
+                  {' '}— المتاح فعليًا: <span style={{ color: S.green, fontWeight: 700 }}>{s.available.toFixed(2)} {s.unitSymbol}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => adjustToAvailable(s.itemId, s.requestedInBase, s.available)}
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    ✏️ تعديل للمتاح ({s.available.toFixed(2)})
+                  </button>
+                  <button onClick={() => excludeItem(s.itemId)}
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    🚫 استبعاد هذا الصنف
+                  </button>
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>بعد التعديل أو الاستبعاد، اضغط "موافقة" مرة أخرى لإتمام الاعتماد.</div>
+          </div>
+        )}
         {request.status === 'rejected' && (
           <div style={{ background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: S.red, fontWeight: 700, marginBottom: 4 }}>❌ مرفوض بواسطة {request.rejected_by}</div>
@@ -540,6 +664,13 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         {request.status === 'approved' && (
           <div style={{ background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ تمت الموافقة والخصم من المخزون بواسطة {request.approved_by}</div>
+          </div>
+        )}
+
+        {/* ✅ جديد: حالة معلّق - تمت الموافقة على جزء من الطلب واستبعاد صنف أو أكثر */}
+        {request.status === 'partial' && (
+          <div style={{ background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: S.amber, fontWeight: 700 }}>⏸️ معلّق — تم اعتماد وخصم الأصناف المتاحة فقط بواسطة {request.approved_by}، واستُبعد صنف أو أكثر لعدم توفر الكمية</div>
           </div>
         )}
 
@@ -639,6 +770,7 @@ export default function InternalWarehouseRequestsPage() {
   // تعريف التابات (الحالة: قيد الانتظار/معتمدة/مرفوضة)
   const allTabs = [
     { label: isAr ? 'قيد الانتظار' : 'Pending', icon: '⏳', show: true, filter: (r: InternalRequest) => r.status === 'pending' },
+    { label: isAr ? 'معلّق' : 'On Hold', icon: '⏸️', show: true, filter: (r: InternalRequest) => r.status === 'partial' },
     { label: isAr ? 'معتمدة' : 'Approved', icon: '✅', show: true, filter: (r: InternalRequest) => r.status === 'approved' },
     { label: isAr ? 'مرفوضة' : 'Rejected', icon: '❌', show: true, filter: (r: InternalRequest) => r.status === 'rejected' },
   ]
@@ -709,6 +841,7 @@ export default function InternalWarehouseRequestsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10, marginBottom: 20 }}>
         {[
           { label: isAr ? 'قيد الانتظار' : 'Pending', count: branchRequests.filter(r=>r.status==='pending').length, color: S.amber, bg: S.amberB, icon: '⏳' },
+          { label: isAr ? 'معلّق' : 'On Hold', count: branchRequests.filter(r=>r.status==='partial').length, color: S.orange, bg: S.orangeB, icon: '⏸️' },
           { label: isAr ? 'معتمدة' : 'Approved', count: branchRequests.filter(r=>r.status==='approved').length, color: S.green, bg: S.greenB, icon: '✅' },
           { label: isAr ? 'مرفوضة' : 'Rejected', count: branchRequests.filter(r=>r.status==='rejected').length, color: S.red, bg: S.redB, icon: '❌' },
         ].map((s, i) => (

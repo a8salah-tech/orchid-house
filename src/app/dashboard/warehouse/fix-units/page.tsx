@@ -77,7 +77,7 @@ export default function FixMissingUnitsPage() {
       const isGram = symbol === 'غرام' || symbol.toLowerCase() === 'g' || symbol.toLowerCase() === 'gram'
       return p.current_stock < 0 // رصيد سالب
         || p.current_stock > 100 // ✅ Fix: كان الحد 5000، دلوقتي 100 حسب طلبك
-        || (isGram && p.current_stock < 900) // ✅ جديد: لو الوحدة غرام والرصيد أقل من 900 غرام
+        || (isGram && p.current_stock > 0 && p.current_stock < 900) // ✅ Fix: استثناء الصفر - يعني ببساطة نفاد الصنف، وهذا طبيعي وليس خطأً
     })
     setSuspiciousProducts(filtered.map((p: any) => ({ ...p, unit_symbol: p.units?.symbol })))
     setLoadingSuspicious(false)

@@ -16,6 +16,7 @@ const S = {
   green: '#22C55E', greenB: 'rgba(34,197,94,0.12)',
   red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
   amber: '#F59E0B', amberB: 'rgba(245,158,11,0.12)',
+  blue: '#3B82F6', blueB: 'rgba(59,130,246,0.12)',
   card: 'rgba(255,255,255,0.04)',
 }
 
@@ -55,6 +56,55 @@ export default function FixMissingUnitsPage() {
   const [reviewWarnings, setReviewWarnings] = useState<{ name: string; warehouseName: string; note: string }[]>([])
   const [done, setDone] = useState(false)
 
+  // ✅ جديد: تاب "كميات مشبوهة" - أرقام سالبة أو ضخمة بشكل غير منطقي
+  const [mainTab, setMainTab] = useState<'missing_units' | 'suspicious_qty'>('missing_units')
+  const [suspiciousProducts, setSuspiciousProducts] = useState<(Product & { unit_symbol?: string })[]>([])
+  const [loadingSuspicious, setLoadingSuspicious] = useState(false)
+  const [editingQtyId, setEditingQtyId] = useState<string | null>(null)
+  const [editingQtyValue, setEditingQtyValue] = useState('')
+
+  const fetchSuspicious = useCallback(async () => {
+    setLoadingSuspicious(true)
+    // ✅ بنجيب كل الأصناف اللي ليها وحدة أساسية ونفلتر في الكود، عشان شرط "الوحدة = غرام" مش بيتفلتر بسهولة
+    // على مستوى قاعدة البيانات لما يكون جوه علاقة مرتبطة (units) في نفس الاستعلام
+    const { data } = await sb.from('warehouse_products')
+      .select('id,name,name_en,category,current_stock,warehouse_id,units(symbol)')
+      .eq('is_active', true)
+      .not('unit_id', 'is', null)
+      .order('current_stock', { ascending: true })
+    const filtered = (data || []).filter((p: any) => {
+      const symbol = p.units?.symbol || ''
+      const isGram = symbol === 'غرام' || symbol.toLowerCase() === 'g' || symbol.toLowerCase() === 'gram'
+      return p.current_stock < 0 // رصيد سالب
+        || p.current_stock > 100 // ✅ Fix: كان الحد 5000، دلوقتي 100 حسب طلبك
+        || (isGram && p.current_stock < 900) // ✅ جديد: لو الوحدة غرام والرصيد أقل من 900 غرام
+    })
+    setSuspiciousProducts(filtered.map((p: any) => ({ ...p, unit_symbol: p.units?.symbol })))
+    setLoadingSuspicious(false)
+  }, [sb])
+
+  async function saveQtyFix(productId: string, oldQty: number) {
+    const val = parseFloat(editingQtyValue)
+    if (isNaN(val)) { alert('من فضلك أدخل رقم صحيح'); return }
+    if (!confirm(`⚠️ هل أنت متأكد من تعديل الرصيد من ${oldQty} إلى ${val}؟`)) return
+    const diff = val - oldQty
+    if (diff === 0) { setEditingQtyId(null); return }
+    // ✅ جديد: نسجل التصحيح كحركة مخزون موثقة (زي حركات الجرد بالظبط) بدل تعديل الرصيد مباشرة بصمت
+    // الـ trigger الموجود أصلاً بيحدّث current_stock تلقائيًا لما نسجل الحركة، فمش محتاجين نعدّله يدويًا
+    const { error } = await sb.from('stock_movements').insert([{
+      product_id: productId,
+      warehouse_id: suspiciousProducts.find(p => p.id === productId)?.warehouse_id,
+      movement_type: diff > 0 ? 'in' : 'out',
+      quantity: Math.abs(diff),
+      movement_date: new Date().toISOString().slice(0, 10),
+      notes: `تصحيح رصيد مشبوه — تم الاعتماد بواسطة ${employee?.name || 'غير معروف'} — من ${oldQty} إلى ${val}`,
+    }])
+    if (error) { alert('حصل خطأ: ' + error.message); return }
+    setEditingQtyId(null)
+    setEditingQtyValue('')
+    fetchSuspicious()
+  }
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const [prodRes, whRes, unitsRes, convRes] = await Promise.all([
@@ -79,6 +129,7 @@ export default function FixMissingUnitsPage() {
   }, [sb])
 
   useEffect(() => { if (employee?.id) fetchAll() }, [employee?.id, fetchAll])
+  useEffect(() => { if (employee?.id && mainTab === 'suspicious_qty') fetchSuspicious() }, [employee?.id, mainTab, fetchSuspicious])
 
   const current = products[0]
   const whName = current ? (warehouses.find(w => w.id === current.warehouse_id)?.name || '—') : ''
@@ -149,6 +200,84 @@ export default function FixMissingUnitsPage() {
       <h1 style={{ fontSize: isMobile ? 17 : 20, fontWeight: 900, color: S.gold, marginBottom: 4 }}>🔧 إصلاح سريع — تحديد الوحدة الأساسية للأصناف الناقصة</h1>
       <p style={{ fontSize: 13, color: S.muted, marginBottom: 20 }}>Quick Fix — Missing Base Units</p>
 
+      {/* ✅ جديد: تابات التبديل بين إصلاح الوحدات الناقصة ومراجعة الكميات المشبوهة */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        <button onClick={() => setMainTab('missing_units')}
+          style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${mainTab === 'missing_units' ? S.gold : S.border}`, background: mainTab === 'missing_units' ? S.gold3 : 'transparent', color: mainTab === 'missing_units' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainTab === 'missing_units' ? 700 : 400 }}>
+          🔧 وحدات ناقصة
+        </button>
+        <button onClick={() => setMainTab('suspicious_qty')}
+          style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${mainTab === 'suspicious_qty' ? S.gold : S.border}`, background: mainTab === 'suspicious_qty' ? S.gold3 : 'transparent', color: mainTab === 'suspicious_qty' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainTab === 'suspicious_qty' ? 700 : 400 }}>
+          📊 كميات مشبوهة
+        </button>
+      </div>
+
+      {mainTab === 'suspicious_qty' ? (
+        <div>
+          <p style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>
+            الأرصدة السالبة، أو أكثر من 100 وحدة، أو أقل من 900 غرام (إذا كانت الوحدة الأساسية غرام) — راجعها وصحّحها مباشرة إذا لزم الأمر
+          </p>
+
+          {/* ✅ جديد: إحصائية بعدد الأصناف حسب نوع المشكلة */}
+          {!loadingSuspicious && (
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
+              <div style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: '12px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: S.white }}>{suspiciousProducts.length}</div>
+                <div style={{ fontSize: 11, color: S.muted }}>إجمالي الأصناف المشبوهة</div>
+              </div>
+              <div style={{ background: S.redB, borderRadius: 12, border: `1px solid ${S.red}40`, padding: '12px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: S.red }}>{suspiciousProducts.filter(p => p.current_stock < 0).length}</div>
+                <div style={{ fontSize: 11, color: S.red }}>رصيد سالب</div>
+              </div>
+              <div style={{ background: S.amberB, borderRadius: 12, border: `1px solid ${S.amber}40`, padding: '12px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: S.amber }}>{suspiciousProducts.filter(p => p.current_stock >= 0).length}</div>
+                <div style={{ fontSize: 11, color: S.amber }}>رقم غير منطقي (كبير جدًا أو صغير جدًا)</div>
+              </div>
+            </div>
+          )}
+
+          {loadingSuspicious ? (
+            <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
+          ) : suspiciousProducts.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+              <div style={{ fontSize: 14, color: S.green }}>لا توجد كميات مشبوهة حاليًا</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {suspiciousProducts.map(p => {
+                const isNegative = p.current_stock < 0
+                return (
+                  <div key={p.id} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${isNegative ? S.red : S.amber}40`, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: S.white }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>🏪 {warehouses.find(w => w.id === p.warehouse_id)?.name || '—'}</div>
+                    </div>
+                    {editingQtyId === p.id ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input type="number" value={editingQtyValue} onChange={e => setEditingQtyValue(e.target.value)}
+                          style={{ width: 100, padding: '6px 8px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                        <span style={{ fontSize: 12, color: S.muted }}>{p.unit_symbol}</span>
+                        <button onClick={() => saveQtyFix(p.id, p.current_stock)} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>✔️</button>
+                        <button onClick={() => setEditingQtyId(null)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12 }}>✕</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: isNegative ? S.red : S.amber }}>{p.current_stock} {p.unit_symbol}</span>
+                        <button onClick={() => { setEditingQtyId(p.id); setEditingQtyValue(String(p.current_stock)) }}
+                          style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                          ✏️ تصحيح
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* شريط التقدم */}
       <div style={{ background: S.navy2, borderRadius: 12, padding: '12px 16px', marginBottom: 20, border: `1px solid ${S.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>
@@ -164,7 +293,7 @@ export default function FixMissingUnitsPage() {
         <div style={{ textAlign: 'center', padding: 40 }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
           <div style={{ fontSize: 16, color: S.green, fontWeight: 700, marginBottom: 16 }}>
-            {totalCount === 0 ? 'مفيش أي أصناف ناقصة الوحدة الأساسية 🎉' : `خلصت! صححت ${fixedCount} صنف`}
+            {totalCount === 0 ? 'لا توجد أصناف ناقصة الوحدة الأساسية 🎉' : `تم الانتهاء! تم تصحيح ${fixedCount} صنف`}
           </div>
           {reviewWarnings.length > 0 && (
             <div style={{ textAlign: 'right', background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
@@ -198,11 +327,11 @@ export default function FixMissingUnitsPage() {
             {units.map(u => <option key={u.id} value={u.id}>{u.symbol} ({u.name})</option>)}
           </select>
 
-          {/* ✅ جديد: وحدات فرعية اختيارية - لو الصنف بيتشترى أو بيتطلب بوحدة تانية غير الأساسية */}
+          {/* ✅ جديد: وحدات فرعية اختيارية - إذا كان الصنف يُشترى أو يُطلب بوحدة أخرى غير الوحدة الأساسية */}
           {selectedUnit && (
             <div style={{ marginBottom: 16, background: S.card, borderRadius: 10, padding: 12 }}>
               <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>
-                🔁 وحدات فرعية (اختياري) — لو الصنف بيتشترى أو بيتطلب بوحدة تانية غير "{units.find(u => u.id === selectedUnit)?.symbol}"
+                🔁 وحدات فرعية (اختياري) — إذا كان الصنف يُشترى أو يُطلب بوحدة أخرى غير "{units.find(u => u.id === selectedUnit)?.symbol}"
               </div>
               {subUnits.map((s, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -224,7 +353,7 @@ export default function FixMissingUnitsPage() {
               ))}
               <button onClick={() => setSubUnits(p => [...p, { unitId: '', factor: '' }])}
                 style={{ padding: '5px 12px', borderRadius: 6, border: `1px dashed ${S.gold}`, background: 'transparent', color: S.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                ➕ إضافة وحدة فرعية تانية
+                ➕ إضافة وحدة فرعية أخرى
               </button>
             </div>
           )}
@@ -240,6 +369,8 @@ export default function FixMissingUnitsPage() {
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )

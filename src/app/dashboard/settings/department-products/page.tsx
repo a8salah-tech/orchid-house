@@ -54,11 +54,28 @@ export default function DepartmentProductsPage() {
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([])
   const [activeWarehouse, setActiveWarehouse] = useState('')
 
+  // ✅ Fix حرج: Supabase بيرجّع 1000 صف بس افتراضيًا لكل استعلام. جدول department_products
+  // فيه أكتر من 1000 صف حاليًا، فكان بعض الأقسام (زي "الصالة") بيختفي تمامًا من النتيجة
+  // لأنه ببساطة خارج نطاق أول 1000 صف. الحل: نجيب البيانات على دفعات لحد ما نغطي كل الصفوف
+  async function fetchAllRows(table: string, select: string) {
+    let allRows: any[] = []
+    let from = 0
+    const pageSize = 1000
+    while (true) {
+      const { data, error } = await sb.from(table).select(select).range(from, from + pageSize - 1)
+      if (error || !data || data.length === 0) break
+      allRows = allRows.concat(data)
+      if (data.length < pageSize) break
+      from += pageSize
+    }
+    return allRows
+  }
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [whRes, mapRes] = await Promise.all([
+    const [whRes, mapData] = await Promise.all([
       sb.from('warehouses').select('id,name').eq('is_active', true).order('name'),
-      sb.from('department_products').select('department,product_id,warehouse_products(warehouse_id)'),
+      fetchAllRows('department_products', 'department,product_id,warehouse_products(warehouse_id)'),
     ])
     const whs = whRes.data || []
     setWarehouses(whs)
@@ -67,7 +84,7 @@ export default function DepartmentProductsPage() {
 
     // ✅ نبني mapping مقسّم لكل مستودع لوحده بشكل صحيح من البداية
     const m: Record<string, Record<string, string[]>> = {}
-    for (const row of (mapRes.data || [])) {
+    for (const row of mapData) {
       const whId = (row as any).warehouse_products?.warehouse_id
       if (!whId) continue
       if (!m[whId]) m[whId] = { المطبخ: [], البار: [], الصالة: [] }

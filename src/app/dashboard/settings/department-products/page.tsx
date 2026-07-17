@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 
@@ -38,10 +38,11 @@ export default function DepartmentProductsPage() {
   const sb = createClient()
   const { permissions, employee } = useAuth()
   const isAdmin = permissions?.all === true
-  const isWarehouse = employee?.role === 'warehouse_keeper'
+  const isWarehouse = ['warehouse_keeper', 'warehouse_manager'].includes(employee?.role || '')
 
   const [products,  setProducts]  = useState<any[]>([])
-  const [mapping,   setMapping]   = useState<Record<string, string[]>>({ المطبخ: [], البار: [], الصالة: [] })
+  // ✅ Fix حرج: mapping بقى مقسّم بالمستودع كمان (مش بس القسم)، عشان تعديل مستودع محدد ميأثرش على مستودع تاني خالص
+  const [mapping,   setMapping]   = useState<Record<string, Record<string, string[]>>>({}) // { warehouseId: { department: [productId, ...] } }
   const [activeDept, setActiveDept] = useState('المطبخ')
   const [search,    setSearch]    = useState('')
   const [saving,    setSaving]    = useState(false)
@@ -49,62 +50,116 @@ export default function DepartmentProductsPage() {
   const [loading,   setLoading]   = useState(true)
   const [activeCategory, setActiveCategory] = useState('الكل')
 
-  useEffect(() => {
-    async function load() {
-      const [prodRes, mapRes] = await Promise.all([
+  // ✅ جديد: اختيار المستودع - كانت الصفحة مقفولة على "المستودع الرئيسي" بس بالكود
+  const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([])
+  const [activeWarehouse, setActiveWarehouse] = useState('')
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true)
+    const [whRes, mapRes] = await Promise.all([
+      sb.from('warehouses').select('id,name').eq('is_active', true).order('name'),
+      sb.from('department_products').select('department,product_id,warehouse_products(warehouse_id)'),
+    ])
+    const whs = whRes.data || []
+    setWarehouses(whs)
+    const initialWarehouse = activeWarehouse || whs[0]?.id || ''
+    if (!activeWarehouse && whs[0]?.id) setActiveWarehouse(whs[0].id)
+
+    // ✅ نبني mapping مقسّم لكل مستودع لوحده بشكل صحيح من البداية
+    const m: Record<string, Record<string, string[]>> = {}
+    for (const row of (mapRes.data || [])) {
+      const whId = (row as any).warehouse_products?.warehouse_id
+      if (!whId) continue
+      if (!m[whId]) m[whId] = { المطبخ: [], البار: [], الصالة: [] }
+      if (!m[whId][row.department]) m[whId][row.department] = []
+      if (!m[whId][row.department].includes(row.product_id)) m[whId][row.department].push(row.product_id)
+    }
+    setMapping(m)
+
+    if (initialWarehouse) {
+      const [prodRes, catRes] = await Promise.all([
         sb.from('warehouse_products')
           .select('id,name,name_en,product_code,current_stock,category,units(symbol)')
           .eq('is_active', true)
-          .eq('warehouse_id', 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8') // المستودع الرئيسي فقط
+          .eq('warehouse_id', initialWarehouse)
           .order('name'),
-        sb.from('department_products').select('department,product_id'),
+        sb.from('warehouse_categories').select('id,name'),
       ])
-      // جيب الفئات بشكل منفصل
-      const catRes = await sb.from('warehouse_categories').select('id,name')
-      const catMap = Object.fromEntries((catRes.data||[]).map((c:any) => [c.id, c.name]))
+      const catMap = Object.fromEntries((catRes.data || []).map((c: any) => [c.id, c.name]))
       setProducts((prodRes.data || []).map((p: any) => ({
         ...p,
         category_name: catMap[p.category] || p.category || 'أخرى'
       })))
-      const m: Record<string, string[]> = { المطبخ: [], البار: [], الصالة: [] }
-      for (const row of (mapRes.data || [])) {
-        if (m[row.department] && !m[row.department].includes(row.product_id)) m[row.department].push(row.product_id)
-      }
-      setMapping(m)
+    }
+    setLoading(false)
+  }, [activeWarehouse])
+
+  useEffect(() => { fetchAll() }, [])
+
+  // ✅ إعادة جلب أصناف المستودع عند تغيير المستودع المختار
+  useEffect(() => {
+    if (!activeWarehouse) return
+    async function loadWarehouseProducts() {
+      setLoading(true)
+      const [prodRes, catRes] = await Promise.all([
+        sb.from('warehouse_products')
+          .select('id,name,name_en,product_code,current_stock,category,units(symbol)')
+          .eq('is_active', true)
+          .eq('warehouse_id', activeWarehouse)
+          .order('name'),
+        sb.from('warehouse_categories').select('id,name'),
+      ])
+      const catMap = Object.fromEntries((catRes.data || []).map((c: any) => [c.id, c.name]))
+      setProducts((prodRes.data || []).map((p: any) => ({
+        ...p,
+        category_name: catMap[p.category] || p.category || 'أخرى'
+      })))
       setLoading(false)
     }
-    load()
-  }, [])
+    loadWarehouseProducts()
+  }, [activeWarehouse])
 
   function toggle(productId: string) {
     setMapping(prev => {
-      const arr = prev[activeDept] || []
+      const whMap = prev[activeWarehouse] || { المطبخ: [], البار: [], الصالة: [] }
+      const arr = whMap[activeDept] || []
       const next = arr.includes(productId) ? arr.filter(id => id !== productId) : [...arr, productId]
-      return { ...prev, [activeDept]: next }
+      return { ...prev, [activeWarehouse]: { ...whMap, [activeDept]: next } }
     })
   }
 
   function selectAll(ids: string[]) {
     setMapping(prev => {
-      const arr = prev[activeDept] || []
+      const whMap = prev[activeWarehouse] || { المطبخ: [], البار: [], الصالة: [] }
+      const arr = whMap[activeDept] || []
       const next = [...new Set([...arr, ...ids])]
-      return { ...prev, [activeDept]: next }
+      return { ...prev, [activeWarehouse]: { ...whMap, [activeDept]: next } }
     })
   }
 
   function deselectAll(ids: string[]) {
     setMapping(prev => {
-      const next = (prev[activeDept] || []).filter(id => !ids.includes(id))
-      return { ...prev, [activeDept]: next }
+      const whMap = prev[activeWarehouse] || { المطبخ: [], البار: [], الصالة: [] }
+      const next = (whMap[activeDept] || []).filter(id => !ids.includes(id))
+      return { ...prev, [activeWarehouse]: { ...whMap, [activeDept]: next } }
     })
   }
 
   async function save() {
     setSaving(true)
+    // ✅ Fix حرج جدًا: كنا قبل كده بنمسح كل روابط القسم بغض النظر عن المستودع، فكان أي حفظ من هنا
+    // بيمسح ربط المستودعات التانية كلها بالغلط. دلوقتي بنمسح ونضيف بس لأصناف المستودع المختار حاليًا
+    const currentWarehouseProductIds = products.map(p => p.id)
+    const whMap = mapping[activeWarehouse] || { المطبخ: [], البار: [], الصالة: [] }
     for (const dept of ['المطبخ', 'البار', 'الصالة']) {
-      const { error: delErr } = await sb.from('department_products').delete().eq('department', dept)
-      if (delErr) { alert('خطأ في الحذف: ' + delErr.message); setSaving(false); return }
-      const ids = mapping[dept] || []
+      if (currentWarehouseProductIds.length > 0) {
+        const { error: delErr } = await sb.from('department_products')
+          .delete()
+          .eq('department', dept)
+          .in('product_id', currentWarehouseProductIds)
+        if (delErr) { alert('خطأ في الحذف: ' + delErr.message); setSaving(false); return }
+      }
+      const ids = (whMap[dept] || []).filter(id => currentWarehouseProductIds.includes(id))
       if (ids.length > 0) {
         const { error: insErr } = await sb.from('department_products').insert(ids.map(pid => ({ department: dept, product_id: pid })))
         if (insErr) { alert('خطأ في الحفظ: ' + insErr.message); setSaving(false); return }
@@ -128,19 +183,21 @@ export default function DepartmentProductsPage() {
     (activeCategory === 'الكل' || p.category_name === activeCategory)
   )
   const categories = ['الكل', ...new Set(products.map(p => p.category_name))]
-  const currentSet = mapping[activeDept] || []
+  const currentWhMap = mapping[activeWarehouse] || { المطبخ: [], البار: [], الصالة: [] }
+  const currentSet = currentWhMap[activeDept] || []
   const selectedCount = currentSet.length
   const filteredIds = filteredProducts.map(p => p.id)
+  const activeWarehouseName = warehouses.find(w => w.id === activeWarehouse)?.name || ''
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap');`}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>🏷️ مواد الأقسام</h1>
-          <p style={{ fontSize: 13, color: S.muted }}>حدد المواد المتاحة لكل قسم في طلبات الفروع</p>
+          <p style={{ fontSize: 13, color: S.muted }}>حدد المواد المتاحة لكل قسم في طلبات الفروع — لكل مستودع على حدة</p>
         </div>
         <button onClick={save} disabled={saving}
           style={{ padding: '10px 24px', borderRadius: 12, border: `1px solid ${saved ? S.green : S.gold}`, background: saved ? S.greenB : S.gold3, color: saved ? S.green : S.gold, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -148,13 +205,25 @@ export default function DepartmentProductsPage() {
         </button>
       </div>
 
+      {/* ✅ جديد: اختيار المستودع */}
+      {warehouses.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          {warehouses.map(w => (
+            <button key={w.id} onClick={() => setActiveWarehouse(w.id)}
+              style={{ padding: '9px 18px', borderRadius: 12, border: `1px solid ${activeWarehouse === w.id ? S.gold : S.border}`, background: activeWarehouse === w.id ? S.gold3 : 'transparent', color: activeWarehouse === w.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeWarehouse === w.id ? 700 : 400 }}>
+              🏭 {w.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
         {DEPTS.map(d => (
           <div key={d.key} style={{ background: activeDept === d.key ? S.gold3 : S.card, borderRadius: 12, padding: '12px 16px', border: `1px solid ${activeDept === d.key ? S.gold : S.border}`, cursor: 'pointer' }} onClick={() => setActiveDept(d.key)}>
             <div style={{ fontSize: 20, marginBottom: 4 }}>{d.icon}</div>
             <div style={{ fontSize: 15, fontWeight: 800, color: activeDept === d.key ? S.gold : S.white }}>{d.label}</div>
-            <div style={{ fontSize: 12, color: S.muted }}>{mapping[d.key]?.length || 0} صنف</div>
+            <div style={{ fontSize: 12, color: S.muted }}>{currentWhMap[d.key]?.length || 0} صنف — {activeWarehouseName}</div>
           </div>
         ))}
       </div>
@@ -164,7 +233,7 @@ export default function DepartmentProductsPage() {
         {DEPTS.map(d => (
           <button key={d.key} onClick={() => setActiveDept(d.key)}
             style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${activeDept === d.key ? S.gold : S.border}`, background: activeDept === d.key ? S.gold3 : 'transparent', color: activeDept === d.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: activeDept === d.key ? 700 : 400 }}>
-            {d.icon} {d.label} <span style={{ fontSize: 11, opacity: 0.7 }}>({mapping[d.key]?.length || 0})</span>
+            {d.icon} {d.label} <span style={{ fontSize: 11, opacity: 0.7 }}>({currentWhMap[d.key]?.length || 0})</span>
           </button>
         ))}
       </div>
@@ -224,7 +293,7 @@ export default function DepartmentProductsPage() {
 
       {/* Footer */}
       <div style={{ position: 'sticky', bottom: 0, background: S.navy, borderTop: `1px solid ${S.border}`, padding: '12px 0', marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: S.muted }}>{selectedCount} صنف محدد في <strong style={{ color: S.gold }}>{activeDept}</strong></span>
+        <span style={{ fontSize: 13, color: S.muted }}>{selectedCount} صنف محدد في <strong style={{ color: S.gold }}>{activeDept}</strong> — <strong style={{ color: S.blue }}>{activeWarehouseName}</strong></span>
         <button onClick={save} disabled={saving}
           style={{ padding: '10px 28px', borderRadius: 12, border: `1px solid ${saved ? S.green : S.gold}`, background: saved ? S.greenB : S.gold3, color: saved ? S.green : S.gold, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
           {saving ? '⏳...' : saved ? '✅ تم الحفظ!' : '💾 حفظ'}

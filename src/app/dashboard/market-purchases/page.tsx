@@ -36,42 +36,63 @@ const STATUS_CFG: Record<string, { label: string; icon: string; color: string; b
 
 interface Product { id: string; name: string; name_en?: string; current_stock: number; unit_id?: string; units?: { symbol: string } }
 interface RequestItem {
-  id: string; product_id: string; requested_quantity: number; requested_unit_id: string
+  id: string; product_id: string | null; item_name: string | null; requested_quantity: number; requested_unit_id: string
   purchased_quantity: number | null; purchased_unit_id: string | null; unit_price: number | null; total_price: number | null; notes: string | null
   warehouse_products?: { name: string; name_en?: string }
   req_unit?: { symbol: string }; pur_unit?: { symbol: string }
 }
 interface PurchaseRequest {
   id: string; branch_id: string; requested_by: string; status: string
+  request_number?: string | null
   requested_at: string; purchased_at: string | null; purchased_by: string | null
   delivered_at: string | null; delivered_image_url: string | null
   received_by: string | null; received_at: string | null; total_amount: number; notes: string | null
   branches?: { name: string }
-  requester?: { name: string; name_en?: string }
+  requester?: { name: string; name_en?: string; employee_number?: string }
   market_purchase_request_items?: RequestItem[]
+}
+
+// ✅ جديد: عرض التاريخ والوقت بتوقيت ماليزيا (Asia/Kuala_Lumpur) بغض النظر عن توقيت جهاز المستخدم
+function fmtMYTime(iso: string) {
+  return new Date(iso).toLocaleString('ar-MY', {
+    timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
+  })
 }
 
 export default function MarketPurchasesPage() {
   const sb = createClient()
   const { employee: currentUser, permissions } = useAuth()
   const isAdmin = permissions?.all === true
-  const isPurchaser = isAdmin || permissions?.market_purchases === true
-  const canRequest = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor', 'warehouse_keeper'].includes(currentUser?.role || '') || isAdmin
+  // ✅ Fix: مسؤولو المستودع (أمين المستودع/مدير المستودعات) هم من يراجعون الطلبات، مش أي حد عنده صلاحية market_purchases عامة فقط
+  const isPurchaser = isAdmin || permissions?.market_purchases === true || ['warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')
+  // ✅ Fix: المشرفون ومديرو الأقسام هم من يطلبون (مش أمين المستودع، ده بيراجع مش بيطلب)
+  const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']
+  const MANAGER_ROLES = ['kitchen_manager', 'hall_manager', 'bar_manager']
+  const canRequest = isAdmin || [...SUPERVISOR_ROLES, ...MANAGER_ROLES].includes(currentUser?.role || '')
 
-  const [tab, setTab] = useState<'new' | 'mine' | 'purchaser'>(canRequest ? 'new' : 'purchaser')
+  const [tab, setTab] = useState<'new' | 'mine' | 'purchaser' | 'calendar'>(canRequest ? 'new' : 'purchaser')
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
+  // ✅ جديد: اختيار الفرع للإدارة - يشوف الفرعين ويقدر يختار بينهم
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [adminBranchFilter, setAdminBranchFilter] = useState('')
   const [products, setProducts] = useState<Product[]>([])
   const [units, setUnits] = useState<{ id: string; symbol: string }[]>([])
   const [loading, setLoading] = useState(true)
 
   // ── New request form state ──
-  const [cart, setCart] = useState<Record<string, { quantity: number; unit_id: string }>>({})
-  const [productSearch, setProductSearch] = useState('')
+  // ✅ Fix: السلة بقت مصفوفة أصناف نصية حرة (اسم + كمية + وحدة) بدل الاختيار من أصناف المستودع فقط،
+  // لأن مشتريات السوق أصلًا أصناف غير موجودة بالمستودع
+  const [cart, setCart] = useState<{ tempId: string; name: string; quantity: string; unit_id: string }[]>([])
+  const [newItemName, setNewItemName] = useState('')
+  // ✅ جديد: اقتراحات البحث عن الأصناف الموجودة في المستودع أثناء الكتابة
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [newItemQty, setNewItemQty] = useState('')
+  const [newItemUnit, setNewItemUnit] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   // ── Purchaser editing state ──
   const [editingReq, setEditingReq] = useState<PurchaseRequest | null>(null)
-  const [purchaseEdits, setPurchaseEdits] = useState<Record<string, { quantity: string; unit_id: string; price: string }>>({})
+  const [purchaseEdits, setPurchaseEdits] = useState<Record<string, { quantity: string; unit_id: string }>>({})
   const [saving, setSaving] = useState(false)
 
   // ── Receive confirmation state ──
@@ -82,11 +103,16 @@ export default function MarketPurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const baseSelect = `*, branches(name), requester:requested_by(name, name_en), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol))`
+    const baseSelect = `*, branches(name), requester:requested_by(name, name_en, employee_number), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol))`
     let q = sb.from('market_purchase_requests').select(baseSelect).order('requested_at', { ascending: false })
-    const [reqRes, unitsRes] = await Promise.all([q, sb.from('units').select('id, symbol').order('name')])
+    const [reqRes, unitsRes, branchesRes] = await Promise.all([
+      q,
+      sb.from('units').select('id, symbol').order('name'),
+      sb.from('branches').select('id, name').eq('is_active', true).order('name'),
+    ])
     setRequests((reqRes.data as any) || [])
     setUnits(unitsRes.data || [])
+    setBranches(branchesRes.data || [])
     setLoading(false)
   }, [])
 
@@ -104,52 +130,51 @@ export default function MarketPurchasesPage() {
       })
   }, [currentUser?.branch_id])
 
-  const filteredProducts = useMemo(() => {
-    const q = productSearch.trim().toLowerCase()
-    if (!q) return products
-    return products.filter(p => p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q))
-  }, [products, productSearch])
-
-  function toggleCartItem(p: Product) {
-    setCart(prev => {
-      const next = { ...prev }
-      if (next[p.id]) delete next[p.id]
-      else next[p.id] = { quantity: 1, unit_id: p.unit_id || '' }
-      return next
-    })
+  // ✅ Fix: دوال إدارة سلة الأصناف الحرة - إضافة وحذف
+  function addToCart() {
+    if (!newItemName.trim()) { alert('يرجى كتابة اسم الصنف'); return }
+    if (!newItemQty || parseFloat(newItemQty) <= 0) { alert('يرجى إدخال كمية صحيحة'); return }
+    if (!newItemUnit) { alert('يرجى اختيار الوحدة'); return }
+    setCart(prev => [...prev, {
+      tempId: `${Date.now()}-${Math.random()}`,
+      name: newItemName.trim(), quantity: newItemQty, unit_id: newItemUnit,
+    }])
+    setNewItemName(''); setNewItemQty(''); setNewItemUnit('')
   }
-  function updateCartItem(productId: string, field: 'quantity' | 'unit_id', value: any) {
-    setCart(prev => ({ ...prev, [productId]: { ...prev[productId], [field]: value } }))
+  function removeFromCart(tempId: string) {
+    setCart(prev => prev.filter(c => c.tempId !== tempId))
   }
 
   async function submitRequest() {
-    const items = Object.entries(cart)
-    if (items.length === 0) { alert('يرجى اختيار صنف واحد على الأقل'); return }
+    if (cart.length === 0) { alert('يرجى إضافة صنف واحد على الأقل'); return }
     setSubmitting(true)
+    // ✅ جديد: توليد رقم طلب تلقائي بصيغة ORK-{رقم تسلسلي}
+    const { count } = await sb.from('market_purchase_requests').select('id', { count: 'exact', head: true })
+    const requestNumber = `ORK-${(count || 0) + 1}`
     const { data: newReq, error } = await sb.from('market_purchase_requests')
-      .insert([{ branch_id: currentUser?.branch_id, requested_by: currentUser?.id, status: 'pending' }])
+      .insert([{ branch_id: currentUser?.branch_id, requested_by: currentUser?.id, status: 'pending', request_number: requestNumber }])
       .select('id').single()
     if (error || !newReq) { alert('حدث خطأ: ' + (error?.message || '')); setSubmitting(false); return }
 
     await sb.from('market_purchase_request_items').insert(
-      items.map(([product_id, sel]) => ({
-        request_id: newReq.id, product_id,
-        requested_quantity: sel.quantity, requested_unit_id: sel.unit_id,
+      cart.map(c => ({
+        request_id: newReq.id, item_name: c.name,
+        requested_quantity: parseFloat(c.quantity), requested_unit_id: c.unit_id,
       }))
     )
     await fetchAll()
     setSubmitting(false)
-    setCart({})
+    setCart([])
     setTab('mine')
   }
 
   function startEditingPurchase(req: PurchaseRequest) {
-    const init: Record<string, { quantity: string; unit_id: string; price: string }> = {}
+    // ✅ Fix: أزلنا السعر - سيُدخَل لاحقًا في فاتورة مشتريات منفصلة بقسم المشتريات
+    const init: Record<string, { quantity: string; unit_id: string }> = {}
     req.market_purchase_request_items?.forEach(it => {
       init[it.id] = {
         quantity: String(it.purchased_quantity ?? it.requested_quantity),
         unit_id: it.purchased_unit_id || it.requested_unit_id,
-        price: String(it.unit_price ?? ''),
       }
     })
     setPurchaseEdits(init)
@@ -159,20 +184,16 @@ export default function MarketPurchasesPage() {
   async function savePurchase() {
     if (!editingReq) return
     setSaving(true)
-    let totalAmount = 0
+    // ✅ Fix: مفيش سعر هنا خالص - بس نسجل الكمية والوحدة الفعلية بعد المراجعة
     for (const [itemId, edit] of Object.entries(purchaseEdits)) {
       const qty = parseFloat(edit.quantity) || 0
-      const price = parseFloat(edit.price) || 0
-      const total = qty * price
-      totalAmount += total
       await sb.from('market_purchase_request_items').update({
         purchased_quantity: qty, purchased_unit_id: edit.unit_id,
-        unit_price: price, total_price: total,
       }).eq('id', itemId)
     }
     await sb.from('market_purchase_requests').update({
       status: 'purchased', purchased_at: new Date().toISOString(),
-      purchased_by: currentUser?.id, total_amount: totalAmount,
+      purchased_by: currentUser?.id,
     }).eq('id', editingReq.id)
     await fetchAll()
     setSaving(false)
@@ -207,12 +228,57 @@ export default function MarketPurchasesPage() {
     setReceiveImgPreview('')
   }
 
+  // ✅ جديد: تصفية اقتراحات الأصناف من قائمة أصناف المستودع حسب ما يكتبه المستخدم
+  const productSuggestions = useMemo(() => {
+    const q = newItemName.trim().toLowerCase()
+    if (!q) return []
+    return products.filter(p => p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q)).slice(0, 8)
+  }, [products, newItemName])
+
   const myRequests = requests.filter(r => r.requested_by === currentUser?.id)
-  const purchaserRequests = requests.filter(r => r.status === 'pending' || r.status === 'purchased')
+  // ✅ Fix: غير الأدمن (أمين/مدير المستودع) يرى طلبات فرعه بس، والأدمن يختار الفرع أو يرى الكل
+  const purchaserRequests = requests
+    .filter(r => r.status === 'pending' || r.status === 'purchased')
+    .filter(r => {
+      if (isAdmin) return !adminBranchFilter || r.branch_id === adminBranchFilter
+      return r.branch_id === currentUser?.branch_id
+    })
   const pendingCount = requests.filter(r => r.status === 'pending').length
 
+  // ✅ جديد: منطق التقويم الشهري - يعرض عدد الطلبات ووضعها لكل يوم
+  const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); return d })
+  const calendarRequests = requests.filter(r => {
+    if (!isAdmin) return r.branch_id === currentUser?.branch_id
+    return !adminBranchFilter || r.branch_id === adminBranchFilter
+  })
+  const dayStats = useMemo(() => {
+    const map: Record<string, { total: number; received: number; pending: number; purchased: number }> = {}
+    for (const r of calendarRequests) {
+      const dateKey = new Date(r.requested_at).toISOString().split('T')[0]
+      if (!map[dateKey]) map[dateKey] = { total: 0, received: 0, pending: 0, purchased: 0 }
+      map[dateKey].total++
+      if (r.status === 'delivered') map[dateKey].received++
+      else if (r.status === 'purchased') map[dateKey].purchased++
+      else if (r.status === 'pending') map[dateKey].pending++
+    }
+    return map
+  }, [calendarRequests])
+
+  const calendarDays = useMemo(() => {
+    const year = calendarMonth.getFullYear()
+    const month = calendarMonth.getMonth()
+    const firstDay = new Date(year, month, 1)
+    const lastDay = new Date(year, month + 1, 0)
+    const startOffset = firstDay.getDay() // 0 = الأحد
+    const days: (Date | null)[] = []
+    for (let i = 0; i < startOffset; i++) days.push(null)
+    for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d))
+    return days
+  }, [calendarMonth])
+
   function itemDisplay(it: RequestItem) {
-    return `${it.warehouse_products?.name || '—'} — ${it.requested_quantity} ${it.req_unit?.symbol || ''}`
+    const name = it.item_name || it.warehouse_products?.name || '—'
+    return `${name} — ${it.requested_quantity} ${it.req_unit?.symbol || ''}`
   }
 
   return (
@@ -247,45 +313,85 @@ export default function MarketPurchasesPage() {
             )}
           </button>
         )}
+        {/* ✅ جديد: تاب التقويم للإدارة */}
+        {isAdmin && (
+          <button onClick={() => setTab('calendar')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'calendar' ? S.gold : S.border}`, background: tab === 'calendar' ? S.gold3 : 'transparent', color: tab === 'calendar' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'calendar' ? 700 : 400 }}>
+            📅 التقويم
+          </button>
+        )}
       </div>
 
       {/* ── New Request Tab ── */}
       {tab === 'new' && canRequest && (
         <div>
-          <input style={{ ...inp, marginBottom: 14 }} placeholder="🔍 بحث عن صنف..." value={productSearch} onChange={e => setProductSearch(e.target.value)} />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 10, marginBottom: 20, maxHeight: 320, overflowY: 'auto' }}>
-            {filteredProducts.map(p => {
-              const selected = !!cart[p.id]
-              return (
-                <div key={p.id} onClick={() => toggleCartItem(p)}
-                  style={{ background: selected ? S.gold3 : S.card, border: `1.5px solid ${selected ? S.gold : S.border}`, borderRadius: 12, padding: '10px 14px', cursor: 'pointer' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: selected ? S.gold : S.white }}>{p.name}</div>
-                  {p.name_en && <div style={{ fontSize: 10, color: S.muted }}>{p.name_en}</div>}
-                </div>
-              )
-            })}
+          {/* ✅ جديد: ملاحظة واضحة وثابتة عن الموعد النهائي للطلبات */}
+          <div style={{ background: S.redB, border: `1.5px solid ${S.red}`, borderRadius: 14, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 24 }}>⏰</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: S.red }}>آخر موعد لتقديم طلبات مشتريات السوق هو الساعة 12:00 ظهرًا بتوقيت ماليزيا يوميًا</div>
+              <div style={{ fontSize: 11, color: S.white, marginTop: 2 }}>أي طلب يُقدَّم بعد هذا الموعد قد لا يُلبَّى في نفس اليوم</div>
+            </div>
           </div>
 
-          {Object.keys(cart).length > 0 && (
+          {/* ✅ جديد: نموذج إضافة صنف - بحث ذكي في أصناف المستودع + إمكانية كتابة صنف حر جديد في نفس المكان */}
+          <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>➕ إضافة صنف للطلب</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: 2, minWidth: 160, position: 'relative' }}>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>اسم الصنف</label>
+                <input style={inp} placeholder="ابحث أو اكتب اسم صنف جديد..." value={newItemName}
+                  onChange={e => { setNewItemName(e.target.value); setShowSuggestions(true) }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  onKeyDown={e => { if (e.key === 'Enter') { setShowSuggestions(false); addToCart() } }} />
+                {/* ✅ قائمة اقتراحات من أصناف المستودع الموجودة فعليًا - تظهر وتختفي في نفس مكان الكتابة، من غير أي انتقال لصفحة تانية */}
+                {showSuggestions && newItemName.trim().length > 0 && productSuggestions.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, marginTop: 4, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10, maxHeight: 200, overflowY: 'auto', zIndex: 50, boxShadow: '0 8px 20px rgba(0,0,0,0.4)' }}>
+                    {productSuggestions.map(p => (
+                      <div key={p.id} onMouseDown={() => {
+                        setNewItemName(p.name)
+                        if (p.unit_id) setNewItemUnit(p.unit_id)
+                        setShowSuggestions(false)
+                      }}
+                        style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 12, color: S.white, borderBottom: `1px solid ${S.border}` }}>
+                        📦 {p.name} {p.name_en && <span style={{ color: S.muted }}>({p.name_en})</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ width: 100 }}>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية</label>
+                <input type="number" min={0} step="0.01" style={inp} placeholder="0" value={newItemQty}
+                  onChange={e => setNewItemQty(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addToCart() }} />
+              </div>
+              <div style={{ width: 110 }}>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>الوحدة</label>
+                <select style={inp} value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)}>
+                  <option value="">اختر</option>
+                  {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
+                </select>
+              </div>
+              <button onClick={addToCart}
+                style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                ➕ إضافة للسلة
+              </button>
+            </div>
+          </div>
+
+          {cart.length > 0 && (
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>الأصناف المطلوبة</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {Object.entries(cart).map(([pid, sel]) => {
-                  const p = products.find(x => x.id === pid)
-                  if (!p) return null
-                  return (
-                    <div key={pid} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: S.card, borderRadius: 10, padding: '10px 12px' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, minWidth: 110 }}>{p.name}</div>
-                      <input type="number" min={0} step="0.01" value={sel.quantity} onChange={e => updateCartItem(pid, 'quantity', parseFloat(e.target.value) || 0)}
-                        style={{ width: 70, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.white, outline: 'none', textAlign: 'center' }} />
-                      <select value={sel.unit_id} onChange={e => updateCartItem(pid, 'unit_id', e.target.value)}
-                        style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.white, outline: 'none', cursor: 'pointer' }}>
-                        {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
-                      </select>
-                      <button onClick={() => toggleCartItem(p)} style={{ marginRight: 'auto', background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 16 }}>✕</button>
-                    </div>
-                  )
-                })}
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>🛒 سلة الطلب ({cart.length} صنف)</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {cart.map(c => (
+                  <div key={c.tempId} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: S.card, borderRadius: 10, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, minWidth: 110, flex: 1 }}>{c.name}</div>
+                    <div style={{ fontSize: 13, color: S.gold, fontWeight: 700 }}>{c.quantity} {units.find(u => u.id === c.unit_id)?.symbol}</div>
+                    <button onClick={() => removeFromCart(c.tempId)} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 16 }}>✕</button>
+                  </div>
+                ))}
               </div>
               <button onClick={submitRequest} disabled={submitting}
                 style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: submitting ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -306,20 +412,23 @@ export default function MarketPurchasesPage() {
             return (
               <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 18px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ fontSize: 12, color: S.muted }}>📅 {new Date(req.requested_at).toLocaleDateString('ar-SA')}</div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{req.request_number || '—'}</div>
+                    <div style={{ fontSize: 11, color: S.muted }}>📅 {fmtMYTime(req.requested_at)}</div>
+                  </div>
                   <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                   {(req.market_purchase_request_items || []).map(it => (
                     <div key={it.id} style={{ fontSize: 12, color: S.white }}>
-                      • {it.warehouse_products?.name} —
+                      • {it.item_name || it.warehouse_products?.name} —
                       {it.purchased_quantity != null
-                        ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b> بسعر {it.unit_price} MYR</span>
+                        ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b></span>
                         : <span> {it.requested_quantity} {it.req_unit?.symbol}</span>}
                     </div>
                   ))}
                 </div>
-                {req.total_amount > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 10 }}>💰 الإجمالي: {req.total_amount.toFixed(2)} MYR</div>}
+                {/* ✅ Fix: تم إخفاء السعر والإجمالي عن الموظف الطالب بناءً على الطلب - يبقى ظاهرًا فقط لمسؤول المستودع والإدارة في تاب طلبات الشراء */}
                 {req.status === 'purchased' && (
                   <button onClick={() => setReceivingReq(req)}
                     style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -338,6 +447,21 @@ export default function MarketPurchasesPage() {
       {/* ── Purchaser Tab ── */}
       {tab === 'purchaser' && isPurchaser && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* ✅ جديد: اختيار الفرع - يظهر للإدارة فقط */}
+          {isAdmin && branches.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <button onClick={() => setAdminBranchFilter('')}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${!adminBranchFilter ? S.gold : S.border}`, background: !adminBranchFilter ? S.gold3 : 'transparent', color: !adminBranchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: !adminBranchFilter ? 700 : 400 }}>
+                🌐 كل الفروع
+              </button>
+              {branches.map(b => (
+                <button key={b.id} onClick={() => setAdminBranchFilter(b.id)}
+                  style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${adminBranchFilter === b.id ? S.gold : S.border}`, background: adminBranchFilter === b.id ? S.gold3 : 'transparent', color: adminBranchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: adminBranchFilter === b.id ? 700 : 400 }}>
+                  🏪 {b.name}
+                </button>
+              ))}
+            </div>
+          )}
           {loading ? <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
           : purchaserRequests.length === 0 ? <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>لا توجد طلبات حالية</div>
           : purchaserRequests.map(req => {
@@ -346,8 +470,9 @@ export default function MarketPurchasesPage() {
               <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${req.status === 'pending' ? S.amber + '40' : S.border}`, padding: '16px 18px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700 }}>{req.branches?.name} — {req.requester?.name} {req.requester?.name_en}</div>
-                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>📅 {new Date(req.requested_at).toLocaleDateString('ar-SA')}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{req.request_number || '—'}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{req.branches?.name} — {req.requester?.name} {req.requester?.name_en} {req.requester?.employee_number && <span style={{ color: S.gold, fontSize: 12 }}>(#{req.requester.employee_number})</span>}</div>
+                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>📅 {fmtMYTime(req.requested_at)}</div>
                   </div>
                   <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
                 </div>
@@ -362,10 +487,74 @@ export default function MarketPurchasesPage() {
                     🛒 تسجيل الشراء
                   </button>
                 )}
-                {req.status === 'purchased' && <div style={{ fontSize: 12, color: S.muted }}>💰 الإجمالي: {req.total_amount.toFixed(2)} MYR — في انتظار استلام الفرع</div>}
+                {req.status === 'purchased' && <div style={{ fontSize: 12, color: S.muted }}>في انتظار استلام الفرع</div>}
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* ── Calendar Tab ── */}
+      {tab === 'calendar' && isAdmin && (
+        <div>
+          {branches.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              <button onClick={() => setAdminBranchFilter('')}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${!adminBranchFilter ? S.gold : S.border}`, background: !adminBranchFilter ? S.gold3 : 'transparent', color: !adminBranchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: !adminBranchFilter ? 700 : 400 }}>
+                🌐 كل الفروع
+              </button>
+              {branches.map(b => (
+                <button key={b.id} onClick={() => setAdminBranchFilter(b.id)}
+                  style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${adminBranchFilter === b.id ? S.gold : S.border}`, background: adminBranchFilter === b.id ? S.gold3 : 'transparent', color: adminBranchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: adminBranchFilter === b.id ? 700 : 400 }}>
+                  🏪 {b.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* شريط التنقل بين الشهور */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <button onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() - 1); return d })}
+              style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 13 }}>
+              ← الشهر السابق
+            </button>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>
+              {calendarMonth.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' })}
+            </div>
+            <button onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() + 1); return d })}
+              style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 13 }}>
+              الشهر التالي →
+            </button>
+          </div>
+
+          {/* شبكة التقويم */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+            {['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'].map(d => (
+              <div key={d} style={{ textAlign: 'center', fontSize: 11, color: S.muted, fontWeight: 700, padding: '4px 0' }}>{d}</div>
+            ))}
+            {calendarDays.map((day, i) => {
+              if (!day) return <div key={i} />
+              const key = day.toISOString().split('T')[0]
+              const stats = dayStats[key]
+              const isToday = key === new Date().toISOString().split('T')[0]
+              return (
+                <div key={i} style={{
+                  background: isToday ? S.gold3 : S.navy2, border: `1px solid ${isToday ? S.gold : S.border}`,
+                  borderRadius: 10, padding: '8px 6px', minHeight: 72, display: 'flex', flexDirection: 'column', gap: 4,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: isToday ? S.gold : S.white }}>{day.getDate()}</div>
+                  {stats && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ fontSize: 10, color: S.white }}>📦 {stats.total} طلب</div>
+                      {stats.received > 0 && <div style={{ fontSize: 10, color: S.green }}>✅ {stats.received} مُستلَم</div>}
+                      {stats.pending > 0 && <div style={{ fontSize: 10, color: S.amber }}>⏳ {stats.pending} معلّق</div>}
+                      {stats.purchased > 0 && <div style={{ fontSize: 10, color: S.blue }}>🛒 {stats.purchased} تم الشراء</div>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -379,10 +568,10 @@ export default function MarketPurchasesPage() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {(editingReq.market_purchase_request_items || []).map(it => {
-                const edit = purchaseEdits[it.id] || { quantity: '', unit_id: '', price: '' }
+                const edit = purchaseEdits[it.id] || { quantity: '', unit_id: '' }
                 return (
                   <div key={it.id} style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{it.warehouse_products?.name} <span style={{ color: S.muted, fontSize: 11 }}>(مطلوب: {it.requested_quantity} {it.req_unit?.symbol})</span></div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{it.item_name || it.warehouse_products?.name} <span style={{ color: S.muted, fontSize: 11 }}>(مطلوب: {it.requested_quantity} {it.req_unit?.symbol})</span></div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <div>
                         <label style={{ fontSize: 10, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية المتاحة فعليًا</label>
@@ -395,11 +584,6 @@ export default function MarketPurchasesPage() {
                           style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.white, outline: 'none', cursor: 'pointer' }}>
                           {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
                         </select>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: 10, color: S.muted, display: 'block', marginBottom: 4 }}>سعر الوحدة (MYR)</label>
-                        <input type="number" min={0} step="0.01" value={edit.price} onChange={e => setPurchaseEdits(p => ({ ...p, [it.id]: { ...edit, price: e.target.value } }))}
-                          style={{ width: 90, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.white, outline: 'none' }} />
                       </div>
                     </div>
                   </div>

@@ -265,7 +265,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
                 <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>
-                <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.041.01</div>
+                <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.044.153</div>
               </div>
             )}
           </div>
@@ -276,11 +276,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10 }}>
-          {!isMobile && (
-            <button onClick={toggleLang} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', letterSpacing: 1 }}>
-              {lang === 'ar' ? 'EN' : 'عر'}
-            </button>
-          )}
+          {/* ✅ Fix: زر تبديل اللغة كان مخفيًا بالكامل على الموبايل - أصبح ظاهرًا الآن دائمًا */}
+          <button onClick={toggleLang} style={{ padding: isMobile ? '4px 8px' : '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.gold, cursor: 'pointer', fontSize: isMobile ? 11 : 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', letterSpacing: 1 }}>
+            {lang === 'ar' ? 'EN' : 'عر'}
+          </button>
           <NotificationBell />
           <div ref={userMenuRef} style={{ position: 'relative' }}>
             <div onClick={() => setShowPasswordForm(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: isMobile ? '4px 8px' : '6px 12px', border: `1px solid ${S.border}`, cursor: 'pointer' }}>

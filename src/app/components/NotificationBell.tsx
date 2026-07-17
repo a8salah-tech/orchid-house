@@ -42,6 +42,15 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
 
+  // ✅ جديد: كشف الموبايل عشان نغيّر طريقة عرض القائمة المنسدلة بحيث تفضل ظاهرة بالكامل دائمًا
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const fetchNotifs = useCallback(async () => {
     if (!employee?.id) return
 let q = sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(20)
@@ -105,7 +114,14 @@ if (employee.role === 'admin' || employee.role === 'branch_manager') {
       </button>
 
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, width: 340, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,.6)', zIndex: 999, overflow: 'hidden', marginTop: 8 }}>
+        <div style={isMobile ? {
+          // ✅ Fix: على الموبايل، القائمة تصبح لوحة ثابتة أعلى الشاشة بعرض متجاوب بدل صندوق 340px ثابت كان بيخرج عن حدود الشاشة
+          position: 'fixed', top: 64, right: 12, left: 12, width: 'auto',
+          background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16,
+          boxShadow: '0 20px 60px rgba(0,0,0,.6)', zIndex: 999, overflow: 'hidden',
+        } : {
+          position: 'absolute', top: '100%', left: 0, width: 340, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,.6)', zIndex: 999, overflow: 'hidden', marginTop: 8,
+        }}>
           {/* Header */}
           <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontWeight: 800, fontSize: 14, color: S.white, fontFamily: 'Tajawal, sans-serif' }}>
@@ -120,7 +136,7 @@ if (employee.role === 'admin' || employee.role === 'branch_manager') {
           </div>
 
           {/* Notifications */}
-          <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+          <div style={{ maxHeight: isMobile ? 'calc(100vh - 220px)' : 380, overflowY: 'auto' }}>
             {notifs.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 30, color: S.muted, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>لا توجد إشعارات</div>
             ) : notifs.slice(0, 10).map(n => (

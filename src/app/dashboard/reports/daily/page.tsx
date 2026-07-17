@@ -167,6 +167,22 @@ export default function DailyReportPage() {
   }
 
   function n(v: string) { return parseFloat(v) || 0 }
+  // ✅ إصلاح جوهري: تقريب المجاميع لمنع مشكلة الفاصلة العائمة الشهيرة في جافاسكريبت
+  // (مثال: 0.1 + 0.2 قد تُنتج 0.30000000000000004 بدلًا من 0.3)
+  function round2(v: number) { return Math.round((v + Number.EPSILON) * 100) / 100 }
+  // ✅ جديد: تحديد الاسم الأكثر تكرارًا بين مجموعة أوردرات (لمعرفة من كان يمسك الشيفت تلقائيًا)
+  function mostFrequentName(names: (string | null | undefined)[]): string {
+    const counts: Record<string, number> = {}
+    for (const nm of names) {
+      if (!nm) continue
+      counts[nm] = (counts[nm] || 0) + 1
+    }
+    let best = ''; let bestCount = 0
+    for (const [nm, c] of Object.entries(counts)) {
+      if (c > bestCount) { best = nm; bestCount = c }
+    }
+    return best
+  }
 
   // ✅ جديد: سحب أرقام الشيفت من بيانات حقيقية (الأوردرات المدفوعة + المصروفات + طلبات التوصيل المسجّلة)
   async function pullShiftFromSystem(num: 1 | 2) {
@@ -179,7 +195,7 @@ export default function DailyReportPage() {
 
     const [ordersRes, expRes, delRes] = await Promise.all([
       sb.from('orders')
-        .select('total_amount, discount_amount, payment_method, card_bank, shift, tables!inner(branch_id)')
+        .select('total_amount, discount_amount, payment_method, card_bank, shift, paid_by_name, tables!inner(branch_id)')
         .eq('status', 'paid').eq('shift', shiftKey)
         .eq('tables.branch_id', branchFilter)
         .gte('paid_at', dayStart).lte('paid_at', dayEnd),
@@ -193,19 +209,23 @@ export default function DailyReportPage() {
     const expenses = expRes.data || []
     const delivery = delRes.data || []
 
-    const salesTotal = orders.reduce((s, o) => s + (o.total_amount || 0), 0)
-    const discountsTotal = orders.reduce((s, o) => s + (o.discount_amount || 0), 0)
-    const visaMaybank = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
-    const visaBsn = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
-    const kababOnline = delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0)
-    const gOnline = delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0)
-    const paidExpenses = expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
-    const pendingExpenses = expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
+    const salesTotal = round2(orders.reduce((s, o) => s + (o.total_amount || 0), 0))
+    const discountsTotal = round2(orders.reduce((s, o) => s + (o.discount_amount || 0), 0))
+    const visaMaybank = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0))
+    const visaBsn = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0))
+    const kababOnline = round2(delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0))
+    const gOnline = round2(delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0))
+    const paidExpenses = round2(expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0))
+    const pendingExpenses = round2(expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0))
+    // ✅ جديد: تحديد اسم الكاشير تلقائيًا من أكثر اسم تكرر في الأوردرات المدفوعة خلال هذا الشيفت
+    const detectedCashier = mostFrequentName(orders.map(o => (o as any).paid_by_name))
 
     setForm(p => ({
       ...p,
       [shiftKey]: {
         ...(p as any)[shiftKey],
+        // ✅ نملأ اسم الكاشير تلقائيًا فقط إذا كان الحقل فارغًا، حتى لا نستبدل اسمًا أدخله المستخدم يدويًا
+        cashier_name: (p as any)[shiftKey]?.cashier_name || detectedCashier || '',
         paid_expenses: String(paidExpenses),
         pending_expenses: String(pendingExpenses),
         visa_maybank: String(visaMaybank),
@@ -245,18 +265,18 @@ export default function DailyReportPage() {
     const delivery = delRes.data || []
     const purchases = purchasesRes.data || []
     const expenses = expRes.data || []
-    const paidExpensesTotal = expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
-    const pendingExpensesTotal = expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
+    const paidExpensesTotal = round2(expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0))
+    const pendingExpensesTotal = round2(expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0))
 
-    const salesTotal = orders.reduce((s, o) => s + (o.total_amount || 0), 0)
-    const discountsTotal = orders.reduce((s, o) => s + (o.discount_amount || 0), 0)
-    const visaMaybank = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
-    const visaBsn = orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
-    const kababOnline = delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0)
-    const gOnline = delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0)
-    const grabTotal = delivery.filter(d => d.platform === 'grab').reduce((s, d) => s + (d.amount || 0), 0)
-    const foodpandaTotal = delivery.filter(d => d.platform === 'foodpanda').reduce((s, d) => s + (d.amount || 0), 0)
-    const purchasesTotal = purchases.reduce((s, pInv) => s + (pInv.total_amount || 0), 0)
+    const salesTotal = round2(orders.reduce((s, o) => s + (o.total_amount || 0), 0))
+    const discountsTotal = round2(orders.reduce((s, o) => s + (o.discount_amount || 0), 0))
+    const visaMaybank = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0))
+    const visaBsn = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0))
+    const kababOnline = round2(delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0))
+    const gOnline = round2(delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0))
+    const grabTotal = round2(delivery.filter(d => d.platform === 'grab').reduce((s, d) => s + (d.amount || 0), 0))
+    const foodpandaTotal = round2(delivery.filter(d => d.platform === 'foodpanda').reduce((s, d) => s + (d.amount || 0), 0))
+    const purchasesTotal = round2(purchases.reduce((s, pInv) => s + (pInv.total_amount || 0), 0))
 
     setForm(p => ({
       ...p,
@@ -348,6 +368,12 @@ export default function DailyReportPage() {
     if (!win) return
     const s = form.shift1
     const s2 = form.shift2
+    // ✅ جديد: تنسيق الأرقام بفواصل الآلاف لسهولة القراءة في التقرير المطبوع (مثال: 2,494.52)
+    const fmt = (v: string | number) => {
+      const num = typeof v === 'string' ? parseFloat(v) : v
+      if (isNaN(num as number)) return v
+      return (num as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    }
     win.document.write(`<!DOCTYPE html><html><head>
       <meta charset="UTF-8">
       <title>Daily Report - ${form.report_date}</title>
@@ -373,24 +399,24 @@ export default function DailyReportPage() {
           <td class="label">Cashier Bills Details</td><td></td>
         </tr>
         <tr>
-          <td class="label">Received Balance (RM)</td><td>${s.received_balance}</td>
+          <td class="label">Received Balance (RM)</td><td>${fmt(s.received_balance)}</td>
           <td rowspan="2"><b>Paid:</b><br>${s.bills_paid}</td>
           <td rowspan="2"><b>Pending:</b><br>${s.bills_pending}</td>
         </tr>
         <tr>
-          <td class="label">Paid Expenses (RM)</td><td>${s.paid_expenses}</td>
+          <td class="label">Paid Expenses (RM)</td><td>${fmt(s.paid_expenses)}</td>
         </tr>
         <tr>
-          <td class="label">Pending Expenses (RM)</td><td>${s.pending_expenses}</td>
+          <td class="label">Pending Expenses (RM)</td><td>${fmt(s.pending_expenses)}</td>
           <td rowspan="2"><b>Discounts:</b><br>${s.bills_discounts}</td>
           <td rowspan="2"><b>Online:</b><br>${s.bills_online}</td>
         </tr>
-        <tr><td class="label">Visa MAYBANK (RM)</td><td>${s.visa_maybank}</td></tr>
-        <tr><td class="label">Visa BSN (RM)</td><td>${s.visa_bsn}</td><td colspan="2"></td></tr>
-        <tr><td class="label">KababOnline Banking (RM)</td><td>${s.kabab_online}</td><td colspan="2"></td></tr>
-        <tr><td class="label">G Online Banking (RM)</td><td>${s.g_online}</td><td colspan="2"></td></tr>
-        <tr><td class="label">Discounts (RM)</td><td>${s.discounts}</td><td colspan="2"></td></tr>
-        <tr class="total-row"><td class="label">Total Balance (RM)</td><td>${s.total_balance}</td><td colspan="2"></td></tr>
+        <tr><td class="label">Visa MAYBANK (RM)</td><td>${fmt(s.visa_maybank)}</td></tr>
+        <tr><td class="label">Visa BSN (RM)</td><td>${fmt(s.visa_bsn)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">KababOnline Banking (RM)</td><td>${fmt(s.kabab_online)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">G Online Banking (RM)</td><td>${fmt(s.g_online)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">Discounts (RM)</td><td>${fmt(s.discounts)}</td><td colspan="2"></td></tr>
+        <tr class="total-row"><td class="label">Total Balance (RM)</td><td>${fmt(s.total_balance)}</td><td colspan="2"></td></tr>
         <tr><td class="label"><b>Manager Note</b></td><td colspan="3">${s.manager_note}</td></tr>
       </table>
 
@@ -401,51 +427,51 @@ export default function DailyReportPage() {
           <td class="label">Cashier Bills Details</td><td></td>
         </tr>
         <tr>
-          <td class="label">Received Balance (RM)</td><td>${s2.received_balance}</td>
+          <td class="label">Received Balance (RM)</td><td>${fmt(s2.received_balance)}</td>
           <td rowspan="2"><b>Paid:</b><br>${s2.bills_paid}</td>
           <td rowspan="2"><b>Pending:</b><br>${s2.bills_pending}</td>
         </tr>
-        <tr><td class="label">Paid Expenses (RM)</td><td>${s2.paid_expenses}</td></tr>
+        <tr><td class="label">Paid Expenses (RM)</td><td>${fmt(s2.paid_expenses)}</td></tr>
         <tr>
-          <td class="label">Pending Expenses (RM)</td><td>${s2.pending_expenses}</td>
+          <td class="label">Pending Expenses (RM)</td><td>${fmt(s2.pending_expenses)}</td>
           <td rowspan="2"><b>Discounts:</b><br>${s2.bills_discounts}</td>
           <td rowspan="2"><b>Online:</b><br>${s2.bills_online}</td>
         </tr>
-        <tr><td class="label">Visa MAYBANK (RM)</td><td>${s2.visa_maybank}</td></tr>
-        <tr><td class="label">Visa BSN (RM)</td><td>${s2.visa_bsn}</td><td colspan="2"></td></tr>
-        <tr><td class="label">KababOnline Banking (RM)</td><td>${s2.kabab_online}</td><td colspan="2"></td></tr>
-        <tr><td class="label">G Online Banking (RM)</td><td>${s2.g_online}</td><td colspan="2"></td></tr>
-        <tr><td class="label">Discounts (RM)</td><td>${s2.discounts}</td><td colspan="2"></td></tr>
-        <tr class="total-row"><td class="label">Total Balance (RM)</td><td>${s2.total_balance}</td><td colspan="2"></td></tr>
+        <tr><td class="label">Visa MAYBANK (RM)</td><td>${fmt(s2.visa_maybank)}</td></tr>
+        <tr><td class="label">Visa BSN (RM)</td><td>${fmt(s2.visa_bsn)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">KababOnline Banking (RM)</td><td>${fmt(s2.kabab_online)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">G Online Banking (RM)</td><td>${fmt(s2.g_online)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">Discounts (RM)</td><td>${fmt(s2.discounts)}</td><td colspan="2"></td></tr>
+        <tr class="total-row"><td class="label">Total Balance (RM)</td><td>${fmt(s2.total_balance)}</td><td colspan="2"></td></tr>
         <tr><td class="label"><b>Manager Note</b></td><td colspan="3">${s2.manager_note}</td></tr>
       </table>
 
       <table>
         <tr>
-          <td class="label">Total Sales Report</td><td>${form.total_sales_report}</td>
+          <td class="label">Total Sales Report</td><td>${fmt(form.total_sales_report)}</td>
           <td class="label">Notes</td><td rowspan="4">${form.notes}</td>
         </tr>
         <tr>
-          <td class="label">Total Paid Expenses (RM)</td><td>${form.total_paid_expenses}</td>
+          <td class="label">Total Paid Expenses (RM)</td><td>${fmt(form.total_paid_expenses)}</td>
           <td class="label">Total Purchased Bills – Shopping (RM)</td>
         </tr>
         <tr>
-          <td class="label">Total Pending Expenses (RM)</td><td>${form.total_pending_expenses}</td>
-          <td>${form.total_purchased_bills}</td>
+          <td class="label">Total Pending Expenses (RM)</td><td>${fmt(form.total_pending_expenses)}</td>
+          <td>${fmt(form.total_purchased_bills)}</td>
         </tr>
         <tr>
-          <td class="label">Total Visa MAYBANK (RM)</td><td>${form.total_visa_maybank}</td>
-          <td class="label">Grab: ${form.grab} &nbsp;&nbsp; Foodpanda: ${form.foodpanda}</td>
+          <td class="label">Total Visa MAYBANK (RM)</td><td>${fmt(form.total_visa_maybank)}</td>
+          <td class="label">Grab: ${fmt(form.grab)} &nbsp;&nbsp; Foodpanda: ${fmt(form.foodpanda)}</td>
         </tr>
         <tr>
-          <td class="label">Total Visa BSN</td><td>${form.total_visa_bsn}</td>
+          <td class="label">Total Visa BSN</td><td>${fmt(form.total_visa_bsn)}</td>
           <td class="label">Treasurer Name and Signature</td>
           <td rowspan="4">${form.treasurer_name}</td>
         </tr>
-        <tr><td class="label">Total KababOnline Banking (RM)</td><td>${form.total_kabab_online}</td><td></td></tr>
-        <tr><td class="label">Total G Online Banking (RM)</td><td>${form.total_g_online}</td><td></td></tr>
-        <tr><td class="label">Total Discounts</td><td>${form.total_discounts}</td><td></td></tr>
-        <tr class="total-row"><td class="label">Total amount</td><td>${form.total_amount}</td><td colspan="2"></td></tr>
+        <tr><td class="label">Total KababOnline Banking (RM)</td><td>${fmt(form.total_kabab_online)}</td><td></td></tr>
+        <tr><td class="label">Total G Online Banking (RM)</td><td>${fmt(form.total_g_online)}</td><td></td></tr>
+        <tr><td class="label">Total Discounts</td><td>${fmt(form.total_discounts)}</td><td></td></tr>
+        <tr class="total-row"><td class="label">Total amount</td><td>${fmt(form.total_amount)}</td><td colspan="2"></td></tr>
       </table>
 
       <script>window.onload = () => { window.print(); }<\/script>

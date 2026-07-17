@@ -162,6 +162,14 @@ export default function DepartmentProductsPage() {
     })
   }
 
+  // ✅ جديد: تقسيم أي عملية على دفعات صغيرة، عشان مانبعتش قائمة معرّفات طويلة جدًا في طلب واحد
+  // (كانت بتسبب "Failed to fetch" لما عدد الأصناف في المستودع كبير، بسبب تجاوز الحد الأقصى لطول الرابط)
+  function chunk<T>(arr: T[], size: number): T[][] {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+    return out
+  }
+
   async function save() {
     setSaving(true)
     // ✅ Fix حرج جدًا: كنا قبل كده بنمسح كل روابط القسم بغض النظر عن المستودع، فكان أي حفظ من هنا
@@ -169,16 +177,19 @@ export default function DepartmentProductsPage() {
     const currentWarehouseProductIds = products.map(p => p.id)
     const whMap = mapping[activeWarehouse] || { المطبخ: [], البار: [], الصالة: [] }
     for (const dept of ['المطبخ', 'البار', 'الصالة']) {
-      if (currentWarehouseProductIds.length > 0) {
+      // ✅ Fix: الحذف على دفعات (200 معرّف كحد أقصى في كل طلب) بدل قائمة واحدة طويلة جدًا
+      for (const idsChunk of chunk(currentWarehouseProductIds, 200)) {
         const { error: delErr } = await sb.from('department_products')
           .delete()
           .eq('department', dept)
-          .in('product_id', currentWarehouseProductIds)
+          .in('product_id', idsChunk)
         if (delErr) { alert('خطأ في الحذف: ' + delErr.message); setSaving(false); return }
       }
       const ids = (whMap[dept] || []).filter(id => currentWarehouseProductIds.includes(id))
-      if (ids.length > 0) {
-        const { error: insErr } = await sb.from('department_products').insert(ids.map(pid => ({ department: dept, product_id: pid })))
+      // ✅ Fix: الإضافة كمان على دفعات (300 صف كحد أقصى في كل طلب)
+      for (const idsChunk of chunk(ids, 300)) {
+        if (idsChunk.length === 0) continue
+        const { error: insErr } = await sb.from('department_products').insert(idsChunk.map(pid => ({ department: dept, product_id: pid })))
         if (insErr) { alert('خطأ في الحفظ: ' + insErr.message); setSaving(false); return }
       }
     }

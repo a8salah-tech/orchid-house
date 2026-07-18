@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
@@ -364,6 +364,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const sb = createClient()
   const { isAr } = useLang()
   const [updating, setUpdating] = useState(false)
+  // ✅ جديد: قفل فوري (Ref) بيمنع تنفيذ approve() مرتين متتاليتين بسرعة (Double-click)
+  // - حالة setUpdating لوحدها مش كافية لأن تحديثها في React مش فوري، فضغطتين سريعتين جدًا
+  // ممكن يعدّوا الاتنين قبل ما الزرار يتقفل فعليًا، ويسببوا خصم الكمية مرتين (زي اللي حصل مع طلب فرع #151)
+  const approvingRef = useRef(false)
   const [actionBy, setActionBy] = useState(currentEmployee?.name || '')
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
@@ -388,12 +392,15 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
 
   async function approve() {
     if (!actionBy.trim()) { alert('يرجى إدخال اسمك'); return }
+    // ✅ Fix حرج: قفل فوري يمنع أي تنفيذ تاني لنفس الطلب لو الدالة شغالة بالفعل - يحمي من الضغط المتكرر السريع
+    if (approvingRef.current) return
+    approvingRef.current = true
     setUpdating(true)
     setCheckingAvailability(true)
 
     // 1) جلب مستودع الفرع الخاص بهذا الطلب
     const { data: wh, error: whErr } = await sb.from('warehouses').select('id').eq('branch_id', request.branch_id).maybeSingle()
-    if (whErr || !wh?.id) { alert('لم يتم العثور على مستودع لهذا الفرع'); setUpdating(false); setCheckingAvailability(false); return }
+    if (whErr || !wh?.id) { alert('لم يتم العثور على مستودع لهذا الفرع'); approvingRef.current = false; setUpdating(false); setCheckingAvailability(false); return }
 
     // ✅ Fix (جذري - مرحلة ١): نتحقق من كل الأصناف الأول من غير ما نخصم أي حاجة خالص
     // (كل شيء أو ولا حاجة - عشان مانخصمش لأصناف نجحت ثم نكتشف صنف فشل بعدهم فيفضل المخزون في حالة ناقصة)
@@ -481,6 +488,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
 
     // ✅ Fix (جذري): لو فيه أي صنف فشل، نوقف العملية بالكامل من غير ما نخصم أي حاجة خالص
     if (failedItems.length > 0) {
+      approvingRef.current = false
       setUpdating(false)
       setCheckingAvailability(false)
       alert('⚠️ تعذّر اعتماد الطلب بسبب مشاكل في الأصناف التالية:\n\n' + failedItems.join('\n') + '\n\nلم يتم خصم أي كمية ولم يتم اعتماد الطلب.')
@@ -491,6 +499,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // بدل ما نرفض الطلب كله أو نخصم كمية أكبر من المتاح فعليًا
     if (newShortfalls.length > 0) {
       setShortfalls(newShortfalls)
+      approvingRef.current = false
       setUpdating(false)
       setCheckingAvailability(false)
       return
@@ -514,6 +523,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
       status: finalStatus, approved_by: actionBy, approved_at: new Date().toISOString(),
     }).eq('id', request.id)
 
+    approvingRef.current = false
     setUpdating(false)
     setCheckingAvailability(false)
     onUpdate()

@@ -268,6 +268,8 @@ function RequestCard({ req, role, onOpen }: { req: BranchRequest; role: string; 
     branch_approved:      { color: S.blue,   bg: S.blueB,   icon: '👨‍💼', label: 'معتمد - جاهز للمستودع' },
     warehouse_processing: { color: S.orange, bg: S.orangeB, icon: '🏭', label: 'قيد التجهيز' },
     supervisor_received:  { color: S.green,  bg: S.greenB,  icon: '🎉', label: 'استلم المشرف' },
+    // ✅ جديد: حالة "معلّق" - لما يتم استلام جزء من الطلب فقط بسبب نقص كمية في المستودع
+    partial:              { color: S.orange, bg: S.orangeB, icon: '⏸️', label: 'معلّق (استلام جزئي)' },
     manager_received:     { color: S.teal,   bg: S.tealB,   icon: '✅', label: 'مكتمل' },
     rejected:             { color: S.red,    bg: S.redB,    icon: '❌', label: 'مرفوض' },
     cancelled:            { color: S.muted,  bg: S.card,    icon: '🚫', label: 'ملغي' },
@@ -351,6 +353,9 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const [deptProducts, setDeptProducts] = useState<{id:string;name:string;product_code?:string}[]>([])
   const [savingItems, setSavingItems] = useState(false)
   const role = currentEmployee?.role || ''
+  // ✅ جديد: التحقق من توفر الكمية قبل الاستلام الفعلي + إمكانية استبعاد صنف واحد بعينه من الطلب
+  const [shortfalls, setShortfalls] = useState<{ itemId: string; name: string; requestedInBase: number; available: number; unitSymbol: string }[] | null>(null)
+  const [cancelledItems, setCancelledItems] = useState<Set<string>>(new Set())
 
   async function doAction(status: string, extra: Record<string,string> = {}) {
     if (!actionBy.trim()) { alert('يرجى إدخال اسمك'); return }
@@ -362,6 +367,107 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   async function confirmReceive() {
     if (!actionBy.trim()) { alert('يرجى إدخال اسمك'); return }
     setUpdating(true)
+    // المستودع الرئيسي — منه يتم الخصم لحظة تأكيد الفرع استلامه فعليًا
+    const MAIN_WAREHOUSE_ID = 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8'
+
+    // ✅ Fix (جذري - مرحلة ١): نتحقق من كل الأصناف أولاً (توفر الكمية + معامل التحويل) من غير أي كتابة أو رفع صور خالص
+    // (كل شيء أو ولا حاجة - عشان مانرفعش صور ونحدّث بيانات لأصناف قبل ما نكتشف نقص في صنف تاني)
+    const failedItems: string[] = []
+    const newShortfalls: { itemId: string; name: string; requestedInBase: number; available: number; unitSymbol: string }[] = []
+    const plannedItems: { item: any; ri: any; wp: any; qty: number }[] = []
+
+    for (const item of (request.branch_request_items || [])) {
+      // ✅ جديد: تجاهل أي صنف تم استبعاده يدويًا
+      if (cancelledItems.has(item.id)) continue
+
+      const ri = receiveItems[item.id] || { received: item.quantity_approved||item.quantity_requested, returned: 0, reason: '', imgPreview: '' }
+      // ✅ Fix (نهائي وبسيط): ندور على الصنف بالاسم في مستودع الفرع اللي طالب
+      // بدل الاعتماد على product_id المحفوظ (ممكن يكون لفرع تاني)
+      const receivedQty = parseFloat(String(ri.received)) || 0
+      const productId = (item as any).product_id
+      if (receivedQty <= 0 || !productId) { plannedItems.push({ item, ri, wp: null, qty: 0 }); continue }
+
+      // نجيب اسم الصنف الأول
+      const { data: srcWp } = await sb.from('warehouse_products')
+        .select('name').eq('id', productId).maybeSingle()
+      const itemName = srcWp?.name || ''
+
+      // ندور على نسخة الصنف في مستودع الفرع الطالب بالاسم
+      const { data: branchWh } = await sb.from('warehouses')
+        .select('id').eq('branch_id', request.branch_id).maybeSingle()
+      const branchWhId = branchWh?.id
+
+      let wp: any = null
+      if (itemName && branchWhId) {
+        // ✅ Fix: مطابقة الأسماء بعد تنظيفها من المسافات الزايدة في الطرفين
+        // (كان فيه أصناف متسجلة بمسافة زايدة في آخر الاسم، فالمطابقة الدقيقة .ilike كانت بتفشل)
+        const { data: candidates } = await sb.from('warehouse_products')
+          .select('id, unit_id, warehouse_id, name, current_stock, units(symbol)')
+          .eq('warehouse_id', branchWhId)
+        wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
+      }
+      // fallback: نسخة المستودع الرئيسي لو الفرع ما عندوش نسخة
+      if (!wp) {
+        const { data: candidates } = await sb.from('warehouse_products')
+          .select('id, unit_id, warehouse_id, name, current_stock, units(symbol)')
+          .eq('warehouse_id', MAIN_WAREHOUSE_ID)
+        wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
+      }
+      if (!wp) {
+        failedItems.push(`${itemName || productId} — لم يتم العثور على هذا الصنف في أي مستودع`)
+        continue
+      }
+
+      let qty = receivedQty
+      const itemUnitId = (item as any).unit_id
+      if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
+        const { data: conv } = await sb.from('unit_conversions')
+          .select('from_unit_id, to_unit_id, factor')
+          .eq('product_id', wp.id)
+          .or(`and(from_unit_id.eq.${itemUnitId},to_unit_id.eq.${wp.unit_id}),and(from_unit_id.eq.${wp.unit_id},to_unit_id.eq.${itemUnitId})`)
+          .maybeSingle()
+        if (conv) {
+          if (conv.from_unit_id === itemUnitId && conv.to_unit_id === wp.unit_id) {
+            qty = receivedQty * conv.factor
+          } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
+            qty = receivedQty / conv.factor
+          }
+        } else {
+          // ✅ Fix حرج: لو مفيش معامل تحويل مسجل بأي اتجاه، نوقف خصم الصنف ده تمامًا
+          // بدل ما نخصم الرقم الخام غلط (نفس سبب كارثة الموز والبطيخ في طلبات المستودع الداخلي)
+          failedItems.push(`${wp.name} — لا يوجد معامل تحويل مسجّل بين الوحدة المطلوبة ووحدة التخزين الأساسية. من فضلك سجّل معامل التحويل أولاً ثم أعد تأكيد الاستلام`)
+          continue
+        }
+      }
+
+      // ✅ جديد: التحقق من توفر الكمية فعليًا في المخزون قبل أي خصم - عشان نتجنب الأرصدة السالبة تمامًا
+      if (qty > (wp.current_stock || 0)) {
+        newShortfalls.push({
+          itemId: item.id, name: wp.name,
+          requestedInBase: qty, available: wp.current_stock || 0,
+          unitSymbol: wp.units?.symbol || '',
+        })
+        continue
+      }
+
+      plannedItems.push({ item, ri, wp, qty })
+    }
+
+    // ✅ Fix (جذري): لو فيه أي صنف فشل، نوقف العملية بالكامل من غير ما نكتب أو نرفع أي حاجة خالص
+    if (failedItems.length > 0) {
+      setUpdating(false)
+      alert('⚠️ تعذّر تأكيد الاستلام بسبب مشاكل في الأصناف التالية:\n\n' + failedItems.join('\n') + '\n\nلم يتم خصم أي كمية ولم يتم تأكيد الاستلام.')
+      return
+    }
+
+    // ✅ جديد: لو فيه أصناف كميتها غير متاحة بالكامل، نوقف ونعرض تنبيه تفاعلي في المنتصف
+    if (newShortfalls.length > 0) {
+      setShortfalls(newShortfalls)
+      setUpdating(false)
+      return
+    }
+
+    // ✅ مرحلة ٢: كل الأصناف سليمة - دلوقتي بس نرفع الصور ونحدّث البيانات ونخصم فعليًا
     // رفع صورة الاستلام
     let mainImg = ''
     if (receiveImg) {
@@ -370,12 +476,8 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
       if (upD) { const { data: urlD } = sb.storage.from('employees').getPublicUrl(upD.path); mainImg = urlD.publicUrl }
       setUploadingImg(false)
     }
-    // المستودع الرئيسي — منه يتم الخصم لحظة تأكيد الفرع استلامه فعليًا
-    const MAIN_WAREHOUSE_ID = 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8'
-    // تحديث كل صنف + خصم الكمية المستلمة فعليًا من المستودع الرئيسي
-    const failedItems: string[] = []
-    for (const item of (request.branch_request_items || [])) {
-      const ri = receiveItems[item.id] || { received: item.quantity_approved||item.quantity_requested, returned: 0, reason: '', imgPreview: '' }
+
+    for (const { item, ri, wp, qty } of plannedItems) {
       let retImg = ''
       if (ri.imgFile) {
         const { data: upD2 } = await sb.storage.from('employees').upload(`branch-requests/ret-${Date.now()}-${item.id}.jpg`, ri.imgFile, { upsert: true })
@@ -388,89 +490,49 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         return_image_url: retImg || null,
       }).eq('id', item.id)
 
-      // ✅ Fix (نهائي وبسيط): ندور على الصنف بالاسم في مستودع الفرع اللي طالب
-      // بدل الاعتماد على product_id المحفوظ (ممكن يكون لفرع تاني)
-      const receivedQty = parseFloat(String(ri.received)) || 0
-      const productId = (item as any).product_id
-      if (receivedQty > 0 && productId) {
-        // نجيب اسم الصنف الأول
-        const { data: srcWp } = await sb.from('warehouse_products')
-          .select('name').eq('id', productId).maybeSingle()
-        const itemName = srcWp?.name || ''
-
-        // ندور على نسخة الصنف في مستودع الفرع الطالب بالاسم
-        const { data: branchWh } = await sb.from('warehouses')
-          .select('id').eq('branch_id', request.branch_id).maybeSingle()
-        const branchWhId = branchWh?.id
-
-        let wp: any = null
-        if (itemName && branchWhId) {
-          // ✅ Fix: مطابقة الأسماء بعد تنظيفها من المسافات الزايدة في الطرفين
-          // (كان فيه أصناف متسجلة بمسافة زايدة في آخر الاسم، فالمطابقة الدقيقة .ilike كانت بتفشل)
-          const { data: candidates } = await sb.from('warehouse_products')
-            .select('id, unit_id, warehouse_id, name')
-            .eq('warehouse_id', branchWhId)
-          wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
-        }
-        // fallback: نسخة المستودع الرئيسي لو الفرع ما عندوش نسخة
-        if (!wp) {
-          const { data: candidates } = await sb.from('warehouse_products')
-            .select('id, unit_id, warehouse_id, name')
-            .eq('warehouse_id', MAIN_WAREHOUSE_ID)
-          wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
-        }
-        if (!wp) {
-          failedItems.push(`${itemName || productId} — لم يتم العثور على هذا الصنف في أي مستودع`)
-          continue
-        }
-        {
-          let qty = receivedQty
-          const itemUnitId = (item as any).unit_id
-          if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
-            const { data: conv } = await sb.from('unit_conversions')
-              .select('from_unit_id, to_unit_id, factor')
-              .eq('product_id', wp.id)
-              .or(`and(from_unit_id.eq.${itemUnitId},to_unit_id.eq.${wp.unit_id}),and(from_unit_id.eq.${wp.unit_id},to_unit_id.eq.${itemUnitId})`)
-              .maybeSingle()
-            if (conv) {
-              if (conv.from_unit_id === itemUnitId && conv.to_unit_id === wp.unit_id) {
-                qty = receivedQty * conv.factor
-              } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
-                qty = receivedQty / conv.factor
-              }
-            } else {
-              // ✅ Fix حرج: لو مفيش معامل تحويل مسجل بأي اتجاه، نوقف خصم الصنف ده تمامًا
-              // بدل ما نخصم الرقم الخام غلط (نفس سبب كارثة الموز والبطيخ في طلبات المستودع الداخلي)
-              failedItems.push(`${wp.name} — لا يوجد معامل تحويل مسجّل بين الوحدة المطلوبة ووحدة التخزين الأساسية. من فضلك سجّل معامل التحويل أولاً ثم أعد تأكيد الاستلام`)
-              continue
-            }
-          }
-          await sb.from('stock_movements').insert([{
-            product_id: wp.id,
-            warehouse_id: wp.warehouse_id,
-            movement_type: 'out',
-            quantity: qty,
-            movement_date: new Date().toISOString().slice(0, 10),
-            notes: `طلب فرع #${request.request_number} — ${request.branches?.name || ''} — استلام`,
-          }])
-        }
+      if (wp) {
+        await sb.from('stock_movements').insert([{
+          product_id: wp.id,
+          warehouse_id: wp.warehouse_id,
+          movement_type: 'out',
+          quantity: qty,
+          movement_date: new Date().toISOString().slice(0, 10),
+          notes: `طلب فرع #${request.request_number} — ${request.branches?.name || ''} — استلام`,
+        }])
       }
     }
-
-    // ✅ Fix (جذري): لو فيه أي صنف فشل خصمه، نوقف العملية ونمنع تعليم الطلب كـ"تم الاستلام" بدل الاستمرار بصمت
-    if (failedItems.length > 0) {
-      setUpdating(false)
-      alert('⚠️ تعذّر تأكيد الاستلام بسبب مشاكل في الأصناف التالية:\n\n' + failedItems.join('\n') + '\n\nلم يتم خصم أي كمية ولم يتم تأكيد الاستلام.')
-      return
+    // ✅ جديد: تعليم الأصناف المستبعدة في قاعدة البيانات
+    for (const itemId of cancelledItems) {
+      await sb.from('branch_request_items').update({ is_cancelled: true }).eq('id', itemId)
     }
 
+    // ✅ جديد: الحالة تبقى "معلّق" لو تم استبعاد صنف واحد على الأقل، وإلا "استلم المشرف" زي ما كان بالظبط
+    const finalStatus = cancelledItems.size > 0 ? 'partial' : 'supervisor_received'
     await sb.from('branch_requests').update({
-      status: 'supervisor_received',
+      status: finalStatus,
       supervisor_received_by: actionBy,
       supervisor_received_at: new Date().toISOString(),
       receive_image_url: mainImg || null,
     }).eq('id', request.id)
     setShowReceive(false); setUpdating(false); onUpdate()
+  }
+
+  // ✅ جديد: تعديل الكمية المستلمة تلقائيًا للحد المتاح فعليًا، عشان يقدر يأكد الاستلام فورًا بعد التعديل
+  function adjustToAvailable(itemId: string, requestedInBase: number, available: number) {
+    const item = (request.branch_request_items || []).find((i: any) => i.id === itemId)
+    if (!item) return
+    const current = receiveItems[itemId] || { received: (item as any).quantity_approved || (item as any).quantity_requested, returned: 0, reason: '', imgPreview: '' }
+    // نحسب الكمية الجديدة بنفس وحدة الاستلام الأصلية (مش وحدة المخزون الأساسية بالضرورة)
+    const ratio = requestedInBase > 0 ? available / requestedInBase : 0
+    const newReceived = Math.max(0, Math.floor(current.received * ratio * 100) / 100)
+    setReceiveItems(p => ({ ...p, [itemId]: { ...current, received: newReceived } }))
+    setShortfalls(null)
+  }
+
+  // ✅ جديد: استبعاد صنف بعينه من الاستلام بالكامل (يبقى الطلب "معلّق" ويُستلم باقي الأصناف)
+  function excludeItem(itemId: string) {
+    setCancelledItems(prev => new Set(prev).add(itemId))
+    setShortfalls(null)
   }
 
   const canApprove = [...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && request.status === 'pending'
@@ -682,6 +744,33 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
               <button onClick={() => setShowReceive(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
 
+            {/* ✅ جديد: تنبيه واضح في المنتصف لو فيه أصناف كميتها غير متاحة بالكامل */}
+            {shortfalls && shortfalls.length > 0 && (
+              <div style={{ background: S.amberB, border: `1.5px solid ${S.amber}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: S.amber, marginBottom: 10 }}>⚠️ الكمية غير متاحة بالكامل في المستودع</div>
+                {shortfalls.map(s => (
+                  <div key={s.itemId} style={{ background: S.navy2, borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{s.name}</div>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>
+                      المطلوب: <span style={{ color: S.red, fontWeight: 700 }}>{s.requestedInBase.toFixed(2)} {s.unitSymbol}</span>
+                      {' '}— المتاح فعليًا: <span style={{ color: S.green, fontWeight: 700 }}>{s.available.toFixed(2)} {s.unitSymbol}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => adjustToAvailable(s.itemId, s.requestedInBase, s.available)}
+                        style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        ✏️ تعديل للمتاح ({s.available.toFixed(2)})
+                      </button>
+                      <button onClick={() => excludeItem(s.itemId)}
+                        style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        🚫 استبعاد هذا الصنف
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>بعد التعديل أو الاستبعاد، اضغط "تأكيد الاستلام" مرة أخرى.</div>
+              </div>
+            )}
+
             {/* صورة الاستلام الرئيسية */}
             <div style={{ background: S.navy3, borderRadius: 10, padding: 12, marginBottom: 14, border: `1px solid ${S.border}` }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: S.gold, marginBottom: 8 }}>📸 صورة إثبات الاستلام (اختياري)</div>
@@ -697,11 +786,26 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
               {(request.branch_request_items || []).map((item: any) => {
                 const approved = item.quantity_approved || item.quantity_requested
                 const ri = receiveItems[item.id] || { received: approved, returned: 0, reason: '', imgPreview: '' }
+                const isExcluded = cancelledItems.has(item.id)
                 return (
-                  <div key={item.id} style={{ background: S.navy3, borderRadius: 12, padding: 12, border: `1px solid ${S.border}` }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 8 }}>
-                      {item.warehouse_products?.name}
-                      <span style={{ fontSize: 11, color: S.muted, marginRight: 6 }}>المعتمد: {approved} {item.units?.symbol}</span>
+                  <div key={item.id} style={{ background: S.navy3, borderRadius: 12, padding: 12, border: `1px solid ${isExcluded ? S.red + '60' : S.border}`, opacity: isExcluded ? 0.5 : 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: S.white, textDecoration: isExcluded ? 'line-through' : 'none' }}>
+                        {item.warehouse_products?.name}
+                        <span style={{ fontSize: 11, color: S.muted, marginRight: 6 }}>المعتمد: {approved} {item.units?.symbol}</span>
+                      </div>
+                      {/* ✅ جديد: استبعاد هذا الصنف بعينه من الاستلام */}
+                      {isExcluded ? (
+                        <button onClick={() => setCancelledItems(prev => { const next = new Set(prev); next.delete(item.id); return next })}
+                          style={{ background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 6, color: S.muted, cursor: 'pointer', fontSize: 10, padding: '3px 8px', fontFamily: 'Tajawal, sans-serif' }}>
+                          ↩️ تراجع
+                        </button>
+                      ) : (
+                        <button onClick={() => excludeItem(item.id)} title="استبعاد هذا الصنف من الاستلام"
+                          style={{ background: 'transparent', border: `1px solid ${S.red}40`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '3px 8px' }}>
+                          🚫
+                        </button>
+                      )}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: ri.returned > 0 ? 8 : 0 }}>
                       <div>
@@ -1113,9 +1217,10 @@ export default function BranchRequestsPage() {
     {
       label: isAr ? 'الاستلام والتسليم' : 'Delivery',
       icon: '🎉',
-      statuses: ['supervisor_received','manager_received'],
+      // ✅ جديد: أضفنا "partial" (معلّق) هنا كمان - استلام جزئي بسبب نقص كمية في المستودع
+      statuses: ['supervisor_received','manager_received','partial'],
       show: true,
-      filter: (r: BranchRequest) => ['supervisor_received','manager_received'].includes(r.status)
+      filter: (r: BranchRequest) => ['supervisor_received','manager_received','partial'].includes(r.status)
     },
   ]
 

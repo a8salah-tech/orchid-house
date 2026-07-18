@@ -51,6 +51,8 @@ interface PurchaseRequest {
   received_by: string | null; received_at: string | null; total_amount: number; notes: string | null
   branches?: { name: string }
   requester?: { name: string; name_en?: string; employee_number?: string }
+  // ✅ جديد: اسم مستلم الطلب (الفرع) - لعرضه في تقرير الأدمن الشامل
+  receiver?: { name: string; name_en?: string }
   market_purchase_request_items?: RequestItem[]
 }
 
@@ -91,7 +93,7 @@ export default function MarketPurchasesPage() {
   // ✅ Fix: أمين المستودع ومدير المستودعات أصبحوا يقدروا يطلبوا كمان، بالإضافة لدورهم كمسؤولي شراء
   const canRequest = isAdmin || [...SUPERVISOR_ROLES, ...MANAGER_ROLES, 'warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')
 
-  const [tab, setTab] = useState<'new' | 'mine' | 'purchaser' | 'calendar' | 'report'>(canRequest ? 'new' : 'purchaser')
+  const [tab, setTab] = useState<'new' | 'mine' | 'purchaser' | 'calendar' | 'report' | 'admin_stats'>(canRequest ? 'new' : 'purchaser')
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   // ✅ جديد: اختيار الفرع للإدارة - يشوف الفرعين ويقدر يختار بينهم
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -110,6 +112,14 @@ export default function MarketPurchasesPage() {
   const [newItemQty, setNewItemQty] = useState('')
   const [newItemUnit, setNewItemUnit] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // ✅ جديد: كشف الموبايل - مطلوب لتنسيق تاب الإحصائيات الشاملة
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   // ✅ جديد: تنبيه الترحيل لليوم التالي - يظهر في منتصف الشاشة بدل alert عادي
   const [rolloverNotice, setRolloverNotice] = useState<{ requestNumber: string; effectiveDate: string } | null>(null)
 
@@ -126,7 +136,7 @@ export default function MarketPurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const baseSelect = `*, branches(name), requester:requested_by(name, name_en, employee_number), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol))`
+    const baseSelect = `*, branches(name), requester:requested_by(name, name_en, employee_number), receiver:received_by(name, name_en), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol))`
     let q = sb.from('market_purchase_requests').select(baseSelect).order('requested_at', { ascending: false })
     const [reqRes, unitsRes, branchesRes] = await Promise.all([
       q,
@@ -340,6 +350,50 @@ export default function MarketPurchasesPage() {
     return { text: `🟡 تم شراء ${purchasedQty} من ${requestedQty}`, color: S.blue }
   }
 
+  // ✅ جديد: إحصائيات شاملة للأدمن بس - سجل تفصيلي لكل عملية من الطلب لحد الاستلام
+  const [adminStatsBranch, setAdminStatsBranch] = useState('')
+  const adminStatsData = useMemo(() => {
+    const filtered = requests
+      .filter(r => !adminStatsBranch || r.branch_id === adminStatsBranch)
+      .sort((a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime())
+
+    const totalRequests = filtered.length
+    const delivered = filtered.filter(r => r.status === 'delivered')
+    const rejected = filtered.filter(r => r.status === 'rejected')
+    const pending = filtered.filter(r => r.status === 'pending')
+    const purchased = filtered.filter(r => r.status === 'purchased')
+
+    // ✅ متوسط الوقت من الطلب لحد الاستلام (بالساعات) - لمعرفة سرعة التنفيذ الفعلية
+    const deliveryTimes = delivered
+      .filter(r => r.delivered_at)
+      .map(r => (new Date(r.delivered_at!).getTime() - new Date(r.requested_at).getTime()) / (1000 * 60 * 60))
+    const avgDeliveryHours = deliveryTimes.length > 0 ? deliveryTimes.reduce((s, h) => s + h, 0) / deliveryTimes.length : null
+
+    // ✅ الأكثر طلبًا (اسم الموظف)
+    const requesterCounts: Record<string, number> = {}
+    for (const r of filtered) {
+      const n = r.requester?.name || '—'
+      requesterCounts[n] = (requesterCounts[n] || 0) + 1
+    }
+    const topRequester = Object.entries(requesterCounts).sort((a, b) => b[1] - a[1])[0]
+
+    // ✅ الأكثر طلبًا (اسم الصنف)
+    const itemCounts: Record<string, number> = {}
+    for (const r of filtered) {
+      for (const it of (r.market_purchase_request_items || [])) {
+        const n = it.item_name || it.warehouse_products?.name || '—'
+        itemCounts[n] = (itemCounts[n] || 0) + 1
+      }
+    }
+    const topItem = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0]
+
+    return {
+      log: filtered, totalRequests,
+      deliveredCount: delivered.length, rejectedCount: rejected.length, pendingCount: pending.length, purchasedCount: purchased.length,
+      avgDeliveryHours, topRequester, topItem,
+    }
+  }, [requests, adminStatsBranch])
+
   // ✅ جديد: طباعة التقرير المجمّع
   function printConsolidatedReport() {
     const win = window.open('', '_blank')
@@ -479,6 +533,13 @@ export default function MarketPurchasesPage() {
           <button onClick={() => setTab('report')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'report' ? S.gold : S.border}`, background: tab === 'report' ? S.gold3 : 'transparent', color: tab === 'report' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'report' ? 700 : 400 }}>
             📋 تقرير مجمّع
+          </button>
+        )}
+        {/* ✅ جديد: تاب الإحصائيات الشاملة - للأدمن فقط، سجل تفصيلي كامل لكل عملية من أولها لآخرها */}
+        {isAdmin && (
+          <button onClick={() => setTab('admin_stats')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'admin_stats' ? S.gold : S.border}`, background: tab === 'admin_stats' ? S.gold3 : 'transparent', color: tab === 'admin_stats' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'admin_stats' ? 700 : 400 }}>
+            📊 إحصائيات شاملة
           </button>
         )}
       </div>
@@ -781,6 +842,121 @@ export default function MarketPurchasesPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ✅ جديد: تاب الإحصائيات الشاملة - أدمن فقط */}
+      {tab === 'admin_stats' && isAdmin && (
+        <div>
+          {branches.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              <button onClick={() => setAdminStatsBranch('')}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${!adminStatsBranch ? S.gold : S.border}`, background: !adminStatsBranch ? S.gold3 : 'transparent', color: !adminStatsBranch ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: !adminStatsBranch ? 700 : 400 }}>
+                🌐 كل الفروع
+              </button>
+              {branches.map(b => (
+                <button key={b.id} onClick={() => setAdminStatsBranch(b.id)}
+                  style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${adminStatsBranch === b.id ? S.gold : S.border}`, background: adminStatsBranch === b.id ? S.gold3 : 'transparent', color: adminStatsBranch === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: adminStatsBranch === b.id ? 700 : 400 }}>
+                  🏪 {b.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* بطاقات الإحصائيات العامة */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+            <div style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 900, color: S.white }}>{adminStatsData.totalRequests}</div>
+              <div style={{ fontSize: 11, color: S.muted }}>إجمالي الطلبات</div>
+            </div>
+            <div style={{ background: S.greenB, borderRadius: 12, border: `1px solid ${S.green}40`, padding: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 900, color: S.green }}>{adminStatsData.deliveredCount}</div>
+              <div style={{ fontSize: 11, color: S.green }}>تم التسليم</div>
+            </div>
+            <div style={{ background: S.amberB, borderRadius: 12, border: `1px solid ${S.amber}40`, padding: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 900, color: S.amber }}>{adminStatsData.pendingCount}</div>
+              <div style={{ fontSize: 11, color: S.amber }}>قيد الانتظار</div>
+            </div>
+            <div style={{ background: S.redB, borderRadius: 12, border: `1px solid ${S.red}40`, padding: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 900, color: S.red }}>{adminStatsData.rejectedCount}</div>
+              <div style={{ fontSize: 11, color: S.red }}>مرفوض</div>
+            </div>
+          </div>
+
+          {/* إحصائيات إضافية */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
+            <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>⏱️ متوسط وقت التنفيذ (من الطلب للاستلام)</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>
+                {adminStatsData.avgDeliveryHours != null ? `${adminStatsData.avgDeliveryHours.toFixed(1)} ساعة` : '—'}
+              </div>
+            </div>
+            <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 الأكثر طلبًا</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>
+                {adminStatsData.topRequester ? `${adminStatsData.topRequester[0]} (${adminStatsData.topRequester[1]} طلب)` : '—'}
+              </div>
+            </div>
+            <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📦 الأكثر طلبًا (صنف)</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>
+                {adminStatsData.topItem ? `${adminStatsData.topItem[0]} (${adminStatsData.topItem[1]} مرة)` : '—'}
+              </div>
+            </div>
+          </div>
+
+          {/* السجل التفصيلي الكامل لكل عملية */}
+          <div style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 12 }}>📜 سجل تفصيلي لكل عملية</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {adminStatsData.log.map(r => {
+              const st = STATUS_CFG[r.status] || STATUS_CFG.pending
+              return (
+                <div key={r.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>#{r.request_number || '—'} — 🏪 {r.branches?.name}</div>
+                      <div style={{ fontSize: 12, color: S.white, marginTop: 2 }}>👤 طلبه: {r.requester?.name} {r.requester?.name_en}</div>
+                    </div>
+                    <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                  </div>
+
+                  {/* الأصناف */}
+                  <div style={{ marginBottom: 10 }}>
+                    {(r.market_purchase_request_items || []).map(it => (
+                      <div key={it.id} style={{ fontSize: 12, color: S.white }}>• {it.item_name || it.warehouse_products?.name} — {it.requested_quantity} {it.req_unit?.symbol}</div>
+                    ))}
+                  </div>
+
+                  {/* الخط الزمني الكامل */}
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8, fontSize: 11, background: S.card, borderRadius: 10, padding: 10 }}>
+                    <div>
+                      <div style={{ color: S.muted }}>🕐 وقت الطلب</div>
+                      <div style={{ color: S.white, fontWeight: 700 }}>{fmtMYTime(r.requested_at)}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: S.muted }}>🛒 وقت الشراء</div>
+                      <div style={{ color: S.white, fontWeight: 700 }}>{r.purchased_at ? fmtMYTime(r.purchased_at) : '—'}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: S.muted }}>✅ وقت الاستلام</div>
+                      <div style={{ color: S.white, fontWeight: 700 }}>{r.delivered_at ? fmtMYTime(r.delivered_at) : '—'}</div>
+                      {r.receiver?.name && <div style={{ color: S.muted, marginTop: 1 }}>بواسطة: {r.receiver.name}</div>}
+                    </div>
+                  </div>
+
+                  {/* صورة إثبات الاستلام */}
+                  {r.delivered_image_url && (
+                    <a href={r.delivered_image_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 10 }}>
+                      <img src={r.delivered_image_url} alt="إثبات الاستلام" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
+                    </a>
+                  )}
+                </div>
+              )
+            })}
+            {adminStatsData.log.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>لا توجد أي عمليات مسجّلة</div>
+            )}
+          </div>
         </div>
       )}
 

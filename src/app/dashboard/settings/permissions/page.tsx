@@ -38,16 +38,16 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
 
 const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   admin:              { all: true },
-  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, prep_warehouse: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, salary_increase_requests: true, salary_advance_requests: true, notifications: true, marketing: true },
-  kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
-  hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
-  bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
-  kitchen_supervisor: { kitchen: true, branch_requests: true, internal_warehouse_requests: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true },
-  hall_supervisor:    { hall: true, bookings: true, my_requests: true, attendance: true, marketing: true },
-  bar_supervisor:     { bar: true, internal_warehouse_requests: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true },
+  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, prep_warehouse: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, salary_increase_requests: true, salary_advance_requests: true, notifications: true, marketing: true },
+  kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, market_purchases: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  kitchen_supervisor: { kitchen: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true },
+  hall_supervisor:    { hall: true, bookings: true, market_purchases: true, my_requests: true, attendance: true, marketing: true },
+  bar_supervisor:     { bar: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true },
   cashier:            { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
-  warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, suppliers: true, my_requests: true, attendance: true, notifications: true, marketing: true },
-  warehouse_manager:  { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, suppliers: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  warehouse_manager:  { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true, marketing: true },
 }
 
@@ -57,6 +57,7 @@ const ALL_PERMISSIONS = [
   { key: 'purchases',        label: 'المشتريات',            group: 'إدارة المخزون', icon: '🛒' },
   { key: 'branch_requests',  label: 'طلبات الفروع',        group: 'إدارة المخزون', icon: '📦' },
   { key: 'internal_warehouse_requests', label: 'طلبات المستودع الداخلي', group: 'إدارة المخزون', icon: '🏭' },
+  { key: 'market_purchases', label: 'مشتريات السوق', group: 'إدارة المخزون', icon: '🥬' },
   { key: 'suppliers',        label: 'الموردون',             group: 'إدارة المخزون', icon: '🤝' },
   { key: 'kitchen',          label: 'المطبخ',               group: 'العمليات',      icon: '👨‍🍳' },
   { key: 'hall',             label: 'الصالة',               group: 'العمليات',      icon: '🍽️' },

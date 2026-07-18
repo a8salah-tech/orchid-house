@@ -44,6 +44,8 @@ interface RequestItem {
 interface PurchaseRequest {
   id: string; branch_id: string; requested_by: string; status: string
   request_number?: string | null
+  // ✅ جديد: اليوم "الفعلي" للطلب بعد تطبيق قاعدة الساعة 12 ظهرًا - مختلف عن requested_at الحقيقي أحيانًا
+  effective_date?: string | null
   requested_at: string; purchased_at: string | null; purchased_by: string | null
   delivered_at: string | null; delivered_image_url: string | null
   received_by: string | null; received_at: string | null; total_amount: number; notes: string | null
@@ -53,10 +55,28 @@ interface PurchaseRequest {
 }
 
 // ✅ جديد: عرض التاريخ والوقت بتوقيت ماليزيا (Asia/Kuala_Lumpur) بغض النظر عن توقيت جهاز المستخدم
+// ✅ جديد: تحديد "يوم ماليزيا" الصحيح لأي طابع زمني، بدل الاعتماد على تاريخ UTC أو توقيت المتصفح المحلي
+function myDateKey(iso: string) {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }) // en-CA بترجع YYYY-MM-DD مباشرة
+}
+
 function fmtMYTime(iso: string) {
   return new Date(iso).toLocaleString('ar-MY', {
     timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
   })
+}
+
+// ✅ جديد: تحديد "اليوم الفعلي" للطلب - لو اتقدّم بعد 12 ظهرًا بتوقيت ماليزيا، يترحّل لليوم التالي تلقائيًا
+function computeEffectiveDate(): string {
+  const nowInMY = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' })
+  const myNow = new Date(nowInMY)
+  if (myNow.getHours() >= 12) {
+    myNow.setDate(myNow.getDate() + 1)
+  }
+  const y = myNow.getFullYear()
+  const m = String(myNow.getMonth() + 1).padStart(2, '0')
+  const d = String(myNow.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 export default function MarketPurchasesPage() {
@@ -70,7 +90,7 @@ export default function MarketPurchasesPage() {
   const MANAGER_ROLES = ['kitchen_manager', 'hall_manager', 'bar_manager']
   const canRequest = isAdmin || [...SUPERVISOR_ROLES, ...MANAGER_ROLES].includes(currentUser?.role || '')
 
-  const [tab, setTab] = useState<'new' | 'mine' | 'purchaser' | 'calendar'>(canRequest ? 'new' : 'purchaser')
+  const [tab, setTab] = useState<'new' | 'mine' | 'purchaser' | 'calendar' | 'report'>(canRequest ? 'new' : 'purchaser')
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   // ✅ جديد: اختيار الفرع للإدارة - يشوف الفرعين ويقدر يختار بينهم
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -89,6 +109,8 @@ export default function MarketPurchasesPage() {
   const [newItemQty, setNewItemQty] = useState('')
   const [newItemUnit, setNewItemUnit] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // ✅ جديد: تنبيه الترحيل لليوم التالي - يظهر في منتصف الشاشة بدل alert عادي
+  const [rolloverNotice, setRolloverNotice] = useState<{ requestNumber: string; effectiveDate: string } | null>(null)
 
   // ── Purchaser editing state ──
   const [editingReq, setEditingReq] = useState<PurchaseRequest | null>(null)
@@ -161,8 +183,10 @@ export default function MarketPurchasesPage() {
     // ✅ جديد: توليد رقم طلب تلقائي بصيغة ORK-{رقم تسلسلي}
     const { count } = await sb.from('market_purchase_requests').select('id', { count: 'exact', head: true })
     const requestNumber = `ORK-${(count || 0) + 1}`
+    // ✅ جديد: نحسب اليوم الفعلي - لو الوقت دلوقتي بعد 12 ظهرًا بتوقيت ماليزيا، يترحّل الطلب لليوم التالي تلقائيًا
+    const effectiveDate = computeEffectiveDate()
     const { data: newReq, error } = await sb.from('market_purchase_requests')
-      .insert([{ branch_id: currentUser?.branch_id, requested_by: currentUser?.id, status: 'pending', request_number: requestNumber }])
+      .insert([{ branch_id: currentUser?.branch_id, requested_by: currentUser?.id, status: 'pending', request_number: requestNumber, effective_date: effectiveDate }])
       .select('id').single()
     if (error || !newReq) { alert('حدث خطأ: ' + (error?.message || '')); setSubmitting(false); return }
 
@@ -175,6 +199,11 @@ export default function MarketPurchasesPage() {
     await fetchAll()
     setSubmitting(false)
     setCart([])
+    // ✅ جديد: تأكيد صريح لو الطلب اترحّل لليوم التالي بسبب تجاوز موعد الـ12 ظهرًا - في منتصف الشاشة
+    const todayInMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    if (effectiveDate !== todayInMY) {
+      setRolloverNotice({ requestNumber, effectiveDate })
+    }
     setTab('mine')
   }
 
@@ -252,8 +281,116 @@ export default function MarketPurchasesPage() {
     .filter(r => !adminBranchFilter || r.branch_id === adminBranchFilter)
   const pendingCount = requests.filter(r => r.status === 'pending').length
 
+  // ✅ جديد: اليوم المختار للتقرير المجمّع - فاضي معناه "كل الطلبات المعلّقة"، وله قيمة معناه يوم محدد بس
+  const [reportDay, setReportDay] = useState<string | null>(null)
+
+  // ✅ جديد: التقرير المجمّع - يجمع كل أصناف الطلبات "قيد الانتظار" و"تم الشراء" حسب الاسم والوحدة،
+  // مقسّم بالفروع أولاً، وفي الآخر إجمالي كلي مجمّع لكل الأصناف المتطابقة - مع تتبع حالة الشراء لكل صنف
+  const consolidatedReport = useMemo(() => {
+    // ✅ Fix: بنشمل "تم الشراء" كمان مش "قيد الانتظار" بس، عشان نقدر نتابع حالة كل صنف (اتشرى كامل / جزئي / لسه)
+    const relevantRequests = requests
+      .filter(r => r.status === 'pending' || r.status === 'purchased')
+      .filter(r => !adminBranchFilter || r.branch_id === adminBranchFilter)
+      // ✅ جديد: لو محدد يوم معين من التقويم، نصفّي بيه (باستخدام effective_date - اليوم الفعلي بعد قاعدة الـ12 ظهرًا)
+      .filter(r => !reportDay || (r.effective_date || myDateKey(r.requested_at)) === reportDay)
+
+    type ItemAgg = { name: string; unit: string; requestedQty: number; purchasedQty: number }
+    const byBranch: Record<string, Record<string, ItemAgg>> = {}
+    const grandTotal: Record<string, ItemAgg> = {}
+    // ✅ جديد: قائمة الطالبين (اسم + تاريخ ووقت) لكل فرع، عشان تظهر تحت اسم الفرع في التقرير
+    const branchRequesters: Record<string, { name: string; at: string; requestNumber: string | null | undefined }[]> = {}
+
+    for (const r of relevantRequests) {
+      const bName = r.branches?.name || 'بدون فرع'
+      if (!byBranch[bName]) byBranch[bName] = {}
+      if (!branchRequesters[bName]) branchRequesters[bName] = []
+      branchRequesters[bName].push({ name: r.requester?.name || '—', at: fmtMYTime(r.requested_at), requestNumber: r.request_number })
+      for (const it of (r.market_purchase_request_items || [])) {
+        const name = it.item_name || it.warehouse_products?.name || '—'
+        const unit = it.req_unit?.symbol || ''
+        // ✅ المفتاح = الاسم + الوحدة، عشان صنف بوحدتين مختلفتين ميتجمعش غلط مع بعضه
+        const itemKey = `${name.trim().toLowerCase()}__${unit}`
+        // ✅ الكمية المشتراة فعليًا - بتكون null/undefined لو الطلب لسه "قيد الانتظار" ولسه محدش اشتراها
+        const purchasedQty = it.purchased_quantity != null ? it.purchased_quantity : 0
+
+        if (!byBranch[bName][itemKey]) byBranch[bName][itemKey] = { name, unit, requestedQty: 0, purchasedQty: 0 }
+        byBranch[bName][itemKey].requestedQty += it.requested_quantity
+        byBranch[bName][itemKey].purchasedQty += purchasedQty
+
+        if (!grandTotal[itemKey]) grandTotal[itemKey] = { name, unit, requestedQty: 0, purchasedQty: 0 }
+        grandTotal[itemKey].requestedQty += it.requested_quantity
+        grandTotal[itemKey].purchasedQty += purchasedQty
+      }
+    }
+    return {
+      byBranch: Object.entries(byBranch).map(([branchName, items]) => ({
+        branchName, items: Object.values(items).sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+        requesters: branchRequesters[branchName] || [],
+      })),
+      grandTotal: Object.values(grandTotal).sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+      requestsCount: relevantRequests.length,
+    }
+  }, [requests, adminBranchFilter, reportDay])
+
+  // ✅ جديد: تحديد شارة حالة الصنف (اتشرى بالكامل / جزئي / لسه) للعرض والطباعة
+  function itemProgressLabel(requestedQty: number, purchasedQty: number): { text: string; color: string } {
+    if (purchasedQty <= 0) return { text: '⏳ لم يُشترَ بعد', color: S.amber }
+    if (purchasedQty >= requestedQty) return { text: `✅ تم شراء الكل (${requestedQty})`, color: S.green }
+    return { text: `🟡 تم شراء ${purchasedQty} من ${requestedQty}`, color: S.blue }
+  }
+
+  // ✅ جديد: طباعة التقرير المجمّع
+  function printConsolidatedReport() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const branchesHtml = consolidatedReport.byBranch.map(({ branchName, items, requesters }) => `
+      <h3>🏪 ${branchName}</h3>
+      <p style="font-size:11px;color:#666;margin:4px 0 10px">${requesters.map(r => `👤 ${r.name} ${r.requestNumber ? `(#${r.requestNumber})` : ''} — 📅 ${r.at}`).join('<br>')}</p>
+      <table>
+        <tr><th>الصنف</th><th>الكمية المطلوبة</th><th>حالة الشراء</th></tr>
+        ${items.map(it => {
+          const progress = itemProgressLabel(it.requestedQty, it.purchasedQty)
+          return `<tr><td>${it.name}</td><td>${it.requestedQty} ${it.unit}</td><td>${progress.text}</td></tr>`
+        }).join('')}
+      </table>
+    `).join('')
+    const totalHtml = `
+      <h2>📊 الإجمالي الكلي (كل الفروع مجمّعة)</h2>
+      <table>
+        <tr><th>الصنف</th><th>الكمية المطلوبة</th><th>حالة الشراء</th></tr>
+        ${consolidatedReport.grandTotal.map(it => {
+          const progress = itemProgressLabel(it.requestedQty, it.purchasedQty)
+          return `<tr><td>${it.name}</td><td><b>${it.requestedQty} ${it.unit}</b></td><td>${progress.text}</td></tr>`
+        }).join('')}
+      </table>
+    `
+    win.document.write(`
+      <html dir="rtl"><head><title>تقرير مشتريات السوق المجمّع</title>
+      <style>
+        body { font-family: 'Tajawal', Arial, sans-serif; padding: 24px; }
+        h1 { text-align: center; }
+        h2 { margin-top: 24px; border-top: 2px solid #333; padding-top: 12px; }
+        h3 { margin-top: 18px; color: #1e3a8a; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: right; font-size: 13px; }
+        th { background: #f0f0f0; }
+      </style></head>
+      <body>
+        <h1>📋 تقرير مشتريات السوق المجمّع</h1>
+        <p style="text-align:center;color:#666">${reportDay ? `ليوم ${reportDay}` : 'كل الطلبات المعلّقة الحالية'} — ${new Date().toLocaleString('ar-MY', { timeZone: 'Asia/Kuala_Lumpur' })}</p>
+        ${branchesHtml}
+        ${totalHtml}
+      </body></html>
+    `)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 300)
+  }
+
   // ✅ جديد: منطق التقويم الشهري - يعرض عدد الطلبات ووضعها لكل يوم
   const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); return d })
+  // ✅ جديد: اليوم المختار في التقويم - لعرض الطلبات مقسّمة بالفروع في تاب داخلي
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const calendarRequests = requests.filter(r => {
     if (!isAdmin) return r.branch_id === currentUser?.branch_id
     return !adminBranchFilter || r.branch_id === adminBranchFilter
@@ -261,7 +398,11 @@ export default function MarketPurchasesPage() {
   const dayStats = useMemo(() => {
     const map: Record<string, { total: number; received: number; pending: number; purchased: number }> = {}
     for (const r of calendarRequests) {
-      const dateKey = new Date(r.requested_at).toISOString().split('T')[0]
+      // ✅ Fix حرج: كان بيستخدم toISOString() اللي بترجع تاريخ UTC، وده بيسبب انزياح يوم كامل لأي طلب
+      // بيحصل في الفترة اللي بتقع فرق التوقيت فيها (ماليزيا UTC+8) - بنستخدم دلوقتي توقيت ماليزيا صراحةً
+      // ✅ Fix: نستخدم effective_date (اليوم بعد تطبيق قاعدة الـ12 ظهرًا) بدل وقت الإرسال الخام،
+      // مع دعم البيانات القديمة اللي مالهاش effective_date محسوب (احتياطًا)
+      const dateKey = r.effective_date || myDateKey(r.requested_at)
       if (!map[dateKey]) map[dateKey] = { total: 0, received: 0, pending: 0, purchased: 0 }
       map[dateKey].total++
       if (r.status === 'delivered') map[dateKey].received++
@@ -277,9 +418,14 @@ export default function MarketPurchasesPage() {
     const firstDay = new Date(year, month, 1)
     const lastDay = new Date(year, month + 1, 0)
     const startOffset = firstDay.getDay() // 0 = الأحد
-    const days: (Date | null)[] = []
+    // ✅ Fix: بنبني مفتاح التاريخ (YYYY-MM-DD) مباشرة من الأرقام، من غير أي تحويل عبر Date/toISOString
+    // اللي كان بيسبب انزياح يوم كامل بسبب فرق التوقيت المحلي للمتصفح
+    const days: ({ date: Date; key: string } | null)[] = []
     for (let i = 0; i < startOffset; i++) days.push(null)
-    for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d))
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      days.push({ date: new Date(year, month, d), key })
+    }
     return days
   }, [calendarMonth])
 
@@ -327,19 +473,42 @@ export default function MarketPurchasesPage() {
             📅 التقويم
           </button>
         )}
+        {/* ✅ جديد: تاب التقرير المجمّع - لمسؤول الشراء، يجمع كل الأصناف المطلوبة من كل الطلبات المعلّقة */}
+        {isPurchaser && (
+          <button onClick={() => setTab('report')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'report' ? S.gold : S.border}`, background: tab === 'report' ? S.gold3 : 'transparent', color: tab === 'report' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'report' ? 700 : 400 }}>
+            📋 تقرير مجمّع
+          </button>
+        )}
       </div>
 
       {/* ── New Request Tab ── */}
       {tab === 'new' && canRequest && (
         <div>
-          {/* ✅ جديد: ملاحظة واضحة وثابتة عن الموعد النهائي للطلبات */}
-          <div style={{ background: S.redB, border: `1.5px solid ${S.red}`, borderRadius: 14, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 24 }}>⏰</span>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: S.red }}>آخر موعد لتقديم طلبات مشتريات السوق هو الساعة 12:00 ظهرًا بتوقيت ماليزيا يوميًا</div>
-              <div style={{ fontSize: 11, color: S.white, marginTop: 2 }}>أي طلب يُقدَّم بعد هذا الموعد قد لا يُلبَّى في نفس اليوم</div>
-            </div>
-          </div>
+          {/* ✅ جديد: تنبيه ديناميكي - يتغيّر نصه لو الوقت دلوقتي بعد 12 ظهرًا بتوقيت ماليزيا */}
+          {(() => {
+            const nowInMY = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
+            const isPastNoon = nowInMY.getHours() >= 12
+            const effDate = computeEffectiveDate()
+            return (
+              <div style={{ background: S.redB, border: `1.5px solid ${S.red}`, borderRadius: 14, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 24 }}>⏰</span>
+                <div>
+                  {isPastNoon ? (
+                    <>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: S.red }}>لقد تجاوزت موعد اليوم (الساعة 12:00 ظهرًا بتوقيت ماليزيا)</div>
+                      <div style={{ fontSize: 12, color: S.white, marginTop: 2 }}>أي طلب ترسله الآن سيتم ترحيله تلقائيًا ليوم <strong style={{ color: S.gold }}>{effDate}</strong> لأنك تطلب بعد الساعة 12 ظهرًا</div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: S.red }}>آخر موعد لتقديم طلبات مشتريات السوق هو الساعة 12:00 ظهرًا بتوقيت ماليزيا يوميًا</div>
+                      <div style={{ fontSize: 11, color: S.white, marginTop: 2 }}>أي طلب يُقدَّم بعد هذا الموعد سيُرحَّل تلقائيًا لليوم التالي</div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* ✅ جديد: نموذج إضافة صنف - بحث ذكي في أصناف المستودع + إمكانية كتابة صنف حر جديد في نفس المكان */}
           <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
@@ -519,6 +688,101 @@ export default function MarketPurchasesPage() {
         </div>
       )}
 
+      {/* ✅ جديد: تاب التقرير المجمّع */}
+      {tab === 'report' && isPurchaser && (
+        <div>
+          {branches.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              <button onClick={() => setAdminBranchFilter('')}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${!adminBranchFilter ? S.gold : S.border}`, background: !adminBranchFilter ? S.gold3 : 'transparent', color: !adminBranchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: !adminBranchFilter ? 700 : 400 }}>
+                🌐 كل الفروع
+              </button>
+              {branches.map(b => (
+                <button key={b.id} onClick={() => setAdminBranchFilter(b.id)}
+                  style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${adminBranchFilter === b.id ? S.gold : S.border}`, background: adminBranchFilter === b.id ? S.gold3 : 'transparent', color: adminBranchFilter === b.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: adminBranchFilter === b.id ? 700 : 400 }}>
+                  🏪 {b.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ✅ جديد: اختيار يوم محدد للتقرير (بدل كل الطلبات المعلّقة) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 12, color: S.muted }}>📅 تصفية بيوم محدد:</label>
+            <input type="date" value={reportDay || ''} onChange={e => setReportDay(e.target.value || null)}
+              style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+            {reportDay && (
+              <button onClick={() => setReportDay(null)}
+                style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                ✕ إلغاء التصفية (عرض كل الطلبات المعلّقة)
+              </button>
+            )}
+          </div>
+
+          <p style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>
+            تجميع كل أصناف الطلبات "قيد الانتظار" ({consolidatedReport.requestsCount} طلب){reportDay ? ` — ليوم ${reportDay} فقط` : ''} — مناسب للخروج للشراء دفعة واحدة بدل مراجعة كل طلب لوحده
+          </p>
+
+          {/* ✅ جديد: زرار طباعة التقرير */}
+          {consolidatedReport.requestsCount > 0 && (
+            <button onClick={printConsolidatedReport}
+              style={{ marginBottom: 16, padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              🖨️ طباعة التقرير
+            </button>
+          )}
+
+          {consolidatedReport.requestsCount === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>لا توجد طلبات قيد الانتظار حاليًا</div>
+          ) : (
+            <>
+              {/* تفصيل كل فرع لوحده */}
+              {consolidatedReport.byBranch.map(({ branchName, items, requesters }) => (
+                <div key={branchName} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 16, marginBottom: 12 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: S.blue, marginBottom: 4 }}>🏪 {branchName}</div>
+                  {/* ✅ جديد: اسم من طلب + التاريخ والتوقيت تحت اسم الفرع مباشرة */}
+                  <div style={{ marginBottom: 10 }}>
+                    {requesters.map((req, i) => (
+                      <div key={i} style={{ fontSize: 10, color: S.muted }}>
+                        👤 {req.name} {req.requestNumber && `(#${req.requestNumber})`} — 📅 {req.at}
+                      </div>
+                    ))}
+                  </div>
+                  {items.map((it, idx) => {
+                    const progress = itemProgressLabel(it.requestedQty, it.purchasedQty)
+                    return (
+                      <div key={idx} style={{ padding: '6px 0', borderBottom: idx < items.length - 1 ? `1px solid ${S.border}` : 'none' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: 13, color: S.white }}>{it.name}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: S.gold }}>{it.requestedQty} {it.unit}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: progress.color, marginTop: 2 }}>{progress.text}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+
+              {/* الإجمالي الكلي المجمّع لكل الأصناف المتطابقة */}
+              <div style={{ background: S.gold3, borderRadius: 14, border: `1.5px solid ${S.gold}`, padding: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 900, color: S.gold, marginBottom: 12 }}>📊 الإجمالي الكلي (كل الفروع مجمّعة)</div>
+                {consolidatedReport.grandTotal.map((it, idx) => {
+                  const progress = itemProgressLabel(it.requestedQty, it.purchasedQty)
+                  return (
+                    <div key={idx} style={{ padding: '7px 0', borderBottom: idx < consolidatedReport.grandTotal.length - 1 ? `1px solid ${S.gold}30` : 'none' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 14, color: S.white, fontWeight: 600 }}>{it.name}</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>{it.requestedQty} {it.unit}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: progress.color, marginTop: 2 }}>{progress.text}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Calendar Tab ── */}
       {tab === 'calendar' && isAdmin && (
         <div>
@@ -557,15 +821,16 @@ export default function MarketPurchasesPage() {
             {['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'].map(d => (
               <div key={d} style={{ textAlign: 'center', fontSize: 11, color: S.muted, fontWeight: 700, padding: '4px 0' }}>{d}</div>
             ))}
-            {calendarDays.map((day, i) => {
-              if (!day) return <div key={i} />
-              const key = day.toISOString().split('T')[0]
+            {calendarDays.map((item, i) => {
+              if (!item) return <div key={i} />
+              const { date: day, key } = item
               const stats = dayStats[key]
-              const isToday = key === new Date().toISOString().split('T')[0]
+              const isToday = key === myDateKey(new Date().toISOString())
               return (
-                <div key={i} style={{
+                <div key={i} onClick={() => stats && setSelectedDay(key)} style={{
                   background: isToday ? S.gold3 : S.navy2, border: `1px solid ${isToday ? S.gold : S.border}`,
                   borderRadius: 10, padding: '8px 6px', minHeight: 72, display: 'flex', flexDirection: 'column', gap: 4,
+                  cursor: stats ? 'pointer' : 'default',
                 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: isToday ? S.gold : S.white }}>{day.getDate()}</div>
                   {stats && (
@@ -579,6 +844,74 @@ export default function MarketPurchasesPage() {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: مودال تفاصيل اليوم المختار من التقويم - الطلبات مقسّمة بالفروع */}
+      {selectedDay && (
+        <div onClick={() => setSelectedDay(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 20, maxWidth: 560, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>📅 طلبات يوم {selectedDay}</div>
+              <button onClick={() => setSelectedDay(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            {/* ✅ جديد: الانتقال المباشر للتقرير المجمّع لنفس اليوم */}
+            {isPurchaser && (
+              <button onClick={() => { setReportDay(selectedDay); setSelectedDay(null); setTab('report') }}
+                style={{ width: '100%', marginBottom: 14, padding: '9px 0', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                📋 عرض تقرير مجمّع لهذا اليوم
+              </button>
+            )}
+            {(() => {
+              // ✅ نجمّع طلبات اليوم المختار حسب الفرع
+              const dayRequests = calendarRequests.filter(r => (r.effective_date || myDateKey(r.requested_at)) === selectedDay)
+              const byBranch: Record<string, typeof dayRequests> = {}
+              for (const r of dayRequests) {
+                const bName = r.branches?.name || 'بدون فرع'
+                if (!byBranch[bName]) byBranch[bName] = []
+                byBranch[bName].push(r)
+              }
+              if (dayRequests.length === 0) return <div style={{ textAlign: 'center', color: S.muted, padding: 20 }}>لا توجد طلبات في هذا اليوم</div>
+              return Object.entries(byBranch).map(([bName, reqs]) => (
+                <div key={bName} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: S.blue, marginBottom: 8 }}>🏪 {bName} ({reqs.length})</div>
+                  {reqs.map(r => {
+                    const st = STATUS_CFG[r.status] || STATUS_CFG.pending
+                    return (
+                      <div key={r.id} style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{r.request_number || '—'} — {r.requester?.name}</span>
+                          <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '2px 10px', fontSize: 10, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                        </div>
+                        {(r.market_purchase_request_items || []).map(it => (
+                          <div key={it.id} style={{ fontSize: 11, color: S.white }}>• {it.item_name || it.warehouse_products?.name} — {it.requested_quantity} {it.req_unit?.symbol}</div>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: مودال تنبيه ترحيل الطلب لليوم التالي - في منتصف الشاشة */}
+      {rolloverNotice && (
+        <div onClick={() => setRolloverNotice(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1.5px solid ${S.amber}`, padding: 24, maxWidth: 400, width: '100%', textAlign: 'center' }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>⏰</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: S.amber, marginBottom: 10 }}>تم إرسال طلبك بنجاح</div>
+            <div style={{ fontSize: 13, color: S.white, lineHeight: 1.6, marginBottom: 16 }}>
+              رقم الطلب <strong style={{ color: S.gold }}>#{rolloverNotice.requestNumber}</strong><br />
+              نظرًا لتقديمه بعد الساعة <strong>12:00 ظهرًا</strong> بتوقيت ماليزيا، سيتم ترحيله تلقائيًا ليوم<br />
+              <strong style={{ color: S.gold, fontSize: 16 }}>{rolloverNotice.effectiveDate}</strong>
+            </div>
+            <button onClick={() => setRolloverNotice(null)}
+              style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: 'none', background: S.gold, color: S.navy, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+              حسنًا، فهمت
+            </button>
           </div>
         </div>
       )}

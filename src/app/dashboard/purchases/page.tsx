@@ -1901,8 +1901,8 @@ export default function PurchasesPage() {
   const supabase = createClient()
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
-  // ✅ أمين المستودع (warehouse_keeper) يشوف فواتير كل الفروع زي الأدمن، مش بس فرعه
-  const canSeeAllBranches = isAdmin || employee?.role === 'warehouse_keeper'
+  // ✅ Fix: أمين المستودع ومدير المستودعات (مش أمين المستودع بس) يشوفوا فواتير وكل المستودعات زي الأدمن
+  const canSeeAllBranches = isAdmin || ['warehouse_keeper', 'warehouse_manager'].includes(employee?.role || '')
   const myBranchId = employee?.branch_id || ''
 
   const [invoices, setInvoices] = useState<Invoice[]>([])

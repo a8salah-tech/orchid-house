@@ -265,7 +265,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: S.white, lineHeight: 1.2 }}>Orchid Group</div>
                 <div style={{ fontSize: 10, color: S.gold, letterSpacing: 1 }}>Restaurant Management</div>
-                <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.044.259</div>
+                <div style={{ fontSize: 9, color: S.muted, letterSpacing: 1.5, fontWeight: 600, marginTop: 2, fontFamily: 'monospace' }}>V.044.260</div>
               </div>
             )}
           </div>

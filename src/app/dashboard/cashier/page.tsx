@@ -1139,6 +1139,8 @@ export default function CashierPage() {
   const [shift, setShift] = useState<'shift1' | 'shift2'>('shift1')
   const [shiftStarted, setShiftStarted] = useState(false)
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
+  // ✅ جديد: اسم الكاشير اللي ماسك الشيفت المختار حاليًا - بييجي من قاعدة البيانات فيبان لأي حد بيفتح الصفحة
+  const [activeShiftCashierName, setActiveShiftCashierName] = useState<string | null>(null)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(false)
@@ -1194,6 +1196,20 @@ export default function CashierPage() {
     if (type === 'order') beep([880, 1100])
     else beep([660, 880, 1100])
   }
+
+  // ✅ جديد: جلب اسم الكاشير اللي ماسك الشيفت الحالي (للفرع والشيفت المختارين) من قاعدة البيانات
+  // بيبان لأي حد بيفتح الصفحة، مش بس اللي بدأ الشيفت من جهازه
+  const fetchActiveShiftCashier = useCallback(async () => {
+    if (!isCashierRole) return
+    const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    let q = sb.from('cashier_shift_sessions').select('cashier_name')
+      .eq('shift', shift).eq('session_date', todayMY).is('ended_at', null)
+      .order('started_at', { ascending: false }).limit(1)
+    if (employee?.branch_id) q = q.eq('branch_id', employee.branch_id)
+    const { data } = await q.maybeSingle()
+    setActiveShiftCashierName(data?.cashier_name || null)
+  }, [sb, shift, employee?.branch_id, isCashierRole])
+  useEffect(() => { fetchActiveShiftCashier() }, [fetchActiveShiftCashier])
 
   // Restore shift from localStorage
   useEffect(() => {
@@ -1396,7 +1412,9 @@ export default function CashierPage() {
 
   // ✅ إلغاء فاتورة كاملة أو صنف واحد - بسبب إجباري، متاح للكاشير بس
   const [cancelOrderTarget, setCancelOrderTarget] = useState<Order | null>(null)
-  const [cancelItemTarget, setCancelItemTarget] = useState<{ orderId: string; itemId: string; itemName: string } | null>(null)
+  // ✅ Fix: أضفنا totalQty عشان نقدر نلغي جزء من الكمية بس (مثلاً 1 من أصل 2)، مش كل الصنف إجباريًا
+  const [cancelItemTarget, setCancelItemTarget] = useState<{ orderId: string; itemId: string; itemName: string; totalQty: number } | null>(null)
+  const [cancelItemQty, setCancelItemQty] = useState(1)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelSaving, setCancelSaving] = useState(false)
 
@@ -1416,13 +1434,28 @@ export default function CashierPage() {
   async function doCancelItem() {
     if (!cancelItemTarget || !cancelReason.trim()) return
     setCancelSaving(true)
-    await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim() }).eq('id', cancelItemTarget.itemId)
+    // ✅ Fix: لو الكمية المطلوب إلغاؤها أقل من إجمالي الصنف، نقسم السطر بدل ما نلغي الكل
+    if (cancelItemQty < cancelItemTarget.totalQty) {
+      // نجيب بيانات الصنف الأصلي كاملة عشان ننسخها للسطر الجديد الملغي
+      const { data: originalItem } = await sb.from('order_items').select('*').eq('id', cancelItemTarget.itemId).maybeSingle()
+      if (originalItem) {
+        // نقلل كمية السطر الأصلي بمقدار الكمية الملغاة (يفضل نشط بالكمية المتبقية)
+        await sb.from('order_items').update({ quantity: cancelItemTarget.totalQty - cancelItemQty }).eq('id', cancelItemTarget.itemId)
+        // وننشئ سطر جديد منفصل بالكمية الملغاة بس، محدد كـ"ملغي" مع السبب
+        const { id, ...rest } = originalItem as any
+        await sb.from('order_items').insert([{ ...rest, quantity: cancelItemQty, status: 'cancelled', cancel_reason: cancelReason.trim() }])
+      }
+    } else {
+      // إلغاء الصنف بالكامل (السلوك الأصلي زي ما كان بالظبط)
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim() }).eq('id', cancelItemTarget.itemId)
+    }
     // ✅ نعيد حساب إجمالي الفاتورة بعد إلغاء الصنف عشان مايفضلش محسوب في المبلغ المطلوب من العميل
     const { data: items } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', cancelItemTarget.orderId)
     const newTotal = (items || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
     await sb.from('orders').update({ total_amount: newTotal }).eq('id', cancelItemTarget.orderId)
     setCancelSaving(false)
     setCancelItemTarget(null)
+    setCancelItemQty(1)
     setCancelReason('')
     fetchAll()
   }
@@ -1525,8 +1558,21 @@ export default function CashierPage() {
             <option value="shift1">Shift 1</option>
             <option value="shift2">Shift 2</option>
           </select>
+          {/* ✅ جديد: شارة اسم الكاشير الحالي - تظهر لأي شخص يفتح الصفحة، مش بس اللي بدأ الشيفت من جهازه */}
+          {activeShiftCashierName && (
+            <div style={{ background: S.tealB, border: `1px solid ${S.teal}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, color: S.teal, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
+              🧑‍💼 Cashier: {activeShiftCashierName}
+            </div>
+          )}
           {!shiftStarted ? (
-            <button onClick={() => { const now = new Date(); setShiftStarted(true); setShiftStart(now); localStorage.setItem('cashier_shift_active','true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift) }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>▶ Start Shift</button>
+            <button onClick={() => {
+              const now = new Date()
+              setShiftStarted(true); setShiftStart(now)
+              localStorage.setItem('cashier_shift_active','true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift)
+              // ✅ جديد: تسجيل الجلسة في قاعدة البيانات عشان أي حد تاني يشوف مين ماسك الشيفت ده
+              sb.from('cashier_shift_sessions').insert([{ branch_id: employee?.branch_id || null, shift, cashier_name: employee?.name || 'غير معروف' }])
+                .then(() => fetchActiveShiftCashier())
+            }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>▶ Start Shift</button>
           ) : (
             <>
               <span style={{ fontSize: 13, color: S.green, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>⏱ {shiftElapsed}</span>
@@ -1766,7 +1812,7 @@ export default function CashierPage() {
                                     {i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
                                   </span>
                                   {isCashierRole && i.status !== 'cancelled' && !['paid', 'cancelled'].includes(order.status) && (
-                                    <button onClick={() => setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name })}
+                                    <button onClick={() => { setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name, totalQty: i.quantity }); setCancelItemQty(i.quantity) }}
                                       title="Cancel this item"
                                       style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '2px 6px', flexShrink: 0 }}>✕</button>
                                   )}
@@ -1823,7 +1869,16 @@ export default function CashierPage() {
         />
       )}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
-      {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => { setShowShiftReport(false); setShiftStarted(false); setShiftStart(null); localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start') }} />}
+      {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => {
+        setShowShiftReport(false); setShiftStarted(false); setShiftStart(null)
+        localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start')
+        // ✅ جديد: إغلاق جلسة الشيفت في قاعدة البيانات كمان
+        const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+        let closeQ = sb.from('cashier_shift_sessions').update({ ended_at: new Date().toISOString() })
+          .eq('shift', shift).eq('session_date', todayMY).is('ended_at', null)
+        if (employee?.branch_id) closeQ = closeQ.eq('branch_id', employee.branch_id)
+        closeQ.then(() => fetchActiveShiftCashier())
+      }} />}
 
       {/* ✅ مودال سبب الإلغاء الإجباري - للفاتورة الكاملة أو لصنف واحد */}
       {(cancelOrderTarget || cancelItemTarget) && (
@@ -1834,6 +1889,17 @@ export default function CashierPage() {
               {cancelOrderTarget ? `Cancel Order — ${cancelOrderTarget.tables?.name || `Table ${cancelOrderTarget.tables?.number}`}` : `Cancel Item — ${cancelItemTarget?.itemName}`}
             </div>
             <div style={{ color: S.red, fontSize: 11, marginBottom: 16 }}>This cannot be undone. A reason is required.</div>
+            {/* ✅ جديد: اختيار الكمية المراد إلغاؤها - تظهر بس لو الصنف كميته أكتر من 1 */}
+            {cancelItemTarget && cancelItemTarget.totalQty > 1 && (
+              <div style={{ marginBottom: 16, textAlign: 'right' }}>
+                <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>How many to cancel? (of {cancelItemTarget.totalQty})</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
+                  <button onClick={() => setCancelItemQty(q => Math.max(1, q - 1))} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 16 }}>−</button>
+                  <span style={{ color: S.white, fontSize: 18, fontWeight: 800, minWidth: 30, textAlign: 'center' }}>{cancelItemQty}</span>
+                  <button onClick={() => setCancelItemQty(q => Math.min(cancelItemTarget.totalQty, q + 1))} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 16 }}>+</button>
+                </div>
+              </div>
+            )}
             <textarea
               value={cancelReason}
               onChange={e => setCancelReason(e.target.value)}
@@ -1843,7 +1909,7 @@ export default function CashierPage() {
               style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${cancelReason.trim() ? S.border : S.red}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 20, fontFamily: 'Tajawal, sans-serif', resize: 'vertical' }}
             />
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setCancelOrderTarget(null); setCancelItemTarget(null); setCancelReason('') }} style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              <button onClick={() => { setCancelOrderTarget(null); setCancelItemTarget(null); setCancelItemQty(1); setCancelReason('') }} style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 Back
               </button>
               <button

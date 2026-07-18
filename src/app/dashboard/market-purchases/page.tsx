@@ -236,13 +236,10 @@ export default function MarketPurchasesPage() {
   }, [products, newItemName])
 
   const myRequests = requests.filter(r => r.requested_by === currentUser?.id)
-  // ✅ Fix: غير الأدمن (أمين/مدير المستودع) يرى طلبات فرعه بس، والأدمن يختار الفرع أو يرى الكل
+  // ✅ Fix: أمين المستودع ومدير المستودعات يشوفوا كل الفروع الآن (زي الأدمن بالظبط)، مش مقيدين بفرعهم بس
   const purchaserRequests = requests
     .filter(r => r.status === 'pending' || r.status === 'purchased')
-    .filter(r => {
-      if (isAdmin) return !adminBranchFilter || r.branch_id === adminBranchFilter
-      return r.branch_id === currentUser?.branch_id
-    })
+    .filter(r => !adminBranchFilter || r.branch_id === adminBranchFilter)
   const pendingCount = requests.filter(r => r.status === 'pending').length
 
   // ✅ جديد: منطق التقويم الشهري - يعرض عدد الطلبات ووضعها لكل يوم
@@ -411,12 +408,12 @@ export default function MarketPurchasesPage() {
             const st = STATUS_CFG[req.status] || STATUS_CFG.pending
             return (
               <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{req.request_number || '—'}</div>
                     <div style={{ fontSize: 11, color: S.muted }}>📅 {fmtMYTime(req.requested_at)}</div>
                   </div>
-                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                   {(req.market_purchase_request_items || []).map(it => (
@@ -448,7 +445,7 @@ export default function MarketPurchasesPage() {
       {tab === 'purchaser' && isPurchaser && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* ✅ جديد: اختيار الفرع - يظهر للإدارة فقط */}
-          {isAdmin && branches.length > 0 && (
+          {isPurchaser && branches.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
               <button onClick={() => setAdminBranchFilter('')}
                 style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${!adminBranchFilter ? S.gold : S.border}`, background: !adminBranchFilter ? S.gold3 : 'transparent', color: !adminBranchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: !adminBranchFilter ? 700 : 400 }}>
@@ -468,13 +465,13 @@ export default function MarketPurchasesPage() {
             const st = STATUS_CFG[req.status] || STATUS_CFG.pending
             return (
               <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${req.status === 'pending' ? S.amber + '40' : S.border}`, padding: '16px 18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{req.request_number || '—'}</div>
                     <div style={{ fontSize: 14, fontWeight: 700 }}>{req.branches?.name} — {req.requester?.name} {req.requester?.name_en} {req.requester?.employee_number && <span style={{ color: S.gold, fontSize: 12 }}>(#{req.requester.employee_number})</span>}</div>
                     <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>📅 {fmtMYTime(req.requested_at)}</div>
                   </div>
-                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
                   {(req.market_purchase_request_items || []).map(it => (

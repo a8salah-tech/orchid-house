@@ -145,6 +145,16 @@ export default function MarketPurchasesPage() {
     setCart(prev => prev.filter(c => c.tempId !== tempId))
   }
 
+  // ✅ جديد: حذف الطلب بالكامل - متاح للأدمن فقط، مع تأكيد صريح
+  async function deleteRequest(reqId: string, reqNumber: string | null | undefined) {
+    if (!confirm(`⚠️ هل أنت متأكد من حذف الطلب #${reqNumber || '—'} نهائيًا؟\n\nسيتم حذف كل أصنافه معه. هذا الإجراء لا يمكن التراجع عنه.`)) return
+    // نحذف الأصناف أولاً ثم الطلب نفسه، لضمان عدم بقاء أي بيانات معلّقة
+    await sb.from('market_purchase_request_items').delete().eq('request_id', reqId)
+    const { error } = await sb.from('market_purchase_requests').delete().eq('id', reqId)
+    if (error) { alert('حصل خطأ أثناء الحذف: ' + error.message); return }
+    await fetchAll()
+  }
+
   async function submitRequest() {
     if (cart.length === 0) { alert('يرجى إضافة صنف واحد على الأقل'); return }
     setSubmitting(true)
@@ -413,7 +423,16 @@ export default function MarketPurchasesPage() {
                     <div style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{req.request_number || '—'}</div>
                     <div style={{ fontSize: 11, color: S.muted }}>📅 {fmtMYTime(req.requested_at)}</div>
                   </div>
-                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
+                    {/* ✅ جديد: حذف الطلب - أدمن فقط */}
+                    {isAdmin && (
+                      <button onClick={() => deleteRequest(req.id, req.request_number)} title="حذف الطلب"
+                        style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', fontSize: 12, padding: '4px 8px' }}>
+                        🗑️
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                   {(req.market_purchase_request_items || []).map(it => (
@@ -471,7 +490,16 @@ export default function MarketPurchasesPage() {
                     <div style={{ fontSize: 14, fontWeight: 700 }}>{req.branches?.name} — {req.requester?.name} {req.requester?.name_en} {req.requester?.employee_number && <span style={{ color: S.gold, fontSize: 12 }}>(#{req.requester.employee_number})</span>}</div>
                     <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>📅 {fmtMYTime(req.requested_at)}</div>
                   </div>
-                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
+                    {/* ✅ جديد: حذف الطلب - أدمن فقط */}
+                    {isAdmin && (
+                      <button onClick={() => deleteRequest(req.id, req.request_number)} title="حذف الطلب"
+                        style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', fontSize: 12, padding: '4px 8px' }}>
+                        🗑️
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
                   {(req.market_purchase_request_items || []).map(it => (

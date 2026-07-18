@@ -53,10 +53,11 @@ type CakeTableLog = {
   id: string
   table_id: string | null
   quantity: number
-  source: 'menu_order' | 'manual'
+  source: 'menu_order' | 'manual' | 'expired'
   logged_by_name: string | null
   notes: string | null
   created_at: string
+  branch_id?: string | null
   tables?: { number: number; name: string; branch_id: string | null }
 }
 type TableRow = { id: string; number: number; name: string; branch_id: string | null }
@@ -147,13 +148,18 @@ export default function DessertsPage() {
   const [logQty, setLogQty] = useState('1')
   const [logNotes, setLogNotes] = useState('')
   const [logSaving, setLogSaving] = useState(false)
+  // ✅ جديد: حالات فورم تسجيل الأصناف منتهية الصلاحية (المطبخ فقط)
+  const [expBranchId, setExpBranchId] = useState('')
+  const [expQty, setExpQty] = useState('1')
+  const [expNotes, setExpNotes] = useState('')
+  const [expSaving, setExpSaving] = useState(false)
   const prodFileInputRef = useRef<HTMLInputElement>(null)
   // ✅ تثبيت فرع الفورمز تلقائيًا لمشرف/مدير الصالة على فرعهم بس
   useEffect(() => { if (lockedBranchId) setLogBranchId(lockedBranchId) }, [lockedBranchId])
 
   // ✅ Cumulative data (all days up to & including viewDate) - used to compute the real running "Remaining" total
   const [cumProductions, setCumProductions] = useState<{ quantity: number; branch_id: string | null }[]>([])
-  const [cumTableLogs, setCumTableLogs] = useState<{ quantity: number; tables?: { branch_id: string | null } }[]>([])
+  const [cumTableLogs, setCumTableLogs] = useState<{ quantity: number; branch_id?: string | null; tables?: { branch_id: string | null } }[]>([])
 
   const fetchCakeData = useCallback(async () => {
     setCakeLoading(true)
@@ -164,8 +170,8 @@ export default function DessertsPage() {
       sb.from('cake_table_log').select('*, tables(number,name,branch_id)').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
       // ✅ everything ever produced up to and including viewDate (for the cumulative "Remaining" figure)
       sb.from('cake_production_log').select('quantity, branch_id').lte('production_date', viewDate),
-      // ✅ everything ever distributed up to and including viewDate
-      sb.from('cake_table_log').select('quantity, tables(branch_id)').lt('created_at', `${viewDate}T23:59:59.999`),
+      // ✅ everything ever distributed (بما فيه منتهي الصلاحية) up to and including viewDate
+      sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id)').lt('created_at', `${viewDate}T23:59:59.999`),
     ])
     setBranches(br.data || [])
     setTables(tbl.data || [])
@@ -182,6 +188,8 @@ export default function DessertsPage() {
   const [statsMonth, setStatsMonth] = useState(todayStr.slice(0, 7)) // 'YYYY-MM'
   const [monthProduced, setMonthProduced] = useState(0)
   const [monthDistributed, setMonthDistributed] = useState(0)
+  // ✅ جديد: إجمالي الأصناف منتهية الصلاحية هذا الشهر - للأدمن فقط
+  const [monthExpired, setMonthExpired] = useState(0)
   const [monthStatsLoading, setMonthStatsLoading] = useState(false)
 
   const fetchMonthlyStats = useCallback(async () => {
@@ -192,14 +200,15 @@ export default function DessertsPage() {
     const nextMonthStart = new Date(y, m, 1).toISOString().slice(0, 10) // first day of the following month
     const [prod, dist] = await Promise.all([
       sb.from('cake_production_log').select('quantity, branch_id').gte('production_date', monthStart).lt('production_date', nextMonthStart),
-      sb.from('cake_table_log').select('quantity, tables(branch_id)').gte('created_at', `${monthStart}T00:00:00`).lt('created_at', `${nextMonthStart}T00:00:00`),
+      sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id)').gte('created_at', `${monthStart}T00:00:00`).lt('created_at', `${nextMonthStart}T00:00:00`),
     ])
     const prodData = (prod.data as any[]) || []
     const distData = (dist.data as any[]) || []
     const prodFiltered = branchFilter ? prodData.filter(p => p.branch_id === branchFilter) : prodData
-    const distFiltered = branchFilter ? distData.filter(l => l.tables?.branch_id === branchFilter) : distData
+    const distFiltered = branchFilter ? distData.filter(l => (l.tables?.branch_id || l.branch_id) === branchFilter) : distData
     setMonthProduced(prodFiltered.reduce((s, p) => s + p.quantity, 0))
-    setMonthDistributed(distFiltered.reduce((s, l) => s + l.quantity, 0))
+    setMonthDistributed(distFiltered.filter(l => l.source !== 'expired').reduce((s, l) => s + l.quantity, 0))
+    setMonthExpired(distFiltered.filter(l => l.source === 'expired').reduce((s, l) => s + l.quantity, 0))
     setMonthStatsLoading(false)
   }, [sb, statsMonth, isAdmin, branchFilter])
 
@@ -259,6 +268,27 @@ export default function DessertsPage() {
     fetchCakeData()
   }
 
+  // ✅ جديد: تسجيل صنف منتهي الصلاحية - بيتخصم تلقائيًا من الكمية المتاحة بنفس اليوم
+  // (بنسجله في نفس جدول التوزيع بمصدر "expired" بدل الطاولة، فيدخل تلقائيًا في حساب "المتبقي")
+  async function submitCakeExpired() {
+    if (!expBranchId) { alert('Please select a branch'); return }
+    const qty = parseInt(expQty)
+    if (!qty || qty <= 0) { alert('Please enter a valid quantity'); return }
+    setExpSaving(true)
+    const { error } = await sb.from('cake_table_log').insert([{
+      table_id: null,
+      branch_id: expBranchId,
+      quantity: qty,
+      source: 'expired',
+      logged_by_name: currentUserName,
+      notes: expNotes.trim() || null,
+    }])
+    setExpSaving(false)
+    if (error) { alert('Error: ' + error.message); return }
+    setExpQty('1'); setExpNotes('')
+    fetchCakeData()
+  }
+
   // ✅ Delete a production log entry (e.g. test/mistaken entries)
   async function deleteCakeProduction(id: string) {
     if (!confirm('Delete this production entry? This cannot be undone.')) return
@@ -279,15 +309,20 @@ export default function DessertsPage() {
 
   // ✅ Data filtered by the selected branch tab (empty = All Branches)
   const visibleProductions = branchFilter ? cakeProductions.filter(p => p.branch_id === branchFilter) : cakeProductions
-  const visibleTableLogs = branchFilter ? cakeTableLogs.filter(l => l.tables?.branch_id === branchFilter) : cakeTableLogs
+  // ✅ Fix: الأصناف منتهية الصلاحية مالهاش table_id، فبنستخدم branch_id المباشر كبديل عند الفلترة بالفرع
+  const visibleTableLogs = branchFilter ? cakeTableLogs.filter(l => (l.tables?.branch_id || l.branch_id) === branchFilter) : cakeTableLogs
 
   const totalProducedForDate = visibleProductions.reduce((s, p) => s + p.quantity, 0)
-  const totalDistributedForDate = visibleTableLogs.reduce((s, l) => s + l.quantity, 0)
+  // ✅ Fix: "Distributed" بيحسب بس الأصناف اللي اتوزعت فعليًا على طاولة، مش المنتهية الصلاحية
+  const totalDistributedForDate = visibleTableLogs.filter(l => l.source !== 'expired').reduce((s, l) => s + l.quantity, 0)
+  // ✅ جديد: إجمالي الأصناف منتهية الصلاحية في اليوم المختار
+  const totalExpiredForDate = visibleTableLogs.filter(l => l.source === 'expired').reduce((s, l) => s + l.quantity, 0)
 
   // ✅ Running/cumulative remaining = everything ever produced minus everything ever distributed, up to viewDate
   // (a leftover cake from a previous day carries over instead of resetting to 0 each day)
+  // ✅ ملحوظة: الأصناف منتهية الصلاحية بتتحسب هنا ضمن "المخصوم" تلقائيًا (بما إنها فعليًا خرجت من الكمية المتاحة)
   const cumProducedFiltered = branchFilter ? cumProductions.filter(p => p.branch_id === branchFilter) : cumProductions
-  const cumDistributedFiltered = branchFilter ? cumTableLogs.filter(l => l.tables?.branch_id === branchFilter) : cumTableLogs
+  const cumDistributedFiltered = branchFilter ? cumTableLogs.filter(l => (l.tables?.branch_id || l.branch_id) === branchFilter) : cumTableLogs
   const cumulativeProduced = cumProducedFiltered.reduce((s, p) => s + p.quantity, 0)
   const cumulativeDistributed = cumDistributedFiltered.reduce((s, l) => s + l.quantity, 0)
   const remainingForDate = cumulativeProduced - cumulativeDistributed
@@ -447,7 +482,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
             {monthStatsLoading ? (
               <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12 }}>
                 <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
                   <div style={{ fontSize: 24, fontWeight: 900, color: S.gold }}>{monthProduced}</div>
                   <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>🎂 Cakes produced this month</div>
@@ -455,6 +490,11 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                 <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
                   <div style={{ fontSize: 24, fontWeight: 900, color: S.pink }}>{monthDistributed}</div>
                   <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>🍽️ Cakes distributed this month</div>
+                </div>
+                {/* ✅ جديد: إجمالي الأصناف منتهية الصلاحية هذا الشهر - للأدمن فقط */}
+                <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: S.red }}>{monthExpired}</div>
+                  <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>⏰ Cakes expired this month</div>
                 </div>
               </div>
             )}
@@ -503,7 +543,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
         </div>
 
         {/* ── Summary tabs for the selected date ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: isMobile ? 8 : 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isMobile ? 8 : 12, marginBottom: 20 }}>
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.gold}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
             <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.gold }}>{totalProducedForDate}</div>
             <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>🎂 Produced{!isMobile && ' (this day)'}</div>
@@ -511,6 +551,11 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.pink}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
             <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.pink }}>{totalDistributedForDate}</div>
             <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>🍽️ Distributed{!isMobile && ' (this day)'}</div>
+          </div>
+          {/* ✅ جديد: كارت الأصناف منتهية الصلاحية لليوم المختار */}
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.red}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
+            <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.red }}>{totalExpiredForDate}</div>
+            <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>⏰ Expired{!isMobile && ' (this day)'}</div>
           </div>
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${remainingForDate < 0 ? S.red : S.green}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
             <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: remainingForDate < 0 ? S.red : S.green }}>{remainingForDate}</div>
@@ -546,6 +591,26 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
               <button onClick={submitCakeProduction} disabled={prodSaving}
                 style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.gold, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: prodSaving ? 0.6 : 1 }}>
                 {prodSaving ? '⏳ Saving...' : '✅ Log Production'}
+              </button>
+            </div>
+            )}
+            {/* ✅ جديد: فورم تسجيل الأصناف منتهية الصلاحية - المطبخ فقط (مش متاح لمشرف/مدير الصالة) */}
+            {!isHallRole && (
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.red}40`, padding: 16 }}>
+              <div style={{ color: S.red, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>⏰ Log Expired Cake</div>
+              <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Logging as: <span style={{ color: S.white, fontWeight: 700 }}>{currentUserName}</span></div>
+              <select value={expBranchId} onChange={e => setExpBranchId(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }}>
+                <option value="">-- Select Branch --</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <input type="number" min={1} value={expQty} onChange={e => setExpQty(e.target.value)} placeholder="Number of expired cakes"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }} />
+              <input value={expNotes} onChange={e => setExpNotes(e.target.value)} placeholder="Notes (optional)"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 10 }} />
+              <button onClick={submitCakeExpired} disabled={expSaving}
+                style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.red, color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: expSaving ? 0.6 : 1 }}>
+                {expSaving ? '⏳ Saving...' : '✅ Log Expired'}
               </button>
             </div>
             )}
@@ -627,14 +692,16 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {visibleTableLogs.map(l => (
-                    <div key={l.id} style={{ background: S.navy2, borderRadius: 10, border: `1px solid ${S.border}`, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div key={l.id} style={{ background: l.source === 'expired' ? S.redB : S.navy2, borderRadius: 10, border: `1px solid ${l.source === 'expired' ? S.red + '40' : S.border}`, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <span style={{ color: S.white, fontWeight: 700, fontSize: 13 }}>
-                          {l.tables?.name || `Table ${l.tables?.number ?? '—'}`}
+                          {l.source === 'expired' ? (branches.find(b => b.id === l.branch_id)?.name || 'Expired Stock') : (l.tables?.name || `Table ${l.tables?.number ?? '—'}`)}
                         </span>
                         <span style={{ color: S.gold, fontWeight: 800, marginLeft: 8 }}>×{l.quantity}</span>
                         {l.source === 'menu_order' ? (
                           <span style={{ background: S.purpleB, color: S.purple, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>📱 From Menu</span>
+                        ) : l.source === 'expired' ? (
+                          <span style={{ background: S.redB, color: S.red, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>⏰ Expired — {l.logged_by_name || '—'}</span>
                         ) : (
                           <span style={{ background: S.pinkB, color: S.pink, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>✋ Manual — {l.logged_by_name || '—'}</span>
                         )}

@@ -631,6 +631,38 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (error) { alert('حصل خطأ: ' + error.message); return }
     fetchData()
   }
+
+  // ✅ جديد: إنشاء سجل حضور من الصفر لموظف غائب (مالوش أي سجل خالص لليوم ده) - للأدمن بس
+  const [addingAttendanceFor, setAddingAttendanceFor] = useState<string | null>(null)
+  const [addCheckIn, setAddCheckIn] = useState('')
+  const [addCheckOut, setAddCheckOut] = useState('')
+
+  function startAddingAttendance(empId: string) {
+    setAddingAttendanceFor(empId)
+    // ✅ نبدّئ بوقت افتراضي معقول (بداية اليوم المختار الساعة 9 صباحًا) عشان يسهّل الإدخال، قابل للتعديل طبعًا
+    setAddCheckIn(`${date}T09:00`)
+    setAddCheckOut('')
+  }
+
+  async function saveManualAttendance(empId: string, empName: string) {
+    if (!addCheckIn) { alert('من فضلك أدخل وقت الدخول على الأقل'); return }
+    if (!confirm(`⚠️ هل أنت متأكد من إضافة سجل حضور جديد للموظف "${empName}" ليوم ${date}؟`)) return
+    // ✅ نفس منطق تحويل التوقيت المحلي (ماليزيا UTC+8) لـUTC المستخدم في تعديل الوقت الموجود بالفعل
+    const inLocal = new Date(addCheckIn + ':00')
+    const checkInUtc = new Date(inLocal.getTime() - 8 * 60 * 60 * 1000).toISOString()
+    let checkOutUtc: string | null = null
+    if (addCheckOut) {
+      const outLocal = new Date(addCheckOut + ':00')
+      checkOutUtc = new Date(outLocal.getTime() - 8 * 60 * 60 * 1000).toISOString()
+    }
+    const { error } = await sb.from('attendance').insert([{
+      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc,
+    }])
+    if (error) { alert('حصل خطأ: ' + error.message); return }
+    setAddingAttendanceFor(null)
+    setAddCheckIn(''); setAddCheckOut('')
+    fetchData()
+  }
   const branchStats = branches.map(b => {
     const brEmps    = employees.filter(e => e.branch_id === b.id)
     const brRecords = records.filter(r => brEmps.some(e => e.id === r.employee_id))
@@ -884,7 +916,34 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                           <span style={{ background: S.redB, color: S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>❌ absent</span>
                         </td>
                         <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>—</td>
-                        {isAdmin && <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>—</td>}
+                        {/* ✅ جديد: إمكانية إضافة سجل حضور يدوي لموظف غايب تمامًا - للأدمن بس، ومكانها عمود الإجراءات نفسه الموجود بالفعل */}
+                        {isAdmin && (
+                          <td style={{ padding: '12px 14px' }}>
+                            {addingAttendanceFor === e.id ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 180 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: S.muted }}>دخول</label>
+                                  <input type="datetime-local" value={addCheckIn} onChange={ev => setAddCheckIn(ev.target.value)}
+                                    style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 11, fontFamily: 'inherit' }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: S.muted }}>خروج (اختياري)</label>
+                                  <input type="datetime-local" value={addCheckOut} onChange={ev => setAddCheckOut(ev.target.value)}
+                                    style={{ width: '100%', padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 11, fontFamily: 'inherit' }} />
+                                </div>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button onClick={() => saveManualAttendance(e.id, e.name)} style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 10 }}>✔️ حفظ</button>
+                                  <button onClick={() => setAddingAttendanceFor(null)} style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 10 }}>إلغاء</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button onClick={() => startAddingAttendance(e.id)}
+                                style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${S.blue}`, background: 'transparent', color: S.blue, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                                ➕ إضافة حضور
+                              </button>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

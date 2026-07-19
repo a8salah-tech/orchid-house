@@ -68,6 +68,8 @@ export default function ViolationsPage() {
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [activeBranch, setActiveBranch] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد — مشترك بين كل التابات
   const [employees, setEmployees] = useState<any[]>([])
+  // ✅ جديد: نتتبع مين حاضر فعليًا الآن بشكل منفصل، عشان نقدر نميّزه بصريًا بدل ما نستبعد باقي الموظفين تمامًا
+  const [workingEmployeeIds, setWorkingEmployeeIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [filterEmp, setFilterEmp] = useState('all')
@@ -130,13 +132,15 @@ export default function ViolationsPage() {
     const { data: empData } = await empQ
     const today = new Date().toISOString().split('T')[0]
     const empIds = (empData || []).map((e: any) => e.id)
-    let workingNowEmps: any[] = []
+    let workingIds = new Set<string>()
     if (empIds.length > 0) {
       const { data: attData } = await sb.from('attendance').select('employee_id').eq('date', today).not('check_in_time', 'is', null).is('check_out_time', null).in('employee_id', empIds)
-      const workingIds = new Set((attData || []).map((a: any) => a.employee_id))
-      workingNowEmps = (empData || []).filter((e: any) => workingIds.has(e.id))
+      workingIds = new Set((attData || []).map((a: any) => a.employee_id))
     }
-    setEmployees(workingNowEmps.length > 0 ? workingNowEmps : (empData || []))
+    setWorkingEmployeeIds(workingIds)
+    // ✅ Fix: كانت الصفحة بتستبعد أي موظف مش حاضر حاليًا بالكامل من قائمة الاختيار.
+    // دلوقتي بنعرض كل الموظفين دايمًا (نفس نمط المخالفة العادية)، ونميّز اللي حاضر فعليًا الآن بعلامة بصرية بس
+    setEmployees(empData || [])
     const [year, month] = filterMonth.split('-').map(Number)
     const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
     const monthEnd = new Date(year, month, 0).toISOString().split('T')[0]
@@ -473,7 +477,7 @@ export default function ViolationsPage() {
         <input style={{ ...inp, width: 'auto' }} type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
         <select style={{ ...inp, width: 'auto', minWidth: 160, cursor: 'pointer', background: S.navy2 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
           <option value="all">{isAr ? 'كل الموظفين' : 'All Employees'}</option>
-          {employees.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''}</option>)}
+          {employees.map(e => <option key={e.id} value={e.id}>{workingEmployeeIds.has(e.id) ? '🟢 ' : '⚪ '}{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''}</option>)}
         </select>
       </div>
 
@@ -809,7 +813,7 @@ export default function ViolationsPage() {
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'الموظف *' : 'Employee *'}</label>
                 <select style={{ ...inp, cursor: 'pointer', background: S.navy3 }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
                   <option value="">{isAr ? '-- اختر الموظف --' : '-- Select Employee --'}</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''} — {e.department || e.role}</option>)}
+                  {employees.map(e => <option key={e.id} value={e.id}>{workingEmployeeIds.has(e.id) ? '🟢 ' : '⚪ '}{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''} — {e.department || e.role}</option>)}
                 </select>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

@@ -188,6 +188,19 @@ export default function MarketPurchasesPage() {
     await fetchAll()
   }
 
+  // ✅ جديد (إضافة فقط): إعادة طلب سابق بعد التنفيذ - تملأ سلة "طلب جديد" الموجودة بنفس الأصناف
+  // (قابلة للتعديل في الكمية/الوحدة أو إضافة صنف جديد) قبل الإرسال، من غير أي تعديل على submitRequest نفسها
+  function reorderRequest(req: PurchaseRequest) {
+    const items = (req.market_purchase_request_items || []).map(it => ({
+      tempId: `${Date.now()}-${Math.random()}`,
+      name: it.item_name || it.warehouse_products?.name || '—',
+      quantity: String(it.requested_quantity),
+      unit_id: it.requested_unit_id,
+    }))
+    setCart(items)
+    setTab('new')
+  }
+
   async function submitRequest() {
     if (cart.length === 0) { alert('يرجى إضافة صنف واحد على الأقل'); return }
     setSubmitting(true)
@@ -292,6 +305,31 @@ export default function MarketPurchasesPage() {
     .filter(r => !adminBranchFilter || r.branch_id === adminBranchFilter)
   const pendingCount = requests.filter(r => r.status === 'pending').length
 
+  // ✅ جديد (إضافة فقط): عدد الأصناف (مش عدد الطلبات) في الطلبات "قيد الانتظار" - يظهر جنب شارة قيد الانتظار
+  const myPendingItemsCount = myRequests
+    .filter(r => r.status === 'pending')
+    .reduce((sum, r) => sum + (r.market_purchase_request_items?.length || 0), 0)
+  const purchaserPendingItemsCount = requests
+    .filter(r => r.status === 'pending')
+    .reduce((sum, r) => sum + (r.market_purchase_request_items?.length || 0), 0)
+
+  // ✅ جديد (إضافة فقط): فلترة طلباتي بالشهر + ترتيب بالرقم واليوم - متغير جديد منفصل، بدون لمس myRequests الأصلي
+  const [myRequestsMonthFilter, setMyRequestsMonthFilter] = useState('')
+  const myRequestsFiltered = myRequests
+    .filter(r => {
+      if (!myRequestsMonthFilter) return true
+      const d = new Date(r.requested_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      return key === myRequestsMonthFilter
+    })
+    .slice()
+    .sort((a, b) => {
+      const numA = parseInt(String(a.request_number || '').replace(/\D/g, '')) || 0
+      const numB = parseInt(String(b.request_number || '').replace(/\D/g, '')) || 0
+      if (numB !== numA) return numB - numA
+      return new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime()
+    })
+
   // ✅ جديد: اليوم المختار للتقرير المجمّع - فاضي معناه "كل الطلبات المعلّقة"، وله قيمة معناه يوم محدد بس
   const [reportDay, setReportDay] = useState<string | null>(null)
 
@@ -315,7 +353,7 @@ export default function MarketPurchasesPage() {
       const bName = r.branches?.name || 'بدون فرع'
       if (!byBranch[bName]) byBranch[bName] = {}
       if (!branchRequesters[bName]) branchRequesters[bName] = []
-      branchRequesters[bName].push({ name: r.requester?.name || '—', at: fmtMYTime(r.requested_at), requestNumber: r.request_number })
+      branchRequesters[bName].push({ name: [r.requester?.name, r.requester?.name_en].filter(Boolean).join(' ') || '—', at: fmtMYTime(r.requested_at), requestNumber: r.request_number })
       for (const it of (r.market_purchase_request_items || [])) {
         const name = it.item_name || it.warehouse_products?.name || '—'
         const unit = it.req_unit?.symbol || ''
@@ -352,9 +390,18 @@ export default function MarketPurchasesPage() {
 
   // ✅ جديد: إحصائيات شاملة للأدمن بس - سجل تفصيلي لكل عملية من الطلب لحد الاستلام
   const [adminStatsBranch, setAdminStatsBranch] = useState('')
+  // ✅ جديد (إضافة فقط): فلترة الإحصائيات الشاملة بشهر محدد - فاضي معناها كل الأوقات
+  const [adminStatsMonth, setAdminStatsMonth] = useState('')
   const adminStatsData = useMemo(() => {
     const filtered = requests
       .filter(r => !adminStatsBranch || r.branch_id === adminStatsBranch)
+      // ✅ جديد: تصفية بالشهر المختار (صيغة YYYY-MM) بناءً على تاريخ الطلب
+      .filter(r => {
+        if (!adminStatsMonth) return true
+        const d = new Date(r.requested_at)
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        return key === adminStatsMonth
+      })
       .sort((a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime())
 
     const totalRequests = filtered.length
@@ -369,15 +416,15 @@ export default function MarketPurchasesPage() {
       .map(r => (new Date(r.delivered_at!).getTime() - new Date(r.requested_at).getTime()) / (1000 * 60 * 60))
     const avgDeliveryHours = deliveryTimes.length > 0 ? deliveryTimes.reduce((s, h) => s + h, 0) / deliveryTimes.length : null
 
-    // ✅ الأكثر طلبًا (اسم الموظف)
+    // ✅ الأكثر طلبًا (اسم الموظف) - ✅ Fix: الاسم الكامل (عربي + إنجليزي) بدل الاسم الأول بس
     const requesterCounts: Record<string, number> = {}
     for (const r of filtered) {
-      const n = r.requester?.name || '—'
+      const n = [r.requester?.name, r.requester?.name_en].filter(Boolean).join(' ') || '—'
       requesterCounts[n] = (requesterCounts[n] || 0) + 1
     }
     const topRequester = Object.entries(requesterCounts).sort((a, b) => b[1] - a[1])[0]
 
-    // ✅ الأكثر طلبًا (اسم الصنف)
+    // ✅ الأكثر طلبًا (الأصناف) - ✅ Fix: أعلى 5 أصناف بدل صنف واحد بس
     const itemCounts: Record<string, number> = {}
     for (const r of filtered) {
       for (const it of (r.market_purchase_request_items || [])) {
@@ -385,14 +432,14 @@ export default function MarketPurchasesPage() {
         itemCounts[n] = (itemCounts[n] || 0) + 1
       }
     }
-    const topItem = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0]
+    const topItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
     return {
       log: filtered, totalRequests,
       deliveredCount: delivered.length, rejectedCount: rejected.length, pendingCount: pending.length, purchasedCount: purchased.length,
-      avgDeliveryHours, topRequester, topItem,
+      avgDeliveryHours, topRequester, topItems,
     }
-  }, [requests, adminStatsBranch])
+  }, [requests, adminStatsBranch, adminStatsMonth])
 
   // ✅ جديد: طباعة التقرير المجمّع
   function printConsolidatedReport() {
@@ -509,6 +556,10 @@ export default function MarketPurchasesPage() {
             <button onClick={() => setTab('mine')}
               style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'mine' ? S.gold : S.border}`, background: tab === 'mine' ? S.gold3 : 'transparent', color: tab === 'mine' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'mine' ? 700 : 400 }}>
               📋 طلباتي ({myRequests.length})
+              {/* ✅ جديد (إضافة فقط): عدد الأصناف قيد الانتظار ضمن طلباتي */}
+              {myPendingItemsCount > 0 && (
+                <span style={{ marginRight: 6, fontSize: 10, color: S.amber }}>· ⏳ {myPendingItemsCount} صنف</span>
+              )}
             </button>
           </>
         )}
@@ -516,6 +567,10 @@ export default function MarketPurchasesPage() {
           <button onClick={() => setTab('purchaser')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'purchaser' ? S.gold : S.border}`, background: tab === 'purchaser' ? S.gold3 : 'transparent', color: tab === 'purchaser' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'purchaser' ? 700 : 400, position: 'relative' }}>
             🛒 طلبات الشراء ({purchaserRequests.length})
+            {/* ✅ جديد (إضافة فقط): عدد الأصناف قيد الانتظار ضمن كل طلبات الشراء */}
+            {purchaserPendingItemsCount > 0 && (
+              <span style={{ marginRight: 6, fontSize: 10, color: S.amber }}>· ⏳ {purchaserPendingItemsCount} صنف</span>
+            )}
             {pendingCount > 0 && (
               <span style={{ position: 'absolute', top: -6, right: -6, background: S.red, color: '#fff', borderRadius: '50%', width: 18, height: 18, fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{pendingCount}</span>
             )}
@@ -643,9 +698,21 @@ export default function MarketPurchasesPage() {
       {/* ── My Requests Tab ── */}
       {tab === 'mine' && canRequest && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* ✅ جديد (إضافة فقط): فلترة طلباتي بالشهر */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 12, color: S.muted }}>📅 تصفية بالشهر:</label>
+            <input type="month" value={myRequestsMonthFilter} onChange={e => setMyRequestsMonthFilter(e.target.value)}
+              style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+            {myRequestsMonthFilter && (
+              <button onClick={() => setMyRequestsMonthFilter('')}
+                style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                ✕ إلغاء التصفية
+              </button>
+            )}
+          </div>
           {loading ? <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
-          : myRequests.length === 0 ? <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>لا توجد طلبات سابقة</div>
-          : myRequests.map(req => {
+          : myRequestsFiltered.length === 0 ? <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>لا توجد طلبات سابقة</div>
+          : myRequestsFiltered.map(req => {
             const st = STATUS_CFG[req.status] || STATUS_CFG.pending
             return (
               <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 18px' }}>
@@ -656,6 +723,15 @@ export default function MarketPurchasesPage() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
+                    {/* ✅ جديد (إضافة فقط): عدد الأصناف في هذا الطلب تحديدًا */}
+                    <span style={{ background: S.card, color: S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>📦 {(req.market_purchase_request_items || []).length} صنف</span>
+                    {/* ✅ جديد (إضافة فقط): إعادة الطلب بعد التنفيذ - تظهر فقط للحالات المكتملة */}
+                    {['delivered', 'purchased', 'rejected'].includes(req.status) && (
+                      <button onClick={() => reorderRequest(req)} title="إعادة هذا الطلب"
+                        style={{ background: S.blueB, border: `1px solid ${S.blue}`, borderRadius: 8, color: S.blue, cursor: 'pointer', fontSize: 11, padding: '4px 10px', fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        🔁 إعادة الطلب
+                      </button>
+                    )}
                     {/* ✅ جديد: حذف الطلب - أدمن فقط */}
                     {isAdmin && (
                       <button onClick={() => deleteRequest(req.id, req.request_number)} title="حذف الطلب"
@@ -723,6 +799,8 @@ export default function MarketPurchasesPage() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
+                    {/* ✅ جديد (إضافة فقط): عدد الأصناف في هذا الطلب تحديدًا */}
+                    <span style={{ background: S.card, color: S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>📦 {(req.market_purchase_request_items || []).length} صنف</span>
                     {/* ✅ جديد: حذف الطلب - أدمن فقط */}
                     {isAdmin && (
                       <button onClick={() => deleteRequest(req.id, req.request_number)} title="حذف الطلب"
@@ -863,6 +941,19 @@ export default function MarketPurchasesPage() {
             </div>
           )}
 
+          {/* ✅ جديد (إضافة فقط): تصفية الإحصائيات الشاملة بشهر محدد */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 12, color: S.muted }}>📅 تصفية بالشهر:</label>
+            <input type="month" value={adminStatsMonth} onChange={e => setAdminStatsMonth(e.target.value)}
+              style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+            {adminStatsMonth && (
+              <button onClick={() => setAdminStatsMonth('')}
+                style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                ✕ إلغاء التصفية (كل الأوقات)
+              </button>
+            )}
+          </div>
+
           {/* بطاقات الإحصائيات العامة */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
             <div style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: 14, textAlign: 'center' }}>
@@ -898,10 +989,17 @@ export default function MarketPurchasesPage() {
               </div>
             </div>
             <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📦 الأكثر طلبًا (صنف)</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>
-                {adminStatsData.topItem ? `${adminStatsData.topItem[0]} (${adminStatsData.topItem[1]} مرة)` : '—'}
-              </div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📦 الأكثر طلبًا (٥ أصناف)</div>
+              {adminStatsData.topItems.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {adminStatsData.topItems.map(([name, count], i) => (
+                    <div key={i} style={{ fontSize: 12, fontWeight: 700, color: S.white, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{i + 1}. {name}</span>
+                      <span style={{ color: S.gold }}>{count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>—</div>}
             </div>
           </div>
 
@@ -917,7 +1015,11 @@ export default function MarketPurchasesPage() {
                       <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>#{r.request_number || '—'} — 🏪 {r.branches?.name}</div>
                       <div style={{ fontSize: 12, color: S.white, marginTop: 2 }}>👤 طلبه: {r.requester?.name} {r.requester?.name_en}</div>
                     </div>
-                    <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                      {/* ✅ جديد (إضافة فقط): عدد الأصناف في هذه العملية تحديدًا */}
+                      <span style={{ background: S.card, color: S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>📦 {(r.market_purchase_request_items || []).length} صنف</span>
+                    </div>
                   </div>
 
                   {/* الأصناف */}
@@ -1058,7 +1160,7 @@ export default function MarketPurchasesPage() {
                     return (
                       <div key={r.id} style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{r.request_number || '—'} — {r.requester?.name}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: S.gold }}>#{r.request_number || '—'} — {r.requester?.name} {r.requester?.name_en}</span>
                           <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '2px 10px', fontSize: 10, fontWeight: 700 }}>{st.icon} {st.label}</span>
                         </div>
                         {(r.market_purchase_request_items || []).map(it => (

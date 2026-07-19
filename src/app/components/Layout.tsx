@@ -116,6 +116,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'إدارة الشيفتات',  label_en: 'Shifts',        icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },
     { label: 'الرواتب والأجور', label_en: 'Payroll', icon: '💰', path: '/dashboard/hr/payroll', permission: 'payroll' },
     { label: 'الحضور والانصراف',label_en: 'Attendance',    icon: '⏰', path: '/dashboard/hr/attendance', permission: 'attendance' },
+    { label: 'الموظف المثالي',  label_en: 'Employee of the Month', icon: '🏆', path: '/dashboard/employee-of-the-month', permission: 'attendance' },
   ]},
   { group: 'التقارير', items: [
     { label: 'التقارير الشهرية', label_en: 'Monthly Reports', icon: '📈', path: '/dashboard/reports/monthly', permission: 'reports' },

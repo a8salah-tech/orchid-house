@@ -117,6 +117,23 @@ export default function MarketPurchasesPage() {
   const [newItemQty, setNewItemQty] = useState('')
   const [newItemUnit, setNewItemUnit] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // ✅ جديد: دوال مساعدة لإرسال إشعارات عند أي حركة في مشتريات السوق
+  async function sendNotifToEmployee(targetEmployeeId: string, title: string, body: string) {
+    if (!targetEmployeeId) return
+    await sb.from('notifications').insert([{
+      type: 'request', title, body,
+      link: '/dashboard/market-purchases',
+      target_employee_id: targetEmployeeId,
+    }])
+  }
+  async function sendNotifToRole(targetRole: string, title: string, body: string) {
+    await sb.from('notifications').insert([{
+      type: 'request', title, body,
+      link: '/dashboard/market-purchases',
+      target_role: targetRole,
+    }])
+  }
   // ✅ جديد: كشف الموبايل - مطلوب لتنسيق تاب الإحصائيات الشاملة
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -227,6 +244,10 @@ export default function MarketPurchasesPage() {
         requested_quantity: parseFloat(c.quantity), requested_unit_id: c.unit_id,
       }))
     )
+    // ✅ جديد: إشعار لفريق الشراء (أمين ومدير المستودعات) بوصول طلب جديد
+    const requesterName = [currentUser?.name, currentUser?.name_en].filter(Boolean).join(' ') || 'موظف'
+    await sendNotifToRole('warehouse_keeper', '🛒 طلب مشتريات سوق جديد', `${requesterName} أرسل طلب مشتريات سوق جديد (#${requestNumber}، ${cart.length} صنف)`)
+    await sendNotifToRole('warehouse_manager', '🛒 طلب مشتريات سوق جديد', `${requesterName} أرسل طلب مشتريات سوق جديد (#${requestNumber}، ${cart.length} صنف)`)
     await fetchAll()
     setSubmitting(false)
     setCart([])
@@ -323,6 +344,8 @@ export default function MarketPurchasesPage() {
       status: 'purchased', purchased_at: new Date().toISOString(),
       purchased_by: currentUser?.id,
     }).eq('id', editingReq.id)
+    // ✅ جديد: إشعار لمقدّم الطلب بأن الشراء تم وأصبح جاهزًا للاستلام
+    await sendNotifToEmployee(editingReq.requested_by, '✅ تم الشراء', `تم شراء طلبك #${editingReq.request_number || ''} وأصبح جاهزًا للاستلام`)
     await fetchAll()
     setSaving(false)
     setEditingReq(null)
@@ -350,6 +373,11 @@ export default function MarketPurchasesPage() {
       status: 'delivered', delivered_at: new Date().toISOString(), delivered_image_url: imgUrl,
       received_by: currentUser?.id, received_at: new Date().toISOString(),
     }).eq('id', receivingReq.id)
+    // ✅ جديد: إشعار للإدارة بمتابعة اكتمال الطلب، وإشعار لمقدّم الطلب لو مختلف عن الشخص اللي أكد الاستلام
+    await sendNotifToRole('admin', '📦 تم استلام طلب مشتريات السوق', `تم تأكيد استلام الطلب #${receivingReq.request_number || ''}`)
+    if (receivingReq.requested_by && receivingReq.requested_by !== currentUser?.id) {
+      await sendNotifToEmployee(receivingReq.requested_by, '📦 تم استلام طلبك', `تم تأكيد استلام طلبك #${receivingReq.request_number || ''} بنجاح`)
+    }
     await fetchAll()
     setConfirming(false)
     setReceivingReq(null)

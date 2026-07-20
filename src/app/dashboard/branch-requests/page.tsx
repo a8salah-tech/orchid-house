@@ -893,6 +893,18 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
   const [newItems, setNewItems] = useState<ExItem[]>([{ item_name: '', quantity: '', unit: '', notes: '' }])
   const [saving, setSaving] = useState(false)
 
+  // ✅ جديد: دالة مساعدة لإرسال إشعار لموظف محدد عند أي حركة في التبادل بين الفروع
+  async function sendNotification(targetEmployeeId: string, title: string, body: string) {
+    if (!targetEmployeeId) return
+    await sb.from('notifications').insert([{
+      type: 'request',
+      title,
+      body,
+      link: '/dashboard/warehouse/branch-requests',
+      target_employee_id: targetEmployeeId,
+    }])
+  }
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     // ✅ مدير النظام يشوف كل الطلبات في كل الفروع، مش بس اللي بعتها أو اتوجهت له
@@ -947,20 +959,33 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
     await sb.from('inter_branch_exchange_items').insert(
       validItems.map(it => ({ exchange_id: created.id, item_name: it.item_name.trim(), quantity: parseFloat(it.quantity), unit: it.unit.trim() || null, notes: it.notes.trim() || null }))
     )
+    // ✅ جديد: إشعار للشخص المطلوب منه التبادل بوصول طلب جديد
+    const fromBranchName = branches.find(b => b.id === myBranchId)?.name || ''
+    const senderName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'موظف'
+    await sendNotification(newTargetPerson, '🔄 طلب تبادل جديد', `${senderName} من فرع ${fromBranchName} أرسل لك طلب تبادل جديد (${validItems.length} صنف)`)
     setSaving(false); setShowNew(false); resetNewForm(); fetchAll()
   }
 
   async function acceptRequest(id: string) {
     await sb.from('inter_branch_exchanges').update({ status: 'accepted', accepted_at: new Date().toISOString() }).eq('id', id)
+    // ✅ جديد: إشعار لمن أرسل الطلب بأنه تم قبوله وجاري التجهيز
+    const ex = exchanges.find(e => e.id === id)
+    if (ex) await sendNotification(ex.requested_by, '✅ تم قبول طلب التبادل', 'تم قبول طلب التبادل الذي أرسلته، وجاري تجهيزه الآن')
     fetchAll()
   }
   async function completeRequest(id: string) {
     await sb.from('inter_branch_exchanges').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', id)
+    // ✅ جديد: إشعار لمن أرسل الطلب بأنه تم إتمام واستلام التبادل
+    const ex = exchanges.find(e => e.id === id)
+    if (ex) await sendNotification(ex.requested_by, '🎉 تم إتمام طلب التبادل', 'تم إتمام واستلام طلب التبادل الذي أرسلته بالكامل')
     fetchAll()
   }
   async function cancelRequest(id: string) {
     if (!confirm('إلغاء هذا الطلب؟')) return
     await sb.from('inter_branch_exchanges').update({ status: 'cancelled' }).eq('id', id)
+    // ✅ جديد: إشعار لمن أرسل الطلب بأنه تم إلغاؤه
+    const ex = exchanges.find(e => e.id === id)
+    if (ex) await sendNotification(ex.requested_by, '❌ تم إلغاء طلب التبادل', 'تم إلغاء طلب التبادل الذي أرسلته')
     fetchAll()
   }
 

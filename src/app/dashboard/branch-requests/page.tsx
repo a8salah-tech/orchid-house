@@ -870,7 +870,8 @@ function exFullName(p: { name?: string; name_en?: string } | null | undefined) {
 function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any; branches: { id: string; name: string }[]; sb: any; isAr: boolean; isAdmin: boolean }) {
   const role = employee?.role || ''
   const myBranchId = employee?.branch_id || ''
-  const ALLOWED_EX_ROLES = [...SUPERVISOR_ROLES, ...MANAGER_ROLES]
+  // ✅ Fix: إضافة أمين المستودع ومدير المستودعات لقائمة المسموح لهم بالتبادل بين الفروع
+  const ALLOWED_EX_ROLES = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, 'warehouse_keeper', 'warehouse_manager']
 
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -1297,7 +1298,7 @@ export default function BranchRequestsPage() {
           style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${mainView === 'requests' ? S.gold : S.border}`, background: mainView === 'requests' ? S.gold3 : 'transparent', color: mainView === 'requests' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainView === 'requests' ? 700 : 400 }}>
           📦 {isAr ? 'طلبات الفروع' : 'Branch Requests'}
         </button>
-        {(SUPERVISOR_ROLES.includes(role) || MANAGER_ROLES.includes(role) || isAdmin) && (
+        {(SUPERVISOR_ROLES.includes(role) || MANAGER_ROLES.includes(role) || ['warehouse_keeper', 'warehouse_manager'].includes(role) || isAdmin) && (
           <button onClick={() => setMainView('exchange')}
             style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${mainView === 'exchange' ? S.gold : S.border}`, background: mainView === 'exchange' ? S.gold3 : 'transparent', color: mainView === 'exchange' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainView === 'exchange' ? 700 : 400 }}>
             🔄 {isAr ? 'التبادل بين الفروع' : 'Inter-Branch Exchange'}

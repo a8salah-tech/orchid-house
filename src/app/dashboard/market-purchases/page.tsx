@@ -40,6 +40,11 @@ interface RequestItem {
   purchased_quantity: number | null; purchased_unit_id: string | null; unit_price: number | null; total_price: number | null; notes: string | null
   warehouse_products?: { name: string; name_en?: string }
   req_unit?: { symbol: string }; pur_unit?: { symbol: string }
+  // ✅ جديد: الكمية المتوفرة بالفعل بالمخزون (مش محتاجة شراء)، والفرع، ومين سجّلها بالاسم الكامل
+  available_in_warehouse_qty?: number | null
+  available_in_warehouse_branch_id?: string | null
+  available_recorded_by?: string | null
+  available_branch?: { name: string }
 }
 interface PurchaseRequest {
   id: string; branch_id: string; requested_by: string; status: string
@@ -126,6 +131,8 @@ export default function MarketPurchasesPage() {
   // ── Purchaser editing state ──
   const [editingReq, setEditingReq] = useState<PurchaseRequest | null>(null)
   const [purchaseEdits, setPurchaseEdits] = useState<Record<string, { quantity: string; unit_id: string }>>({})
+  // ✅ جديد: حالة مؤقتة لإدخال الكمية المتوفرة بالمخزون لكل صنف قبل الحفظ
+  const [availableEdits, setAvailableEdits] = useState<Record<string, { qty: string; branchId: string }>>({})
   const [saving, setSaving] = useState(false)
 
   // ── Receive confirmation state ──
@@ -136,7 +143,7 @@ export default function MarketPurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const baseSelect = `*, branches(name), requester:requested_by(name, name_en, employee_number), receiver:received_by(name, name_en), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol))`
+    const baseSelect = `*, branches(name), requester:requested_by(name, name_en, employee_number), receiver:received_by(name, name_en), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol), available_branch:branches!market_purchase_request_items_available_in_warehouse_branc_fkey(name))`
     let q = sb.from('market_purchase_requests').select(baseSelect).order('requested_at', { ascending: false })
     const [reqRes, unitsRes, branchesRes] = await Promise.all([
       q,
@@ -244,8 +251,51 @@ export default function MarketPurchasesPage() {
     setEditingReq(req)
   }
 
-  async function savePurchase() {
+  // ✅ جديد: تسجيل كمية متوفرة بالفعل بالمخزون لصنف معين - يقدر أي فرد من فريق المستودع يسجّلها
+  // وتقلل الكمية المطلوب شراؤها من السوق تلقائيًا
+  async function saveAvailableQty(itemId: string, requestedQty: number, availableQty: number, branchId: string) {
+    const fullName = [currentUser?.name, currentUser?.name_en].filter(Boolean).join(' ') || 'غير معروف'
+    const { error } = await sb.from('market_purchase_request_items').update({
+      available_in_warehouse_qty: availableQty,
+      available_in_warehouse_branch_id: branchId || null,
+      available_recorded_by: fullName,
+    }).eq('id', itemId)
+    if (error) { alert('حصل خطأ أثناء الحفظ: ' + error.message); return }
+    // ✅ نقلل "الكمية المتاحة فعليًا" المقترحة للشراء تلقائيًا بمقدار المتوفر بالمخزون
+    const remaining = Math.max(0, requestedQty - availableQty)
+    setPurchaseEdits(p => ({ ...p, [itemId]: { ...(p[itemId] || { unit_id: '' }), quantity: String(remaining) } }))
+    await fetchAll()
+  }
+
+  // ✅ جديد: حفظ التقدم بس - بيسجل الكمية اللي اتلقت لحد دلوقتي من غير ما يقفل الطلب أو يشيله من قائمة "ما زال بحاجة إلى شراء"
+  // مفيد لما المسؤول يشتري جزء من مكان، ويحتاج يرجع يكمل من مكان تاني بعدين
+  async function savePurchaseProgress() {
     if (!editingReq) return
+    setSaving(true)
+    for (const [itemId, edit] of Object.entries(purchaseEdits)) {
+      const qty = parseFloat(edit.quantity) || 0
+      await sb.from('market_purchase_request_items').update({
+        purchased_quantity: qty, purchased_unit_id: edit.unit_id,
+      }).eq('id', itemId)
+    }
+    // ✅ ملحوظة: لا نلمس status الطلب هنا خالص - يفضل زي ما هو (قيد الانتظار) لحد ما يضغط "إتمام الشراء نهائيًا"
+    await fetchAll()
+    setSaving(false)
+    alert('✅ تم حفظ التقدم الحالي. لا يزال الطلب ظاهرًا في قائمة الشراء، ويمكنك إكماله في أي وقت لاحق.')
+  }
+
+  // ✅ جديد (كانت اسمها savePurchase): إتمام الشراء نهائيًا - بيقفل الطلب فعليًا ويشيله من قائمة "ما زال بحاجة إلى شراء"
+  async function completePurchase() {
+    if (!editingReq) return
+    // ✅ تنبيه وتأكيد نهائي واضح قبل إتمام الشراء فعليًا - يوضح ملخص الأصناف والكميات النهائية المطلوب شراؤها
+    const itemsSummary = (editingReq.market_purchase_request_items || [])
+      .map(it => {
+        const q = purchaseEdits[it.id]?.quantity || '0'
+        const unitSymbol = units.find(u => u.id === purchaseEdits[it.id]?.unit_id)?.symbol || it.req_unit?.symbol || ''
+        return `• ${it.item_name || it.warehouse_products?.name}: ${q} ${unitSymbol}`
+      }).join('\n')
+    const confirmed = confirm(`⚠️ تأكيد نهائي لإتمام الشراء\n\nسيتم إغلاق الطلب نهائيًا وتسجيل هذه الكميات كـ"تم الشراء"، ولن يظهر بعد ذلك في قائمة الأصناف التي ما زالت بحاجة إلى شراء:\n\n${itemsSummary}\n\nهل أنت متأكد من المتابعة؟`)
+    if (!confirmed) return
     setSaving(true)
     // ✅ Fix: مفيش سعر هنا خالص - بس نسجل الكمية والوحدة الفعلية بعد المراجعة
     for (const [itemId, edit] of Object.entries(purchaseEdits)) {
@@ -262,6 +312,7 @@ export default function MarketPurchasesPage() {
     setSaving(false)
     setEditingReq(null)
     setPurchaseEdits({})
+    setAvailableEdits({})
   }
 
   function handleReceiveImgSelect(file: File) {
@@ -815,13 +866,15 @@ export default function MarketPurchasesPage() {
                     <span key={it.id} style={{ background: S.card, borderRadius: 10, padding: '5px 10px', fontSize: 12 }}>{itemDisplay(it)}</span>
                   ))}
                 </div>
-                {req.status === 'pending' && (
+                {/* ✅ Fix: الزر يفضل ظاهر حتى بعد "تم الشراء" (مش قيد الانتظار بس) - عشان يقدر يرجع يزوّد الكمية
+                    لو اشترى جزء من محل وجزء من محل تاني في وقت لاحق، بدل ما يتقفل الطلب بعد أول حفظ */}
+                {['pending', 'purchased'].includes(req.status) && (
                   <button onClick={() => startEditingPurchase(req)}
-                    style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    🛒 تسجيل الشراء
+                    style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${req.status === 'purchased' ? S.amber : S.blue}`, background: req.status === 'purchased' ? S.amberB : S.blueB, color: req.status === 'purchased' ? S.amber : S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    {req.status === 'purchased' ? '✏️ تعديل / إضافة كمية مشتراة' : '🛒 تسجيل الشراء'}
                   </button>
                 )}
-                {req.status === 'purchased' && <div style={{ fontSize: 12, color: S.muted }}>في انتظار استلام الفرع</div>}
+                {req.status === 'purchased' && <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>في انتظار استلام الفرع — يمكنك تعديل الكمية المشتراة في أي وقت قبل الاستلام</div>}
               </div>
             )
           })}
@@ -1206,6 +1259,7 @@ export default function MarketPurchasesPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {(editingReq.market_purchase_request_items || []).map(it => {
                 const edit = purchaseEdits[it.id] || { quantity: '', unit_id: '' }
+                const avEdit = availableEdits[it.id] || { qty: it.available_in_warehouse_qty ? String(it.available_in_warehouse_qty) : '', branchId: it.available_in_warehouse_branch_id || '' }
                 return (
                   <div key={it.id} style={{ background: S.card, borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{it.item_name || it.warehouse_products?.name} <span style={{ color: S.muted, fontSize: 11 }}>(مطلوب: {it.requested_quantity} {it.req_unit?.symbol})</span></div>
@@ -1223,14 +1277,51 @@ export default function MarketPurchasesPage() {
                         </select>
                       </div>
                     </div>
+
+                    {/* ✅ جديد: تسجيل كمية متوفرة بالفعل بالمخزون - يقدر أي فرد من فريق الشراء يسجّلها، وتقلل المطلوب شراؤه تلقائيًا */}
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
+                      <div style={{ fontSize: 10, color: S.amber, marginBottom: 6 }}>📦 هل جزء من هذا الصنف متوفر بالفعل بالمخزون؟</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                        <div>
+                          <label style={{ fontSize: 10, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية المتوفرة</label>
+                          <input type="number" min={0} step="0.01" value={avEdit.qty}
+                            onChange={e => setAvailableEdits(p => ({ ...p, [it.id]: { ...avEdit, qty: e.target.value } }))}
+                            style={{ width: 80, background: S.navy3, border: `1px solid ${S.amber}60`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.white, outline: 'none' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 10, color: S.muted, display: 'block', marginBottom: 4 }}>الفرع/المستودع</label>
+                          <select value={avEdit.branchId} onChange={e => setAvailableEdits(p => ({ ...p, [it.id]: { ...avEdit, branchId: e.target.value } }))}
+                            style={{ background: S.navy3, border: `1px solid ${S.amber}60`, borderRadius: 8, padding: '6px 8px', fontSize: 12, color: S.white, outline: 'none', cursor: 'pointer' }}>
+                            <option value="">-- اختر --</option>
+                            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                        </div>
+                        <button onClick={() => saveAvailableQty(it.id, it.requested_quantity, parseFloat(avEdit.qty) || 0, avEdit.branchId)}
+                          style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          💾 حفظ
+                        </button>
+                      </div>
+                      {(it.available_in_warehouse_qty || 0) > 0 && (
+                        <div style={{ fontSize: 10, color: S.green, marginTop: 6 }}>
+                          ✅ {it.available_in_warehouse_qty} {it.req_unit?.symbol} متوفرة في {it.available_branch?.name || '—'} — سجّلها: {it.available_recorded_by || '—'}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
             </div>
-            <button onClick={savePurchase} disabled={saving}
-              style={{ width: '100%', marginTop: 18, padding: '12px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              {saving ? '⏳ جاري الحفظ...' : '✅ حفظ وإتمام الشراء'}
-            </button>
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              {/* ✅ جديد: حفظ التقدم فقط - من غير ما يقفل الطلب، عشان يقدر يرجع يكمل الشراء من مكان تاني بعدين */}
+              <button onClick={savePurchaseProgress} disabled={saving}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                {saving ? '⏳...' : '💾 حفظ التقدم (يبقى الطلب قيد الانتظار)'}
+              </button>
+              <button onClick={completePurchase} disabled={saving}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                {saving ? '⏳...' : '✅ إتمام الشراء نهائيًا'}
+              </button>
+            </div>
           </div>
         </div>
       )}

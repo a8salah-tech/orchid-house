@@ -264,6 +264,21 @@ export default function MarketPurchasesPage() {
     // ✅ نقلل "الكمية المتاحة فعليًا" المقترحة للشراء تلقائيًا بمقدار المتوفر بالمخزون
     const remaining = Math.max(0, requestedQty - availableQty)
     setPurchaseEdits(p => ({ ...p, [itemId]: { ...(p[itemId] || { unit_id: '' }), quantity: String(remaining) } }))
+    // ✅ Fix حرج: المودال المفتوح (editingReq) هو نسخة منفصلة محفوظة عند فتحه، ولا يتحدّث تلقائيًا لمجرد
+    // إعادة جلب القائمة الكاملة عبر fetchAll(). لذلك كانت البيانات تُحفظ فعليًا في قاعدة البيانات
+    // لكن لا تظهر على الشاشة داخل المودال المفتوح. الحل: نحدّث editingReq مباشرة بالقيم الجديدة فور نجاح الحفظ.
+    const selectedBranchName = branches.find(b => b.id === branchId)?.name
+    setEditingReq(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        market_purchase_request_items: (prev.market_purchase_request_items || []).map(it =>
+          it.id === itemId
+            ? { ...it, available_in_warehouse_qty: availableQty, available_in_warehouse_branch_id: branchId || null, available_recorded_by: fullName, available_branch: selectedBranchName ? { name: selectedBranchName } : it.available_branch }
+            : it
+        ),
+      }
+    })
     await fetchAll()
   }
 
@@ -473,7 +488,7 @@ export default function MarketPurchasesPage() {
       const n = [r.requester?.name, r.requester?.name_en].filter(Boolean).join(' ') || '—'
       requesterCounts[n] = (requesterCounts[n] || 0) + 1
     }
-    const topRequester = Object.entries(requesterCounts).sort((a, b) => b[1] - a[1])[0]
+    const topRequesters = Object.entries(requesterCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
     // ✅ الأكثر طلبًا (الأصناف) - ✅ Fix: أعلى 5 أصناف بدل صنف واحد بس
     const itemCounts: Record<string, number> = {}
@@ -488,7 +503,7 @@ export default function MarketPurchasesPage() {
     return {
       log: filtered, totalRequests,
       deliveredCount: delivered.length, rejectedCount: rejected.length, pendingCount: pending.length, purchasedCount: purchased.length,
-      avgDeliveryHours, topRequester, topItems,
+      avgDeliveryHours, topRequesters, topItems,
     }
   }, [requests, adminStatsBranch, adminStatsMonth])
 
@@ -1036,10 +1051,17 @@ export default function MarketPurchasesPage() {
               </div>
             </div>
             <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 الأكثر طلبًا</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>
-                {adminStatsData.topRequester ? `${adminStatsData.topRequester[0]} (${adminStatsData.topRequester[1]} طلب)` : '—'}
-              </div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 الأكثر طلبًا (٥ أشخاص)</div>
+              {adminStatsData.topRequesters.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {adminStatsData.topRequesters.map(([name, count], i) => (
+                    <div key={i} style={{ fontSize: 12, fontWeight: 700, color: S.white, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{i + 1}. {name}</span>
+                      <span style={{ color: S.gold }}>{count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>—</div>}
             </div>
             <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📦 الأكثر طلبًا (٥ أصناف)</div>

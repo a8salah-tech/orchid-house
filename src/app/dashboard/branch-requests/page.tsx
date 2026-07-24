@@ -873,6 +873,18 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
   // ✅ Fix: إضافة أمين المستودع ومدير المستودعات لقائمة المسموح لهم بالتبادل بين الفروع
   const ALLOWED_EX_ROLES = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, 'warehouse_keeper', 'warehouse_manager']
 
+  // ✅ جديد: قائمة أصناف مستودع الفرع الحالي - لدعم البحث الذكي عند إضافة صنف، بنفس منطق مشتريات السوق
+  const [branchProducts, setBranchProducts] = useState<{ id: string; name: string; name_en?: string; unit_symbol?: string }[]>([])
+  const [suggestionsForRow, setSuggestionsForRow] = useState<number | null>(null)
+  useEffect(() => {
+    if (!myBranchId) return
+    sb.from('warehouses').select('id').eq('branch_id', myBranchId).maybeSingle().then(({ data: wh }: any) => {
+      if (!wh?.id) return
+      sb.from('warehouse_products').select('id, name, name_en, units(symbol)').eq('warehouse_id', wh.id).eq('is_active', true).order('name')
+        .then(({ data }: any) => setBranchProducts((data || []).map((p: any) => ({ id: p.id, name: p.name, name_en: p.name_en, unit_symbol: p.units?.symbol }))))
+    })
+  }, [sb, myBranchId])
+
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 860)
@@ -902,6 +914,9 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
       body,
       link: '/dashboard/warehouse/branch-requests',
       target_employee_id: targetEmployeeId,
+      // ✅ Fix حرج: عمود target_role له قيمة افتراضية "all" في قاعدة البيانات، فلو ما حددناهوش صراحةً
+      // بـ null، الإشعار الشخصي ده كان بيوصل لكل الموظفين (بما فيهم الكاشير) بدل الشخص المقصود بس
+      target_role: null,
     }])
   }
 
@@ -1116,12 +1131,39 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>📦 الأصناف</label>
               {newItems.map((it, i) => (
-                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
-                  <input value={it.item_name} onChange={e => updateItemRow(i, 'item_name', e.target.value)} placeholder="اسم الصنف"
-                    style={{ flex: 2, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'flex-start' }}>
+                  {/* ✅ Fix: بحث ذكي في أصناف مستودع الفرع بنفس منطق مشتريات السوق، مع إمكانية كتابة صنف حر جديد لو مش موجود */}
+                  <div style={{ flex: 2, position: 'relative' }}>
+                    <input value={it.item_name}
+                      onChange={e => { updateItemRow(i, 'item_name', e.target.value); setSuggestionsForRow(i) }}
+                      onFocus={() => setSuggestionsForRow(i)}
+                      onBlur={() => setTimeout(() => setSuggestionsForRow(null), 150)}
+                      placeholder="اسم الصنف"
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                    {suggestionsForRow === i && it.item_name.trim().length > 0 && (() => {
+                      const q = it.item_name.trim().toLowerCase()
+                      const matches = branchProducts.filter(p => p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q)).slice(0, 8)
+                      if (matches.length === 0) return null
+                      return (
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, marginTop: 4, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 8, maxHeight: 180, overflowY: 'auto', zIndex: 50, boxShadow: '0 8px 20px rgba(0,0,0,0.4)' }}>
+                          {matches.map(p => (
+                            <div key={p.id} onMouseDown={() => {
+                              updateItemRow(i, 'item_name', p.name)
+                              if (p.unit_symbol) updateItemRow(i, 'unit', p.unit_symbol)
+                              setSuggestionsForRow(null)
+                            }}
+                              style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: S.white, borderBottom: `1px solid ${S.border}` }}>
+                              📦 {p.name} {p.name_en && <span style={{ color: S.muted }}>({p.name_en})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                  </div>
                   <input type="number" value={it.quantity} onChange={e => updateItemRow(i, 'quantity', e.target.value)} placeholder="الكمية"
                     style={{ flex: 1, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
-                  <input value={it.unit} onChange={e => updateItemRow(i, 'unit', e.target.value)} placeholder="الوحدة"
+                  {/* ✅ Fix: توضيح إن الوحدة اختيارية (كانت اختيارية فعليًا في الحفظ، لكن مش واضح في الواجهة) */}
+                  <input value={it.unit} onChange={e => updateItemRow(i, 'unit', e.target.value)} placeholder="الوحدة (اختياري)"
                     style={{ flex: 1, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
                   {newItems.length > 1 && (
                     <button onClick={() => removeItemRow(i)} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '8px 10px', fontSize: 13, flexShrink: 0 }}>✕</button>

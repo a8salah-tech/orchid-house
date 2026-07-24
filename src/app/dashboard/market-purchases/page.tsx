@@ -125,6 +125,9 @@ export default function MarketPurchasesPage() {
       type: 'request', title, body,
       link: '/dashboard/market-purchases',
       target_employee_id: targetEmployeeId,
+      // ✅ Fix حرج: عمود target_role له قيمة افتراضية "all" في قاعدة البيانات، فلو ما حددناهوش صراحةً
+      // بـ null، الإشعار الشخصي ده كان بيوصل لكل الموظفين بدل الشخص المقصود بس
+      target_role: null,
     }])
   }
   async function sendNotifToRole(targetRole: string, title: string, body: string) {
@@ -670,8 +673,8 @@ export default function MarketPurchasesPage() {
             )}
           </button>
         )}
-        {/* ✅ جديد: تاب التقويم للإدارة */}
-        {isAdmin && (
+        {/* ✅ Fix: تاب التقويم أصبح متاحًا لأمين المستودع ومدير المستودعات كمان، مش الإدارة بس */}
+        {(isAdmin || ['warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')) && (
           <button onClick={() => setTab('calendar')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'calendar' ? S.gold : S.border}`, background: tab === 'calendar' ? S.gold3 : 'transparent', color: tab === 'calendar' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'calendar' ? 700 : 400 }}>
             📅 التقويم
@@ -1166,7 +1169,7 @@ export default function MarketPurchasesPage() {
       )}
 
       {/* ── Calendar Tab ── */}
-      {tab === 'calendar' && isAdmin && (
+      {tab === 'calendar' && (isAdmin || ['warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')) && (
         <div>
           {branches.length > 0 && (
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>

@@ -1131,15 +1131,20 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>📦 الأصناف</label>
               {newItems.map((it, i) => (
-                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'flex-start' }}>
+                <div key={i} style={{
+                  display: 'flex', gap: 6, marginBottom: 10, alignItems: 'flex-start',
+                  // ✅ Fix: على الموبايل، الحقول كانت متزاحمة جدًا في صف واحد ضيق - أصبحت ترتّب عموديًا بدل كده
+                  flexDirection: isMobile ? 'column' : 'row',
+                  background: isMobile ? S.card : 'transparent', borderRadius: isMobile ? 10 : 0, padding: isMobile ? 10 : 0,
+                }}>
                   {/* ✅ Fix: بحث ذكي في أصناف مستودع الفرع بنفس منطق مشتريات السوق، مع إمكانية كتابة صنف حر جديد لو مش موجود */}
-                  <div style={{ flex: 2, position: 'relative' }}>
+                  <div style={{ flex: isMobile ? undefined : 2, width: isMobile ? '100%' : undefined, position: 'relative' }}>
                     <input value={it.item_name}
                       onChange={e => { updateItemRow(i, 'item_name', e.target.value); setSuggestionsForRow(i) }}
                       onFocus={() => setSuggestionsForRow(i)}
                       onBlur={() => setTimeout(() => setSuggestionsForRow(null), 150)}
                       placeholder="اسم الصنف"
-                      style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
                     {suggestionsForRow === i && it.item_name.trim().length > 0 && (() => {
                       const q = it.item_name.trim().toLowerCase()
                       const matches = branchProducts.filter(p => p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q)).slice(0, 8)
@@ -1152,7 +1157,7 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
                               if (p.unit_symbol) updateItemRow(i, 'unit', p.unit_symbol)
                               setSuggestionsForRow(null)
                             }}
-                              style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, color: S.white, borderBottom: `1px solid ${S.border}` }}>
+                              style={{ padding: '9px 10px', cursor: 'pointer', fontSize: 12, color: S.white, borderBottom: `1px solid ${S.border}` }}>
                               📦 {p.name} {p.name_en && <span style={{ color: S.muted }}>({p.name_en})</span>}
                             </div>
                           ))}
@@ -1160,14 +1165,17 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
                       )
                     })()}
                   </div>
-                  <input type="number" value={it.quantity} onChange={e => updateItemRow(i, 'quantity', e.target.value)} placeholder="الكمية"
-                    style={{ flex: 1, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
-                  {/* ✅ Fix: توضيح إن الوحدة اختيارية (كانت اختيارية فعليًا في الحفظ، لكن مش واضح في الواجهة) */}
-                  <input value={it.unit} onChange={e => updateItemRow(i, 'unit', e.target.value)} placeholder="الوحدة (اختياري)"
-                    style={{ flex: 1, boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
-                  {newItems.length > 1 && (
-                    <button onClick={() => removeItemRow(i)} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '8px 10px', fontSize: 13, flexShrink: 0 }}>✕</button>
-                  )}
+                  {/* ✅ الكمية والوحدة وزرار الحذف في صف فرعي واحد على الموبايل، بدل ما يتزاحموا مع اسم الصنف */}
+                  <div style={{ display: 'flex', gap: 6, width: isMobile ? '100%' : undefined }}>
+                    <input type="number" value={it.quantity} onChange={e => updateItemRow(i, 'quantity', e.target.value)} placeholder="الكمية"
+                      style={{ flex: 1, boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                    {/* ✅ Fix: توضيح إن الوحدة اختيارية (كانت اختيارية فعليًا في الحفظ، لكن مش واضح في الواجهة) */}
+                    <input value={it.unit} onChange={e => updateItemRow(i, 'unit', e.target.value)} placeholder="الوحدة (اختياري)"
+                      style={{ flex: 1, boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                    {newItems.length > 1 && (
+                      <button onClick={() => removeItemRow(i)} style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', padding: '9px 12px', fontSize: 13, flexShrink: 0 }}>✕</button>
+                    )}
+                  </div>
                 </div>
               ))}
               <button onClick={addItemRow} style={{ padding: '7px 14px', borderRadius: 8, border: `1px dashed ${S.gold}`, background: 'transparent', color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>

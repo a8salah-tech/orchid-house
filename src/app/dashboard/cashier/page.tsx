@@ -139,7 +139,7 @@ function lastOrderTime(order?: Order | null): string | null {
 }
 
 // ══ Payment Modal ══
-function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; onClose: () => void; onPaid: () => void; onTransfer: (order: Order) => void }) {
+function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onTransfer: (order: Order) => void; tables?: TableRow[] }) {
   const sb = createClient()
   const { employee, permissions } = useAuth()
   const isCashierRole = permissions?.all === true || ['cashier', 'assistant_cashier'].includes(employee?.role || '')
@@ -177,6 +177,65 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
   const [personPaid, setPersonPaid] = useState<Record<number, boolean>>({})
   // ✅ مودال تأكيد الدفع (بدل window.confirm) - عشان يظهر منسق في نص الشاشة
   const [confirmAction, setConfirmAction] = useState<'pay' | 'split' | null>(null)
+  // ✅ جديد: نقل أصناف محددة (مش الطلب كله) لطاولة تانية شغالة بالفعل - مختلف عن "Transfer" اللي بينقل الطلب كامل لطاولة فاضية
+  const [showMoveItems, setShowMoveItems] = useState(false)
+  const [moveSelectedIds, setMoveSelectedIds] = useState<Set<string>>(new Set())
+  const [moveDestTableId, setMoveDestTableId] = useState('')
+  const [movingItems, setMovingItems] = useState(false)
+
+  async function moveSelectedItemsToTable() {
+    if (moveSelectedIds.size === 0 || !moveDestTableId) return
+    const destTable = (tables || []).find(t => t.id === moveDestTableId)
+    if (!destTable) return
+    if (!confirm(`نقل ${moveSelectedIds.size} صنف إلى Table ${destTable.number}؟`)) return
+    setMovingItems(true)
+    const fullName = [employee?.name, (employee as any)?.name_en].filter(Boolean).join(' ') || 'غير معروف'
+    const sourceTableLabel = order.tables?.name || `Table ${order.tables?.number}`
+
+    // ✅ نجيب الطلب النشط للطاولة الوجهة - لو مفيش، ننشئ طلب جديد فارغ ليها ونشغّلها
+    let destOrderId: string
+    const { data: destActiveOrder } = await sb.from('orders')
+      .select('id').eq('table_id', destTable.id).in('status', ['confirmed','preparing','ready']).limit(1).maybeSingle()
+    if (destActiveOrder?.id) {
+      destOrderId = destActiveOrder.id
+    } else {
+      const { data: newOrder } = await sb.from('orders').insert([{
+        table_id: destTable.id, status: 'confirmed', total_amount: 0, shift: 'shift1',
+      }]).select('id').single()
+      destOrderId = newOrder!.id
+      await sb.from('tables').update({ status: 'occupied', current_order_id: destOrderId, occupied_since: new Date().toISOString() }).eq('id', destTable.id)
+    }
+
+    // ✅ ننقل كل صنف مختار: نغيّر order_id بتاعه للطلب الوجهة، ونضيف ملاحظة توضح المصدر ومين نقله
+    for (const itemId of moveSelectedIds) {
+      const item = order.order_items.find(i => i.id === itemId)
+      const moveNote = `📤 نُقل من ${sourceTableLabel} بواسطة ${fullName}`
+      const combinedNotes = item?.notes ? `${item.notes} — ${moveNote}` : moveNote
+      await sb.from('order_items').update({ order_id: destOrderId, notes: combinedNotes }).eq('id', itemId)
+    }
+
+    // ✅ إعادة حساب إجمالي الطلبين (المصدر والوجهة) بعد النقل
+    const { data: destItems } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', destOrderId)
+    const destTotal = (destItems || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
+    await sb.from('orders').update({ total_amount: destTotal }).eq('id', destOrderId)
+
+    const { data: srcItems } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', order.id)
+    const srcActiveItems = (srcItems || []).filter(i => i.status !== 'cancelled')
+    const srcTotal = srcActiveItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+    await sb.from('orders').update({ total_amount: srcTotal }).eq('id', order.id)
+
+    // ✅ جديد: لو الطاولة المصدر بقت من غير أي أصناف نشطة بعد النقل، نقفل طلبها ونرجّعها "فاضية" تلقائيًا
+    if (srcActiveItems.length === 0) {
+      await sb.from('orders').update({ status: 'done' }).eq('id', order.id)
+      await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', order.table_id)
+    }
+
+    setMovingItems(false)
+    setShowMoveItems(false)
+    setMoveSelectedIds(new Set())
+    setMoveDestTableId('')
+    onPaid() // نعيد تحميل البيانات وإغلاق المودال، بنفس أثر إتمام أي عملية
+  }
 
   useEffect(() => {
     sb.from('customers').select('id,name,phone,email,loyalty_points').order('name').limit(200)
@@ -344,6 +403,25 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
       current_order_id: null,
       occupied_since: null,
     }).eq('id', order.table_id)
+
+    // ✅ جديد: لو الفاتورة كانت مدموجة من طاولتين، نغلق طلبات الطاولة الشريكة كمان ونعيدها متاحة، ونفك الدمج تلقائيًا
+    if (order.mergedTableId) {
+      await sb.from('orders').update({
+        status: 'paid',
+        payment_method: discountType === 'free' ? 'free' : method,
+        card_bank: method === 'visa' ? (cardBank || null) : null,
+        paid_at: new Date().toISOString(),
+        customer_id: selectedCustomer?.id || null,
+        paid_by: employee?.id || null,
+        paid_by_name: employee?.name || null,
+      }).eq('table_id', order.mergedTableId).in('status', ['confirmed','preparing','ready'])
+      await sb.from('tables').update({
+        status: 'available', current_order_id: null, occupied_since: null,
+      }).eq('id', order.mergedTableId)
+      if (order.mergeId) {
+        await sb.from('table_merges').update({ unmerged_at: new Date().toISOString() }).eq('id', order.mergeId)
+      }
+    }
 
     setSaving(false)
     onPaid()
@@ -712,11 +790,56 @@ function PaymentModal({ order, onClose, onPaid, onTransfer }: { order: Order; on
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={printReceipt} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
+        {/* ✅ جديد: لوحة اختيار الأصناف المراد نقلها لطاولة تانية شغالة بالفعل */}
+        {showMoveItems && (
+          <div style={{ background: S.card, borderRadius: 12, padding: 14, marginBottom: 14, border: `1px solid ${S.amber}40` }}>
+            <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 10 }}>📤 اختر الأصناف المطلوب نقلها، ثم حدد الطاولة الوجهة</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+              {order.order_items.filter(i => i.status !== 'cancelled').map(item => (
+                <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={moveSelectedIds.has(item.id)}
+                    onChange={e => setMoveSelectedIds(prev => {
+                      const next = new Set(prev)
+                      if (e.target.checked) next.add(item.id); else next.delete(item.id)
+                      return next
+                    })} />
+                  <span style={{ fontSize: 12, color: S.white }}>{item.menu_items?.name_en || item.menu_items?.name} ×{item.quantity} — MYR {(item.unit_price * item.quantity).toFixed(2)}</span>
+                </label>
+              ))}
+            </div>
+            <select value={moveDestTableId} onChange={e => setMoveDestTableId(e.target.value)}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'inherit', marginBottom: 10 }}>
+              <option value="">-- Select destination table --</option>
+              {(tables || []).filter(t => t.id !== order.table_id && t.branch_id === (tables || []).find(x => x.id === order.table_id)?.branch_id).map(t => (
+                <option key={t.id} value={t.id}>Table {t.number} — {t.name || ''}</option>
+              ))}
+            </select>
+            <button onClick={moveSelectedItemsToTable} disabled={moveSelectedIds.size === 0 || !moveDestTableId || movingItems}
+              style={{ width: '100%', padding: '10px', borderRadius: 10, border: 'none', background: S.amber, color: S.navy, cursor: (moveSelectedIds.size === 0 || !moveDestTableId) ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 800, opacity: (moveSelectedIds.size === 0 || !moveDestTableId) ? 0.5 : 1 }}>
+              {movingItems ? '⏳ جاري النقل...' : `📤 نقل ${moveSelectedIds.size} صنف`}
+            </button>
+          </div>
+        )}
+
+        {/* ✅ Fix: الأزرار الثانوية (طباعة/تحويل/نقل) بقت في صف مستقل متساوي الحجم بدل ما تكون مستطيلة ومزاحمة زرار الدفع */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <button onClick={printReceipt} style={{ flex: 1, padding: '12px 6px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <span style={{ fontSize: 18 }}>🖨️</span> Print
+          </button>
           {isCashierRole && (
-            <button onClick={() => onTransfer(order)} style={{ padding: '12px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔄 Transfer</button>
+            <button onClick={() => onTransfer(order)} style={{ flex: 1, padding: '12px 6px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: 18 }}>🔄</span> Transfer
+            </button>
           )}
+          {/* ✅ جديد: نقل أصناف محددة (مش الطلب كله) - يقدر ينقلها لطاولة شغالة بالفعل، عكس Transfer اللي بيشترط طاولة فاضية */}
+          {isCashierRole && tables && (
+            <button onClick={() => setShowMoveItems(v => !v)} style={{ flex: 1, padding: '12px 6px', borderRadius: 12, border: `1px solid ${S.amber}`, background: showMoveItems ? S.amber : S.amberB, color: showMoveItems ? S.navy : S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: 18 }}>📤</span> Move
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10 }}>
           {splitMode && isCashierRole ? (
             <button onClick={paySplit} disabled={saving || !allSplitPeoplePaid || unassignedItemsCount > 0} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: (allSplitPeoplePaid && unassignedItemsCount === 0) ? `linear-gradient(135deg, ${S.gold}, ${S.gold2})` : S.border, color: (allSplitPeoplePaid && unassignedItemsCount === 0) ? S.navy : S.muted, cursor: (allSplitPeoplePaid && unassignedItemsCount === 0) ? 'pointer' : 'not-allowed', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
               {saving ? '⏳...' : '✅ Finalize Split Bill'}
@@ -1132,6 +1255,8 @@ export default function CashierPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [tables, setTables] = useState<TableRow[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  // ✅ جديد: قائمة الدمجات النشطة حاليًا بين الطاولات (فاتورة موحدة مؤقتة)
+  const [activeMerges, setActiveMerges] = useState<{ id: string; primary_table_id: string; merged_table_id: string }[]>([])
   const tablesRef = useRef<TableRow[]>([])
   useEffect(() => { tablesRef.current = tables }, [tables])
   const [loading, setLoading] = useState(true)
@@ -1234,6 +1359,8 @@ export default function CashierPage() {
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [transferOrder, setTransferOrder] = useState<Order | null>(null)
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
+  // ✅ جديد: الطاولة اللي بندمجها حاليًا (يفتح مودال اختيار الطاولة الشريكة)
+  const [mergePickerTable, setMergePickerTable] = useState<TableRow | null>(null)
   const [view, setView] = useState<'orders' | 'tables' | 'archive'>('tables')
   // ✅ تاب الأرشيف - بحث في الفواتير المقفولة (مدفوعة/ملغية) بالتاريخ أو رقم الطاولة
   const [archiveDate, setArchiveDate] = useState('')
@@ -1300,8 +1427,40 @@ export default function CashierPage() {
       : ((activeRes.data as any) || []).filter((o: any) => allowedTableIds.has(o.table_id))
     setOrders(filteredOrders)
     setTables(allowedTables)
+    // ✅ جديد: جلب الدمجات النشطة (اللي لسه ما اتفكتش) للطاولات المتاحة لهذا المستخدم
+    if (allowedTableIds.size > 0) {
+      const { data: mergesData } = await sb.from('table_merges')
+        .select('id, primary_table_id, merged_table_id')
+        .is('unmerged_at', null)
+      setActiveMerges((mergesData || []).filter((m: any) => allowedTableIds.has(m.primary_table_id) || allowedTableIds.has(m.merged_table_id)))
+    }
     setLoading(false)
   }, [sb, isAdmin, employee?.branch_id])
+
+  // ✅ جديد: إيجاد الطاولة الشريكة المدموجة مع طاولة معينة (لو موجودة) - بيرجع null لو الطاولة مش مدموجة
+  function getMergePartnerTableId(tableId: string): string | null {
+    const m = activeMerges.find(m => m.primary_table_id === tableId || m.merged_table_id === tableId)
+    if (!m) return null
+    return m.primary_table_id === tableId ? m.merged_table_id : m.primary_table_id
+  }
+
+  // ✅ جديد: دمج طاولتين مؤقتًا في فاتورة واحدة موحدة
+  async function mergeTables(tableA: string, tableB: string) {
+    const fullName = [employee?.name, (employee as any)?.name_en].filter(Boolean).join(' ') || 'غير معروف'
+    const branchId = tablesRef.current.find(t => t.id === tableA)?.branch_id || null
+    const { error } = await sb.from('table_merges').insert([{
+      primary_table_id: tableA, merged_table_id: tableB, branch_id: branchId, merged_by_name: fullName,
+    }])
+    if (error) { alert('حصل خطأ أثناء الدمج: ' + error.message); return }
+    await fetchAll()
+  }
+
+  // ✅ جديد: فك دمج الطاولتين (بدون التأثير على الطلبات نفسها، فقط إلغاء الربط المؤقت)
+  async function unmergeTables(mergeId: string) {
+    if (!confirm('هل أنت متأكد من فك دمج الطاولتين؟ ستعود كل طاولة مستقلة بفاتورتها.')) return
+    await sb.from('table_merges').update({ unmerged_at: new Date().toISOString() }).eq('id', mergeId)
+    await fetchAll()
+  }
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
@@ -1637,6 +1796,10 @@ export default function CashierPage() {
                 const activeOrder = orders.find(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
                 const status = activeOrder ? 'occupied' : (table.status || 'available')
                 const isUnseen = unseenTableIds.has(table.id)
+                // ✅ جديد: التحقق من وجود طاولة مدموجة مع هذه الطاولة حاليًا
+                const mergePartnerId = getMergePartnerTableId(table.id)
+                const mergeRecord = activeMerges.find(m => m.primary_table_id === table.id || m.merged_table_id === table.id)
+                const partnerTable = mergePartnerId ? tablesRef.current.find(t => t.id === mergePartnerId) : null
                 const statusColors: Record<string, { color: string; bg: string; border: string }> = {
                   available: { color: S.green, bg: S.greenB, border: S.green + '60' },
                   reserved:  { color: S.amber, bg: S.amberB, border: S.amber + '60' },
@@ -1650,11 +1813,17 @@ export default function CashierPage() {
                       if (isUnseen) setUnseenTableIds(prev => { const next = new Set(prev); next.delete(table.id); return next })
                       if (activeOrder) {
                         // جيب كل الطلبات النشطة للطاولة
-                        const tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
+                        let tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
+                        // ✅ جديد: لو الطاولة مدموجة مع طاولة تانية، نضيف طلبات الطاولة الشريكة كمان لنفس الفاتورة
+                        if (mergePartnerId) {
+                          const partnerOrders = orders.filter(o => o.table_id === mergePartnerId && ['confirmed','preparing','ready'].includes(o.status))
+                          tableOrders = [...tableOrders, ...partnerOrders]
+                        }
                         if (tableOrders.length > 1) {
                           // دمج الطلبات في طلب واحد للعرض
                           const merged = { ...tableOrders[0], order_items: tableOrders.flatMap(o => o.order_items), total_amount: tableOrders.reduce((s,o) => s + (o.total_amount||0), 0) }
-                          setPayOrder(merged as any)
+                          // ✅ جديد: نمرر معرّف الطاولة الشريكة عشان مودال الدفع يقدر يقفل الطاولتين مع بعض عند الدفع
+                          setPayOrder(mergePartnerId ? { ...merged, mergedTableId: mergePartnerId, mergeId: mergeRecord?.id } as any : merged as any)
                         } else {
                           setPayOrder(activeOrder)
                         }
@@ -1666,6 +1835,12 @@ export default function CashierPage() {
                     {isUnseen && (
                       <div style={{ position: 'absolute', top: -8, right: -8, background: S.gold, color: S.navy, borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, boxShadow: '0 2px 8px rgba(0,0,0,0.3)', animation: 'popIn .25s ease-out' }}>
                         🆕
+                      </div>
+                    )}
+                    {/* ✅ جديد: شارة الدمج - تظهر لو الطاولة مدموجة مع طاولة تانية حاليًا */}
+                    {partnerTable && (
+                      <div style={{ position: 'absolute', top: -8, left: -8, background: S.gold, color: S.navy, borderRadius: 8, padding: '2px 6px', fontSize: 9, fontWeight: 900, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
+                        🔗 {partnerTable.number}
                       </div>
                     )}
                     {/* Table number in circle */}
@@ -1681,6 +1856,25 @@ export default function CashierPage() {
                     )}
                     {activeOrder && (
                       <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {(activeOrder.total_amount || 0).toFixed(2)}</div>
+                    )}
+                    {/* ✅ جديد: زر دمج/فك دمج - يظهر بس للطاولات المشغولة، ولا يفتح فاتورة الدفع عند الضغط عليه (توقف الحدث) */}
+                    {isCashierRole && activeOrder && (
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 6 }}>
+                        <button onClick={e => {
+                          e.stopPropagation()
+                          if (mergeRecord) { unmergeTables(mergeRecord.id) }
+                          else { setMergePickerTable(table) }
+                        }}
+                          style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${mergeRecord ? S.red : S.gold}60`, background: 'transparent', color: mergeRecord ? S.red : S.gold, cursor: 'pointer', fontSize: 9, fontFamily: 'inherit' }}>
+                          {mergeRecord ? '🔗 Unmerge' : '🔗 Merge'}
+                        </button>
+                        {/* ✅ جديد: يسمح للكاشير بإضافة طلب جديد على الطاولة حتى لو كانت مشغولة بالفعل (بدل ما يضطر يدخل شاشة الدفع بس) */}
+                        <button onClick={e => { e.stopPropagation(); setAddOrderTable(table) }}
+                          title="Add another order to this table"
+                          style={{ padding: '3px 9px', borderRadius: 6, border: `1px solid ${S.green}60`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', fontWeight: 800 }}>
+                          +
+                        </button>
+                      </div>
                     )}
                   </div>
                 )
@@ -1849,7 +2043,7 @@ export default function CashierPage() {
       </div>
 
       {/* Modals */}
-      {payOrder && <PaymentModal order={payOrder} onClose={() => setPayOrder(null)} onPaid={() => {
+      {payOrder && <PaymentModal order={payOrder} tables={tables} onClose={() => setPayOrder(null)} onPaid={() => {
         const paidTableId = payOrder.table_id
         setPayOrder(null)
         // فوراً امسح الطلبات المدفوعة من الـ state
@@ -1869,6 +2063,33 @@ export default function CashierPage() {
         />
       )}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
+      {/* ✅ جديد: مودال اختيار الطاولة الشريكة للدمج المؤقت */}
+      {mergePickerTable && (
+        <div onClick={() => setMergePickerTable(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 20, maxWidth: 420, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: S.gold, marginBottom: 4 }}>🔗 دمج طاولة {mergePickerTable.number} مع...</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>سيتم دمج فاتورتي الطاولتين في فاتورة واحدة موحدة مؤقتًا</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {tables
+                // ✅ Fix حرج: نتأكد إن قائمة الدمج تعرض طاولات نفس الفرع بس، عشان ما يتخلطش فرع بفرع (خصوصًا للأدمن اللي بيشوف كل الفروع)
+                .filter(t => t.id !== mergePickerTable.id && !getMergePartnerTableId(t.id) && t.branch_id === mergePickerTable.branch_id)
+                .map(t => {
+                  const tOrder = orders.find(o => o.table_id === t.id && ['confirmed','preparing','ready'].includes(o.status))
+                  return (
+                    <button key={t.id} onClick={async () => { await mergeTables(mergePickerTable.id, t.id); setMergePickerTable(null) }}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.white, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', textAlign: 'right' }}>
+                      <span>Table {t.number} — {t.name || ''}</span>
+                      <span style={{ fontSize: 11, color: tOrder ? S.red : S.green }}>{tOrder ? '🔴 Occupied' : '🟢 Available'}</span>
+                    </button>
+                  )
+                })}
+            </div>
+            <button onClick={() => setMergePickerTable(null)} style={{ width: '100%', marginTop: 14, padding: '10px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
+              إلغاء
+            </button>
+          </div>
+        </div>
+      )}
       {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => {
         setShowShiftReport(false); setShiftStarted(false); setShiftStart(null)
         localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start')

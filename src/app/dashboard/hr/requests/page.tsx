@@ -487,8 +487,8 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
 }
 
 // ══ Request Detail Modal ══
-function RequestDetailModal({ request, currentUser, isAdmin, onClose, onUpdate, onDelete }: {
-  request: EmployeeRequest; currentUser?: { id?: string; name?: string; name_en?: string }; isAdmin?: boolean; onClose: () => void; onUpdate: () => void; onDelete: () => void
+function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSupervisor, onClose, onUpdate, onDelete }: {
+  request: EmployeeRequest; currentUser?: { id?: string; name?: string; name_en?: string }; isAdmin?: boolean; isDeptManager?: boolean; isSupervisor?: boolean; onClose: () => void; onUpdate: () => void; onDelete: () => void
 }) {
   const supabase = createClient()
   const { isAr } = useLang()
@@ -498,9 +498,12 @@ function RequestDetailModal({ request, currentUser, isAdmin, onClose, onUpdate, 
   const [showReject, setShowReject] = useState(false)
   // ✅ الموظف لا يقدر يعتمد/يرفض طلبه الخاص (لأي نوع طلب)
   const isOwnRequest = currentUser?.id === request.employee_id
-  // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط
+  // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط - زي ما هي بالظبط، من غير أي تغيير
   const isSalaryAdvance = request.request_type === 'salary_advance'
-  const canTakeAction = !isOwnRequest && (!isSalaryAdvance || isAdmin)
+  // ✅ تسلسل بسيط: مدير القسم (أو الأدمن) هو المعتمد الوحيد لكل طلبات الموظفين - المشرف ملوش اعتماد خالص
+  const canTakeAction = !isOwnRequest && (
+    isSalaryAdvance ? isAdmin : (isAdmin || isDeptManager)
+  )
 
   async function deleteRequest() {
     if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return
@@ -546,10 +549,19 @@ function RequestDetailModal({ request, currentUser, isAdmin, onClose, onUpdate, 
       // ✅ التصحيح اليدوي المعتمد من المدير يُعتبر حضورًا سليمًا (يلغي حالة "متأخر" القديمة)
       if (checkinMatch?.[1]) { updateData.status = 'present'; updateData.late_minutes = 0 }
       if (Object.keys(updateData).length > 2) {
-        await supabase.from('attendance')
-          .update(updateData)
-          .eq('employee_id', request.employee_id)
-          .eq('date', request.start_date)
+        // ✅ Fix حرج جدًا: كان بيستخدم .update() بس، واللي بيشتغل بس لو فيه سجل حضور موجود بالفعل لنفس اليوم.
+        // لكن "تصحيح حضور" غالبًا معناه إن الموظف نسي يسجل خالص (مفيش سجل من الأساس)، فالتحديث كان يفشل بصمت
+        // من غير أي خطأ ظاهر، والموافقة تتسجل بس التصحيح الفعلي ميحصلش في أي مكان. الحل: نتحقق الأول هل
+        // السجل موجود، ولو مش موجود ننشئ سجل حضور جديد بدل ما نحاول نحدّث حاجة مش موجودة أصلاً.
+        const { data: existingAttendance } = await supabase.from('attendance')
+          .select('id').eq('employee_id', request.employee_id).eq('date', request.start_date).maybeSingle()
+        if (existingAttendance?.id) {
+          await supabase.from('attendance').update(updateData).eq('id', existingAttendance.id)
+        } else {
+          await supabase.from('attendance').insert([{
+            employee_id: request.employee_id, date: request.start_date, ...updateData,
+          }])
+        }
       }
     }
 
@@ -846,8 +858,10 @@ export default function EmployeeRequestsPage() {
   const isAdmin = permissions?.all === true
   const isBranchManager = currentUser?.role === 'branch_manager'
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
+  // ✅ جديد: تعريف المشرف - كان مفقود تمامًا، وده سبب عدم رؤيته لطلبات فريقه خالص من الأساس
+  const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
   const isManager = isAdmin
-  const isEmployee = !isAdmin && !isBranchManager && !isDeptManager
+  const isEmployee = !isAdmin && !isBranchManager && !isDeptManager && !isSupervisor
   // ✅ الرؤية وتقديم الطلب: تعتمد على صلاحية ديناميكية من صفحة "إدارة الصلاحيات" + admin دائمًا
   // (الاعتماد الفعلي/الموافقة يبقى مقصورًا على admin فقط بدون استثناء — داخل RequestDetailModal)
   const canSeeSalaryIncrease = isAdmin || permissions?.salary_increase_requests === true
@@ -867,11 +881,16 @@ export default function EmployeeRequestsPage() {
   const [filterBranch, setFilterBranch] = useState('all')
   const [branches, setBranches] = useState<{id:string;name:string}[]>([])
   const [search, setSearch] = useState('')
+  // ✅ جديد: اختيار شهر محدد لطباعة تقرير سلف الراتب - فاضي معناه كل الشهور (السلوك القديم)
+  const [printAdvancesMonth, setPrintAdvancesMonth] = useState('')
 
   // ══ تقرير سلف الراتب الشامل: مجمّع بالشهر ثم الفرع، مع إجماليات وتقسيم صفحات كل 20 صف ══
   function printAllSalaryAdvances() {
-    const advances = requests.filter(r => r.request_type === 'salary_advance')
-    if (advances.length === 0) { alert('لا توجد طلبات سلفة راتب لطباعتها'); return }
+    // ✅ Fix: تصفية بالشهر المختار قبل أي تجميع - كان بيطبع كل الشهور مع بعض دايمًا بدون خيار تحديد شهر واحد
+    const advances = requests
+      .filter(r => r.request_type === 'salary_advance')
+      .filter(r => !printAdvancesMonth || r.created_at?.slice(0, 7) === printAdvancesMonth)
+    if (advances.length === 0) { alert(printAdvancesMonth ? 'لا توجد طلبات سلفة راتب في هذا الشهر' : 'لا توجد طلبات سلفة راتب لطباعتها'); return }
 
     // تجميع حسب الشهر (YYYY-MM) أولاً
     const byMonth: Record<string, EmployeeRequest[]> = {}
@@ -989,7 +1008,7 @@ export default function EmployeeRequestsPage() {
       const ids = (branchEmployees || []).map(e => e.id)
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else if (isDeptManager) {
-      // مدير القسم يشوف طلبات موظفي قسمه في فرعه فقط (بما فيه هو)
+      // مدير القسم يشوف طلبات موظفي قسمه في فرعه فقط (بما فيه هو) - هو المعتمد الوحيد لكل طلبات الموظفين
       // نجيب كل موظفي الفرع، ونفلتر بالقسم بعد توحيد الاسم (عربي/إنجليزي) لتجنب اختلاف الصيغة
       const { data: branchEmployees } = await supabase.from('employees').select('id, department').eq('branch_id', myBranchId)
       const myDeptNormalized = normalizeDept(myDept)
@@ -998,7 +1017,7 @@ export default function EmployeeRequestsPage() {
         .map(e => e.id)
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else {
-      // الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط
+      // ✅ الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط - المشرف مش له اعتماد، مدير القسم بس
       reqQuery = reqQuery.eq('employee_id', myId)
     }
 
@@ -1011,7 +1030,7 @@ export default function EmployeeRequestsPage() {
     setEmployees(emp.data || [])
     setBranches(br.data || [])
     setLoading(false)
-  }, [isAdmin, isBranchManager, isDeptManager, currentUser?.id, currentUser?.branch_id, currentUser?.department])
+  }, [isAdmin, isBranchManager, isDeptManager, isSupervisor, currentUser?.id, currentUser?.branch_id, currentUser?.department])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -1065,7 +1084,13 @@ export default function EmployeeRequestsPage() {
   )}
   <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
   {isAdmin && (
-    <button onClick={printAllSalaryAdvances} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🖨️ تقرير السلف الشامل' : '🖨️ Full Advances Report'}</button>
+    <>
+      {/* ✅ جديد: اختيار شهر محدد قبل الطباعة - فاضي معناه كل الشهور مع بعض زي القديم */}
+      <input type="month" value={printAdvancesMonth} onChange={e => setPrintAdvancesMonth(e.target.value)}
+        title="اختر شهرًا لطباعته فقط (اتركه فاضيًا لكل الشهور)"
+        style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+      <button onClick={printAllSalaryAdvances} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🖨️ تقرير السلف الشامل' : '🖨️ Full Advances Report'}</button>
+    </>
   )}
 </div>
       </div>
@@ -1215,7 +1240,7 @@ export default function EmployeeRequestsPage() {
 {showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
   <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />
 )}
-      {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} isAdmin={isAdmin} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
+      {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} isAdmin={isAdmin} isDeptManager={isDeptManager} isSupervisor={isSupervisor} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
 } 

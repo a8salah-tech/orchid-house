@@ -75,6 +75,8 @@ export default function CustomerMenuPage() {
   const [submitting, setSubmitting] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
+  // ✅ جديد: عناصر الطلب الكاملة (كل الجولات مجمّعة) من قاعدة البيانات - بدل الاعتماد على السلة المحلية اللي بتتصفّر مع كل طلب جديد
+  const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null }[]>([])
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
@@ -98,6 +100,18 @@ export default function CustomerMenuPage() {
     return () => clearInterval(id)
   }, [])
 
+  // ✅ جديد: جلب كل أصناف طلب معيّن (كل الجولات) من قاعدة البيانات، عشان نعرضها كاملة مهما كان عدد مرات الطلب
+  async function fetchLiveOrderItems(orderId: string) {
+    const { data } = await sb.from('order_items')
+      .select('id, quantity, unit_price, size_name, status, menu_items(name, name_en)')
+      .eq('order_id', orderId)
+      .neq('status', 'cancelled')
+    setLiveOrderItems((data || []).map((i: any) => ({
+      id: i.id, quantity: i.quantity, unit_price: i.unit_price, size_name: i.size_name,
+      name: i.menu_items?.name_en || i.menu_items?.name || '',
+    })))
+  }
+
   useEffect(() => {
     async function load() {
       const { data: tbl } = await sb.from('tables').select('*').eq('id', tableId).single()
@@ -109,6 +123,18 @@ export default function CustomerMenuPage() {
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
+      // ✅ جديد: لو الطاولة عندها طلب نشط بالفعل (لسه ما اتقفلش من الكاشير)، نعرض شاشة "تم التأكيد" مباشرة
+      // بدل المنيو من الصفر - يفضل الطلب ظاهر للعميل طول ما الطاولة مفتوحة، حتى لو قفل الصفحة وفتحها تاني
+      const { data: existingOrders } = await sb.from('orders')
+        .select('id').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
+        .order('created_at', { ascending: false }).limit(1)
+      const existing = existingOrders?.[0]
+      if (existing) {
+        setConfirmedOrderId(existing.id)
+        setOrderNumber(existing.id.slice(-6).toUpperCase())
+        await fetchLiveOrderItems(existing.id)
+        setPhase('done')
+      }
       setLoading(false)
     }
     if (tableId) load()
@@ -415,6 +441,9 @@ const filteredItems = items
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
     setConfirmedOrderId(orderId)
+    // ✅ جديد: نجيب كل أصناف الطلب المتراكمة (كل الجولات) من قاعدة البيانات، عشان شاشة التأكيد تعرض الطلب كاملاً
+    // مش بس الجولة الحالية اللي طلبها العميل دلوقتي - كده ملحقاش تختفي أصناف الجولة الأولى من شاشته
+    await fetchLiveOrderItems(orderId)
     // ✅ تسجيل IP وuser-agent وموديل الجهاز (لو متاح - أندرويد+Chrome بس) للأوردر ده - في الخلفية
     ;(async () => {
       let deviceModel: string | null = null
@@ -487,15 +516,21 @@ const filteredItems = items
           </div>
           <div style={{ background:`rgba(255,255,255,.03)`, borderRadius:16, padding:16 }}>
             <div style={{ color:C.silver2, fontSize:10, marginBottom:12, letterSpacing:2 }}>ORDER SUMMARY</div>
-            {cart.map(c => (
-              <div key={c.item.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:`1px solid ${C.border}`, fontSize:13 }}>
-                <span style={{ color:C.white2 }}>{c.item.name_en || c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
-                <span style={{ color:C.blue1, fontWeight:700 }}>MYR {((c.selectedSize ? c.selectedSize.price : c.item.price) * c.quantity).toFixed(2)}</span>
+            {liveOrderItems.map(c => (
+              <div key={c.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:`1px solid ${C.border}`, fontSize:13 }}>
+                <span style={{ color:C.white2 }}>{c.name}{c.size_name ? ` (${c.size_name})` : ''} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
+                <span style={{ color:C.blue1, fontWeight:700 }}>MYR {(c.unit_price * c.quantity).toFixed(2)}</span>
               </div>
             ))}
           </div>
           <p style={{ color:C.silver2, fontSize:12, marginTop:20 }}>A team member will serve you shortly 🙏</p>
         </div>
+
+        {/* ✅ جديد: زر واضح للرجوع للمنيو وطلب المزيد - ضروري بعد ما خلينا الطلب يفضل ظاهر عند فتح الصفحة تاني */}
+        <button onClick={() => setPhase('menu')}
+          style={{ width:'100%', marginTop:16, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:16, padding:'14px', color:C.white, fontWeight:800, fontSize:14, cursor:'pointer', boxShadow:`0 6px 20px ${C.glow2}` }}>
+          ➕ Order More Items
+        </button>
 
         {/* ── 🎲 Who's Paying the Bill? Roulette Game ── */}
         <div style={{ marginTop:24, background:`linear-gradient(135deg, ${C.bg2}, ${C.bg3})`, border:`1px solid ${C.border2}`, borderRadius:28, padding:'24px 20px', boxShadow:`0 0 40px ${C.glow}` }}>

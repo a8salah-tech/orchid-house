@@ -148,6 +148,22 @@ export default function RegisterPage() {
     const { data: existingEmp } = await supabase.from('employees').select('id').eq('email_account', emailAccount).maybeSingle()
     if (existingEmp) { setErrors(p => ({ ...p, email_account: 'This email already exists in the system.' })); setError('This login email already exists.'); return }
 
+    // ✅ Fix جذري: بدل ما نعتمد على الرقم اللي اتحسب وقت اختيار الفرع (ممكن يكون فات عليه وقت طويل)،
+    // نعيد حساب الرقم الحقيقي التالي من قاعدة البيانات مرة أخرى هنا مباشرة، لحظة الإرسال الفعلي بالظبط
+    // - ده بيقفل نافذة التعارض بين شخصين بيسجلوا في نفس الفرع في نفس الوقت تقريبًا تمامًا
+    let finalEmployeeNumber = employeeNumber
+    if (branch) {
+      const b = branches.find(br => br.name === branch)
+      if (b) {
+        const prefix = getPrefix(branch)
+        const { data: freshNumber, error: previewErr } = await supabase.rpc('preview_next_employee_number', { p_branch_id: b.id, p_prefix: prefix })
+        if (!previewErr && freshNumber != null) {
+          finalEmployeeNumber = String(freshNumber)
+          setEmployeeNumber(finalEmployeeNumber)
+        }
+      }
+    }
+
     setStep('uploading')
 
     let photo_url: string | null = null
@@ -167,7 +183,7 @@ export default function RegisterPage() {
 
     setUploadProgress('Saving your data...')
 
-    const empNum = employeeNumber ? `${getPrefix(branch)}-${employeeNumber}` : null
+    const empNum = finalEmployeeNumber ? `${getPrefix(branch)}-${finalEmployeeNumber}` : null
     const notesStr = `Employee #: ${empNum || '—'} | Branch: ${branch || '—'} | Salary: ${salary || '—'} | Joining Date: ${joinDate}${notes ? ' | ' + notes : ''}`
 
     const { error: dbError } = await supabase.from('employee_registrations').insert([{
@@ -363,15 +379,13 @@ export default function RegisterPage() {
                   <div style={{ background: 'rgba(201,168,76,0.15)', border: `1px solid ${errors.employee_number ? S.red : 'rgba(201,168,76,0.3)'}`, borderRight: 'none', borderRadius: '12px 0 0 12px', padding: '12px 14px', fontSize: 14, fontWeight: 800, color: S.gold, whiteSpace: 'nowrap' }}>
                     {getPrefix(branch)}
                   </div>
-                  <input
-                    style={{ ...inp('employee_number'), borderRadius: '0 12px 12px 0', flex: 1 }}
-                    type="number" min="1" lang="en" dir="ltr"
-                    value={employeeNumber}
-                    onChange={e => setEmployeeNumber(e.target.value.replace(/\D/g, ''))}
-                    placeholder="e.g. 001"
-                  />
+                  {/* ✅ Fix جذري: الحقل بقى ثابت غير قابل للتعديل - يعرض بس الرقم المحسوب فعليًا من قاعدة البيانات،
+                      عشان يقفل الباب تمامًا قدام أي شخص يغيّره يدويًا ويسبب تعارض بالخطأ أو قصدًا */}
+                  <div style={{ ...inp('employee_number'), borderRadius: '0 12px 12px 0', flex: 1, display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.03)', color: employeeNumber ? S.white : S.muted, cursor: 'not-allowed' }}>
+                    {employeeNumber || 'Calculating...'}
+                  </div>
                 </div>
-                {employeeNumber && <div style={{ fontSize: 11, color: S.gold, marginTop: 4 }}>Full: {getPrefix(branch)}-{employeeNumber} <span style={{ color: S.muted }}>(auto-suggested, editable)</span></div>}
+                {employeeNumber && <div style={{ fontSize: 11, color: S.gold, marginTop: 4 }}>Full: {getPrefix(branch)}-{employeeNumber} <span style={{ color: S.muted }}>(محسوب تلقائيًا من قاعدة البيانات — غير قابل للتعديل)</span></div>}
                 {errMsg('employee_number')}
               </div>
             )}

@@ -101,7 +101,9 @@ type Order = {
   tables: { number: number; name: string }
   order_items: OrderItem[]
 }
-type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; menu_categories?: { name: string } | { name: string }[] }
+type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; menu_categories?: { name: string } | { name: string }[]
+  // ✅ جديد: أنواع/أحجام الصنف (زي أنواع الشيشة المختلفة) - كانت مفقودة تمامًا من واجهة الكاشير
+  sizes?: { id: string; name: string; name_en?: string; price: number; is_active: boolean }[] }
 type Category = { id: string; name: string; name_en: string }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; emoji: string }> = {
@@ -890,15 +892,17 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
   const sb = createClient()
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
-  const [cart, setCart] = useState<{ item: MenuItem; qty: number; notes: string }[]>([])
+  const [cart, setCart] = useState<{ item: MenuItem; qty: number; notes: string; selectedSize?: { id: string; name: string; name_en?: string; price: number } }[]>([])
   const [selectedCat, setSelectedCat] = useState('all')
   const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
+  // ✅ جديد: الصنف اللي بيتم اختيار نوعه حاليًا (زي اختيار نوع الشيشة) - null يعني مفيش مودال مفتوح
+  const [sizePickerItem, setSizePickerItem] = useState<MenuItem | null>(null)
 
   useEffect(() => {
     Promise.all([
       sb.from('menu_categories').select('id,name,name_en').eq('is_active', true).order('sort_order'),
-      sb.from('menu_items').select('id,name,name_en,price,category_id,menu_categories(name)').eq('is_available', true).order('name'),
+      sb.from('menu_items').select('id,name,name_en,price,category_id,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('name'),
     ]).then(([cats, itms]) => {
       setCategories(cats.data || [])
       setItems(itms.data || [])
@@ -911,12 +915,28 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
     return matchCat && matchSearch
   })
 
+  // ✅ Fix: لو الصنف له أنواع/أحجام نشطة (زي أنواع الشيشة)، نفتح مودال اختيار النوع بدل الإضافة المباشرة
   function addItem(item: MenuItem) {
+    const activeSizes = (item.sizes || []).filter(s => s.is_active)
+    if (activeSizes.length > 0) {
+      setSizePickerItem(item)
+      return
+    }
     setCart(p => {
-      const ex = p.find(c => c.item.id === item.id)
-      if (ex) return p.map(c => c.item.id === item.id ? { ...c, qty: c.qty + 1 } : c)
+      const ex = p.find(c => c.item.id === item.id && !c.selectedSize)
+      if (ex) return p.map(c => c === ex ? { ...c, qty: c.qty + 1 } : c)
       return [...p, { item, qty: 1, notes: '' }]
     })
+  }
+
+  // ✅ جديد: إضافة الصنف بعد اختيار النوع/الحجم المحدد من المودال
+  function addItemWithSize(item: MenuItem, size: { id: string; name: string; name_en?: string; price: number }) {
+    setCart(p => {
+      const ex = p.find(c => c.item.id === item.id && c.selectedSize?.id === size.id)
+      if (ex) return p.map(c => c === ex ? { ...c, qty: c.qty + 1 } : c)
+      return [...p, { item, qty: 1, notes: '', selectedSize: size }]
+    })
+    setSizePickerItem(null)
   }
 
   function removeItem(id: string) {
@@ -928,7 +948,8 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
     })
   }
 
-  const total = cart.reduce((s, c) => s + c.item.price * c.qty, 0)
+  // ✅ Fix: نستخدم سعر النوع/الحجم المختار لو موجود، وإلا السعر الأساسي للصنف
+  const total = cart.reduce((s, c) => s + (c.selectedSize?.price ?? c.item.price) * c.qty, 0)
 
   async function placeOrder() {
     if (cart.length === 0) return
@@ -940,7 +961,9 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
     if (!order) { setSaving(false); return }
     await sb.from('order_items').insert(cart.map(c => ({
       order_id: order.id, menu_item_id: c.item.id,
-      quantity: c.qty, unit_price: c.item.price,
+      quantity: c.qty, unit_price: c.selectedSize?.price ?? c.item.price,
+      // ✅ جديد: نسجل اسم النوع/الحجم المختار (زي نوع الشيشة) عشان يظهر بوضوح للمطبخ والفاتورة
+      size_name: c.selectedSize ? (c.selectedSize.name_en || c.selectedSize.name) : null,
       notes: c.notes || null, status: 'pending',
       destination: 'kitchen',
     })))
@@ -967,32 +990,48 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
           {filtered.map(item => {
-            const qty = cart.find(c => c.item.id === item.id)?.qty || 0
+            // ✅ Fix: نجمع الكمية الكلية عبر كل أنواع/أحجام هذا الصنف في السلة (مش نوع واحد بس)
+            const qty = cart.filter(c => c.item.id === item.id).reduce((s, c) => s + c.qty, 0)
+            const activeSizes = (item.sizes || []).filter(s => s.is_active)
+            const hasSizes = activeSizes.length > 0
             return (
               <div key={item.id} style={{ background: qty > 0 ? S.gold3 : S.card, border: `1px solid ${qty > 0 ? S.gold : S.border}`, borderRadius: 10, padding: 10, cursor: 'pointer' }} onClick={() => addItem(item)}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name_en || item.name}</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>MYR {item.price.toFixed(2)}</span>
-                  {qty > 0 && (
+                  <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>
+                    {/* ✅ جديد: لو له أنواع، نعرض "من" أرخص سعر بدل السعر الأساسي المفرد فقط */}
+                    {hasSizes ? `From MYR ${Math.min(...activeSizes.map(s => s.price)).toFixed(2)}` : `MYR ${item.price.toFixed(2)}`}
+                  </span>
+                  {/* ✅ Fix: زر الإنقاص السريع يظهر بس للأصناف اللي مالهاش أنواع (تجنبًا لالتباس أي نوع يقصد إنقاصه) */}
+                  {qty > 0 && !hasSizes && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => e.stopPropagation()}>
                       <button onClick={() => removeItem(item.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>−</button>
                       <span style={{ color: S.gold, fontWeight: 800, fontSize: 13 }}>{qty}</span>
                     </div>
                   )}
+                  {qty > 0 && hasSizes && (
+                    <span style={{ color: S.gold, fontWeight: 800, fontSize: 12 }}>×{qty} in cart</span>
+                  )}
                 </div>
+                {/* ✅ جديد: إشارة واضحة إن الصنف له أنواع متعددة (زي أنواع الشيشة) */}
+                {hasSizes && <div style={{ fontSize: 10, color: S.muted, marginTop: 3 }}>🔸 {activeSizes.length} types available</div>}
               </div>
             )
           })}
         </div>
         {cart.length > 0 && (
           <div style={{ background: S.card, borderRadius: 12, padding: 14, marginBottom: 16 }}>
-            {cart.map(c => (
-              <div key={c.item.id} style={{ marginBottom: 8 }}>
+            {cart.map((c, idx) => (
+              <div key={`${c.item.id}-${c.selectedSize?.id || 'base'}-${idx}`} style={{ marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                  <span style={{ color: S.white }}>{c.item.name} ×{c.qty}</span>
-                  <span style={{ color: S.gold }}>MYR {(c.item.price * c.qty).toFixed(2)}</span>
+                  {/* ✅ Fix: نعرض اسم النوع/الحجم المختار (زي نوع الشيشة) جنب اسم الصنف */}
+                  <span style={{ color: S.white }}>{c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} ×{c.qty}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: S.gold }}>MYR {((c.selectedSize?.price ?? c.item.price) * c.qty).toFixed(2)}</span>
+                    <button onClick={() => setCart(p => p.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 14 }}>✕</button>
+                  </div>
                 </div>
-                <input style={{ ...inp, fontSize: 11 }} placeholder="Note..." value={c.notes} onChange={e => setCart(p => p.map(ci => ci.item.id === c.item.id ? { ...ci, notes: e.target.value } : ci))} />
+                <input style={{ ...inp, fontSize: 11 }} placeholder="Note..." value={c.notes} onChange={e => setCart(p => p.map((ci, i) => i === idx ? { ...ci, notes: e.target.value } : ci))} />
               </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 15, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
@@ -1008,6 +1047,27 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           </button>
         </div>
       </div>
+
+      {/* ✅ جديد: مودال اختيار النوع/الحجم - نفس فكرة منيو العميل بالظبط (زي اختيار نوع الشيشة) */}
+      {sizePickerItem && (
+        <div onClick={() => setSizePickerItem(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 20, maxWidth: 360, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: S.gold, marginBottom: 14 }}>{sizePickerItem.name_en || sizePickerItem.name} — اختر النوع</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(sizePickerItem.sizes || []).filter(s => s.is_active).map(size => (
+                <button key={size.id} onClick={() => addItemWithSize(sizePickerItem, size)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.white, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', textAlign: 'right' }}>
+                  <span>{size.name_en || size.name}</span>
+                  <span style={{ color: S.gold, fontWeight: 700 }}>MYR {size.price.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setSizePickerItem(null)} style={{ width: '100%', marginTop: 14, padding: '10px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
+            Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

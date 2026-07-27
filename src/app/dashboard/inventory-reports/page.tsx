@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
@@ -71,6 +71,11 @@ export default function InventoryReportsPage() {
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<InventoryCount | null>(null)
   const [approving, setApproving] = useState(false)
+  // ✅ Fix حرج: قفل فوري (Ref) بيمنع تنفيذ approveCount() مرتين متتاليتين بسرعة (Double-click)
+  // - حالة setApproving لوحدها مش كافية لأن تحديثها في React مش فوري 100%، فضغطتين سريعتين جدًا
+  // ممكن يعدّوا الاتنين قبل ما الزرار يتقفل بصريًا، ويسببوا تسجيل حركات المخزون مرتين لنفس الجرد
+  // (وده بالظبط سبب أمثلة زي "89 بتتحول لـ178" الموثقة قبل كده في هذا الملف)
+  const approvingRef = useRef(false)
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
   const [editingItems, setEditingItems] = useState<Record<string, number>>({})
   const [isEditing, setIsEditing] = useState(false)
@@ -116,9 +121,18 @@ export default function InventoryReportsPage() {
   }, [isAdmin, employee?.branch_id])
 
   async function approveCount(countId: string) {
+    // ✅ Fix حرج: قفل فوري يمنع أي تنفيذ تاني لنفس الجرد لو الدالة شغالة بالفعل - يحمي من الضغط المتكرر السريع
+    if (approvingRef.current) return
+    approvingRef.current = true
     setApproving(true)
     const count = counts.find(c => c.id === countId)
-    if (!count) { setApproving(false); return }
+    if (!count) { approvingRef.current = false; setApproving(false); return }
+    // ✅ Fix إضافي: طبقة حماية ثانية - لو الجرد ده اتاعتمد بالفعل من قبل (status='approved')، نوقف فورًا
+    // من غير ما نسجل أي حركة مخزون تانية، حتى لو المستخدم قدر يضغط الزرار من صفحتين مفتوحتين مثلاً
+    if (count.status === 'approved') {
+      alert('⚠️ هذا الجرد تم اعتماده بالفعل من قبل. لن يتم تسجيل أي حركة إضافية.')
+      approvingRef.current = false; setApproving(false); return
+    }
 
     // ⚠️ Fix: لا نحدّث current_stock يدويًا هنا — الـ trigger (trigger_update_stock)
     // على جدول stock_movements بيحدّث current_stock تلقائيًا أول ما نسجل الحركة تحت.
@@ -145,6 +159,7 @@ export default function InventoryReportsPage() {
       approved_at: new Date().toISOString(),
     }).eq('id', countId)
 
+    approvingRef.current = false
     setApproving(false)
     setSelected(null)
     fetchCounts()

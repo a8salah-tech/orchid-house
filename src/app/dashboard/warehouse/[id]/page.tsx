@@ -1844,7 +1844,20 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                     const p = products.find(x => x.id === productId)
                     const conv = unitConversionsAll.find((c: any) => c.product_id === productId)
                     const factor = conv?.factor || 1
-                    const actual = (parseFloat(inv.units) || 0) * factor + (parseFloat(inv.pieces) || 0)
+                    const bigQtyEntered = parseFloat(inv.units) || 0
+                    const smallQtyEntered = parseFloat(inv.pieces) || 0
+                    // ✅ Fix جذري جدًا: كانت المعادلة بتفترض دايمًا إن current_stock مخزّن بالوحدة الصغرى
+                    // (actual = وحدات×معامل + كسور)، وده غلط لأصناف كتير (زي "أفخاذ دجاج" و"ببروني لحم")
+                    // اللي وحدتها الأساسية المسجّلة فعليًا في قاعدة البيانات هي الوحدة الكبرى نفسها (كرتون مثلاً)،
+                    // ومعامل التحويل هنا غرضه عرض/تقسيم الكسور بس، مش تحويل التخزين. النتيجة كانت أرقام
+                    // مضاعفة بشكل خاطئ جدًا (مثال حقيقي: "1 كرتون + 5 كيلو" كان بيتسجل 17 بدل 1.42).
+                    // الحل: نتحقق أولًا هل وحدة الصنف الأساسية (p.unit_id) هي نفسها "from_unit" في معامل
+                    // التحويل (يعني التخزين بالوحدة الكبرى مباشرة)، ولو أيوه نحسب: كبيرة + (كسور ÷ معامل)
+                    // بدل: كبيرة × معامل + كسور
+                    const storedInBigUnit = conv && p?.unit_id === conv.from_unit_id
+                    const actual = storedInBigUnit
+                      ? bigQtyEntered + (smallQtyEntered / factor)
+                      : bigQtyEntered * factor + smallQtyEntered
                     return {
                       count_id: countRecord.id,
                       product_id: productId,

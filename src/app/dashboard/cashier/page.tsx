@@ -101,7 +101,7 @@ type Order = {
   tables: { number: number; name: string }
   order_items: OrderItem[]
 }
-type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; menu_categories?: { name: string } | { name: string }[]
+type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; or_code?: string; menu_categories?: { name: string } | { name: string }[]
   // ✅ جديد: أنواع/أحجام الصنف (زي أنواع الشيشة المختلفة) - كانت مفقودة تمامًا من واجهة الكاشير
   sizes?: { id: string; name: string; name_en?: string; price: number; is_active: boolean }[] }
 type Category = { id: string; name: string; name_en: string }
@@ -902,7 +902,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
   useEffect(() => {
     Promise.all([
       sb.from('menu_categories').select('id,name,name_en').eq('is_active', true).order('sort_order'),
-      sb.from('menu_items').select('id,name,name_en,price,category_id,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('name'),
+      sb.from('menu_items').select('id,name,name_en,price,category_id,or_code,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('name'),
     ]).then(([cats, itms]) => {
       setCategories(cats.data || [])
       setItems(itms.data || [])
@@ -911,7 +911,9 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
 
   const filtered = items.filter(i => {
     const matchCat = selectedCat === 'all' || i.category_id === selectedCat
-    const matchSearch = !search || i.name.includes(search) || i.name_en.toLowerCase().includes(search.toLowerCase())
+    // ✅ جديد: البحث بكود الصنف (زي OR-155) كمان - بيشتغل بجزء من الكود من غير ما يدخله كامل
+    // (مثلاً كتابة "155" بس كفاية تلاقي "OR-155")
+    const matchSearch = !search || i.name.includes(search) || i.name_en.toLowerCase().includes(search.toLowerCase()) || (i.or_code || '').toLowerCase().includes(search.toLowerCase())
     return matchCat && matchSearch
   })
 
@@ -981,7 +983,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>➕ Add Order — {tableName}</h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
-        <input style={inp} placeholder="🔍 Search..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input style={inp} placeholder="🔍 Search by name or code (e.g. 155)..." value={search} onChange={e => setSearch(e.target.value)} />
         <div style={{ display: 'flex', gap: 6, marginTop: 10, marginBottom: 12, overflowX: 'auto' }}>
           <button onClick={() => setSelectedCat('all')} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === 'all' ? S.gold : S.border}`, background: selectedCat === 'all' ? S.gold3 : 'transparent', color: selectedCat === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>All</button>
           {categories.map(c => (
@@ -997,6 +999,8 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
             return (
               <div key={item.id} style={{ background: qty > 0 ? S.gold3 : S.card, border: `1px solid ${qty > 0 ? S.gold : S.border}`, borderRadius: 10, padding: 10, cursor: 'pointer' }} onClick={() => addItem(item)}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name_en || item.name}</div>
+                {/* ✅ جديد: عرض كود الصنف تحت الاسم - للتوضيح والمطابقة مع كود المنيو */}
+                {item.or_code && <div style={{ fontSize: 9, color: S.muted, marginBottom: 4 }}>{item.or_code}</div>}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>
                     {/* ✅ جديد: لو له أنواع، نعرض "من" أرخص سعر بدل السعر الأساسي المفرد فقط */}

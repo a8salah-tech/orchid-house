@@ -57,11 +57,56 @@ export default function FixMissingUnitsPage() {
   const [done, setDone] = useState(false)
 
   // ✅ جديد: تاب "كميات مشبوهة" - أرقام سالبة أو ضخمة بشكل غير منطقي
-  const [mainTab, setMainTab] = useState<'missing_units' | 'suspicious_qty'>('missing_units')
+  const [mainTab, setMainTab] = useState<'missing_units' | 'suspicious_qty' | 'warehouse_diff'>('missing_units')
   const [suspiciousProducts, setSuspiciousProducts] = useState<(Product & { unit_symbol?: string })[]>([])
   const [loadingSuspicious, setLoadingSuspicious] = useState(false)
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null)
   const [editingQtyValue, setEditingQtyValue] = useState('')
+
+  // ✅ جديد: تاب "مقارنة المستودعات" - أصناف موجودة في مستودع وناقصة من مستودع تاني، مع إمكانية إضافتها بنفس وحدتها
+  const [diffWarehouseA, setDiffWarehouseA] = useState('')
+  const [diffWarehouseB, setDiffWarehouseB] = useState('')
+  const [diffLoading, setDiffLoading] = useState(false)
+  const [diffMissingItems, setDiffMissingItems] = useState<{ id: string; name: string; name_en?: string; category: string; unit_id: string | null; unit_symbol?: string }[]>([])
+  const [diffAddedIds, setDiffAddedIds] = useState<Set<string>>(new Set())
+  const [diffAddingId, setDiffAddingId] = useState<string | null>(null)
+
+  // ✅ نجيب فرق الأصناف بين المستودعين المختارين (اللي في A ومش موجود في B، بمطابقة الاسم بعد تنظيفه)
+  const fetchWarehouseDiff = useCallback(async () => {
+    if (!diffWarehouseA || !diffWarehouseB || diffWarehouseA === diffWarehouseB) { setDiffMissingItems([]); return }
+    setDiffLoading(true)
+    const [resA, resB] = await Promise.all([
+      sb.from('warehouse_products').select('id,name,name_en,category,unit_id,units(symbol)').eq('warehouse_id', diffWarehouseA).eq('is_active', true),
+      sb.from('warehouse_products').select('name').eq('warehouse_id', diffWarehouseB).eq('is_active', true),
+    ])
+    const namesInB = new Set((resB.data || []).map((p: any) => p.name.trim().toLowerCase()))
+    const missing = (resA.data || [])
+      .filter((p: any) => !namesInB.has(p.name.trim().toLowerCase()))
+      .map((p: any) => ({ id: p.id, name: p.name, name_en: p.name_en, category: p.category, unit_id: p.unit_id, unit_symbol: p.units?.symbol }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name, 'ar'))
+    setDiffMissingItems(missing)
+    setDiffAddedIds(new Set())
+    setDiffLoading(false)
+  }, [sb, diffWarehouseA, diffWarehouseB])
+
+  useEffect(() => { if (mainTab === 'warehouse_diff') fetchWarehouseDiff() }, [mainTab, diffWarehouseA, diffWarehouseB, fetchWarehouseDiff])
+
+  // ✅ إضافة الصنف الناقص للمستودع B بنفس اسمه ووحدته، مع نسخ أي معامل تحويل مسجّل له
+  async function addMissingToWarehouseB(item: { id: string; name: string; name_en?: string; category: string; unit_id: string | null }) {
+    setDiffAddingId(item.id)
+    const { data: newProd, error } = await sb.from('warehouse_products').insert([{
+      name: item.name, name_en: item.name_en || null, category: item.category || null,
+      unit_id: item.unit_id, warehouse_id: diffWarehouseB, current_stock: 0, is_active: true,
+    }]).select('id').single()
+    if (error || !newProd) { alert('حصل خطأ أثناء الإضافة: ' + (error?.message || '')); setDiffAddingId(null); return }
+    // ✅ نسخ أي معاملات تحويل مسجّلة للصنف الأصلي (لو موجودة) للنسخة الجديدة في المستودع B
+    const { data: origConvs } = await sb.from('unit_conversions').select('from_unit_id, to_unit_id, factor').eq('product_id', item.id)
+    if (origConvs && origConvs.length > 0) {
+      await sb.from('unit_conversions').insert(origConvs.map(c => ({ ...c, product_id: newProd.id })))
+    }
+    setDiffAddedIds(prev => new Set(prev).add(item.id))
+    setDiffAddingId(null)
+  }
 
   const fetchSuspicious = useCallback(async () => {
     setLoadingSuspicious(true)
@@ -210,6 +255,11 @@ export default function FixMissingUnitsPage() {
           style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${mainTab === 'suspicious_qty' ? S.gold : S.border}`, background: mainTab === 'suspicious_qty' ? S.gold3 : 'transparent', color: mainTab === 'suspicious_qty' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainTab === 'suspicious_qty' ? 700 : 400 }}>
           📊 كميات مشبوهة
         </button>
+        {/* ✅ جديد: زر تاب مقارنة المستودعات */}
+        <button onClick={() => setMainTab('warehouse_diff')}
+          style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${mainTab === 'warehouse_diff' ? S.gold : S.border}`, background: mainTab === 'warehouse_diff' ? S.gold3 : 'transparent', color: mainTab === 'warehouse_diff' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainTab === 'warehouse_diff' ? 700 : 400 }}>
+          🔄 مقارنة المستودعات
+        </button>
       </div>
 
       {mainTab === 'suspicious_qty' ? (
@@ -273,6 +323,69 @@ export default function FixMissingUnitsPage() {
                   </div>
                 )
               })}
+            </div>
+          )}
+        </div>
+      ) : mainTab === 'warehouse_diff' ? (
+        <div>
+          <p style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>
+            اختر مستودعًا أولًا (المصدر) ومستودعًا آخر (المقارَن به) — هنعرضلك كل الأصناف الموجودة في الأول وناقصة من التاني، مع وحدتها، وتقدر تضيفها بضغطة واحدة
+          </p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 6 }}>🏭 المستودع المصدر (فيه الأصناف)</label>
+              <select value={diffWarehouseA} onChange={e => setDiffWarehouseA(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+                <option value="">-- اختر --</option>
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 20, color: S.muted, fontSize: 16 }}>←</div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 6 }}>🏭 المستودع الناقص منه (هنضيف له)</label>
+              <select value={diffWarehouseB} onChange={e => setDiffWarehouseB(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+                <option value="">-- اختر --</option>
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {diffWarehouseA && diffWarehouseA === diffWarehouseB && (
+            <div style={{ textAlign: 'center', padding: 20, color: S.amber }}>⚠️ اختر مستودعين مختلفين للمقارنة</div>
+          )}
+
+          {diffLoading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري المقارنة...</div>
+          ) : !diffWarehouseA || !diffWarehouseB || diffWarehouseA === diffWarehouseB ? null : diffMissingItems.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+              <div style={{ fontSize: 14, color: S.green }}>كل أصناف المستودع الأول موجودة بالفعل في المستودع التاني</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, color: S.amber, fontWeight: 700, marginBottom: 12 }}>⚠️ {diffMissingItems.length} صنف ناقص</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {diffMissingItems.map(item => {
+                  const isAdded = diffAddedIds.has(item.id)
+                  return (
+                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isAdded ? S.greenB : S.navy2, borderRadius: 10, border: `1px solid ${isAdded ? S.green + '60' : S.border}`, padding: '10px 14px' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{item.name} {item.name_en && <span style={{ color: S.muted, fontSize: 11 }}>({item.name_en})</span>}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>الوحدة: {item.unit_symbol || '—'} {item.category && `· ${item.category}`}</div>
+                      </div>
+                      {isAdded ? (
+                        <span style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ تمت الإضافة</span>
+                      ) : (
+                        <button onClick={() => addMissingToWarehouseB(item)} disabled={diffAddingId === item.id}
+                          style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: diffAddingId === item.id ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          {diffAddingId === item.id ? '⏳...' : '➕ إضافة لهذا المستودع'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>

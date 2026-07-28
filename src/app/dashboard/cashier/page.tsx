@@ -895,6 +895,8 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
   const [cart, setCart] = useState<{ item: MenuItem; qty: number; notes: string; selectedSize?: { id: string; name: string; name_en?: string; price: number } }[]>([])
   const [selectedCat, setSelectedCat] = useState('all')
   const [search, setSearch] = useState('')
+  // ✅ جديد: خانة بحث منفصلة بالكود فقط - تطابق رقمي كامل ودقيق، مش جزء من الرقم
+  const [codeSearch, setCodeSearch] = useState('')
   const [saving, setSaving] = useState(false)
   // ✅ جديد: الصنف اللي بيتم اختيار نوعه حاليًا (زي اختيار نوع الشيشة) - null يعني مفيش مودال مفتوح
   const [sizePickerItem, setSizePickerItem] = useState<MenuItem | null>(null)
@@ -914,7 +916,11 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
     // ✅ جديد: البحث بكود الصنف (زي OR-155) كمان - بيشتغل بجزء من الكود من غير ما يدخله كامل
     // (مثلاً كتابة "155" بس كفاية تلاقي "OR-155")
     const matchSearch = !search || i.name.includes(search) || i.name_en.toLowerCase().includes(search.toLowerCase()) || (i.or_code || '').toLowerCase().includes(search.toLowerCase())
-    return matchCat && matchSearch
+    // ✅ جديد: خانة بحث منفصلة بالكود بالظبط - تطابق رقمي كامل ودقيق (مش أي كود فيه نفس الرقم كجزء منه)
+    // مثال: كتابة "5" هتطابق "OR-5" بس، مش "OR-15" أو "OR-51" أو "OR-100"
+    const codeDigits = (i.or_code || '').match(/\d+/)?.[0] || ''
+    const matchCode = !codeSearch || codeDigits === codeSearch.replace(/\D/g, '')
+    return matchCat && matchSearch && matchCode
   })
 
   // ✅ Fix: لو الصنف له أنواع/أحجام نشطة (زي أنواع الشيشة)، نفتح مودال اختيار النوع بدل الإضافة المباشرة
@@ -983,7 +989,12 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>➕ Add Order — {tableName}</h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
-        <input style={inp} placeholder="🔍 Search by name or code (e.g. 155)..." value={search} onChange={e => setSearch(e.target.value)} />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input style={{ ...inp, flex: 2 }} placeholder="🔍 Search by name or code..." value={search} onChange={e => setSearch(e.target.value)} />
+          {/* ✅ جديد: خانة بحث منفصلة بالكود فقط - أرقام فقط، وتطابق دقيق كامل مش جزئي */}
+          <input style={{ ...inp, flex: 1 }} placeholder="# Code" inputMode="numeric" type="text"
+            value={codeSearch} onChange={e => setCodeSearch(e.target.value.replace(/\D/g, ''))} />
+        </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 10, marginBottom: 12, overflowX: 'auto' }}>
           <button onClick={() => setSelectedCat('all')} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === 'all' ? S.gold : S.border}`, background: selectedCat === 'all' ? S.gold3 : 'transparent', color: selectedCat === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>All</button>
           {categories.map(c => (

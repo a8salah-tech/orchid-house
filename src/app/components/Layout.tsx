@@ -110,6 +110,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'راتبي', label_en: 'My Salary', icon: '💰', path: '/dashboard/hr/my-salary', permission: 'my_requests' },
     { label: 'دوامي', label_en: 'My Schedule', icon: '📅', path: '/dashboard/hr/my-schedule', permission: 'my_requests' },
     { label: 'الموظفون',        label_en: 'Employees',     icon: '👷', path: '/dashboard/hr/employees', permission: 'admin_only' },
+    { label: 'الهيكل الوظيفي',  label_en: 'Org Chart',     icon: '🏢', path: '/dashboard/org-chart',    permission: 'admin_only' },
     { label: 'المخالفات', label_en: 'Violations', icon: '⚠️', path: '/dashboard/hr/violations', permission: 'violations' },
     { label: 'طلبات الموظفين',  label_en: 'Staff Requests',icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
     { label: 'طلب يونيفورم',    label_en: 'Uniform Request', icon: '👔', path: '/dashboard/hr/uniform-requests', permission: 'my_requests' },

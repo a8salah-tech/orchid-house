@@ -816,7 +816,8 @@ export default function WarehouseDetailPage() {
   const isAdmin = role === 'admin'
   const isBranchManager = role === 'branch_manager'
   const isWarehouseKeeper = role === 'warehouse_keeper'
-  const canDelete = isAdmin
+  // ✅ Fix: فتح صلاحية الحذف لأمين ومدير المستودعات كمان، مش الأدمن بس
+  const canDelete = isAdmin || ['warehouse_keeper', 'warehouse_manager'].includes(role)
   const warehouseId = params.id as string
   const supabase = createClient()
 
@@ -862,7 +863,8 @@ export default function WarehouseDetailPage() {
     setLoading(true)
     const [wh, pr, un, mv, inv, convRes] = await Promise.all([
       supabase.from('warehouses').select('*').eq('id', warehouseId).single(),
-      supabase.from('warehouse_products').select('*, units(id,name,symbol)').eq('warehouse_id', warehouseId).order('name'),
+      // ✅ Fix: إضافة فلترة is_active - كانت القائمة بتعرض الأصناف الملغى تنشيطها كمان، فكان بيبدو إن الحذف مبيشتغلش
+      supabase.from('warehouse_products').select('*, units(id,name,symbol)').eq('warehouse_id', warehouseId).eq('is_active', true).order('name'),
       supabase.from('units').select('*').order('name'),
       supabase.from('stock_movements').select('*, warehouse_products(name, units(symbol)), warehouses(name)').eq('warehouse_id', warehouseId).order('created_at', { ascending: false }).limit(100),
       supabase.from('purchase_invoices').select('*, warehouse_suppliers(name), warehouses(name)').eq('warehouse_id', warehouseId).order('created_at', { ascending: false }).limit(50),
@@ -1363,7 +1365,17 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                           </button>
                           {canDelete && (
                             <button
-                              onClick={async () => { if(confirm('حذف هذا الصنف نهائياً؟')) { await supabase.from('warehouse_products').delete().eq('id', p.id); fetchAll() } }}
+                              onClick={async () => {
+                                if (!confirm('حذف هذا الصنف نهائياً؟')) return
+                                // ✅ Fix حرج: كان بيستخدم .delete() نهائي مباشر، وده كان بيفشل بصمت لأن الجدول
+                                // مرتبط بجداول تانية كتير (حركات مخزون، ربط أقسام، إلخ) فقاعدة البيانات كانت
+                                // ترفض الحذف بسبب قيود الربط - والكود مكانش بيتحقق من الخطأ أو يعرضه، فالصنف
+                                // كان يفضل موجود زي ما هو من غير ما حد يعرف السبب. الحل: إلغاء تنشيط آمن بدل
+                                // حذف نهائي (نفس الأسلوب المستخدم في باقي النظام)، مع إظهار أي خطأ فعلي لو حصل
+                                const { error } = await supabase.from('warehouse_products').update({ is_active: false }).eq('id', p.id)
+                                if (error) { alert('حصل خطأ أثناء الحذف: ' + error.message); return }
+                                fetchAll()
+                              }}
                               style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif', fontWeight: 600, border: `1px solid ${S.red}`, background: S.redB, color: S.red }}
                             >
                               🗑️ حذف

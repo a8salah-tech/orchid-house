@@ -430,6 +430,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
   }
   // ✅ زرار "Confirm Payment" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ الدفع على طول
   function pay() {
+    // ✅ Fix أمني: تحقق دفاعي حقيقي جوه الدالة نفسها، مش بس إخفاء الزرار بصريًا
+    if (!isCashierRole) { alert('🔒 Payment requires cashier access'); return }
     if (method === 'visa' && !cardBank) { alert('من فضلك حدد البنك (Maybank / BSN)'); return }
     setConfirmAction('pay')
   }
@@ -437,6 +439,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
   // ✅ إنهاء الفاتورة بعد ما كل شخص دفع نصيبه بطريقته
   // ✅ زرار "Finalize Split Bill" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ على طول
   function paySplit() {
+    // ✅ Fix أمني: تحقق دفاعي حقيقي جوه الدالة نفسها
+    if (!isCashierRole) { alert('🔒 Payment requires cashier access'); return }
     if (!allSplitPeoplePaid) return
     setConfirmAction('split')
   }
@@ -846,7 +850,13 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
-          {splitMode && isCashierRole ? (
+          {/* ✅ Fix أمني حرج: زر الدفع (وإنهاء تقسيم الفاتورة) كان بيظهر ويشتغل لأي حد فتح الشاشة، بدون أي تحقق من الصلاحية.
+              دلوقتي مقصور على isCashierRole بس - الدور المحدود (زي مشرف الصالة) يقدر يشوف تفاصيل الطلب لكن مش يدفعه */}
+          {!isCashierRole ? (
+            <div style={{ flex: 1, padding: '12px', borderRadius: 12, background: S.card, color: S.muted, textAlign: 'center', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+              🔒 Payment requires cashier access
+            </div>
+          ) : splitMode ? (
             <button onClick={paySplit} disabled={saving || !allSplitPeoplePaid || unassignedItemsCount > 0} style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: (allSplitPeoplePaid && unassignedItemsCount === 0) ? `linear-gradient(135deg, ${S.gold}, ${S.gold2})` : S.border, color: (allSplitPeoplePaid && unassignedItemsCount === 0) ? S.navy : S.muted, cursor: (allSplitPeoplePaid && unassignedItemsCount === 0) ? 'pointer' : 'not-allowed', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
               {saving ? '⏳...' : '✅ Finalize Split Bill'}
             </button>
@@ -1141,7 +1151,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, padding: 20, maxWidth: 380, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: S.amber, marginBottom: 4 }}>➕ Open Item</div>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>For any addition not on the menu (e.g. "Extra Honey")</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>لأي إضافة مش موجودة في المنيو (زي "عسل زيادة")</div>
 
             {openItemRows.map((row, idx) => (
               <div key={idx} style={{ background: S.card, borderRadius: 12, padding: 12, marginBottom: 10, position: 'relative' }}>
@@ -1988,8 +1998,6 @@ export default function CashierPage() {
                     onClick={() => {
                       // ✅ فتح الطاولة = شوفناها، نشيل علامة "جديد"
                       if (isUnseen) setUnseenTableIds(prev => { const next = new Set(prev); next.delete(table.id); return next })
-                      // ✅ جديد: الدور المحدود (مشرف الصالة) دايمًا يفتح "إضافة طلب" بس - مش شاشة الدفع خالص، حتى لو الطاولة مشغولة
-                      if (isLimitedTableRole) { setAddOrderTable(table); return }
                       if (activeOrder) {
                         // جيب كل الطلبات النشطة للطاولة
                         let tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
@@ -2036,8 +2044,8 @@ export default function CashierPage() {
                     {activeOrder && (
                       <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {(activeOrder.total_amount || 0).toFixed(2)}</div>
                     )}
-                    {/* ✅ جديد: زر دمج/فك دمج - يظهر بس للطاولات المشغولة، ولا يفتح فاتورة الدفع عند الضغط عليه (توقف الحدث) */}
-                    {isCashierRole && activeOrder && (
+                    {/* ✅ جديد: زر دمج/فك دمج و+ - يظهروا للكاشير وكمان للدور المحدود (مشرف الصالة) دلوقتي */}
+                    {(isCashierRole || isLimitedTableRole) && activeOrder && (
                       <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 6 }}>
                         <button onClick={e => {
                           e.stopPropagation()

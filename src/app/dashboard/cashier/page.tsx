@@ -904,6 +904,10 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
   const [saving, setSaving] = useState(false)
   // ✅ جديد: الصنف اللي بيتم اختيار نوعه حاليًا (زي اختيار نوع الشيشة) - null يعني مفيش مودال مفتوح
   const [sizePickerItem, setSizePickerItem] = useState<MenuItem | null>(null)
+  // ✅ جديد: "Open Item" - صنف مفتوح مخصص (زي "عسل زيادة") مش موجود في المنيو أصلاً
+  const [showOpenItem, setShowOpenItem] = useState(false)
+  const [openItemRows, setOpenItemRows] = useState<{ name: string; price: string; notes: string }[]>([{ name: '', price: '', notes: '' }])
+  const [savingOpenItem, setSavingOpenItem] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -949,6 +953,28 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
       return [...p, { item, qty: 1, notes: '', selectedSize: size }]
     })
     setSizePickerItem(null)
+  }
+
+  // ✅ جديد: حفظ صنف/أصناف مفتوحة (Open Item) - كل صنف بيتسجل كصنف حقيقي في menu_items لكن مخفي (is_available: false)
+  // عشان ميظهرش في المنيو العادي أو شبكة الأصناف، لكن يظهر تلقائيًا في السلة والفاتورة والمطبخ زي أي صنف عادي بالظبط
+  async function saveOpenItems() {
+    const validRows = openItemRows.filter(r => r.name.trim() && parseFloat(r.price) >= 0)
+    if (validRows.length === 0) { alert('من فضلك أدخل اسم وسعر الصنف على الأقل'); return }
+    setSavingOpenItem(true)
+    const newCartEntries: typeof cart = []
+    for (const row of validRows) {
+      const price = parseFloat(row.price) || 0
+      const { data: newMenuItem, error } = await sb.from('menu_items').insert([{
+        name: row.name.trim(), name_en: row.name.trim(), price,
+        is_available: false, is_active: true, category_id: null,
+      }]).select('id, name, name_en, price, category_id').single()
+      if (error || !newMenuItem) { alert('حصل خطأ أثناء إضافة الصنف: ' + (error?.message || '')); continue }
+      newCartEntries.push({ item: newMenuItem as MenuItem, qty: 1, notes: row.notes.trim() })
+    }
+    setCart(p => [...p, ...newCartEntries])
+    setSavingOpenItem(false)
+    setShowOpenItem(false)
+    setOpenItemRows([{ name: '', price: '', notes: '' }])
   }
 
   function removeItem(id: string) {
@@ -998,6 +1024,11 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           {/* ✅ جديد: خانة بحث منفصلة بالكود فقط - أرقام فقط، وتطابق دقيق كامل مش جزئي */}
           <input style={{ ...inp, flex: 1 }} placeholder="# Code" inputMode="numeric" type="text"
             value={codeSearch} onChange={e => setCodeSearch(e.target.value.replace(/\D/g, ''))} />
+          {/* ✅ جديد: زر إضافة صنف مفتوح (Open Item) - لأي إضافة مش موجودة في المنيو أصلاً */}
+          <button onClick={() => setShowOpenItem(true)}
+            style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            ➕ Open Item
+          </button>
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 10, marginBottom: 12, overflowX: 'auto' }}>
           <button onClick={() => setSelectedCat('all')} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === 'all' ? S.gold : S.border}`, background: selectedCat === 'all' ? S.gold3 : 'transparent', color: selectedCat === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>All</button>
@@ -1100,6 +1131,55 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
             <button onClick={() => setSizePickerItem(null)} style={{ width: '100%', marginTop: 14, padding: '10px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
             Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: مودال الصنف المفتوح (Open Item) - لإضافة أي صنف مخصص مش موجود في المنيو أصلاً */}
+      {showOpenItem && (
+        <div onClick={() => { setShowOpenItem(false); setOpenItemRows([{ name: '', price: '', notes: '' }]) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, padding: 20, maxWidth: 380, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: S.amber, marginBottom: 4 }}>➕ Open Item</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>For any addition not on the menu (e.g. "Extra Honey")</div>
+
+            {openItemRows.map((row, idx) => (
+              <div key={idx} style={{ background: S.card, borderRadius: 12, padding: 12, marginBottom: 10, position: 'relative' }}>
+                {openItemRows.length > 1 && (
+                  <button onClick={() => setOpenItemRows(p => p.filter((_, i) => i !== idx))}
+                    style={{ position: 'absolute', top: 8, left: 8, background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 14 }}>✕</button>
+                )}
+                {/* الاسم */}
+                <input placeholder="Item name (e.g. Extra Honey)" value={row.name}
+                  onChange={e => setOpenItemRows(p => p.map((r, i) => i === idx ? { ...r, name: e.target.value } : r))}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'inherit', marginBottom: 8 }} />
+                {/* ✅ الصف الأول: السعر */}
+                <input type="number" min={0} step="0.01" placeholder="Price (MYR)" value={row.price}
+                  onChange={e => setOpenItemRows(p => p.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'inherit', marginBottom: 8 }} />
+                {/* ✅ الصف الثاني: الملاحظات */}
+                <input placeholder="Notes (optional)" value={row.notes}
+                  onChange={e => setOpenItemRows(p => p.map((r, i) => i === idx ? { ...r, notes: e.target.value } : r))}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'inherit' }} />
+              </div>
+            ))}
+
+            {/* ✅ لو في إضافة ثاني (أو أكتر) - زر يضيف صف صنف مفتوح جديد */}
+            <button onClick={() => setOpenItemRows(p => [...p, { name: '', price: '', notes: '' }])}
+              style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: `1px dashed ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', marginBottom: 14 }}>
+              ➕ Add another open item
+            </button>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setShowOpenItem(false); setOpenItemRows([{ name: '', price: '', notes: '' }]) }}
+                style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
+                Cancel
+              </button>
+              <button onClick={saveOpenItems} disabled={savingOpenItem}
+                style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', background: S.amber, color: S.navy, cursor: savingOpenItem ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 800, opacity: savingOpenItem ? 0.6 : 1 }}>
+                {savingOpenItem ? '⏳...' : '✅ Add to Cart'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1337,6 +1417,8 @@ export default function CashierPage() {
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
   const isCashierRole = isAdmin || ['cashier','assistant_cashier'].includes(employee?.role || '')
+  // ✅ جديد: حساب مشترك محدود لمشرفي الصالة - يقدر يشوف الطاولات ويضيف طلبات بس، من غير الدفع/التحويل/التقارير
+  const isLimitedTableRole = employee?.role === 'hall_supervisor'
 
   // ✅ كشف الموبايل عشان نظبط تنسيق الهيدر والتابات فوق
   const [isMobile, setIsMobile] = useState(false)
@@ -1906,6 +1988,8 @@ export default function CashierPage() {
                     onClick={() => {
                       // ✅ فتح الطاولة = شوفناها، نشيل علامة "جديد"
                       if (isUnseen) setUnseenTableIds(prev => { const next = new Set(prev); next.delete(table.id); return next })
+                      // ✅ جديد: الدور المحدود (مشرف الصالة) دايمًا يفتح "إضافة طلب" بس - مش شاشة الدفع خالص، حتى لو الطاولة مشغولة
+                      if (isLimitedTableRole) { setAddOrderTable(table); return }
                       if (activeOrder) {
                         // جيب كل الطلبات النشطة للطاولة
                         let tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))

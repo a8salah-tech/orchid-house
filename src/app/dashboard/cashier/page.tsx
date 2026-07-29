@@ -145,6 +145,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
   const sb = createClient()
   const { employee, permissions } = useAuth()
   const isCashierRole = permissions?.all === true || ['cashier', 'assistant_cashier'].includes(employee?.role || '')
+  // ✅ جديد: الدور المحدود (مشرف الصالة) - يقدر يستخدم Transfer كامل زي الكاشير بالظبط
+  const isLimitedTableRole = employee?.role === 'hall_supervisor'
   const isAdminUser = permissions?.all === true
   // ✅ Fix: حماية من تنفيذ الدفع مرتين لو حصل ضغط مزدوج سريع على "Confirm" (كان بيضاعف إحصائيات العميل)
   const isPayingRef = useRef(false)
@@ -836,7 +838,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
           <button onClick={printReceipt} style={{ flex: 1, padding: '12px 6px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
             <span style={{ fontSize: 18 }}>🖨️</span> Print
           </button>
-          {isCashierRole && (
+          {(isCashierRole || isLimitedTableRole) && (
             <button onClick={() => onTransfer(order)} style={{ flex: 1, padding: '12px 6px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
               <span style={{ fontSize: 18 }}>🔄</span> Transfer
             </button>

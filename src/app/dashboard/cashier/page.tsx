@@ -91,7 +91,7 @@ function timeElapsedSince(dateStr?: string): string {
 }
 
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
-type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string } }
+type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
   discount_amount: number; discount_type: string; payment_method: string
@@ -568,8 +568,12 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
               )}
               {round.map(i => (
                 <div key={i.id} style={{ padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
+                      {/* ✅ Fix: الكود أولًا ثم الاسم بجانبه مباشرة - نفس ترتيب "#246 Cafe Latte" */}
+                      {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
+                      <span>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                    </span>
                     <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
                   </div>
                   {i.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 2 }}>📝 {i.notes}</div>}
@@ -1009,9 +1013,15 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
             const hasSizes = activeSizes.length > 0
             return (
               <div key={item.id} style={{ background: qty > 0 ? S.gold3 : S.card, border: `1px solid ${qty > 0 ? S.gold : S.border}`, borderRadius: 10, padding: 10, cursor: 'pointer' }} onClick={() => addItem(item)}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name_en || item.name}</div>
-                {/* ✅ جديد: عرض كود الصنف تحت الاسم - للتوضيح والمطابقة مع كود المنيو */}
-                {item.or_code && <div style={{ fontSize: 9, color: S.muted, marginBottom: 4 }}>{item.or_code}</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  {/* ✅ Fix: الكود أولًا في الترتيب (يظهر على اليسار)، والاسم بعده (يظهر على اليمين) - نفس ترتيب "#246 Cafe Latte" */}
+                  {item.or_code && (
+                    <span style={{ fontSize: 12, fontWeight: 800, color: S.gold, flexShrink: 0 }}>
+                      #{item.or_code}
+                    </span>
+                  )}
+                  <div style={{ fontSize: 12, fontWeight: 700, color: S.white, flex: 1 }}>{item.name_en || item.name}</div>
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>
                     {/* ✅ جديد: لو له أنواع، نعرض "من" أرخص سعر بدل السعر الأساسي المفرد فقط */}
@@ -1039,8 +1049,11 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
             {cart.map((c, idx) => (
               <div key={`${c.item.id}-${c.selectedSize?.id || 'base'}-${idx}`} style={{ marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                  {/* ✅ Fix: نعرض اسم النوع/الحجم المختار (زي نوع الشيشة) جنب اسم الصنف */}
-                  <span style={{ color: S.white }}>{c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} ×{c.qty}</span>
+                  {/* ✅ Fix: نعرض الكود أولًا ثم اسم النوع/الحجم المختار - نفس ترتيب "#246 Cafe Latte" */}
+                  <span style={{ color: S.white, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {c.item.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{c.item.or_code}</span>}
+                    <span>{c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} ×{c.qty}</span>
+                  </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ color: S.gold }}>MYR {((c.selectedSize?.price ?? c.item.price) * c.qty).toFixed(2)}</span>
                     <button onClick={() => setCart(p => p.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 14 }}>✕</button>
@@ -1067,7 +1080,14 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
       {sizePickerItem && (
         <div onClick={() => setSizePickerItem(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 20, maxWidth: 360, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: S.gold, marginBottom: 14 }}>{sizePickerItem.name_en || sizePickerItem.name} — اختر النوع</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              {sizePickerItem.or_code && (
+                <span style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>
+                  #{sizePickerItem.or_code}
+                </span>
+              )}
+              <div style={{ fontSize: 15, fontWeight: 800, color: S.gold, flex: 1 }}>{sizePickerItem.name_en || sizePickerItem.name} — اختر النوع</div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {(sizePickerItem.sizes || []).filter(s => s.is_active).map(size => (
                 <button key={size.id} onClick={() => addItemWithSize(sizePickerItem, size)}
@@ -1447,7 +1467,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       q = q.gte('created_at', `${archiveDate}T00:00:00`).lt('created_at', `${archiveDate}T23:59:59.999`)
@@ -1473,7 +1493,7 @@ export default function CashierPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -1539,7 +1559,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])

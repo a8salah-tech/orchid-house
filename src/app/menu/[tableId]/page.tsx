@@ -35,7 +35,7 @@ type Category = {
 }
 type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[] }
 type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; price: number } | null }
-type Phase     = 'menu' | 'cart' | 'done'
+type Phase     = 'welcome' | 'rewards' | 'menu' | 'cart' | 'done'
 
 // ✅ هل القسم ده متاح دلوقتي حسب اليوم والوقت المحددين له (لو مفيش قيود، يبقى متاح دايمًا)
 function isCategoryAvailableNow(cat: Category): boolean {
@@ -71,10 +71,22 @@ export default function CustomerMenuPage() {
   const [activeCat, setActiveCat]   = useState<string>('all')
   const [search, setSearch]         = useState('')
   const [cart, setCart]             = useState<CartItem[]>([])
-  const [phase, setPhase]           = useState<Phase>('menu')
+  const [phase, setPhase]           = useState<Phase>('welcome')
   const [submitting, setSubmitting] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
+  // ✅ جديد: نظام Orchid Rewards - العميل يدخل رقم موبايله بس (بدون باسورد)، ولو مسجّل قبل كده يشوف نقاطه،
+  // ولو عميل جديد يتسجّل تلقائيًا ويكسب 50 نقطة ترحيبية
+  const [rewardsPhone, setRewardsPhone] = useState('')
+  const [rewardsName, setRewardsName] = useState('')
+  const [rewardsSubmitting, setRewardsSubmitting] = useState(false)
+  const [rewardsError, setRewardsError] = useState('')
+  const [rewardsResult, setRewardsResult] = useState<{ customerId: string; name: string; points: number; isNew: boolean } | null>(null)
+  const [identifiedCustomerId, setIdentifiedCustomerId] = useState<string | null>(null)
+  // ✅ جديد: هل العميل جاي عشان "ينضم" أو بس "يستعلم عن نقاطه" - بيغيّر النص المعروض بس، نفس آلية البحث
+  const [rewardsIntent, setRewardsIntent] = useState<'join' | 'check'>('join')
+  // ✅ الحد المطلوب للحصول على خصم - رقم واحد هنا عشان لو اتغيّر يوم نعدّله من مكان واحد بس
+  const DISCOUNT_POINTS_TARGET = 1000
   // ✅ جديد: عناصر الطلب الكاملة (كل الجولات مجمّعة) من قاعدة البيانات - بدل الاعتماد على السلة المحلية اللي بتتصفّر مع كل طلب جديد
   const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null }[]>([])
   const [waiterCalled, setWaiterCalled] = useState(false)
@@ -207,6 +219,33 @@ const filteredItems = items
   }
 
   // ✅ نحفظ بيانات أول شخص (المنظم) في قاعدة عملاء المطعم، لو دخل رقم موبايله
+  // ✅ جديد: Orchid Rewards - بحث بالهاتف بس (بدون باسورد)، لو موجود يعرض نقاطه، لو جديد يسجّله ويدّيه 50 نقطة ترحيبية
+  async function handleRewardsSubmit() {
+    const phone = rewardsPhone.trim()
+    if (!phone || phone.length < 8) { setRewardsError('Please enter a valid phone number'); return }
+    setRewardsSubmitting(true)
+    setRewardsError('')
+    try {
+      const { data: existing, error: findErr } = await sb.from('customers').select('id,name,loyalty_points').eq('phone', phone).maybeSingle()
+      if (findErr) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
+      if (existing) {
+        // ✅ عميل موجود بالفعل - نعرضله نقاطه الحالية
+        setRewardsResult({ customerId: existing.id, name: existing.name, points: existing.loyalty_points || 0, isNew: false })
+        setIdentifiedCustomerId(existing.id)
+      } else {
+        // ✅ عميل جديد - نسجّله بـ50 نقطة ترحيبية
+        const name = rewardsName.trim() || 'Guest'
+        const { data: created, error: insertErr } = await sb.from('customers').insert([{ name, phone, loyalty_points: 50, notes: '🌸 Joined via Menu Welcome Screen' }]).select('id,name,loyalty_points').single()
+        if (insertErr || !created) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
+        setRewardsResult({ customerId: created.id, name: created.name, points: created.loyalty_points || 50, isNew: true })
+        setIdentifiedCustomerId(created.id)
+      }
+    } catch {
+      setRewardsError('Something went wrong, please try again')
+    }
+    setRewardsSubmitting(false)
+  }
+
   async function saveGameOrganizerAsCustomer() {
     const firstName = gameNames[0]?.trim()
     const phone = gamePhone.trim()
@@ -367,6 +406,8 @@ const filteredItems = items
       const { data: order, error } = await sb.from('orders').insert([{
         table_id: table.id, status: 'confirmed',
         total_amount: cartTotal, confirmed_at: new Date().toISOString(),
+        // ✅ جديد: نربط العميل المسجّل في نظام Orchid Rewards (لو دخل رقم موبايله في شاشة الترحيب) بالطلب مباشرة
+        customer_id: identifiedCustomerId || null,
       }]).select('id').single()
       if (error || !order) { isSubmittingRef.current = false; setSubmitting(false); alert('Error, please try again'); return }
       orderId = order.id
@@ -725,6 +766,171 @@ const filteredItems = items
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  )
+
+  // ══ Welcome ══
+  if (phase === 'welcome') return (
+    <div style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px', position:'relative', overflow:'hidden' }}>
+      <style>{globalStyles}</style>
+      <div style={{ maxWidth:420, width:'100%', textAlign:'center', animation:'fadeUp .6s ease', position:'relative', zIndex:1 }}>
+        {/* الشعار */}
+        <div style={{ width:90, height:90, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', boxShadow:`0 0 40px ${C.glow2}`, border:`1px solid ${C.border2}` }}>
+          <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+        </div>
+        <div style={{ color:C.blue1, fontSize:12, fontWeight:800, letterSpacing:4, marginBottom:4 }}>ORCHID RESTAURANT</div>
+
+        <h1 style={{ fontSize:32, fontWeight:900, margin:'18px 0 6px', color:C.white }}>Welcome to Orchid</h1>
+        <div style={{ width:60, height:1, background:C.border2, margin:'0 auto 10px' }} />
+        <p style={{ color:C.silver2, fontSize:14, marginBottom:26 }}>Great food. Unforgettable moments.</p>
+
+        {/* مميزات الاشتراك */}
+        <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:20, padding:'20px 16px', marginBottom:22 }}>
+          <div style={{ display:'flex', justifyContent:'space-around', marginBottom:16 }}>
+            {[['⭐','Earn Points','with every visit'],['🎁','Exclusive Offers','just for members'],['🏷️','Birthday Rewards','and more surprises']].map(([icon,title,sub]) => (
+              <div key={title} style={{ flex:1, padding:'0 4px' }}>
+                <div style={{ width:44, height:44, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, margin:'0 auto 8px' }}>{icon}</div>
+                <div style={{ fontSize:11.5, fontWeight:700, color:C.white2 }}>{title}</div>
+                <div style={{ fontSize:10, color:C.silver2 }}>{sub}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, display:'flex', alignItems:'center', gap:10, textAlign:'left' }}>
+            <div style={{ width:34, height:34, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, flexShrink:0 }}>🎁</div>
+            <div style={{ fontSize:12, color:C.silver }}>
+              Join Orchid Rewards and enjoy exclusive benefits.<br />
+              <span style={{ color:C.blue1, fontWeight:800 }}>Register today and get 50 welcome points!</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display:'flex', alignItems:'center', gap:10, margin:'0 0 16px' }}>
+          <div style={{ flex:1, height:1, background:C.border }} />
+          <span style={{ fontSize:12, color:C.silver2 }}>How would you like to continue?</span>
+          <div style={{ flex:1, height:1, background:C.border }} />
+        </div>
+
+        {/* زر الانضمام للرواردز */}
+        <button onClick={() => { setPhase('rewards'); setRewardsIntent('join'); setRewardsResult(null); setRewardsError('') }}
+          style={{ width:'100%', background:`linear-gradient(135deg, ${C.blue1}, ${C.blue2})`, border:'none', borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:10, boxShadow:`0 6px 20px ${C.glow2}` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
+            <div style={{ width:38, height:38, borderRadius:'50%', background:'rgba(0,0,0,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}>👤</div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>JOIN ORCHID REWARDS</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,.85)' }}>Sign in or create an account</div>
+            </div>
+          </div>
+          <span style={{ fontSize:20, color:C.white }}>›</span>
+        </button>
+
+        {/* ✅ جديد: زر استعلام عن النقاط بس - بين زر الانضمام وزر المتابعة كضيف */}
+        <button onClick={() => { setPhase('rewards'); setRewardsIntent('check'); setRewardsResult(null); setRewardsError('') }}
+          style={{ width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:10 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
+            <div style={{ width:38, height:38, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}>🔍</div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>CHECK MY POINTS</div>
+              <div style={{ fontSize:11, color:C.silver2 }}>See your balance & discount progress</div>
+            </div>
+          </div>
+          <span style={{ fontSize:20, color:C.silver2 }}>›</span>
+        </button>
+
+        {/* زر المتابعة كضيف */}
+        <button onClick={() => setPhase('menu')}
+          style={{ width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:14 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
+            <div style={{ width:38, height:38, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}>👤</div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>CONTINUE AS GUEST</div>
+              <div style={{ fontSize:11, color:C.silver2 }}>Browse menu and place your order</div>
+            </div>
+          </div>
+          <span style={{ fontSize:20, color:C.silver2 }}>›</span>
+        </button>
+
+        <div style={{ display:'flex', alignItems:'flex-start', gap:8, textAlign:'left', color:C.silver2, fontSize:11, lineHeight:1.5 }}>
+          <span>ⓘ</span>
+          <span>You can browse the menu and place an order as a guest, but you won't earn points or enjoy member benefits.</span>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ══ Rewards - إدخال رقم الموبايل ══
+  if (phase === 'rewards') return (
+    <div style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px' }}>
+      <style>{globalStyles}</style>
+      <div style={{ maxWidth:380, width:'100%', animation:'fadeUp .5s ease' }}>
+        <button onClick={() => setPhase('welcome')} style={{ background:'none', border:'none', color:C.silver2, fontSize:13, cursor:'pointer', marginBottom:20, padding:0 }}>‹ Back</button>
+
+        {!rewardsResult ? (
+          <div style={{ textAlign:'center' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>{rewardsIntent === 'check' ? '🔍' : '🌸'}</div>
+            <h2 style={{ fontSize:22, fontWeight:900, marginBottom:6 }}>{rewardsIntent === 'check' ? 'Check My Points' : 'Orchid Rewards'}</h2>
+            <p style={{ color:C.silver2, fontSize:13, marginBottom:26 }}>
+              {rewardsIntent === 'check' ? 'Enter your mobile number to see your points balance.' : "Enter your mobile number — new or returning, we've got you covered."}
+            </p>
+
+            <input type="tel" inputMode="tel" placeholder="Mobile number" value={rewardsPhone}
+              onChange={e => setRewardsPhone(e.target.value.replace(/[^\d+]/g, ''))}
+              style={{ width:'100%', boxSizing:'border-box', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:14, padding:'14px 16px', color:C.white, fontSize:15, outline:'none', marginBottom:12, textAlign:'center' }} />
+
+            {/* ✅ اسم اختياري - بيتاخد بس لو العميل جديد فعلاً (هيتجاهل لو كان موجود بالفعل) */}
+            <input type="text" placeholder="Your name (for new members)" value={rewardsName}
+              onChange={e => setRewardsName(e.target.value)}
+              style={{ width:'100%', boxSizing:'border-box', background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, padding:'14px 16px', color:C.white, fontSize:14, outline:'none', marginBottom:16, textAlign:'center' }} />
+
+            {rewardsError && <div style={{ color:'#EF4444', fontSize:12, marginBottom:12 }}>{rewardsError}</div>}
+
+            <button onClick={handleRewardsSubmit} disabled={rewardsSubmitting}
+              style={{ width:'100%', background:`linear-gradient(135deg, ${C.blue1}, ${C.blue2})`, border:'none', borderRadius:14, padding:'15px', color:C.white, fontSize:14, fontWeight:900, cursor:rewardsSubmitting?'not-allowed':'pointer', opacity:rewardsSubmitting?0.7:1 }}>
+              {rewardsSubmitting ? 'Checking...' : 'Continue'}
+            </button>
+          </div>
+        ) : (
+          <div style={{ textAlign:'center', animation:'fadeUp .4s ease' }}>
+            <div style={{ fontSize:52, marginBottom:14 }}>{rewardsResult.isNew ? '🎉' : '🌸'}</div>
+            <h2 style={{ fontSize:20, fontWeight:900, marginBottom:6 }}>
+              {rewardsResult.isNew ? `Welcome, ${rewardsResult.name}!` : `Welcome back, ${rewardsResult.name}!`}
+            </h2>
+            <p style={{ color:C.silver2, fontSize:13, marginBottom:20 }}>
+              {rewardsResult.isNew ? "You've just joined Orchid Rewards" : "Great to see you again"}
+            </p>
+            <div style={{ background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:18, padding:'22px', marginBottom:24 }}>
+              <div style={{ fontSize:11, color:C.silver2, letterSpacing:2, marginBottom:6 }}>YOUR POINTS BALANCE</div>
+              <div style={{ fontSize:40, fontWeight:900, color:C.blue1 }}>{rewardsResult.points}</div>
+              {rewardsResult.isNew && <div style={{ fontSize:12, color:C.blue1, marginTop:6, fontWeight:700 }}>🎁 +50 welcome points added!</div>}
+
+              {/* ✅ جديد: شريط تقدم واضح نحو 1000 نقطة عشان يستحق خصم */}
+              <div style={{ marginTop:20, textAlign:'left' }}>
+                {rewardsResult.points >= DISCOUNT_POINTS_TARGET ? (
+                  <div style={{ background:'rgba(34,197,94,.12)', border:'1px solid rgba(34,197,94,.4)', borderRadius:12, padding:'10px 14px', fontSize:12.5, color:'#4ADE80', fontWeight:700, textAlign:'center' }}>
+                    🎉 You've unlocked your discount! Show this to your waiter.
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:11.5, color:C.silver2, marginBottom:6 }}>
+                      <span>Progress to discount</span>
+                      <span style={{ color:C.blue1, fontWeight:800 }}>{rewardsResult.points} / {DISCOUNT_POINTS_TARGET}</span>
+                    </div>
+                    <div style={{ width:'100%', height:8, background:'rgba(255,255,255,.08)', borderRadius:20, overflow:'hidden' }}>
+                      <div style={{ width:`${Math.min(100, (rewardsResult.points / DISCOUNT_POINTS_TARGET) * 100)}%`, height:'100%', background:`linear-gradient(90deg, ${C.blue2}, ${C.blue1})`, borderRadius:20, transition:'width .6s ease' }} />
+                    </div>
+                    <div style={{ fontSize:11.5, color:C.silver2, marginTop:8, textAlign:'center' }}>
+                      Earn <span style={{ color:C.blue1, fontWeight:800 }}>{DISCOUNT_POINTS_TARGET - rewardsResult.points}</span> more points to unlock a special discount! 🎁
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setPhase('menu')}
+              style={{ width:'100%', background:`linear-gradient(135deg, ${C.blue1}, ${C.blue2})`, border:'none', borderRadius:14, padding:'15px', color:C.white, fontSize:14, fontWeight:900, cursor:'pointer' }}>
+              Browse Menu →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

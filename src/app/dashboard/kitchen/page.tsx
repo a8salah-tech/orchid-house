@@ -3,6 +3,8 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+// ⚠️ ملحوظة: عدّل مسار الاستيراد ده لو مكان الملف مختلف عن نمط dashboard/*/page.tsx المعتاد
+import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,7 +32,7 @@ type OrderItem = {
 
 type KitchenOrder = {
   id: string; status: string; created_at: string
-  tables: { number: number; name: string }
+  tables: { number: number; name: string; branch_id?: string; branches?: { name: string } }
   order_items: OrderItem[]
 }
 
@@ -63,6 +65,44 @@ function itemDuration(startIso: string, endIso?: string | null) {
   const s = sec % 60
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+// ✅ جديد: تجميع أصناف الطلب في "جولات" - كل جولة هي مجموعة أصناف اتطلبت مع بعض في نفس اللحظة تقريبًا
+// (زي أول 5 أصناف طلبهم العميل، وبعدين صنف سادس أضافه لاحقًا = جولة تانية منفصلة).
+// كل جولة ليها وقتها الإجمالي الخاص بيها: من أول صنف دخل الجولة لحد آخر صنف فيها يخلص
+function groupItemsIntoRounds(items: OrderItem[]) {
+  const sorted = [...items].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  const rounds: OrderItem[][] = []
+  const TOLERANCE_MS = 8000 // ✅ أي أصناف اتضافت في نفس اللحظة (خلال 8 ثواني من بعض) تعتبر نفس الجولة
+  for (const item of sorted) {
+    const lastRound = rounds[rounds.length - 1]
+    if (lastRound && new Date(item.created_at).getTime() - new Date(lastRound[lastRound.length - 1].created_at).getTime() <= TOLERANCE_MS) {
+      lastRound.push(item)
+    } else {
+      rounds.push([item])
+    }
+  }
+  return rounds.map((roundItems, idx) => {
+    const activeItems = roundItems.filter(i => !['cancelled', 'returned', 'replaced'].includes(i.status))
+    const allReady = activeItems.length > 0 && activeItems.every(i => i.status === 'ready')
+    const roundStart = Math.min(...roundItems.map(i => new Date(i.created_at).getTime()))
+    const roundEnd = allReady ? Math.max(...activeItems.map(i => new Date(i.ready_at!).getTime())) : null
+    return { index: idx + 1, items: roundItems, allReady, roundStart, roundEnd }
+  })
+}
+
+// ✅ جديد (ميزة إضافية 1): تنبيه صوتي بسيط لما يجي طلب جديد - نغمة قصيرة بدون أي ملف صوتي خارجي
+function playNewOrderBeep() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.frequency.value = 880
+    gain.gain.setValueAtTime(0.15, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
+    osc.start(); osc.stop(ctx.currentTime + 0.35)
+  } catch { /* المتصفح مش بيدعم Web Audio - نتجاهل بصمت */ }
 }
 
 // ══ Waste/Return Modal ══
@@ -154,6 +194,16 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
     : 0
   const avgPrepLabel = avgPrepSeconds > 0 ? `${Math.floor(avgPrepSeconds / 60)}:${String(avgPrepSeconds % 60).padStart(2, '0')}` : '—'
 
+  // ✅ جديد: متوسط "الوقت الإجمالي للجولة" (من أول صنف في الجولة لحد آخر صنف فيها يخلص) عبر كل الطلبات
+  const allRoundDurations: number[] = []
+  for (const o of orders) {
+    for (const round of groupItemsIntoRounds(o.order_items)) {
+      if (round.allReady && round.roundEnd) allRoundDurations.push((round.roundEnd - round.roundStart) / 1000)
+    }
+  }
+  const avgRoundSeconds = allRoundDurations.length > 0 ? Math.round(allRoundDurations.reduce((s, x) => s + x, 0) / allRoundDurations.length) : 0
+  const avgRoundLabel = avgRoundSeconds > 0 ? `${Math.floor(avgRoundSeconds / 60)}:${String(avgRoundSeconds % 60).padStart(2, '0')}` : '—'
+
   function printReport() {
     const win = window.open('', '_blank')
     if (!win) return
@@ -197,6 +247,7 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
       <div class="box"><div class="val">${orders.length}</div><div>Orders</div></div>
       <div class="box"><div class="val">${totalItems}</div><div>Items Prepared</div></div>
       <div class="box"><div class="val">${avgPrepLabel}</div><div>Avg Prep Time</div></div>
+      <div class="box"><div class="val">${avgRoundLabel}</div><div>Avg Round Total Time</div></div>
       <div class="box"><div class="val">${waste.length}</div><div>Waste/Returns</div></div>
     </div>
     <h4>Orders</h4>
@@ -229,11 +280,12 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
         </div>
 
         {/* Summary */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 20 }}>
           {[
             { label: 'Total Orders', value: orders.length, color: S.white },
             { label: 'Items Prepared', value: totalItems, color: S.green },
             { label: 'Avg Prep Time', value: avgPrepLabel, color: S.blue },
+            { label: 'Avg Round Total Time', value: avgRoundLabel, color: S.gold },
             { label: 'Waste / Returns', value: waste.length, color: S.red },
           ].map((s, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 14, padding: '14px 18px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
@@ -296,6 +348,10 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
 export default function KitchenPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  // ✅ جديد: كل فرع يشوف طلباته بس، والأدمن يشوف كل الفروع
+  const { employee } = useAuth()
+  const isAdmin = employee?.role === 'admin'
+  const myBranchId = employee?.branch_id || ''
 
   const [orders, setOrders] = useState<KitchenOrder[]>([])
   const [allShiftOrders, setAllShiftOrders] = useState<KitchenOrder[]>([])
@@ -311,14 +367,19 @@ export default function KitchenPage() {
   const fetchOrders = useCallback(async () => {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
-      tables(number, name),
+      tables(number, name, branch_id, branches(name)),
       order_items(id, quantity, notes, status, destination, created_at, ready_at, menu_items(id, name, name_en))
     `).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: true })
 
-    const filtered = ((data as any) || []).map((o: KitchenOrder) => ({
+    let filtered = ((data as any) || []).map((o: KitchenOrder) => ({
       ...o,
       order_items: o.order_items.filter(i => i.destination === 'kitchen'),
     })).filter((o: KitchenOrder) => o.order_items.some(i => !['cancelled','returned','replaced'].includes(i.status)))
+
+    // ✅ جديد: كل فرع يشوف طلبات فرعه بس - الأدمن يشوف كل الفروع من غير أي فلترة
+    if (!isAdmin && myBranchId) {
+      filtered = filtered.filter((o: KitchenOrder) => o.tables?.branch_id === myBranchId)
+    }
 
     setOrders(filtered)
     setAllShiftOrders(prev => {
@@ -327,13 +388,13 @@ export default function KitchenPage() {
       return [...prev, ...newOrders]
     })
     setLoading(false)
-  }, [sb])
+  }, [sb, isAdmin, myBranchId])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
 
   useEffect(() => {
     const ch = sb.channel('kitchen-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrders(); setNotif(true); setTimeout(() => setNotif(false), 2000) })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrders(); setNotif(true); playNewOrderBeep(); setTimeout(() => setNotif(false), 2000) })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchOrders())
       .subscribe()
     return () => { sb.removeChannel(ch) }
@@ -392,6 +453,21 @@ export default function KitchenPage() {
       <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 20px', display: 'flex', alignItems: 'center', minHeight: 60, gap: 12, flexWrap: 'wrap', paddingTop: 10, paddingBottom: 10 }}>
         <h1 style={{ color: S.amber, fontSize: 18, fontWeight: 900 }}>🍳 Kitchen</h1>
         <div style={{ color: S.muted, fontSize: 13 }}>{orders.length} active orders</div>
+        {/* ✅ جديد (ميزة إضافية 2): توزيع عدد الطلبات النشطة حسب الفرع - يظهر للأدمن بس اللي بيشوف كل الفروع */}
+        {isAdmin && (() => {
+          const byBranch: Record<string, number> = {}
+          for (const o of orders) {
+            const bname = o.tables?.branches?.name || 'Unknown'
+            byBranch[bname] = (byBranch[bname] || 0) + 1
+          }
+          return Object.keys(byBranch).length > 1 ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {Object.entries(byBranch).map(([bname, count]) => (
+                <span key={bname} style={{ fontSize: 11, color: S.purple, background: S.purpleB, borderRadius: 20, padding: '2px 10px', fontWeight: 700 }}>🏪 {bname}: {count}</span>
+              ))}
+            </div>
+          ) : null
+        })()}
 
         {/* Shift */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
@@ -425,6 +501,8 @@ export default function KitchenPage() {
             {orders.map(order => {
               const age = urgencyColor(order.created_at)
               const time = elapsed(order.created_at)
+              // ✅ جديد: تجميع أصناف الطلب في جولات، كل جولة بوقتها الإجمالي الخاص بيها
+              const rounds = groupItemsIntoRounds(order.order_items)
               return (
                 <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `2px solid ${age}40`, overflow: 'hidden' }}>
                   <div style={{ height: 4, background: age }} />
@@ -432,38 +510,61 @@ export default function KitchenPage() {
                     <div>
                       <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>{order.tables?.name || `Table ${order.tables?.number}`}</div>
                       <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()}</div>
+                      {/* ✅ جديد: شارة اسم الفرع - تظهر للأدمن بس (اللي بيشوف كل الفروع مع بعض) */}
+                      {isAdmin && order.tables?.branches?.name && (
+                        <div style={{ fontSize: 10, color: S.purple, background: S.purpleB, borderRadius: 20, padding: '1px 8px', display: 'inline-block', marginTop: 4, fontWeight: 700 }}>
+                          🏪 {order.tables.branches.name}
+                        </div>
+                      )}
                     </div>
                     <div style={{ color: order.status === 'ready' ? S.green : age, fontWeight: 900, fontSize: 22, fontVariantNumeric: 'tabular-nums' }}>
                       {order.status === 'ready' ? '✅ Done' : time}
                     </div>
                   </div>
 
-                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {order.order_items.map(item => (
-                      <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: item.status === 'ready' ? S.greenB : S.card, borderRadius: 10, border: `1px solid ${item.status === 'ready' ? S.green + '40' : S.border}` }}>
-                        <div>
-                          <div style={{ color: item.status === 'ready' ? S.green : S.white, fontWeight: 700, fontSize: 14 }}>
-                            {item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}
-                            <span style={{ color: S.gold, marginLeft: 6, fontWeight: 900 }}>×{item.quantity}</span>
+                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {rounds.map(round => (
+                      <div key={round.index}>
+                        {/* ✅ جديد: عنوان الجولة مع الوقت الإجمالي لها (من أول صنف فيها لحد آخر صنف يخلص) */}
+                        {rounds.length > 1 && (
+                          <div style={{ fontSize: 11, color: S.gold, fontWeight: 800, marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>🔔 Round {round.index} ({round.items.length} item{round.items.length > 1 ? 's' : ''})</span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {round.allReady && round.roundEnd
+                                ? `✓ total: ${itemDuration(new Date(round.roundStart).toISOString(), new Date(round.roundEnd).toISOString())}`
+                                : `⏱ ${itemDuration(new Date(round.roundStart).toISOString())}`}
+                            </span>
                           </div>
-                          <div style={{ fontSize: 11, color: item.status === 'ready' ? S.green : S.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                            {item.status === 'ready'
-                              ? (item.ready_at ? `✓ took ${itemDuration(item.created_at, item.ready_at)}` : '✓ Ready (time not tracked)')
-                              : `⏱ ${itemDuration(item.created_at)}`}
-                          </div>
-                          {item.notes && <div style={{ color: S.amber, fontSize: 11, marginTop: 2 }}>⚠️ {item.notes}</div>}
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                          {item.status !== 'ready' && (
-                            <button onClick={() => markItemReady(item.id, order.id)}
-                              style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                              ✓ Ready
-                            </button>
-                          )}
-                          <button onClick={() => setActionItem({ item, orderId: order.id })}
-                            style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12 }}>
-                            •••
-                          </button>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {round.items.map(item => (
+                            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: item.status === 'ready' ? S.greenB : S.card, borderRadius: 10, border: `1px solid ${item.status === 'ready' ? S.green + '40' : S.border}` }}>
+                              <div>
+                                <div style={{ color: item.status === 'ready' ? S.green : S.white, fontWeight: 700, fontSize: 14 }}>
+                                  {item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}
+                                  <span style={{ color: S.gold, marginLeft: 6, fontWeight: 900 }}>×{item.quantity}</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: item.status === 'ready' ? S.green : S.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                                  {item.status === 'ready'
+                                    ? (item.ready_at ? `✓ took ${itemDuration(item.created_at, item.ready_at)}` : '✓ Ready (time not tracked)')
+                                    : `⏱ ${itemDuration(item.created_at)}`}
+                                </div>
+                                {item.notes && <div style={{ color: S.amber, fontSize: 11, marginTop: 2 }}>⚠️ {item.notes}</div>}
+                              </div>
+                              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                {item.status !== 'ready' && (
+                                  <button onClick={() => markItemReady(item.id, order.id)}
+                                    style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                                    ✓ Ready
+                                  </button>
+                                )}
+                                <button onClick={() => setActionItem({ item, orderId: order.id })}
+                                  style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12 }}>
+                                  •••
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     ))}

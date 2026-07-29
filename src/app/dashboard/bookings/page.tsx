@@ -25,6 +25,7 @@ type Booking = {
   booking_date: string; booking_time: string; guests: number
   section: string; table_number: number | null; notes: string | null
   status: 'pending' | 'confirmed' | 'cancelled'; created_at: string
+  branch_id: string | null
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -37,23 +38,40 @@ const STATUS_CFG = {
   cancelled: { label: 'Cancelled', color: S.red,   bg: S.redB   },
 }
 
+// ✅ جديد: عدد الحجوزات في كل صفحة
+const PAGE_SIZE = 20
+
 export default function BookingsPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
 
   const [bookings, setBookings] = useState<Booking[]>([])
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all')
   const [dateFilter, setDateFilter] = useState('')
   const [search, setSearch] = useState('')
+  // ✅ جديد: فلتر الفرع
+  const [branchFilter, setBranchFilter] = useState('')
+  // ✅ جديد: أرشيف (الحجوزات اللي تاريخها فات) مقابل النشطة/القادمة
+  const [showArchive, setShowArchive] = useState(false)
+  // ✅ جديد: رقم الصفحة الحالية
+  const [page, setPage] = useState(0)
 
   const fetchBookings = useCallback(async () => {
-    const { data } = await sb.from('bookings').select('*').order('booking_date', { ascending: true }).order('booking_time', { ascending: true })
+    // ✅ Fix: الترتيب بقى من الأحدث للأقدم (تنازلي) بدل تصاعدي
+    const { data } = await sb.from('bookings').select('*').order('booking_date', { ascending: false }).order('booking_time', { ascending: false })
     setBookings((data as any) || [])
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { fetchBookings() }, [fetchBookings])
+  // ✅ جديد: جلب الفروع لدعم فلتر اختيار الفرع
+  const fetchBranches = useCallback(async () => {
+    const { data } = await sb.from('branches').select('id,name').eq('is_active', true).order('name')
+    setBranches(data || [])
+  }, [sb])
+
+  useEffect(() => { fetchBookings(); fetchBranches() }, [fetchBookings, fetchBranches])
 
   useEffect(() => {
     const ch = sb.channel('bookings-rt')
@@ -72,12 +90,25 @@ export default function BookingsPage() {
     fetchBookings()
   }
 
+  // ✅ جديد: تاريخ اليوم بصيغة قابلة للمقارنة، لتحديد الأرشيف
+  const todayStr = new Date().toISOString().split('T')[0]
+
   const filtered = bookings.filter(b => {
     const matchStatus = filter === 'all' || b.status === filter
     const matchDate = !dateFilter || b.booking_date === dateFilter
     const matchSearch = !search || b.customer_name.toLowerCase().includes(search.toLowerCase()) || b.customer_phone.includes(search) || b.customer_email.toLowerCase().includes(search.toLowerCase())
-    return matchStatus && matchDate && matchSearch
+    const matchBranch = !branchFilter || b.branch_id === branchFilter
+    // ✅ جديد: الأرشيف = تاريخ الحجز فات. النشطة = اليوم فما بعد
+    const matchArchive = showArchive ? b.booking_date < todayStr : b.booking_date >= todayStr
+    return matchStatus && matchDate && matchSearch && matchBranch && matchArchive
   })
+
+  // ✅ جديد: تقسيم النتائج المفلترة لصفحات، 20 حجز في كل صفحة
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageSafe = Math.min(page, totalPages - 1)
+  const paginated = filtered.slice(pageSafe * PAGE_SIZE, pageSafe * PAGE_SIZE + PAGE_SIZE)
+  // ✅ نرجّع لأول صفحة تلقائيًا كل ما اتغيّر أي فلتر
+  useEffect(() => { setPage(0) }, [filter, dateFilter, search, branchFilter, showArchive])
 
   const counts = {
     all: bookings.length,
@@ -89,12 +120,14 @@ export default function BookingsPage() {
   function printReport() {
     const win = window.open('', '_blank')
     if (!win) return
+    // ✅ الطباعة بتاخد كل النتائج المفلترة (كل الصفحات مع بعض)، مش صفحة واحدة بس
     const rows = filtered.map((b, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${b.customer_name}</td>
         <td>${b.customer_phone}</td>
         <td>${b.customer_email}</td>
+        <td>${branches.find(br => br.id === b.branch_id)?.name || '—'}</td>
         <td>${new Date(b.booking_date).toLocaleDateString('en-GB')}</td>
         <td>${b.booking_time}</td>
         <td>${b.guests}</td>
@@ -120,7 +153,7 @@ export default function BookingsPage() {
       @media print{@page{size:A4 landscape;margin:8mm;}}
     </style></head><body>
     <h2>🌸 Orchid House — Reservations Report</h2>
-    <h3>Printed: ${new Date().toLocaleString('en-GB')} · ${filtered.length} bookings</h3>
+    <h3>Printed: ${new Date().toLocaleString('en-GB')} · ${filtered.length} bookings ${showArchive ? '(Archive)' : '(Active/Upcoming)'}</h3>
     <div class="sum">
       <div class="box"><div class="v">${counts.all}</div><div>Total</div></div>
       <div class="box"><div class="v" style="color:#F59E0B">${counts.pending}</div><div>Pending</div></div>
@@ -128,7 +161,7 @@ export default function BookingsPage() {
       <div class="box"><div class="v" style="color:#EF4444">${counts.cancelled}</div><div>Cancelled</div></div>
     </div>
     <table><thead><tr>
-      <th>#</th><th>Name</th><th>Phone</th><th>Email</th>
+      <th>#</th><th>Name</th><th>Phone</th><th>Email</th><th>Branch</th>
       <th>Date</th><th>Time</th><th>Guests</th><th>Section</th>
       <th>Table</th><th>Status</th><th>Notes</th>
     </tr></thead><tbody>${rows}</tbody></table>
@@ -155,6 +188,34 @@ export default function BookingsPage() {
         </div>
       </div>
 
+      {/* ✅ جديد: تبديل نشطة/قادمة مقابل الأرشيف */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button onClick={() => setShowArchive(false)}
+          style={{ flex: 1, padding: '10px', borderRadius: 12, border: `1px solid ${!showArchive ? S.green : S.border}`, background: !showArchive ? S.greenB : 'transparent', color: !showArchive ? S.green : S.muted, cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          🟢 Active / Upcoming
+        </button>
+        <button onClick={() => setShowArchive(true)}
+          style={{ flex: 1, padding: '10px', borderRadius: 12, border: `1px solid ${showArchive ? S.blue : S.border}`, background: showArchive ? S.blueB : 'transparent', color: showArchive ? S.blue : S.muted, cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          🗄️ Archive (Past Dates)
+        </button>
+      </div>
+
+      {/* ✅ جديد: اختيار الفرع بأزرار واضحة */}
+      {branches.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          <button onClick={() => setBranchFilter('')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${!branchFilter ? S.gold : S.border}`, background: !branchFilter ? S.gold3 : 'transparent', color: !branchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: !branchFilter ? 700 : 400 }}>
+            🌐 All Branches
+          </button>
+          {branches.map(br => (
+            <button key={br.id} onClick={() => setBranchFilter(br.id)}
+              style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${branchFilter === br.id ? S.gold : S.border}`, background: branchFilter === br.id ? S.gold3 : 'transparent', color: branchFilter === br.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: branchFilter === br.id ? 700 : 400 }}>
+              🏪 {br.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px,1fr))', gap: 12, marginBottom: 24 }}>
         {([['all','All','#fff'], ['pending','Pending',S.amber], ['confirmed','Confirmed',S.green], ['cancelled','Cancelled',S.red]] as const).map(([k, l, c]) => (
@@ -172,6 +233,8 @@ export default function BookingsPage() {
         {dateFilter && <button onClick={() => setDateFilter('')} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ Clear</button>}
       </div>
 
+      <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{filtered.length} booking{filtered.length !== 1 ? 's' : ''} found</div>
+
       {/* Table */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
@@ -183,16 +246,16 @@ export default function BookingsPage() {
       ) : (
         <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 950 }}>
               <thead>
                 <tr style={{ background: S.navy3 }}>
-                  {['Name', 'Phone', 'Date', 'Time', 'Guests', 'Section', 'Table', 'Notes', 'Status', 'Actions'].map(h => (
+                  {['Name', 'Phone', 'Branch', 'Date', 'Time', 'Guests', 'Section', 'Table', 'Notes', 'Status', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(b => {
+                {paginated.map(b => {
                   const st = STATUS_CFG[b.status]
                   return (
                     <tr key={b.id} style={{ borderBottom: `1px solid ${S.border}` }}>
@@ -201,6 +264,7 @@ export default function BookingsPage() {
                         <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
                       </td>
                       <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{b.customer_phone}</td>
+                      <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{branches.find(br => br.id === b.branch_id)?.name || '—'}</td>
                       <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, whiteSpace: 'nowrap' }}>
                         {new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })}
                       </td>
@@ -234,6 +298,21 @@ export default function BookingsPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: تصفح الصفحات - 20 حجز في كل صفحة */}
+      {!loading && filtered.length > 0 && totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
+          <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={pageSafe === 0}
+            style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe === 0 ? S.muted + '60' : S.white, cursor: pageSafe === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            ← Previous
+          </button>
+          <span style={{ fontSize: 13, color: S.muted }}>Page {pageSafe + 1} of {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={pageSafe >= totalPages - 1}
+            style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe >= totalPages - 1 ? S.muted + '60' : S.white, cursor: pageSafe >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+            Next →
+          </button>
         </div>
       )}
     </div>

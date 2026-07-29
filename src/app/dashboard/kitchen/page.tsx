@@ -363,13 +363,43 @@ export default function KitchenPage() {
   const [showReport, setShowReport] = useState(false)
   const [shiftStarted, setShiftStarted] = useState(false)
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
+  // ✅ جديد: قسم الأرشيف - البحث بالتاريخ لمعرفة كم أوردر اتنفذ وكم كان معلّق/اتلغى في أي يوم فات
+  const [viewMode, setViewMode] = useState<'live' | 'archive'>('live')
+  const [archiveDate, setArchiveDate] = useState(new Date().toISOString().split('T')[0])
+  const [archiveOrders, setArchiveOrders] = useState<any[]>([])
+  const [archiveLoading, setArchiveLoading] = useState(false)
+
+  // ✅ جديد: جلب طلبات المطبخ ليوم محدد من الأرشيف (كل الحالات، مش النشطة بس) مع فلترة الفرع
+  const fetchArchive = useCallback(async (date: string) => {
+    setArchiveLoading(true)
+    const dayStart = `${date}T00:00:00`
+    const dayEnd = `${date}T23:59:59`
+    const { data } = await sb.from('orders').select(`
+      id, status, created_at,
+      tables(number, name, branch_id, branches(name)),
+      order_items(id, quantity, status, destination, created_at, ready_at, menu_items(id, name, name_en))
+    `).gte('created_at', dayStart).lte('created_at', dayEnd)
+
+    let dayOrders = ((data as any) || []).map((o: any) => ({
+      ...o,
+      order_items: o.order_items.filter((i: any) => i.destination === 'kitchen'),
+    })).filter((o: any) => o.order_items.length > 0)
+
+    if (!isAdmin && myBranchId) {
+      dayOrders = dayOrders.filter((o: any) => o.tables?.branch_id === myBranchId)
+    }
+    setArchiveOrders(dayOrders)
+    setArchiveLoading(false)
+  }, [sb, isAdmin, myBranchId])
+
+  useEffect(() => { if (viewMode === 'archive') fetchArchive(archiveDate) }, [viewMode, archiveDate, fetchArchive])
 
   const fetchOrders = useCallback(async () => {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name, branch_id, branches(name)),
       order_items(id, quantity, notes, status, destination, created_at, ready_at, menu_items(id, name, name_en))
-    `).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: true })
+    `).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: true }) // ✅ الأقدم (اللي طلب الأول) دايمًا في أول الترتيب
 
     let filtered = ((data as any) || []).map((o: KitchenOrder) => ({
       ...o,
@@ -483,11 +513,88 @@ export default function KitchenPage() {
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {waste.length > 0 && <span style={{ fontSize: 12, color: S.red, background: S.redB, borderRadius: 20, padding: '3px 10px', fontWeight: 700 }}>🗑️ {waste.length} waste</span>}
-          <span style={{ fontSize: 12, color: S.green }}>🟢 Live</span>
+          {/* ✅ جديد: تبديل بين الشاشة الحية والأرشيف */}
+          <button onClick={() => setViewMode('live')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${viewMode === 'live' ? S.green : S.border}`, background: viewMode === 'live' ? S.greenB : 'transparent', color: viewMode === 'live' ? S.green : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🟢 Live</button>
+          <button onClick={() => setViewMode('archive')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${viewMode === 'archive' ? S.blue : S.border}`, background: viewMode === 'archive' ? S.blueB : 'transparent', color: viewMode === 'archive' ? S.blue : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🗄️ Archive</button>
         </div>
       </div>
 
       <div style={{ padding: 16 }}>
+        {viewMode === 'archive' ? (
+          <div>
+            {/* ✅ جديد: منتقي التاريخ لعرض إحصائيات أي يوم فات */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+              <label style={{ fontSize: 13, color: S.muted }}>📅 Select date:</label>
+              <input type="date" value={archiveDate} onChange={e => setArchiveDate(e.target.value)}
+                style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 12px', color: S.white, fontSize: 13, outline: 'none' }} />
+            </div>
+            {archiveLoading ? (
+              <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
+            ) : (() => {
+              // ✅ نحسب عدد الطلبات المكتملة (كل أصناف المطبخ فيها جاهزة)، والملغية بالكامل، والباقي (لسه شغال وقت انتهاء اليوم)
+              const completed = archiveOrders.filter((o: any) => o.order_items.length > 0 && o.order_items.every((i: any) => i.status === 'ready' || i.status === 'cancelled' || i.status === 'returned' || i.status === 'replaced') && o.order_items.some((i: any) => i.status === 'ready'))
+              const fullyCancelled = archiveOrders.filter((o: any) => o.order_items.length > 0 && o.order_items.every((i: any) => ['cancelled', 'returned', 'replaced'].includes(i.status)))
+              const stillPending = archiveOrders.filter((o: any) => o.order_items.some((i: any) => !['ready', 'cancelled', 'returned', 'replaced'].includes(i.status)))
+              const totalItemsDone = completed.reduce((s: number, o: any) => s + o.order_items.filter((i: any) => i.status === 'ready').reduce((s2: number, i: any) => s2 + i.quantity, 0), 0)
+              return (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 24 }}>
+                    {[
+                      { label: 'Total Orders', value: archiveOrders.length, color: S.white },
+                      { label: '✅ Completed', value: completed.length, color: S.green },
+                      { label: '⏳ Pending / Not Finished', value: stillPending.length, color: S.amber },
+                      { label: '❌ Fully Cancelled', value: fullyCancelled.length, color: S.red },
+                      { label: 'Items Prepared', value: totalItemsDone, color: S.blue },
+                    ].map((s, i) => (
+                      <div key={i} style={{ background: S.card, borderRadius: 14, padding: '14px 18px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
+                        <div style={{ fontSize: 26, fontWeight: 900, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {archiveOrders.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>No orders found for this date</div>
+                  ) : (
+                    <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: S.navy3 }}>
+                              {['Table', 'Order #', ...(isAdmin ? ['Branch'] : []), 'Items', 'Status', 'Time'].map(h => (
+                                <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {archiveOrders.map((o: any) => {
+                              const isDone = o.order_items.length > 0 && o.order_items.every((i: any) => ['ready', 'cancelled', 'returned', 'replaced'].includes(i.status)) && o.order_items.some((i: any) => i.status === 'ready')
+                              const isCancelled = o.order_items.length > 0 && o.order_items.every((i: any) => ['cancelled', 'returned', 'replaced'].includes(i.status))
+                              return (
+                                <tr key={o.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                                  <td style={{ padding: '10px 12px', color: S.white, fontSize: 13 }}>{o.tables?.name || `Table ${o.tables?.number}`}</td>
+                                  <td style={{ padding: '10px 12px', color: S.gold, fontSize: 12 }}>#{o.id.slice(-6).toUpperCase()}</td>
+                                  {isAdmin && <td style={{ padding: '10px 12px', color: S.purple, fontSize: 12 }}>{o.tables?.branches?.name || '—'}</td>}
+                                  <td style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>{o.order_items.map((i: any) => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}</td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    <span style={{ background: isCancelled ? S.redB : isDone ? S.greenB : S.amberB, color: isCancelled ? S.red : isDone ? S.green : S.amber, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>
+                                      {isCancelled ? '❌ Cancelled' : isDone ? '✅ Completed' : '⏳ Pending'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>{new Date(o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
+          </div>
+        ) : (
+        <>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: S.muted, fontSize: 18 }}>⏳</div>
         ) : orders.length === 0 ? (
@@ -498,16 +605,21 @@ export default function KitchenPage() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {orders.map(order => {
+            {orders.map((order, orderIdx) => {
               const age = urgencyColor(order.created_at)
               const time = elapsed(order.created_at)
               // ✅ جديد: تجميع أصناف الطلب في جولات، كل جولة بوقتها الإجمالي الخاص بيها
               const rounds = groupItemsIntoRounds(order.order_items)
               return (
-                <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `2px solid ${age}40`, overflow: 'hidden' }}>
+                // ✅ Fix: ترتيب CSS صريح (order: orderIdx) يضمن إن أقدم طلب (اللي طلب الأول) يظهر أول واحد فوق دايمًا
+                <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `2px solid ${orderIdx === 0 && order.status !== 'ready' ? S.red : age + '40'}`, overflow: 'hidden', order: orderIdx }}>
                   <div style={{ height: 4, background: age }} />
                   <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
+                      {/* ✅ جديد: شارة واضحة على أقدم طلب لسه مش جاهز - عشان يبقى مؤكد إنه الأولوية */}
+                      {orderIdx === 0 && order.status !== 'ready' && (
+                        <div style={{ fontSize: 10, color: S.red, fontWeight: 900, marginBottom: 2 }}>🔥 OLDEST — PRIORITY</div>
+                      )}
                       <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>{order.tables?.name || `Table ${order.tables?.number}`}</div>
                       <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()}</div>
                       {/* ✅ جديد: شارة اسم الفرع - تظهر للأدمن بس (اللي بيشوف كل الفروع مع بعض) */}
@@ -516,6 +628,20 @@ export default function KitchenPage() {
                           🏪 {order.tables.branches.name}
                         </div>
                       )}
+                      {/* ✅ جديد: تسجيل دخول وخروج الطلب بالكامل (Check-in / Check-out) */}
+                      {(() => {
+                        const activeItems = order.order_items.filter(i => !['cancelled', 'returned', 'replaced'].includes(i.status))
+                        const allReady = activeItems.length > 0 && activeItems.every(i => i.status === 'ready')
+                        const checkOutTime = allReady ? Math.max(...activeItems.map(i => new Date(i.ready_at!).getTime())) : null
+                        return (
+                          <div style={{ fontSize: 10, color: S.muted, marginTop: 4, lineHeight: 1.6 }}>
+                            <div>🕐 Check-in: {new Date(order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                            <div style={{ color: checkOutTime ? S.green : S.amber }}>
+                              {checkOutTime ? `✅ Check-out: ${new Date(checkOutTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : '⏳ Check-out: in progress'}
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </div>
                     <div style={{ color: order.status === 'ready' ? S.green : age, fontWeight: 900, fontSize: 22, fontVariantNumeric: 'tabular-nums' }}>
                       {order.status === 'ready' ? '✅ Done' : time}
@@ -573,6 +699,8 @@ export default function KitchenPage() {
               )
             })}
           </div>
+        )}
+        </>
         )}
       </div>
 

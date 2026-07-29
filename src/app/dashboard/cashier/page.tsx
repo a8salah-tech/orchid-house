@@ -976,7 +976,9 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
       const price = parseFloat(row.price) || 0
       const { data: newMenuItem, error } = await sb.from('menu_items').insert([{
         name: row.name.trim(), name_en: row.name.trim(), price,
-        is_available: false, is_active: true, category_id: null,
+        // ✅ Fix: is_active بقى false كمان (مش is_available بس) - عشان يختفي تمامًا من صفحة إدارة المنيو نفسها،
+        // اللي بتستبعد الأصناف الملغى تنشيطها (is_active=false)، مش بس الأصناف "متوقفة مؤقتًا" (is_available=false)
+        is_available: false, is_active: false, category_id: null,
       }]).select('id, name, name_en, price, category_id').single()
       if (error || !newMenuItem) { alert('حصل خطأ أثناء إضافة الصنف: ' + (error?.message || '')); continue }
       newCartEntries.push({ item: newMenuItem as MenuItem, qty: 1, notes: row.notes.trim() })

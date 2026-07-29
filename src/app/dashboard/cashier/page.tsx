@@ -1154,7 +1154,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, padding: 20, maxWidth: 380, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: S.amber, marginBottom: 4 }}>➕ Open Item</div>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>لأي إضافة مش موجودة في المنيو (زي "عسل زيادة")</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>For any addition not on the menu (e.g. "Extra Honey")</div>
 
             {openItemRows.map((row, idx) => (
               <div key={idx} style={{ background: S.card, borderRadius: 12, padding: 12, marginBottom: 10, position: 'relative' }}>

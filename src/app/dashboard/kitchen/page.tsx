@@ -28,6 +28,8 @@ type OrderItem = {
   status: string; destination: string
   created_at: string; ready_at: string | null
   size_name?: string | null
+  cancel_reason?: string | null
+  cancelled_at?: string | null
   menu_items: { id: string; name: string; name_en: string }
 }
 
@@ -404,13 +406,24 @@ export default function KitchenPage() {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name, branch_id, branches(name)),
-      order_items(id, quantity, notes, status, destination, created_at, ready_at, size_name, menu_items(id, name, name_en))
-    `).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: false }) // ✅ Fix: الطلب الأحدث دلوقتي يظهر أول واحد فوق
+      order_items(id, quantity, notes, status, destination, created_at, ready_at, size_name, cancel_reason, cancelled_at, menu_items(id, name, name_en))
+    `)
+      // ✅ Fix: بنجيب الطلبات الملغاة كمان (مش بس confirmed/preparing/ready) - عشان تفضل ظاهرة في المطبخ بدل ما تختفي فورًا
+      .in('status', ['confirmed', 'preparing', 'ready', 'cancelled']).order('created_at', { ascending: false }) // ✅ Fix: الطلب الأحدث دلوقتي يظهر أول واحد فوق
 
     let filtered = ((data as any) || []).map((o: KitchenOrder) => ({
       ...o,
       order_items: o.order_items.filter(i => i.destination === 'kitchen'),
-    })).filter((o: KitchenOrder) => o.order_items.some(i => !['cancelled','returned','replaced'].includes(i.status)))
+    })).filter((o: KitchenOrder) => {
+      if (o.order_items.length === 0) return false
+      // ✅ جديد: الطلب الملغي بالكامل يفضل ظاهر بس لمدة 20 دقيقة من لحظة إلغائه، عشان المطبخ ياخد باله، وبعدها يختفي طبيعي (يفضل في الأرشيف)
+      if (o.status === 'cancelled') {
+        const cancelTimes = o.order_items.map(i => i.cancelled_at ? new Date(i.cancelled_at).getTime() : 0).filter(t => t > 0)
+        const mostRecentCancel = cancelTimes.length > 0 ? Math.max(...cancelTimes) : 0
+        return mostRecentCancel > 0 && (Date.now() - mostRecentCancel) < 20 * 60 * 1000
+      }
+      return o.order_items.some(i => !['cancelled','returned','replaced'].includes(i.status))
+    })
 
     // ✅ جديد: كل فرع يشوف طلبات فرعه بس - الأدمن يشوف كل الفروع من غير أي فلترة
     if (!isAdmin && myBranchId) {
@@ -677,22 +690,32 @@ export default function KitchenPage() {
                           </div>
                         )}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {round.items.map(item => (
-                            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: item.status === 'ready' ? S.greenB : S.card, borderRadius: 10, border: `1px solid ${item.status === 'ready' ? S.green + '40' : S.border}` }}>
+                          {round.items.map(item => {
+                            // ✅ جديد: تمييز واضح للأصناف الملغاة/المرتجعة - كانت بتتعرض زي أي صنف عادي مستنّي، من غير أي إشارة إنها اتلغت
+                            const isCancelled = ['cancelled', 'returned', 'replaced'].includes(item.status)
+                            return (
+                            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: isCancelled ? S.redB : item.status === 'ready' ? S.greenB : S.card, borderRadius: 10, border: `1px solid ${isCancelled ? S.red + '60' : item.status === 'ready' ? S.green + '40' : S.border}`, opacity: isCancelled ? 0.75 : 1 }}>
                               <div>
-                                <div style={{ color: item.status === 'ready' ? S.green : S.white, fontWeight: 700, fontSize: 14 }}>
-                                  {item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}{item.size_name ? ` (${item.size_name})` : ''}
-                                  <span style={{ color: S.gold, marginLeft: 6, fontWeight: 900 }}>×{item.quantity}</span>
+                                <div style={{ color: isCancelled ? S.red : item.status === 'ready' ? S.green : S.white, fontWeight: 700, fontSize: 14, textDecoration: isCancelled ? 'line-through' : 'none' }}>
+                                  {isCancelled ? '❌ ' : item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}{item.size_name ? ` (${item.size_name})` : ''}
+                                  <span style={{ color: isCancelled ? S.red : S.gold, marginLeft: 6, fontWeight: 900 }}>×{item.quantity}</span>
                                 </div>
-                                <div style={{ fontSize: 11, color: item.status === 'ready' ? S.green : S.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                                  {item.status === 'ready'
-                                    ? (item.ready_at ? `✓ took ${itemDuration(item.created_at, item.ready_at)}` : '✓ Ready (time not tracked)')
-                                    : `⏱ ${itemDuration(item.created_at)}`}
-                                </div>
-                                {item.notes && <div style={{ color: S.amber, fontSize: 11, marginTop: 2 }}>⚠️ {item.notes}</div>}
+                                {isCancelled ? (
+                                  <div style={{ fontSize: 11, color: S.red, marginTop: 2, fontWeight: 700 }}>
+                                    ❌ CANCELLED{item.cancelled_at ? ` after ${itemDuration(item.created_at, item.cancelled_at)}` : ''}{item.cancel_reason ? ` — ${item.cancel_reason}` : ''}
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize: 11, color: item.status === 'ready' ? S.green : S.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                                    {item.status === 'ready'
+                                      ? (item.ready_at ? `✓ took ${itemDuration(item.created_at, item.ready_at)}` : '✓ Ready (time not tracked)')
+                                      : `⏱ ${itemDuration(item.created_at)}`}
+                                  </div>
+                                )}
+                                {item.notes && !isCancelled && <div style={{ color: S.amber, fontSize: 11, marginTop: 2 }}>⚠️ {item.notes}</div>}
                               </div>
                               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                                {item.status !== 'ready' && (
+                                {/* ✅ Fix: زر Ready مبيظهرش خالص للصنف الملغي - مفيش حاجة تتحضّر */}
+                                {!isCancelled && item.status !== 'ready' && (
                                   <button onClick={() => markItemReady(item.id, order.id)}
                                     style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                                     ✓ Ready
@@ -704,7 +727,7 @@ export default function KitchenPage() {
                                 </button>
                               </div>
                             </div>
-                          ))}
+                          )})}
                         </div>
                       </div>
                     ))}

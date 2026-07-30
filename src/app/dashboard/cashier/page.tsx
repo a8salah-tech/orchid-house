@@ -1770,8 +1770,16 @@ export default function CashierPage() {
   async function doCancelOrder() {
     if (!cancelOrderTarget || !cancelReason.trim()) return
     setCancelSaving(true)
-    await sb.from('orders').update({ status: 'cancelled', cancel_reason: cancelReason.trim() })
-      .eq('table_id', cancelOrderTarget.table_id).in('status', ['confirmed', 'preparing', 'ready'])
+    const { data: cancelledOrders } = await sb.from('orders').update({ status: 'cancelled', cancel_reason: cancelReason.trim() })
+      .eq('table_id', cancelOrderTarget.table_id).in('status', ['confirmed', 'preparing', 'ready']).select('id')
+    // ✅ Fix حرج: لما الطلب يتلغى بالكامل، كانت الأصناف الفردية جواه بتفضل بحالتها القديمة (زي إنها لسه شغالة)،
+    // وبما إن المطبخ بيفلتر حسب حالة الطلب، كان الطلب يختفي من شاشة المطبخ فورًا من غير أي أثر إنه اتلغى.
+    // دلوقتي بنحدّث كل الأصناف الفردية كمان لتبقى "ملغية" فعليًا مع السبب ووقت الإلغاء
+    if (cancelledOrders && cancelledOrders.length > 0) {
+      const orderIds = cancelledOrders.map((o: any) => o.id)
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString() })
+        .in('order_id', orderIds).not('status', 'in', '(cancelled,ready)')
+    }
     await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null, reserved_at: null })
       .eq('id', cancelOrderTarget.table_id)
     setCancelSaving(false)
@@ -1790,13 +1798,13 @@ export default function CashierPage() {
       if (originalItem) {
         // نقلل كمية السطر الأصلي بمقدار الكمية الملغاة (يفضل نشط بالكمية المتبقية)
         await sb.from('order_items').update({ quantity: cancelItemTarget.totalQty - cancelItemQty }).eq('id', cancelItemTarget.itemId)
-        // وننشئ سطر جديد منفصل بالكمية الملغاة بس، محدد كـ"ملغي" مع السبب
+        // وننشئ سطر جديد منفصل بالكمية الملغاة بس، محدد كـ"ملغي" مع السبب ووقت الإلغاء
         const { id, ...rest } = originalItem as any
-        await sb.from('order_items').insert([{ ...rest, quantity: cancelItemQty, status: 'cancelled', cancel_reason: cancelReason.trim() }])
+        await sb.from('order_items').insert([{ ...rest, quantity: cancelItemQty, status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString() }])
       }
     } else {
-      // إلغاء الصنف بالكامل (السلوك الأصلي زي ما كان بالظبط)
-      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim() }).eq('id', cancelItemTarget.itemId)
+      // إلغاء الصنف بالكامل (السلوك الأصلي زي ما كان بالظبط) - مع تسجيل وقت الإلغاء الفعلي كمان
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString() }).eq('id', cancelItemTarget.itemId)
     }
     // ✅ نعيد حساب إجمالي الفاتورة بعد إلغاء الصنف عشان مايفضلش محسوب في المبلغ المطلوب من العميل
     const { data: items } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', cancelItemTarget.orderId)

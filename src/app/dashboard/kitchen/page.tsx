@@ -468,10 +468,14 @@ export default function KitchenPage() {
       return o.order_items.some(i => !['cancelled','returned','replaced'].includes(i.status))
     })
 
-    // ✅ Fix: ترتيب فعلي حسب "أحدث نشاط" مش وقت إنشاء الطلب بس - لو طاولة عندها طلب قديم وأضاف لها جولة
-    // جديدة (أصناف إضافية)، كانت الطاولة تفضل في مكانها القديم في الترتيب ومحدش ياخد باله من الجولة الجديدة.
-    // دلوقتي بنرتب حسب أحدث created_at لأي صنف جوه الطلب (يعني أحدث جولة)، مش وقت إنشاء الطلب الأصلي بس
+    // ✅ Fix أهم: الأولوية الأولى للترتيب - الطلبات اللي لسه فيها صنف مستني (شغالة) تطلع فوق دايمًا،
+    // والطلبات المخلّصة بالكامل (كل الأصناف Ready) تنزل تحت، حتى لو نشاطها أحدث. لو طلب "خلص" وبعدين
+    // اتضافله جولة جديدة، بيبقى "لسه شغال" تاني فيرجع فوق تلقائيًا مع باقي الطلبات الشغالة
     filtered = filtered.sort((a: KitchenOrder, b: KitchenOrder) => {
+      const aActive = a.order_items.some(i => !['ready', 'cancelled', 'returned', 'replaced'].includes(i.status))
+      const bActive = b.order_items.some(i => !['ready', 'cancelled', 'returned', 'replaced'].includes(i.status))
+      if (aActive !== bActive) return aActive ? -1 : 1
+      // ✅ الترتيب حسب "أحدث نشاط" جوه كل مجموعة (شغالة أو مخلّصة) - مش وقت إنشاء الطلب الأصلي بس
       const aLatest = Math.max(new Date(a.created_at).getTime(), ...a.order_items.map(i => new Date(i.created_at).getTime()))
       const bLatest = Math.max(new Date(b.created_at).getTime(), ...b.order_items.map(i => new Date(i.created_at).getTime()))
       return bLatest - aLatest
@@ -616,13 +620,11 @@ export default function KitchenPage() {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* ✅ Fix: الشارة بقت زر فعلي بيفتح قائمة الهدر مباشرة - كانت مجرد نص ثابت مفيهاش أي استجابة للضغط */}
-          {waste.length > 0 && (
-            <button onClick={() => setShowWasteList(true)}
-              style={{ fontSize: 12, color: S.red, background: S.redB, border: `1px solid ${S.red}60`, borderRadius: 20, padding: '3px 10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
-              🗑️ {waste.length} waste
-            </button>
-          )}
+          {/* ✅ Fix: الزر بقى ظاهر دايمًا حتى لو العدد صفر - عشان تقدر تفتحه وتتصفح أي تاريخ، مش بس لما يكون فيه هدر النهاردة */}
+          <button onClick={() => setShowWasteList(true)}
+            style={{ fontSize: 12, color: waste.length > 0 ? S.red : S.muted, background: waste.length > 0 ? S.redB : 'transparent', border: `1px solid ${waste.length > 0 ? S.red + '60' : S.border}`, borderRadius: 20, padding: '3px 10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
+            🗑️ {waste.length} waste
+          </button>
           {/* ✅ جديد: تبديل بين الشاشة الحية والأرشيف */}
           <button onClick={() => setViewMode('live')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${viewMode === 'live' ? S.green : S.border}`, background: viewMode === 'live' ? S.greenB : 'transparent', color: viewMode === 'live' ? S.green : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🟢 Live</button>
           <button onClick={() => setViewMode('archive')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${viewMode === 'archive' ? S.blue : S.border}`, background: viewMode === 'archive' ? S.blueB : 'transparent', color: viewMode === 'archive' ? S.blue : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🗄️ Archive</button>
@@ -751,7 +753,9 @@ export default function KitchenPage() {
             {(() => {
               // ✅ Fix: بما إن الترتيب بقى بالأحدث أولاً، لازم نحسب "أقدم طلب لسه مش جاهز" بشكل منفصل
               // عن ترتيب العرض، عشان شارة "الأولوية" تفضل تشاور على الطلب الصحيح مهما كان مكانه في الشبكة
-              const unreadyOrders = orders.filter(o => o.status !== 'ready')
+              // ✅ Fix: توحيد المنطق مع الترتيب الجديد - نتحقق من الأصناف الفردية (لسه فيها صنف مستني)
+              // بدل الاعتماد على حالة الطلب العامة (order.status) اللي ممكن متتحدثش تلقائيًا
+              const unreadyOrders = orders.filter(o => o.order_items.some(i => !['ready', 'cancelled', 'returned', 'replaced'].includes(i.status)))
               const oldestOrderId = unreadyOrders.length > 0
                 ? unreadyOrders.reduce((oldest, o) => new Date(o.created_at) < new Date(oldest.created_at) ? o : oldest).id
                 : null

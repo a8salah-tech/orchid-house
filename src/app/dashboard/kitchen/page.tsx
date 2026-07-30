@@ -126,6 +126,9 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
   const [qty, setQty] = useState(item.quantity)
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
+  // ✅ Fix: حالة حفظ منفصلة تمامًا لزر "Mark Ready" - كانت بتشارك نفس الحالة مع باقي الأزرار، فلو أي زرار تاني
+  // اتعلقت حالته "جاري الحفظ" بالغلط، كان بيأثر على الزرار ده ويمنعه من الاستجابة خالص (مؤشر "ممنوع" الرمادي)
+  const [savingReady, setSavingReady] = useState(false)
 
   async function confirm() {
     if (!action) return
@@ -145,11 +148,17 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
     onClose()
   }
 
-  // ✅ جديد: تراجع سريع - يرجّع الصنف لحالة "جاهز" مباشرة، لو حد ضغط زرار الإجراءات بالغلط بدل زرار Ready
-  async function markReadyDirectly() {
-    setSaving(true)
-    await sb.from('order_items').update({ status: 'ready', ready_at: new Date().toISOString() }).eq('id', item.id)
-    setSaving(false)
+  // ✅ Fix: عكسنا الاتجاه بالكامل بناءً على توضيح المستخدم - المطلوب مش "خليه Ready"، المطلوب "تراجع لو
+  // اتعلّم Ready بالغلط" يعني يرجع لحالته الأصلية (لسه بيتحضّر، مش جاهز) عشان يفضل يتابعه عادي
+  async function undoReady() {
+    setSavingReady(true)
+    // ✅ Fix حرج جدًا: استخدمت 'confirmed' قبل كده وهي قيمة مش موجودة في قيد status الفعلي بقاعدة البيانات
+    // (order_items_status_check يسمح بس بـ: pending, preparing, ready, cancelled, returned, replaced, done).
+    // الصح هو 'pending' - وهي نفس الحالة الأولية الحقيقية اللي بيتولد بيها أي صنف جديد في الكاشير
+    const { data, error } = await sb.from('order_items').update({ status: 'pending', ready_at: null }).eq('id', item.id).select('id, status')
+    setSavingReady(false)
+    if (error) { alert('حصل خطأ: ' + error.message); console.error('undoReady error:', error); return }
+    if (!data || data.length === 0) { alert('⚠️ التحديث لم يؤثر على أي صف'); console.error('undoReady: 0 rows affected, item.id =', item.id); return }
     onDone()
     onClose()
   }
@@ -166,7 +175,16 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10, marginBottom: 20 }}>
+        {/* ✅ Fix: الزرار ده دلوقتي بيظهر بس لو الصنف اتعلّم "Ready" بالفعل (زي لو حد ضغط عليه بالغلط) -
+            وبيرجّعه لحالته الأصلية (لسه بيتحضّر، التايمر يشتغل تاني، وزرار "✓ Ready" يرجع يظهر) */}
+        {item.status === 'ready' && !action && (
+          <button onClick={undoReady} disabled={savingReady}
+            style={{ width: '100%', padding: '12px 8px', borderRadius: 12, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: savingReady ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', marginBottom: 16 }}>
+            {savingReady ? '⏳ Saving...' : '↩️ Undo — Not Ready Yet (accidental click)'}
+          </button>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 20 }}>
           {[
             { k: 'return', label: '↩️ Return', color: S.amber },
             { k: 'cancel', label: '❌ Cancel', color: S.red },
@@ -177,11 +195,6 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
               {a.label}
             </button>
           ))}
-          {/* ✅ جديد: تراجع سريع لو الزرار اتضغط بالغلط - يرجّع الصنف "جاهز" فورًا من غير أي خطوات إضافية */}
-          <button onClick={markReadyDirectly} disabled={saving}
-            style={{ padding: '12px 8px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
-            ✓ Mark Ready (accidental click)
-          </button>
         </div>
 
         {action && (
@@ -453,6 +466,15 @@ export default function KitchenPage() {
         return mostRecentCancel > 0 && (Date.now() - mostRecentCancel) < 20 * 60 * 1000
       }
       return o.order_items.some(i => !['cancelled','returned','replaced'].includes(i.status))
+    })
+
+    // ✅ Fix: ترتيب فعلي حسب "أحدث نشاط" مش وقت إنشاء الطلب بس - لو طاولة عندها طلب قديم وأضاف لها جولة
+    // جديدة (أصناف إضافية)، كانت الطاولة تفضل في مكانها القديم في الترتيب ومحدش ياخد باله من الجولة الجديدة.
+    // دلوقتي بنرتب حسب أحدث created_at لأي صنف جوه الطلب (يعني أحدث جولة)، مش وقت إنشاء الطلب الأصلي بس
+    filtered = filtered.sort((a: KitchenOrder, b: KitchenOrder) => {
+      const aLatest = Math.max(new Date(a.created_at).getTime(), ...a.order_items.map(i => new Date(i.created_at).getTime()))
+      const bLatest = Math.max(new Date(b.created_at).getTime(), ...b.order_items.map(i => new Date(i.created_at).getTime()))
+      return bLatest - aLatest
     })
 
     // ✅ جديد: كل فرع يشوف طلبات فرعه بس - الأدمن يشوف كل الفروع من غير أي فلترة

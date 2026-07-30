@@ -27,6 +27,7 @@ type OrderItem = {
   id: string; quantity: number; notes: string
   status: string; destination: string
   created_at: string; ready_at: string | null
+  size_name?: string | null
   menu_items: { id: string; name: string; name_en: string }
 }
 
@@ -91,17 +92,22 @@ function groupItemsIntoRounds(items: OrderItem[]) {
   })
 }
 
-// ✅ جديد (ميزة إضافية 1): تنبيه صوتي بسيط لما يجي طلب جديد - نغمة قصيرة بدون أي ملف صوتي خارجي
+// ✅ Fix: نفس نغمة الكاشير بالظبط (نغمتين متتاليتين 880Hz ثم 1100Hz)، لكن بصوت أعلى (0.4 → 0.9، شبه أقصى مستوى آمن)
 function playNewOrderBeep() {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain); gain.connect(ctx.destination)
-    osc.frequency.value = 880
-    gain.gain.setValueAtTime(0.15, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
-    osc.start(); osc.stop(ctx.currentTime + 0.35)
+    const freqs = [880, 1100]
+    const duration = 0.18
+    freqs.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sine'; osc.frequency.value = freq
+      const t = ctx.currentTime + i * (duration + 0.04)
+      gain.gain.setValueAtTime(0.9, t) // ✅ أعلى من صوت الكاشير (0.4) بشكل ملحوظ
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration)
+      osc.start(t); osc.stop(t + duration)
+    })
   } catch { /* المتصفح مش بيدعم Web Audio - نتجاهل بصمت */ }
 }
 
@@ -139,7 +145,7 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 400, padding: 28 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>
-            {item.menu_items?.name_en || item.menu_items?.name}
+            {item.menu_items?.name_en || item.menu_items?.name}{item.size_name ? ` (${item.size_name})` : ''}
           </h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
@@ -377,7 +383,7 @@ export default function KitchenPage() {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name, branch_id, branches(name)),
-      order_items(id, quantity, status, destination, created_at, ready_at, menu_items(id, name, name_en))
+      order_items(id, quantity, status, destination, created_at, ready_at, size_name, menu_items(id, name, name_en))
     `).gte('created_at', dayStart).lte('created_at', dayEnd)
 
     let dayOrders = ((data as any) || []).map((o: any) => ({
@@ -398,8 +404,8 @@ export default function KitchenPage() {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name, branch_id, branches(name)),
-      order_items(id, quantity, notes, status, destination, created_at, ready_at, menu_items(id, name, name_en))
-    `).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: true }) // ✅ الأقدم (اللي طلب الأول) دايمًا في أول الترتيب
+      order_items(id, quantity, notes, status, destination, created_at, ready_at, size_name, menu_items(id, name, name_en))
+    `).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: false }) // ✅ Fix: الطلب الأحدث دلوقتي يظهر أول واحد فوق
 
     let filtered = ((data as any) || []).map((o: KitchenOrder) => ({
       ...o,
@@ -605,23 +611,31 @@ export default function KitchenPage() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {orders.map((order, orderIdx) => {
-              const age = urgencyColor(order.created_at)
-              const time = elapsed(order.created_at)
-              // ✅ جديد: تجميع أصناف الطلب في جولات، كل جولة بوقتها الإجمالي الخاص بيها
-              const rounds = groupItemsIntoRounds(order.order_items)
-              return (
-                // ✅ Fix: ترتيب CSS صريح (order: orderIdx) يضمن إن أقدم طلب (اللي طلب الأول) يظهر أول واحد فوق دايمًا
-                <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `2px solid ${orderIdx === 0 && order.status !== 'ready' ? S.red : age + '40'}`, overflow: 'hidden', order: orderIdx }}>
-                  <div style={{ height: 4, background: age }} />
-                  <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      {/* ✅ جديد: شارة واضحة على أقدم طلب لسه مش جاهز - عشان يبقى مؤكد إنه الأولوية */}
-                      {orderIdx === 0 && order.status !== 'ready' && (
-                        <div style={{ fontSize: 10, color: S.red, fontWeight: 900, marginBottom: 2 }}>🔥 OLDEST — PRIORITY</div>
-                      )}
-                      <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>{order.tables?.name || `Table ${order.tables?.number}`}</div>
-                      <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()}</div>
+            {(() => {
+              // ✅ Fix: بما إن الترتيب بقى بالأحدث أولاً، لازم نحسب "أقدم طلب لسه مش جاهز" بشكل منفصل
+              // عن ترتيب العرض، عشان شارة "الأولوية" تفضل تشاور على الطلب الصحيح مهما كان مكانه في الشبكة
+              const unreadyOrders = orders.filter(o => o.status !== 'ready')
+              const oldestOrderId = unreadyOrders.length > 0
+                ? unreadyOrders.reduce((oldest, o) => new Date(o.created_at) < new Date(oldest.created_at) ? o : oldest).id
+                : null
+              return orders.map((order, orderIdx) => {
+                const age = urgencyColor(order.created_at)
+                const time = elapsed(order.created_at)
+                const isOldestPriority = order.id === oldestOrderId
+                // ✅ جديد: تجميع أصناف الطلب في جولات، كل جولة بوقتها الإجمالي الخاص بيها
+                const rounds = groupItemsIntoRounds(order.order_items)
+                return (
+                  // ✅ Fix: الطلب الأحدث يظهر أول واحد فوق دلوقتي (ترتيب CSS صريح يطابق ترتيب البيانات)
+                  <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `2px solid ${isOldestPriority ? S.red : age + '40'}`, overflow: 'hidden', order: orderIdx }}>
+                    <div style={{ height: 4, background: age }} />
+                    <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        {/* ✅ شارة واضحة على أقدم طلب لسه مش جاهز - عشان يبقى مؤكد إنه الأولوية، بغض النظر عن مكانه في الشبكة */}
+                        {isOldestPriority && (
+                          <div style={{ fontSize: 10, color: S.red, fontWeight: 900, marginBottom: 2 }}>🔥 OLDEST — PRIORITY</div>
+                        )}
+                        <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>{order.tables?.name || `Table ${order.tables?.number}`}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()}</div>
                       {/* ✅ جديد: شارة اسم الفرع - تظهر للأدمن بس (اللي بيشوف كل الفروع مع بعض) */}
                       {isAdmin && order.tables?.branches?.name && (
                         <div style={{ fontSize: 10, color: S.purple, background: S.purpleB, borderRadius: 20, padding: '1px 8px', display: 'inline-block', marginTop: 4, fontWeight: 700 }}>
@@ -667,7 +681,7 @@ export default function KitchenPage() {
                             <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: item.status === 'ready' ? S.greenB : S.card, borderRadius: 10, border: `1px solid ${item.status === 'ready' ? S.green + '40' : S.border}` }}>
                               <div>
                                 <div style={{ color: item.status === 'ready' ? S.green : S.white, fontWeight: 700, fontSize: 14 }}>
-                                  {item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}
+                                  {item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}{item.size_name ? ` (${item.size_name})` : ''}
                                   <span style={{ color: S.gold, marginLeft: 6, fontWeight: 900 }}>×{item.quantity}</span>
                                 </div>
                                 <div style={{ fontSize: 11, color: item.status === 'ready' ? S.green : S.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
@@ -697,7 +711,8 @@ export default function KitchenPage() {
                   </div>
                 </div>
               )
-            })}
+            })
+            })()}
           </div>
         )}
         </>

@@ -39,7 +39,7 @@ type KitchenOrder = {
   order_items: OrderItem[]
 }
 
-type WasteItem = { name: string; qty: number; reason: string }
+type WasteItem = { name: string; qty: number; reason: string; status: string; actionBy: string; time: string | null; dateKey: string; tableLabel: string }
 
 function elapsed(iso: string) {
   const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
@@ -115,10 +115,13 @@ function playNewOrderBeep() {
 
 // ══ Waste/Return Modal ══
 function ItemActionModal({ item, orderId, onClose, onDone }: {
-  item: OrderItem; orderId: string; onClose: () => void; onDone: (waste?: WasteItem) => void
+  item: OrderItem; orderId: string; onClose: () => void; onDone: () => void
 }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  // ✅ جديد: نجيب اسم الموظف الحالي عشان نسجّله كـ"مين نفّذ العملية"
+  const { employee } = useAuth()
+  const actorName = employee?.name || employee?.name_en || 'Unknown'
   const [action, setAction] = useState<'return' | 'cancel' | 'replace' | null>(null)
   const [qty, setQty] = useState(item.quantity)
   const [reason, setReason] = useState('')
@@ -127,16 +130,27 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
   async function confirm() {
     if (!action) return
     setSaving(true)
-    const waste: WasteItem = { name: item.menu_items?.name_en || item.menu_items?.name, qty, reason: reason || action }
+    // ✅ Fix: السبب كان بيفضل في ذاكرة المتصفح بس، ميتحفظش في قاعدة البيانات خالص - فيختفي بمجرد ما حد يقفل الصفحة
+    // أو يفتحها من جهاز تاني. دلوقتي بنحفظه فعليًا في عمود cancel_reason (بغض النظر عن الحالة النهائية)
+    // ✅ جديد: بنسجّل كمان مين نفّذ العملية (action_by)
     if (action === 'cancel') {
-      await sb.from('order_items').update({ status: 'cancelled' }).eq('id', item.id)
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: reason || null, cancelled_at: new Date().toISOString(), action_by: actorName }).eq('id', item.id)
     } else if (action === 'return') {
-      await sb.from('order_items').update({ status: 'returned' }).eq('id', item.id)
+      await sb.from('order_items').update({ status: 'returned', cancel_reason: reason || null, cancelled_at: new Date().toISOString(), action_by: actorName }).eq('id', item.id)
     } else if (action === 'replace') {
-      await sb.from('order_items').update({ status: 'replaced' }).eq('id', item.id)
+      await sb.from('order_items').update({ status: 'replaced', cancel_reason: reason || null, cancelled_at: new Date().toISOString(), action_by: actorName }).eq('id', item.id)
     }
     setSaving(false)
-    onDone(waste)
+    onDone()
+    onClose()
+  }
+
+  // ✅ جديد: تراجع سريع - يرجّع الصنف لحالة "جاهز" مباشرة، لو حد ضغط زرار الإجراءات بالغلط بدل زرار Ready
+  async function markReadyDirectly() {
+    setSaving(true)
+    await sb.from('order_items').update({ status: 'ready', ready_at: new Date().toISOString() }).eq('id', item.id)
+    setSaving(false)
+    onDone()
     onClose()
   }
 
@@ -152,7 +166,7 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10, marginBottom: 20 }}>
           {[
             { k: 'return', label: '↩️ Return', color: S.amber },
             { k: 'cancel', label: '❌ Cancel', color: S.red },
@@ -163,6 +177,11 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
               {a.label}
             </button>
           ))}
+          {/* ✅ جديد: تراجع سريع لو الزرار اتضغط بالغلط - يرجّع الصنف "جاهز" فورًا من غير أي خطوات إضافية */}
+          <button onClick={markReadyDirectly} disabled={saving}
+            style={{ padding: '12px 8px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
+            ✓ Mark Ready (accidental click)
+          </button>
         </div>
 
         {action && (
@@ -369,6 +388,13 @@ export default function KitchenPage() {
   const [actionItem, setActionItem] = useState<{ item: OrderItem; orderId: string } | null>(null)
   const [waste, setWaste] = useState<WasteItem[]>([])
   const [showReport, setShowReport] = useState(false)
+  // ✅ جديد: مودال بسيط لعرض قائمة الهدر بضغطة واحدة، من غير الحاجة لإنهاء الشيفت
+  const [showWasteList, setShowWasteList] = useState(false)
+  // ✅ جديد: تاريخ قائمة الهدر - افتراضيًا النهاردة بتوقيت ماليزيا (UTC+8) بالظبط
+  const [wasteDate, setWasteDate] = useState(() => new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split('T')[0])
+  // ✅ جديد: تصفح صفحات لقائمة الهدر - 50 في كل صفحة
+  const [wastePage, setWastePage] = useState(0)
+  const WASTE_PAGE_SIZE = 50
   const [shiftStarted, setShiftStarted] = useState(false)
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
   // ✅ جديد: قسم الأرشيف - البحث بالتاريخ لمعرفة كم أوردر اتنفذ وكم كان معلّق/اتلغى في أي يوم فات
@@ -376,6 +402,9 @@ export default function KitchenPage() {
   const [archiveDate, setArchiveDate] = useState(new Date().toISOString().split('T')[0])
   const [archiveOrders, setArchiveOrders] = useState<any[]>([])
   const [archiveLoading, setArchiveLoading] = useState(false)
+  // ✅ جديد: تصفح صفحات لجدول الأرشيف - 50 طلب في كل صفحة بدل عرضهم كلهم في صفحة واحدة طويلة
+  const [archivePage, setArchivePage] = useState(0)
+  const ARCHIVE_PAGE_SIZE = 50
 
   // ✅ جديد: جلب طلبات المطبخ ليوم محدد من الأرشيف (كل الحالات، مش النشطة بس) مع فلترة الفرع
   const fetchArchive = useCallback(async (date: string) => {
@@ -401,6 +430,7 @@ export default function KitchenPage() {
   }, [sb, isAdmin, myBranchId])
 
   useEffect(() => { if (viewMode === 'archive') fetchArchive(archiveDate) }, [viewMode, archiveDate, fetchArchive])
+  useEffect(() => { setArchivePage(0) }, [archiveDate])
 
   const fetchOrders = useCallback(async () => {
     const { data } = await sb.from('orders').select(`
@@ -439,15 +469,48 @@ export default function KitchenPage() {
     setLoading(false)
   }, [sb, isAdmin, myBranchId])
 
-  useEffect(() => { fetchOrders() }, [fetchOrders])
+  // ✅ Fix جذري: قائمة الهدر كانت بتتحسب من ذاكرة المتصفح بس (بتختفي لأي حد تاني، وبينهم الأدمن، يفتح الصفحة من جلسة تانية).
+  // دلوقتي بنجيبها فعليًا من قاعدة البيانات - وبقت شاملة الإلغاء كمان (مش بس الإرجاع والاستبدال)، ومفلترة بيوم
+  // محدد بتوقيت ماليزيا بالظبط (افتراضيًا النهاردة)، مش آخر 30 يوم مجمّعين مع بعض
+  const fetchWaste = useCallback(async (dateStr: string) => {
+    // ✅ حساب بداية ونهاية اليوم بتوقيت ماليزيا (UTC+8) بالظبط، مش توقيت السيرفر
+    const dayStart = new Date(`${dateStr}T00:00:00+08:00`).toISOString()
+    const dayEnd = new Date(`${dateStr}T23:59:59.999+08:00`).toISOString()
+    const { data } = await sb.from('order_items').select(`
+      quantity, cancel_reason, status, cancelled_at, created_at, action_by,
+      menu_items(name, name_en),
+      orders(table_id, tables(number, name, branch_id))
+    `).in('status', ['returned', 'replaced', 'cancelled'])
+      // ✅ الفلترة على وقت الإلغاء نفسه (مش وقت إنشاء الصنف الأصلي) - عشان "اليوم" يعني "اتلغى اليوم" فعليًا
+      .gte('cancelled_at', dayStart).lte('cancelled_at', dayEnd).order('cancelled_at', { ascending: false })
+    let items = ((data as any) || [])
+    if (!isAdmin && myBranchId) {
+      items = items.filter((i: any) => i.orders?.tables?.branch_id === myBranchId)
+    }
+    setWaste(items.map((i: any) => {
+      const t = i.cancelled_at || i.created_at
+      return {
+        name: i.menu_items?.name_en || i.menu_items?.name || '—',
+        qty: i.quantity,
+        reason: i.cancel_reason || '—',
+        status: i.status,
+        actionBy: i.action_by || 'Unknown',
+        time: t,
+        dateKey: new Date(t).toISOString().split('T')[0],
+        tableLabel: i.orders?.tables?.name || (i.orders?.tables?.number ? `Table ${i.orders.tables.number}` : '—'),
+      }
+    }))
+  }, [sb, isAdmin, myBranchId])
+
+  useEffect(() => { fetchOrders(); fetchWaste(wasteDate) }, [fetchOrders, fetchWaste, wasteDate])
 
   useEffect(() => {
     const ch = sb.channel('kitchen-rt')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrders(); setNotif(true); playNewOrderBeep(); setTimeout(() => setNotif(false), 2000) })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchOrders())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => { fetchOrders(); fetchWaste(wasteDate) })
       .subscribe()
     return () => { sb.removeChannel(ch) }
-  }, [sb, fetchOrders])
+  }, [sb, fetchOrders, fetchWaste])
 
   useEffect(() => {
     const t = setInterval(() => setTick(p => p + 1), 1000)
@@ -531,7 +594,13 @@ export default function KitchenPage() {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          {waste.length > 0 && <span style={{ fontSize: 12, color: S.red, background: S.redB, borderRadius: 20, padding: '3px 10px', fontWeight: 700 }}>🗑️ {waste.length} waste</span>}
+          {/* ✅ Fix: الشارة بقت زر فعلي بيفتح قائمة الهدر مباشرة - كانت مجرد نص ثابت مفيهاش أي استجابة للضغط */}
+          {waste.length > 0 && (
+            <button onClick={() => setShowWasteList(true)}
+              style={{ fontSize: 12, color: S.red, background: S.redB, border: `1px solid ${S.red}60`, borderRadius: 20, padding: '3px 10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
+              🗑️ {waste.length} waste
+            </button>
+          )}
           {/* ✅ جديد: تبديل بين الشاشة الحية والأرشيف */}
           <button onClick={() => setViewMode('live')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${viewMode === 'live' ? S.green : S.border}`, background: viewMode === 'live' ? S.greenB : 'transparent', color: viewMode === 'live' ? S.green : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🟢 Live</button>
           <button onClick={() => setViewMode('archive')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${viewMode === 'archive' ? S.blue : S.border}`, background: viewMode === 'archive' ? S.blueB : 'transparent', color: viewMode === 'archive' ? S.blue : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🗄️ Archive</button>
@@ -573,7 +642,13 @@ export default function KitchenPage() {
                   </div>
                   {archiveOrders.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>No orders found for this date</div>
-                  ) : (
+                  ) : (() => {
+                    // ✅ جديد: تصفح صفحات - 50 طلب في كل صفحة بدل عرضهم كلهم في صفحة واحدة طويلة
+                    const totalArchivePages = Math.max(1, Math.ceil(archiveOrders.length / ARCHIVE_PAGE_SIZE))
+                    const pageSafe = Math.min(archivePage, totalArchivePages - 1)
+                    const pagedOrders = archiveOrders.slice(pageSafe * ARCHIVE_PAGE_SIZE, pageSafe * ARCHIVE_PAGE_SIZE + ARCHIVE_PAGE_SIZE)
+                    return (
+                    <>
                     <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
                       <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -585,15 +660,26 @@ export default function KitchenPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {archiveOrders.map((o: any) => {
+                            {pagedOrders.map((o: any) => {
                               const isDone = o.order_items.length > 0 && o.order_items.every((i: any) => ['ready', 'cancelled', 'returned', 'replaced'].includes(i.status)) && o.order_items.some((i: any) => i.status === 'ready')
                               const isCancelled = o.order_items.length > 0 && o.order_items.every((i: any) => ['cancelled', 'returned', 'replaced'].includes(i.status))
+                              // ✅ جديد: فصل الأصناف الملغاة عن باقي الأصناف - كل مجموعة في سطر منفصل واضح
+                              const activeItemsList = o.order_items.filter((i: any) => !['cancelled', 'returned', 'replaced'].includes(i.status))
+                              const cancelledItemsList = o.order_items.filter((i: any) => ['cancelled', 'returned', 'replaced'].includes(i.status))
                               return (
                                 <tr key={o.id} style={{ borderBottom: `1px solid ${S.border}` }}>
                                   <td style={{ padding: '10px 12px', color: S.white, fontSize: 13 }}>{o.tables?.name || `Table ${o.tables?.number}`}</td>
                                   <td style={{ padding: '10px 12px', color: S.gold, fontSize: 12 }}>#{o.id.slice(-6).toUpperCase()}</td>
                                   {isAdmin && <td style={{ padding: '10px 12px', color: S.purple, fontSize: 12 }}>{o.tables?.branches?.name || '—'}</td>}
-                                  <td style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>{o.order_items.map((i: any) => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}</td>
+                                  <td style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>
+                                    {activeItemsList.length > 0 && <div>{activeItemsList.map((i: any) => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}</div>}
+                                    {/* ✅ جديد: سطر منفصل واضح للأصناف الملغاة بس */}
+                                    {cancelledItemsList.length > 0 && (
+                                      <div style={{ color: S.red, marginTop: activeItemsList.length > 0 ? 4 : 0 }}>
+                                        ❌ {cancelledItemsList.map((i: any) => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}
+                                      </div>
+                                    )}
+                                  </td>
                                   <td style={{ padding: '10px 12px' }}>
                                     <span style={{ background: isCancelled ? S.redB : isDone ? S.greenB : S.amberB, color: isCancelled ? S.red : isDone ? S.green : S.amber, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>
                                       {isCancelled ? '❌ Cancelled' : isDone ? '✅ Completed' : '⏳ Pending'}
@@ -607,7 +693,23 @@ export default function KitchenPage() {
                         </table>
                       </div>
                     </div>
-                  )}
+                    {/* ✅ جديد: أزرار تصفح الصفحات - 50 طلب في كل صفحة */}
+                    {totalArchivePages > 1 && (
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 16 }}>
+                        <button onClick={() => setArchivePage(p => Math.max(0, p - 1))} disabled={pageSafe === 0}
+                          style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe === 0 ? S.muted + '60' : S.white, cursor: pageSafe === 0 ? 'not-allowed' : 'pointer', fontSize: 13 }}>
+                          ← Previous
+                        </button>
+                        <span style={{ fontSize: 13, color: S.muted }}>Page {pageSafe + 1} of {totalArchivePages}</span>
+                        <button onClick={() => setArchivePage(p => Math.min(totalArchivePages - 1, p + 1))} disabled={pageSafe >= totalArchivePages - 1}
+                          style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe >= totalArchivePages - 1 ? S.muted + '60' : S.white, cursor: pageSafe >= totalArchivePages - 1 ? 'not-allowed' : 'pointer', fontSize: 13 }}>
+                          Next →
+                        </button>
+                      </div>
+                    )}
+                    </>
+                    )
+                  })()}
                 </>
               )
             })()}
@@ -747,7 +849,7 @@ export default function KitchenPage() {
         <ItemActionModal
           item={actionItem.item} orderId={actionItem.orderId}
           onClose={() => setActionItem(null)}
-          onDone={(w) => { if (w) setWaste(prev => [...prev, w]); fetchOrders() }}
+          onDone={() => { fetchOrders(); fetchWaste(wasteDate) }}
         />
       )}
 
@@ -757,6 +859,76 @@ export default function KitchenPage() {
           shiftStart={shiftStart}
           onClose={closeReport}
         />
+      )}
+
+      {/* ✅ جديد: مودال قائمة الهدر المستقل - يفتح بضغطة واحدة من غير الحاجة لإنهاء الشيفت */}
+      {showWasteList && (
+        <div onClick={() => setShowWasteList(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.red}60`, padding: 20, maxWidth: 460, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ color: S.red, fontSize: 16, fontWeight: 800 }}>🗑️ Waste, Returns & Cancellations ({waste.length})</h3>
+              <button onClick={() => setShowWasteList(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            {/* ✅ جديد: منتقي تاريخ - افتراضيًا النهاردة بتوقيت ماليزيا، وتقدر تختار أي يوم فات */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: S.muted }}>📅</label>
+              <input type="date" value={wasteDate} onChange={e => { setWasteDate(e.target.value); setWastePage(0) }}
+                style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10, padding: '7px 10px', color: S.white, fontSize: 13, outline: 'none' }} />
+              <span style={{ fontSize: 10, color: S.muted }}>(Malaysia time)</span>
+            </div>
+            {waste.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted, fontSize: 13 }}>No waste, returns or cancellations on this day</div>
+            ) : (() => {
+              const statusCfg: Record<string, { label: string; color: string }> = {
+                cancelled: { label: '❌ Cancelled', color: S.red },
+                returned: { label: '↩️ Returned', color: S.amber },
+                replaced: { label: '🔄 Replaced', color: S.blue },
+              }
+              // ✅ جديد: تصفح صفحات - 50 في كل صفحة
+              const totalWastePages = Math.max(1, Math.ceil(waste.length / WASTE_PAGE_SIZE))
+              const wastePageSafe = Math.min(wastePage, totalWastePages - 1)
+              const pagedWaste = waste.slice(wastePageSafe * WASTE_PAGE_SIZE, wastePageSafe * WASTE_PAGE_SIZE + WASTE_PAGE_SIZE)
+              return (
+                <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {pagedWaste.map((w, i) => {
+                    const cfg = statusCfg[w.status] || { label: w.status, color: S.muted }
+                    return (
+                      <div key={i} style={{ background: S.card, border: `1px solid ${cfg.color}40`, borderRadius: 10, padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <span style={{ color: S.white, fontWeight: 700, fontSize: 13 }}>{w.name}</span>
+                          <span style={{ color: cfg.color, fontWeight: 800, fontSize: 13 }}>×{w.qty}</span>
+                        </div>
+                        <div style={{ color: S.gold, fontSize: 11, fontWeight: 700, marginTop: 2 }}>🪑 {w.tableLabel}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                          <span style={{ color: cfg.color, fontSize: 11, fontWeight: 700 }}>{cfg.label}</span>
+                          {w.time && <span style={{ color: S.muted, fontSize: 10 }}>{new Date(w.time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })}</span>}
+                        </div>
+                        <div style={{ color: S.muted, fontSize: 11, marginTop: 3 }}>👤 By: <span style={{ color: S.white }}>{w.actionBy}</span></div>
+                        {w.reason && w.reason !== '—' && <div style={{ color: S.muted, fontSize: 11, marginTop: 2 }}>📝 {w.reason}</div>}
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* ✅ جديد: أزرار تصفح الصفحات */}
+                {totalWastePages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 16 }}>
+                    <button onClick={() => setWastePage(p => Math.max(0, p - 1))} disabled={wastePageSafe === 0}
+                      style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: wastePageSafe === 0 ? S.muted + '60' : S.white, cursor: wastePageSafe === 0 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                      ← Previous
+                    </button>
+                    <span style={{ fontSize: 12, color: S.muted }}>Page {wastePageSafe + 1} of {totalWastePages}</span>
+                    <button onClick={() => setWastePage(p => Math.min(totalWastePages - 1, p + 1))} disabled={wastePageSafe >= totalWastePages - 1}
+                      style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: wastePageSafe >= totalWastePages - 1 ? S.muted + '60' : S.white, cursor: wastePageSafe >= totalWastePages - 1 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                      Next →
+                    </button>
+                  </div>
+                )}
+                </>
+              )
+            })()}
+          </div>
+        </div>
       )}
     </div>
   )

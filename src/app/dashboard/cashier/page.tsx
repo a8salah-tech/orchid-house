@@ -1777,7 +1777,7 @@ export default function CashierPage() {
     // دلوقتي بنحدّث كل الأصناف الفردية كمان لتبقى "ملغية" فعليًا مع السبب ووقت الإلغاء
     if (cancelledOrders && cancelledOrders.length > 0) {
       const orderIds = cancelledOrders.map((o: any) => o.id)
-      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString() })
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString(), action_by: employee?.name || employee?.name_en || 'Unknown' })
         .in('order_id', orderIds).not('status', 'in', '(cancelled,ready)')
     }
     await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null, reserved_at: null })
@@ -1800,11 +1800,11 @@ export default function CashierPage() {
         await sb.from('order_items').update({ quantity: cancelItemTarget.totalQty - cancelItemQty }).eq('id', cancelItemTarget.itemId)
         // وننشئ سطر جديد منفصل بالكمية الملغاة بس، محدد كـ"ملغي" مع السبب ووقت الإلغاء
         const { id, ...rest } = originalItem as any
-        await sb.from('order_items').insert([{ ...rest, quantity: cancelItemQty, status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString() }])
+        await sb.from('order_items').insert([{ ...rest, quantity: cancelItemQty, status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString(), action_by: employee?.name || employee?.name_en || 'Unknown' }])
       }
     } else {
       // إلغاء الصنف بالكامل (السلوك الأصلي زي ما كان بالظبط) - مع تسجيل وقت الإلغاء الفعلي كمان
-      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString() }).eq('id', cancelItemTarget.itemId)
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: cancelReason.trim(), cancelled_at: new Date().toISOString(), action_by: employee?.name || employee?.name_en || 'Unknown' }).eq('id', cancelItemTarget.itemId)
     }
     // ✅ نعيد حساب إجمالي الفاتورة بعد إلغاء الصنف عشان مايفضلش محسوب في المبلغ المطلوب من العميل
     const { data: items } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', cancelItemTarget.orderId)

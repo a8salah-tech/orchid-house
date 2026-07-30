@@ -84,6 +84,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'البار',    label_en: 'Bar',      icon: '☕',  path: '/dashboard/bar',      permission: 'bar' },
     { label: 'مستودع التجهيزات', label_en: 'Prep Warehouse', icon: '🏭', path: '/dashboard/prep-warehouse', permission: 'prep_warehouse' },
     { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'sales' },
+    { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'sales' },
     { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'admin_only' },
   ]},
   { group: 'قائمة الطعام', items: [

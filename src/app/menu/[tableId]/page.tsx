@@ -140,7 +140,24 @@ export default function CustomerMenuPage() {
       const { data: existingOrders } = await sb.from('orders')
         .select('id').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
         .order('created_at', { ascending: false }).limit(1)
-      const existing = existingOrders?.[0]
+      let existing = existingOrders?.[0]
+
+      // ✅ جديد جدًا: لو مفيش طلب نشط على الطاولة دي، لكن الكاشير عمل "تحويل" لطلبها لطاولة تانية،
+      // نتابع الطلب تلقائيًا من الطاولة الجديدة - العميل لسه فاتح نفس رابط الـQR القديم، مش محتاج يعمل سكان جديد
+      if (!existing && tbl.redirected_to_table_id) {
+        const { data: redirectedTable } = await sb.from('tables').select('*').eq('id', tbl.redirected_to_table_id).single()
+        if (redirectedTable) {
+          const { data: redirectedOrders } = await sb.from('orders')
+            .select('id').eq('table_id', redirectedTable.id).in('status', ['confirmed', 'preparing', 'ready'])
+            .order('created_at', { ascending: false }).limit(1)
+          if (redirectedOrders?.[0]) {
+            existing = redirectedOrders[0]
+            // ✅ نحدّث الطاولة الفعلية للجلسة دي - أي طلب جديد بعد كده هيتسجل صح على الطاولة الجديدة مباشرة
+            setTable(redirectedTable)
+          }
+        }
+      }
+
       if (existing) {
         setConfirmedOrderId(existing.id)
         setOrderNumber(existing.id.slice(-6).toUpperCase())

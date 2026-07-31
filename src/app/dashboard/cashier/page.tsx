@@ -406,7 +406,12 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       status: 'available',
       current_order_id: null,
       occupied_since: null,
+      redirected_to_table_id: null,
     }).eq('id', order.table_id)
+
+    // ✅ جديد: لو فيه طاولة قديمة كانت بتوجه للطاولة دي (بسبب تحويل سابق)، نمسح إشارتها كمان
+    // عشان مايفضلش عندها إشارة قديمة لطلب اتقفل وخلص خالص
+    await sb.from('tables').update({ redirected_to_table_id: null }).eq('redirected_to_table_id', order.table_id)
 
     // ✅ جديد: لو الفاتورة كانت مدموجة من طاولتين، نغلق طلبات الطاولة الشريكة كمان ونعيدها متاحة، ونفك الدمج تلقائيًا
     if (order.mergedTableId) {
@@ -1154,7 +1159,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, padding: 20, maxWidth: 380, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: S.amber, marginBottom: 4 }}>➕ Open Item</div>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>For any addition not on the menu (e.g. "Extra Honey")</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>لأي إضافة مش موجودة في المنيو (زي "عسل زيادة")</div>
 
             {openItemRows.map((row, idx) => (
               <div key={idx} style={{ background: S.card, borderRadius: 12, padding: 12, marginBottom: 10, position: 'relative' }}>
@@ -1384,10 +1389,15 @@ function TransferTableModal({ order, tables, onClose, onTransferred }: { order: 
 
     await sb.from('tables').update({
       status: 'occupied', current_order_id: order.id, occupied_since: oldTableData?.occupied_since || new Date().toISOString(),
+      // ✅ Fix: نلغي أي إشارة تحويل قديمة على الطاولة الجديدة لو كانت موجودة (احتياطًا)
+      redirected_to_table_id: null,
     }).eq('id', newTable.id)
 
     await sb.from('tables').update({
       status: 'available', current_order_id: null, occupied_since: null,
+      // ✅ جديد: نسجّل إن الطاولة القديمة "اتحوّلت" لطاولة جديدة - عشان أي عميل لسه فاتح صفحة الـQR القديمة
+      // بتاعتها يتوجه تلقائيًا لطلبه الصحيح من غير ما يحتاج يعمل سكان جديد
+      redirected_to_table_id: newTable.id,
     }).eq('id', oldTableId)
 
     setMoving(false)

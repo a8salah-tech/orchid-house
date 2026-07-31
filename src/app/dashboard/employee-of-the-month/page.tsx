@@ -90,7 +90,11 @@ export default function EmployeeOfTheMonthPage() {
         // ✅ Fix: تحديد الرابط الصريح (employee_id_fkey) لتجنب التضارب مع رابط evaluator_id
         .select('employee_id, total_score, employees!employee_evaluations_employee_id_fkey(name, name_en, photo_url, branch_id, department, is_active, branches(name))')
         .eq('month', targetMonth).eq('year', targetYear).eq('status', 'approved'),
-      sb.from('attendance').select('employee_id, date, check_in_time').gte('date', monthStart).lte('date', monthEnd),
+      // ✅ Fix حرج جدًا: الاستعلام مكنش فيه أي .limit() صريح، فـ Supabase كان بيرجّع 1000 صف بس كحد
+      // أقصى افتراضي (سلوك النظام العام) - لكن شهر واحد بيحتوي على آلاف صفوف الحضور لكل الموظفين مجتمعين
+      // (2700+ صف في يوليو مثلًا)، فكانت البيانات بتتقطع، وأي موظف صفوفه وقعت بعد أول 1000 صف كان
+      // يظهر حضوره أقل بكتير من الحقيقة (زي نسبة 32% بدل 93% الحقيقية)
+      sb.from('attendance').select('employee_id, date, check_in_time').gte('date', monthStart).lte('date', monthEnd).limit(20000),
       sb.from('branches').select('id, name').eq('is_active', true).order('name'),
     ])
     setBranches(branchRes.data || [])

@@ -624,6 +624,24 @@ async function activateRegistration(reg: Registration) {
       if (!proceed) return
     }
 
+    // ✅ Fix جذري: بدل ما نستخدم الرقم المخزّن وقت التسجيل (اللي ممكن يكون مكرر لو أكتر من حد سجّل في نفس
+    // اللحظة تقريبًا)، بنعيد حساب الرقم التسلسلي الصحيح فعليًا لحظة الضغط على "تفعيل" نفسها. بما إن الاعتماد
+    // بيحصل واحد واحد من الأدمن (مش متزامن زي التسجيل)، الرقم هنا مضمون 100% إنه صحيح ومتسلسل، وأي طلب
+    // اترفض أو لسه مش متفعّل مبيستهلكش رقم خالص - اللي بعده ياخد الرقم التالي عادي من غير أي فجوة
+    let finalEmployeeNumber = parsed.employee_number
+    if (matchedBranch && parsed.employee_number) {
+      const prefixMatch = parsed.employee_number.match(/^([A-Za-z]+)-/)
+      const prefix = prefixMatch?.[1]
+      if (prefix) {
+        const { data: freshNumber, error: previewErr } = await supabase.rpc('preview_next_employee_number', { p_branch_id: matchedBranch.id, p_prefix: prefix })
+        if (!previewErr && freshNumber != null) {
+          finalEmployeeNumber = `${prefix}-${freshNumber}`
+        } else {
+          console.error('preview_next_employee_number error:', previewErr)
+        }
+      }
+    }
+
   const { data: newEmp, error } = await supabase.from('employees').insert([{
     name: reg.name, name_en: reg.name_en || null, phone: reg.phone || null,
     email: reg.email || null,
@@ -633,7 +651,7 @@ async function activateRegistration(reg: Registration) {
     photo_url: reg.photo_url || null,
     national_id_url: reg.national_id_url || null,
     notes: parsed.extra_notes || null,
-    employee_number: parsed.employee_number || null,
+    employee_number: finalEmployeeNumber || null,
     salary: parsed.salary || null,
     join_date: parsed.join_date || new Date().toISOString().split('T')[0],
     branch_id: matchedBranch?.id || null,

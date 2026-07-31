@@ -126,7 +126,27 @@ export default function EmployeeOfTheMonthPage() {
 
   const filtered = branchFilter ? candidates.filter(c => c.branchName === branches.find(b => b.id === branchFilter)?.name) : candidates
   const winner = filtered[0]
-  const runnersUp = filtered.slice(1, 6)
+
+  // ✅ جديد: عداد تنازلي حي لإعلان الفايز القادم - بيحسب الوقت المتبقي لحد أول يوم في الشهر الجاي
+  // (لحظة ما نتيجة الشهر الحالي تبقى متاحة وتظهر كـ"الموظف المثالي" الجديد)
+  const nextAnnounceDate = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0)
+  const [nextCountdown, setNextCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 })
+  useEffect(() => {
+    if (!isLaunched) return
+    const tick = () => {
+      const diff = nextAnnounceDate.getTime() - new Date().getTime()
+      if (diff <= 0) { setNextCountdown({ days: 0, hours: 0, minutes: 0, seconds: 0 }); return }
+      setNextCountdown({
+        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
+        minutes: Math.floor((diff / (1000 * 60)) % 60),
+        seconds: Math.floor((diff / 1000) % 60),
+      })
+    }
+    tick()
+    const interval = setInterval(tick, 1000)
+    return () => clearInterval(interval)
+  }, [isLaunched])
 
   // قبل ١ أغسطس، نعرض شاشة "قريبًا" بعلامة استفهام وعداد تنازلي حي بدل النتائج الفعلية
   if (!isLaunched) {
@@ -269,35 +289,25 @@ export default function EmployeeOfTheMonthPage() {
             </div>
           </div>
 
-          {/* ── باقي المرشحين — Other Nominees ── */}
-          {runnersUp.length > 0 && (
-            <>
-              <div style={{ fontSize: 14, fontWeight: 800, color: S.muted, marginBottom: 2, textAlign: 'center' }}>باقي الترشيحات المتميزة هذا الشهر</div>
-              <div style={{ fontSize: 11, color: S.muted, fontFamily: 'system-ui, sans-serif', textAlign: 'center', marginBottom: 12 }}>Other Outstanding Nominees This Month</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {runnersUp.map((c, i) => (
-                  <div key={c.employeeId} style={{ display: 'flex', alignItems: 'center', gap: 12, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '12px 16px' }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: S.muted, width: 22, textAlign: 'center' }}>#{i + 2}</div>
-                    {c.photoUrl ? (
-                      <img src={c.photoUrl} alt={c.name} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
-                    ) : (
-                      <div style={{ width: 40, height: 40, borderRadius: '50%', background: S.card, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: S.muted }}>{c.name.charAt(0)}</div>
-                    )}
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{c.name}</div>
-                      {c.nameEn && <div style={{ fontSize: 10, color: S.muted, fontFamily: 'system-ui, sans-serif' }}>{c.nameEn}</div>}
-                      <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>🏪 {c.branchName}</div>
-                    </div>
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>{c.combinedScore}%</div>
-                      <div style={{ fontSize: 9, color: S.muted }}>حضور {c.attendanceRate}% · تقييم {c.evaluationScore}%</div>
-                      <div style={{ fontSize: 8, color: S.muted, fontFamily: 'system-ui, sans-serif' }}>Attendance {c.attendanceRate}% · Score {c.evaluationScore}%</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          {/* ✅ جديد: عداد تنازلي للإعلان عن الموظف المثالي القادم - بدل قائمة باقي الترشيحات */}
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: isMobile ? 20 : 28, textAlign: 'center' }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 2 }}>⏳ العد التنازلي للموظف المثالي القادم</div>
+            <div style={{ fontSize: 11, color: S.muted, fontFamily: 'system-ui, sans-serif', marginBottom: 18 }}>Countdown to Next Employee of the Month</div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: isMobile ? 10 : 16 }}>
+              {[
+                { ar: 'يوم', en: 'Days', value: nextCountdown.days },
+                { ar: 'ساعة', en: 'Hours', value: nextCountdown.hours },
+                { ar: 'دقيقة', en: 'Minutes', value: nextCountdown.minutes },
+                { ar: 'ثانية', en: 'Seconds', value: nextCountdown.seconds },
+              ].map(u => (
+                <div key={u.en} style={{ background: S.card, borderRadius: 14, padding: isMobile ? '12px 10px' : '16px 18px', minWidth: isMobile ? 60 : 76 }}>
+                  <div style={{ fontSize: isMobile ? 22 : 30, fontWeight: 900, color: S.gold, fontVariantNumeric: 'tabular-nums' }}>{String(u.value).padStart(2, '0')}</div>
+                  <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{u.ar}</div>
+                  <div style={{ fontSize: 8, color: S.muted, fontFamily: 'system-ui, sans-serif' }}>{u.en}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </>
       )}
     </div>

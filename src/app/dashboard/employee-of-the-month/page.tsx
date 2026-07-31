@@ -85,23 +85,38 @@ export default function EmployeeOfTheMonthPage() {
     const monthStart = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`
     const monthEnd = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
 
-    const [evalRes, attRes, branchRes] = await Promise.all([
+    // ✅ Fix جذري أقوى: بدل الاعتماد على .limit() بس (اللي ممكن يتحدّ بإعداد على مستوى المشروع نفسه في
+    // Supabase، مش بس الكود)، بنجيب صفوف الحضور على دفعات (Pagination) حقيقية باستخدام .range() في حلقة
+    // مستمرة لحد ما نتأكد إننا جبنا كل الصفوف فعليًا، مهما كان عددها ومهما كان أي حد أقصى مضبوط في الإعدادات
+    async function fetchAllAttendanceRows() {
+      const PAGE_SIZE = 1000
+      let allRows: any[] = []
+      let from = 0
+      while (true) {
+        const { data, error } = await sb.from('attendance').select('employee_id, date, check_in_time')
+          .gte('date', monthStart).lte('date', monthEnd).range(from, from + PAGE_SIZE - 1)
+        if (error) { console.error('fetchAllAttendanceRows error:', error); break }
+        if (!data || data.length === 0) break
+        allRows = allRows.concat(data)
+        if (data.length < PAGE_SIZE) break // ✅ آخر صفحة (رجعت أقل من الحجم الكامل) - وصلنا للنهاية
+        from += PAGE_SIZE
+      }
+      return allRows
+    }
+
+    const [evalRes, attRows, branchRes] = await Promise.all([
       sb.from('employee_evaluations')
         // ✅ Fix: تحديد الرابط الصريح (employee_id_fkey) لتجنب التضارب مع رابط evaluator_id
         .select('employee_id, total_score, employees!employee_evaluations_employee_id_fkey(name, name_en, photo_url, branch_id, department, is_active, branches(name))')
         .eq('month', targetMonth).eq('year', targetYear).eq('status', 'approved'),
-      // ✅ Fix حرج جدًا: الاستعلام مكنش فيه أي .limit() صريح، فـ Supabase كان بيرجّع 1000 صف بس كحد
-      // أقصى افتراضي (سلوك النظام العام) - لكن شهر واحد بيحتوي على آلاف صفوف الحضور لكل الموظفين مجتمعين
-      // (2700+ صف في يوليو مثلًا)، فكانت البيانات بتتقطع، وأي موظف صفوفه وقعت بعد أول 1000 صف كان
-      // يظهر حضوره أقل بكتير من الحقيقة (زي نسبة 32% بدل 93% الحقيقية)
-      sb.from('attendance').select('employee_id, date, check_in_time').gte('date', monthStart).lte('date', monthEnd).limit(20000),
+      fetchAllAttendanceRows(),
       sb.from('branches').select('id, name').eq('is_active', true).order('name'),
     ])
     setBranches(branchRes.data || [])
 
     // نسبة الحضور = عدد الأيام التي سجّل فيها دخولًا ÷ عدد أيام الشهر × 100
     const attendanceByEmp: Record<string, Set<string>> = {}
-    for (const a of (attRes.data || [])) {
+    for (const a of attRows) {
       if (!a.check_in_time) continue
       if (!attendanceByEmp[a.employee_id]) attendanceByEmp[a.employee_id] = new Set()
       attendanceByEmp[a.employee_id].add(a.date)

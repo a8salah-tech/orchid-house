@@ -34,11 +34,16 @@ type Stats = {
   top_items: { name: string; name_en: string; count: number }[]
   recent_orders: { id: string; table_name: string; branch_name: string; status: string; total: number; time: string }[]
   waiter_calls: number; pending_bookings: number; low_stock: number
+  low_stock_items: { name: string; name_en: string; current: number; min: number; unit: string }[]
   paid_today: number; cancelled_today: number
   // ✅ جديد: المشتريات (يوم/أسبوع/شهر)
   purchases_today: number; purchases_week: number; purchases_month: number
   // ✅ جديد: الطاولة الأكثر طلبًا ومبلغها في كل فترة
   top_tables: { name: string; branch_name: string; table_id: string; orders_count: number; amount_today: number; amount_week: number; amount_month: number }[]
+  // ✅ جديد: أعلى طلب فردي (مش إجمالي) واسم طاولته، لكل فترة على حدة
+  highest_order_today: { table_name: string; branch_name: string; amount: number } | null
+  highest_order_week: { table_name: string; branch_name: string; amount: number } | null
+  highest_order_month: { table_name: string; branch_name: string; amount: number } | null
 }
 
 function AnimatedNumber({ value, prefix = '', suffix = '', decimals = 0 }: { value: number; prefix?: string; suffix?: string; decimals?: number }) {
@@ -135,9 +140,10 @@ function AdminDashboard() {
       sb.from('bookings')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'pending'),
-      sb.from('warehouse_products')
-        .select('id', { count: 'exact', head: true })
-        .lt('quantity', 10),
+      // ✅ Fix حرج: الاستعلام القديم كان بيستخدم عمود اسمه "quantity" غير موجود خالص في الجدول (الأعمدة
+      // الحقيقية current_stock وmin_stock) - فكان بيرجع نتيجة فاضية دايمًا من غير أي خطأ ظاهر. دلوقتي
+      // بنجيب الأصناف فعليًا ونقارن الرصيد الحالي بالحد الأدنى الصحيح بعد الجلب
+      sb.from('warehouse_products').select('name,name_en,current_stock,min_stock,units(symbol),warehouses(branch_id)').eq('is_active', true).not('min_stock', 'is', null).gt('min_stock', 0).limit(2000),
     ])
 
     const [
@@ -222,6 +228,25 @@ function AdminDashboard() {
       amount_today: t.amountToday, amount_week: t.amountWeek, amount_month: t.amountMonth,
     }))
 
+    // ✅ جديد: أعلى طلب فردي (مش إجمالي طاولة) واسم طاولته لكل فترة على حدة
+    const nonTakeawayMonthOrders = monthOrders.filter(o => o.tables?.section !== 'takeaway')
+    function findHighestOrder(orders: any[]) {
+      if (orders.length === 0) return null
+      const top = orders.reduce((max, o) => (o.total_amount || 0) > (max.total_amount || 0) ? o : max)
+      return { table_name: top.tables?.name || '—', branch_name: top.tables?.branches?.name || '—', amount: top.total_amount || 0 }
+    }
+    const highestOrderToday = findHighestOrder(nonTakeawayMonthOrders.filter(o => o.paid_at >= today))
+    const highestOrderWeek = findHighestOrder(nonTakeawayMonthOrders.filter(o => o.paid_at >= calWeekStart))
+    const highestOrderMonth = findHighestOrder(nonTakeawayMonthOrders)
+
+
+    // ✅ جديد: أقل 10 أصناف في المخزون فعليًا - مقارنة الرصيد الحالي بالحد الأدنى (كل الفروع، الصفحة أدمن بس)
+    const lowStockItems = ((stockRes.data || []) as any[]).filter(i => i.current_stock <= i.min_stock)
+    const lowStockList = lowStockItems
+      .sort((a, b) => (a.current_stock - a.min_stock) - (b.current_stock - b.min_stock))
+      .slice(0, 10)
+      .map(i => ({ name: i.name, name_en: i.name_en || i.name, current: i.current_stock, min: i.min_stock, unit: i.units?.symbol || '' }))
+
     setStats({
       orders_today: ordersToday, revenue_today: revenueToday,
       active_orders: activeOrders, occupied_tables: occupiedTables,
@@ -232,10 +257,12 @@ function AdminDashboard() {
       top_items: topItems, recent_orders: recentOrders,
       waiter_calls: waiterRes.count || 0,
       pending_bookings: bookingsRes.count || 0,
-      low_stock: stockRes.count || 0,
+      low_stock: lowStockList.length,
+      low_stock_items: lowStockList,
       paid_today: paidToday, cancelled_today: cancelledToday,
       purchases_today: purchasesTodayRes, purchases_week: purchasesWeekRes, purchases_month: purchasesMonthRes,
       top_tables: topTables,
+      highest_order_today: highestOrderToday, highest_order_week: highestOrderWeek, highest_order_month: highestOrderMonth,
     })
     setLoading(false)
   }, [sb])
@@ -406,7 +433,7 @@ function AdminDashboard() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20, alignItems: 'stretch' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px,1fr))', gap: 20, marginBottom: 20, alignItems: 'stretch' }}>
 
         {/* Active Orders */}
         {/* ✅ Fix: العمود ده بقى flex بارتفاع كامل عشان يتمدد بنفس ارتفاع العمود التاني جنبه - كان بيوقف عند
@@ -503,7 +530,7 @@ function AdminDashboard() {
           <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>💰 {isAr ? 'ملخص الإيرادات' : 'Revenue Summary'}</div>
           <button onClick={() => router.push('/dashboard/reports/monthly')} style={{ fontSize: 12, color: S.gold, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>{isAr ? "التقرير الشهري ←" : "Monthly Report →"}</button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 14 }}>
           {[
             { label: isAr ? 'اليوم' : 'Today', value: stats!.revenue_today, color: S.gold },
             { label: isAr ? 'الأسبوع' : 'Week', value: stats!.revenue_week, color: S.green },
@@ -520,7 +547,7 @@ function AdminDashboard() {
       {/* ✅ جديد: ملخص المشتريات - بنفس شكل ملخص الإيرادات بالظبط */}
       <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, padding: '20px 22px', marginBottom: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 20 }}>📦 {isAr ? 'ملخص المشتريات' : 'Purchases Summary'}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 14 }}>
           {[
             { label: isAr ? 'اليوم' : 'Today', value: stats!.purchases_today, color: S.gold },
             { label: isAr ? 'الأسبوع' : 'Week', value: stats!.purchases_week, color: S.green },
@@ -534,12 +561,29 @@ function AdminDashboard() {
         </div>
       </div>
 
+      {/* ✅ جديد: قائمة أقل 10 أصناف في المخزون فعليًا - كانت شارة معطوبة بس، دلوقتي قائمة حقيقية بالتفاصيل */}
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, padding: '20px 22px', marginBottom: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: S.red, marginBottom: 16 }}>⚠️ {isAr ? 'أقل 10 أصناف في المخزون' : 'Top 10 Lowest Stock Items'}</div>
+        {stats!.low_stock_items.length === 0 ? (
+          <div style={{ textAlign: 'center', color: S.green, fontSize: 13, padding: 20 }}>✅ {isAr ? 'كل الأصناف متوفرة بكميات كافية' : 'All items well stocked'}</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px,1fr))', gap: 8 }}>
+            {stats!.low_stock_items.map((item, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: S.redB, borderRadius: 10, padding: '10px 14px' }}>
+                <span style={{ fontSize: 13, color: S.white }}>{item.name_en || item.name}</span>
+                <span style={{ fontSize: 13, color: S.red, fontWeight: 800 }}>{item.current} / {item.min} {item.unit}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* ✅ جديد: أعلى 3 طاولات (بمعرف فريد لكل طاولة، ما بيختلطش بين الفروع) - كل واحدة باسم فرعها */}
       {stats!.top_tables.length > 0 && (
         <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, padding: '20px 22px', marginBottom: 20 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 16 }}>🏆 {isAr ? 'أعلى 3 طاولات طلباً' : 'Top 3 Tables by Orders'}</div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 12, marginBottom: 20 }}>
             {stats!.top_tables.map((t, i) => (
               <div key={t.table_id} onClick={() => setSelectedTableId(t.table_id)}
                 style={{ background: selectedTableId === t.table_id ? S.gold3 : S.card, border: `1px solid ${selectedTableId === t.table_id ? S.gold : S.border}`, borderRadius: 14, padding: '14px 12px', textAlign: 'center', cursor: 'pointer' }}>
@@ -581,6 +625,31 @@ function AdminDashboard() {
           )}
         </div>
       )}
+
+      {/* ✅ جديد: أعلى طلب فردي (مش إجمالي) واسم طاولته، لكل فترة على حدة */}
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, padding: '20px 22px', marginBottom: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 16 }}>💎 {isAr ? 'أعلى طلب فردي' : 'Highest Single Order'}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 14 }}>
+          {[
+            { label: isAr ? 'اليوم' : 'Today', data: stats!.highest_order_today, color: S.gold },
+            { label: isAr ? 'هذا الأسبوع' : 'This Week', data: stats!.highest_order_week, color: S.green },
+            { label: isAr ? 'هذا الشهر' : 'This Month', data: stats!.highest_order_month, color: S.blue },
+          ].map((r, i) => (
+            <div key={i} style={{ background: S.card2, borderRadius: 14, padding: '16px 20px', textAlign: 'center', border: `1px solid ${r.color}20` }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>{r.label}</div>
+              {r.data ? (
+                <>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: r.color }}>MYR {r.data.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: 12, color: S.white, marginTop: 6, fontWeight: 700 }}>{r.data.table_name}</div>
+                  <div style={{ fontSize: 10, color: S.purple, marginTop: 2 }}>🏪 {r.data.branch_name}</div>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: S.muted, padding: '10px 0' }}>{isAr ? 'لا توجد بيانات' : 'No data'}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Quick Access */}
       <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, padding: '20px 22px' }}>

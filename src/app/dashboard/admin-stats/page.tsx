@@ -163,9 +163,10 @@ function AdminDashboard() {
       sb.from('purchase_invoices').select('total_amount').gte('created_at', calWeekStart).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
       sb.from('purchase_invoices').select('total_amount').gte('created_at', calMonthStart).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
       // ✅ جديد: كل الطلبات المدفوعة لآخر شهر - نستخدمها لتحديد أكتر طاولة طلبت، ومبلغها في كل فترة
-      sb.from('orders').select('table_id, total_amount, paid_at, tables(name,number,branches(name))').eq('status', 'paid').gte('paid_at', calMonthStart),
+      sb.from('orders').select('table_id, total_amount, paid_at, tables(name,number,section,branches(name))').eq('status', 'paid').gte('paid_at', calMonthStart),
       // ✅ جديد: كل الطاولات مع فرعها وحالتها - لحساب الإشغال منفصل لكل فرع بدل رقم مجمّع
-      sb.from('tables').select('status, branches(name)'),
+      // ✅ Fix: استبعاد طاولات التيك أواي الوهمية من هنا كمان - عشان نسبة الإشغال تعكس الطاولات الحقيقية بس
+      sb.from('tables').select('status, section, branches(name)').neq('section', 'takeaway'),
     ])
 
     // ✅ جديد: تجميع إشغال الطاولات حسب الفرع - كل فرع رقمه لوحده مش مجمّع مع التاني
@@ -203,6 +204,9 @@ function AdminDashboard() {
     const monthOrders = (monthOrdersForTopTableRes.data || []) as any[]
     const tableAgg: Record<string, { name: string; branchName: string; tableId: string; count: number; amountToday: number; amountWeek: number; amountMonth: number }> = {}
     for (const o of monthOrders) {
+      // ✅ جديد: استبعاد طاولات التيك أواي الوهمية (Foodpanda/Grab/Customer/Other) من ترتيب "أعلى الطاولات" -
+      // دي حسابات مش طاولات جلوس حقيقية، وظهورها هنا كان بيلخبط لأنه مفيهاش أي توضيح إنها تيك أواي
+      if (o.tables?.section === 'takeaway') continue
       const tname = o.tables?.name || `Table ${o.tables?.number || '?'}`
       const bname = o.tables?.branches?.name || '—'
       const key = o.table_id // ✅ مفتاح فريد حقيقي، مش الاسم

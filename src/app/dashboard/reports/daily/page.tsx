@@ -72,6 +72,31 @@ function getMYDayBounds(reportDate: string) {
   }
 }
 
+// Fixed Malaysia timezone (Asia/Kuala_Lumpur = UTC+8 year-round, no DST)
+function fmtTimeMY(ts: string | null | undefined) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  })
+}
+
+// ✅ Manual shift time entry (for backfilling past days, e.g. "yesterday").
+// datetime-local inputs have no timezone concept — we treat the value the
+// user types as Malaysia wall-clock time and convert it ourselves.
+function isoToMYInput(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date(iso))
+  const get = (t: string) => parts.find(p => p.type === t)?.value || ''
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+}
+function myInputToISO(value: string): string {
+  if (!value) return ''
+  return new Date(`${value}:00+08:00`).toISOString()
+}
+
 function NumInput({ value, onChange, style, placeholder }: {
   value: string
   onChange: (v: string) => void
@@ -99,12 +124,17 @@ function NumInput({ value, onChange, style, placeholder }: {
 
 type ReportSummary = { id: string; report_date: string; total_amount: number }
 
+const label = (text: string) => (
+  <label style={{ fontSize: 11, color: '#FAFAF8', display: 'block', marginBottom: 4 }}>{text}</label>
+)
+
 function emptyShift() {
   return {
     date: '', cashier_name: '', received_balance: '', paid_expenses: '',
     pending_expenses: '', visa_maybank: '', visa_bsn: '', kabab_online: '',
     g_online: '', discounts: '', total_balance: '', manager_note: '',
     bills_paid: '', bills_pending: '', bills_discounts: '', bills_online: '',
+    start_time: '', end_time: '', // ✅ new: shift claim/handover timestamps (ISO strings)
   }
 }
 
@@ -121,6 +151,244 @@ function emptyForm() {
     treasurer_name: '',
   }
 }
+
+function ShiftSection({
+  num, shift, isMobile, branchFilter, form, pulling, cashiers, sb,
+  setShift, pullShiftFromSystem, startShift, endShift, saveReport, saving, saved,
+}: {
+  num: 1 | 2 | 3
+  shift: ReturnType<typeof emptyShift>
+  isMobile: boolean
+  branchFilter: string
+  form: ReturnType<typeof emptyForm>
+  pulling: 1 | 2 | 3 | 'top' | null
+  cashiers: { id: string; name: string }[]
+  sb: ReturnType<typeof createClient>
+  setShift: (n: 1 | 2 | 3, field: string, val: string) => void
+  pullShiftFromSystem: (n: 1 | 2 | 3) => void
+  startShift: (n: 1 | 2 | 3) => void
+  endShift: (n: 1 | 2 | 3) => void
+  saveReport: () => void
+  saving: boolean
+  saved: boolean
+}) {
+    const shiftKey = `shift${num}`
+    const [manualTime, setManualTime] = useState(false)
+    const [expDesc, setExpDesc] = useState('')
+    const [expAmount, setExpAmount] = useState('')
+    const [expStatus, setExpStatus] = useState<'paid' | 'pending'>('paid')
+    const [expSaving, setExpSaving] = useState(false)
+
+    const [delPlatform, setDelPlatform] = useState<'kabab_online' | 'g_online' | 'grab' | 'foodpanda'>('kabab_online')
+    const [delAmount, setDelAmount] = useState('')
+    const [delSaving, setDelSaving] = useState(false)
+
+    async function addExpense() {
+      if (!branchFilter) { alert('Please select a branch first'); return }
+      if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('Please enter a valid description and amount'); return }
+      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
+      setExpSaving(true)
+      await sb.from('daily_cash_expenses').insert([{
+        branch_id: branchFilter, expense_date: form.report_date, shift: shiftKey,
+        cashier_name: shift.cashier_name, description: expDesc.trim(),
+        amount: parseFloat(expAmount), status: expStatus,
+      }])
+      setExpSaving(false)
+      setExpDesc(''); setExpAmount('')
+      pullShiftFromSystem(num)
+    }
+
+    async function addDelivery() {
+      if (!branchFilter) { alert('Please select a branch first'); return }
+      if (!(parseFloat(delAmount) > 0)) { alert('Please enter a valid amount'); return }
+      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
+      setDelSaving(true)
+      await sb.from('delivery_platform_orders').insert([{
+        branch_id: branchFilter, order_date: form.report_date, shift: shiftKey,
+        cashier_name: shift.cashier_name, platform: delPlatform, amount: parseFloat(delAmount),
+      }])
+      setDelSaving(false)
+      setDelAmount('')
+      pullShiftFromSystem(num)
+    }
+
+    return (
+      <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
+        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : num === 2 ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: num === 1 ? S.blue : num === 2 ? '#8B5CF6' : S.green }}>
+            {num === 1 ? '🌅' : num === 2 ? '🌙' : '🌃'} Shift {num}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={saveReport} disabled={saving}
+              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${saved ? S.green : S.gold}`, background: saved ? S.greenB : S.gold3, color: saved ? S.green : S.gold, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: saving ? 0.7 : 1 }}>
+              {saving ? '⏳ Saving...' : saved ? '✅ Saved!' : '💾 Save'}
+            </button>
+            <button onClick={() => pullShiftFromSystem(num)} disabled={pulling === num}
+              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pulling === num ? 0.6 : 1 }}>
+              {pulling === num ? '⏳ Pulling...' : '🔄 Pull from System'}
+            </button>
+          </div>
+        </div>
+        <div style={{ padding: isMobile ? 14 : 20, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+          {/* Left column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>{label('Date')}<input style={inp} type="date" value={shift.date} onChange={e => setShift(num, 'date', e.target.value)} /></div>
+              <div>{label('Cashier Name')}
+                {(() => {
+                  // A cashier already picked for another shift THIS SAME DATE is
+                  // hidden from this dropdown (they become available again the
+                  // next day, since this only looks at the currently loaded report).
+                  const usedElsewhere = new Set(
+                    ([1, 2, 3] as const)
+                      .filter(x => x !== num)
+                      .map(x => (form as any)[`shift${x}`].cashier_name)
+                      .filter(Boolean)
+                  )
+                  const available = cashiers.filter(c => !usedElsewhere.has(c.name) || c.name === shift.cashier_name)
+                  return (
+                    <select style={inp} value={shift.cashier_name} onChange={e => setShift(num, 'cashier_name', e.target.value)}>
+                      <option value="">-- Select Cashier --</option>
+                      {shift.cashier_name && !available.some(c => c.name === shift.cashier_name) && (
+                        <option value={shift.cashier_name}>{shift.cashier_name} (not in employee list)</option>
+                      )}
+                      {available.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                  )
+                })()}
+              </div>
+            </div>
+
+            {/* Shift claim / handover: cashier starts their own shift, timestamp is captured live;
+                ending it auto-carries that same moment as the next shift's start time. */}
+            <div style={{ background: S.card, borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {!shift.start_time ? (
+                  <button onClick={() => startShift(num)}
+                    style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    ▶️ Start Shift
+                  </button>
+                ) : (
+                  <div style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>
+                    🟢 Started: {fmtTimeMY(shift.start_time)}
+                  </div>
+                )}
+                {shift.start_time && !shift.end_time && (
+                  <button onClick={() => endShift(num)}
+                    style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    ⏹️ End Shift
+                  </button>
+                )}
+                {shift.end_time && (
+                  <div style={{ fontSize: 12, color: S.muted, fontWeight: 700 }}>
+                    🔴 Ended: {fmtTimeMY(shift.end_time)}
+                  </div>
+                )}
+                <button onClick={() => setManualTime(v => !v)}
+                  style={{ marginLeft: 'auto', padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                  {manualTime ? '✖️ Hide manual entry' : '✏️ Set time manually (past days)'}
+                </button>
+              </div>
+
+              {manualTime && (
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10, borderTop: `1px solid ${S.border}`, paddingTop: 10 }}>
+                  <div>{label('Start Time (MY, manual)')}
+                    <input style={inp} type="datetime-local"
+                      value={isoToMYInput(shift.start_time)}
+                      onChange={e => setShift(num, 'start_time', myInputToISO(e.target.value))} />
+                  </div>
+                  <div>{label('End Time (MY, manual)')}
+                    <input style={inp} type="datetime-local"
+                      value={isoToMYInput(shift.end_time)}
+                      onChange={e => setShift(num, 'end_time', myInputToISO(e.target.value))} />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>{label('Received Balance (RM)')}<NumInput style={numInp} value={shift.received_balance} onChange={v => setShift(num, 'received_balance', v)} placeholder="0.00" /></div>
+              <div>{label('Paid Expenses (RM)')}<NumInput style={numInp} value={shift.paid_expenses} onChange={v => setShift(num, 'paid_expenses', v)} placeholder="0.00" /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>{label('Pending Expenses (RM)')}<NumInput style={numInp} value={shift.pending_expenses} onChange={v => setShift(num, 'pending_expenses', v)} placeholder="0.00" /></div>
+              <div>{label('Visa MAYBANK (RM)')}<NumInput style={numInp} value={shift.visa_maybank} onChange={v => setShift(num, 'visa_maybank', v)} placeholder="0.00" /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>{label('Visa BSN (RM)')}<NumInput style={numInp} value={shift.visa_bsn} onChange={v => setShift(num, 'visa_bsn', v)} placeholder="0.00" /></div>
+              <div>{label('KababOnline Banking (RM)')}<NumInput style={numInp} value={shift.kabab_online} onChange={v => setShift(num, 'kabab_online', v)} placeholder="0.00" /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>{label('G Online Banking (RM)')}<NumInput style={numInp} value={shift.g_online} onChange={v => setShift(num, 'g_online', v)} placeholder="0.00" /></div>
+              <div>{label('Discounts (RM)')}<NumInput style={numInp} value={shift.discounts} onChange={v => setShift(num, 'discounts', v)} placeholder="0.00" /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>{label('Total Balance (RM)')}<NumInput style={{ ...numInp, color: S.gold, fontWeight: 700 }} value={shift.total_balance} onChange={v => setShift(num, 'total_balance', v)} placeholder="0.00" /></div>
+              <div>{label('Manager Note')}<input style={inp} value={shift.manager_note} onChange={e => setShift(num, 'manager_note', e.target.value)} placeholder="Note..." /></div>
+            </div>
+          </div>
+
+          {/* Right column — Bills Details */}
+          <div style={{ background: S.card, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.gold, marginBottom: 4 }}>📋 Cashier Bills Details</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                {label('Paid')}
+                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_paid} onChange={e => setShift(num, 'bills_paid', e.target.value)} placeholder="Paid bills..." />
+              </div>
+              <div>
+                {label('Pending')}
+                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_pending} onChange={e => setShift(num, 'bills_pending', e.target.value)} placeholder="Pending bills..." />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                {label('Discounts')}
+                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_discounts} onChange={e => setShift(num, 'bills_discounts', e.target.value)} placeholder="Discounts..." />
+              </div>
+              <div>
+                {label('Online')}
+                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_online} onChange={e => setShift(num, 'bills_online', e.target.value)} placeholder="Online..." />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick-add an expense or a delivery order — saved instantly and calculated automatically */}
+        <div style={{ padding: isMobile ? '0 14px 14px' : '0 20px 20px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+          <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.red, marginBottom: 10 }}>💸 Add Cash Expense</div>
+            <input style={{ ...inp, marginBottom: 8 }} placeholder="Description" value={expDesc} onChange={e => setExpDesc(e.target.value)} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <NumInput style={numInp} placeholder="Amount" value={expAmount} onChange={v => setExpAmount(v)} />
+              <select style={inp} value={expStatus} onChange={e => setExpStatus(e.target.value as any)}>
+                <option value="paid">Paid</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <button onClick={addExpense} disabled={expSaving}
+              style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.red, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: expSaving ? 0.6 : 1 }}>
+              {expSaving ? '⏳...' : '➕ Add Expense'}
+            </button>
+          </div>
+
+          <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.blue, marginBottom: 10 }}>🛵 Add Delivery Order</div>
+            <select style={{ ...inp, marginBottom: 8 }} value={delPlatform} onChange={e => setDelPlatform(e.target.value as any)}>
+              <option value="kabab_online">Kabab Online</option>
+              <option value="g_online">G Online</option>
+              <option value="grab">Grab</option>
+              <option value="foodpanda">Foodpanda</option>
+            </select>
+            <NumInput style={{ ...numInp, marginBottom: 8, width: '100%', boxSizing: 'border-box' }} placeholder="Amount" value={delAmount} onChange={v => setDelAmount(v)} />
+            <button onClick={addDelivery} disabled={delSaving}
+              style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.blue, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: delSaving ? 0.6 : 1 }}>
+              {delSaving ? '⏳...' : '➕ Add Order'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
 export default function DailyReportPage() {
   const sbRef = useRef(createClient())
@@ -142,14 +410,31 @@ export default function DailyReportPage() {
 
   // Order details (separate tab) — every order with its time in Malaysia timezone, 24h format
   const [orderDetails, setOrderDetails] = useState<any[]>([])
+  // Which shift to show in Sales Details — 'all' = whole day, or one specific shift
+  // (based on its real start/end time, not the calendar day)
+  const [shiftFilter, setShiftFilter] = useState<'all' | 'Shift 1' | 'Shift 2' | 'Shift 3' | 'Unassigned'>('all')
   const [loadingOrders, setLoadingOrders] = useState(false)
 
-  // Fixed Malaysia timezone (Asia/Kuala_Lumpur = UTC+8 year-round, no DST)
-  function fmtTimeMY(ts: string | null | undefined) {
-    if (!ts) return '—'
-    return new Date(ts).toLocaleTimeString('en-GB', {
-      timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    })
+  // ✅ Figure out which shift an order actually belongs to using the REAL
+  // claimed start/end times for this report's shifts (not the static
+  // orders.shift label, which doesn't reflect shifts of flexible length).
+  // Falls back to the stored label if no shift window contains the order
+  // (e.g. the shift wasn't claimed via Start/End Shift for this report).
+  function resolveShiftLabel(order: any): 'Shift 1' | 'Shift 2' | 'Shift 3' | 'Unassigned' {
+    const paidAt = order.paid_at ? new Date(order.paid_at).getTime() : null
+    if (paidAt !== null) {
+      for (const n of [1, 2, 3] as const) {
+        const sh = (form as any)[`shift${n}`]
+        if (!sh.start_time) continue
+        const start = new Date(sh.start_time).getTime()
+        const end = sh.end_time ? new Date(sh.end_time).getTime() : Date.now()
+        if (paidAt >= start && paidAt <= end) return (`Shift ${n}`) as any
+      }
+    }
+    if (order.shift === 'shift1') return 'Shift 1'
+    if (order.shift === 'shift2') return 'Shift 2'
+    if (order.shift === 'shift3') return 'Shift 3'
+    return 'Unassigned'
   }
 
   const [ordersError, setOrdersError] = useState<string | null>(null)
@@ -187,6 +472,30 @@ export default function DailyReportPage() {
       .then(({ data }) => setBranches(data || []))
   }, [sb])
 
+  // ✅ Cashier employees for the selected branch, for the "Cashier Name" dropdown.
+  // Confirmed: employees.name, employees.branch_id, employees.is_active,
+  // employees.role = 'cashier' (currently 2 people). If you later add an
+  // "assistant cashier" role, just add its exact value to the array below,
+  // e.g. ['cashier', 'cashier_assistant'].
+  const [cashiers, setCashiers] = useState<{ id: string; name: string }[]>([])
+  const [cashiersError, setCashiersError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!branchFilter) { setCashiers([]); return }
+    setCashiersError(null)
+    sb.from('employees').select('id, name')
+      .eq('branch_id', branchFilter).in('role', ['cashier']).eq('is_active', true)
+      .order('name')
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load cashiers:', error)
+          setCashiersError(error.message)
+          setCashiers([])
+        } else {
+          setCashiers((data || []).map((e: any) => ({ id: e.id, name: e.name })))
+        }
+      })
+  }, [sb, branchFilter])
+
   const fetchReports = useCallback(async () => {
     const { data } = await sb.from('daily_reports')
       .select('id, report_date, total_amount')
@@ -223,6 +532,7 @@ export default function DailyReportPage() {
             bills_pending: data.shift1_bills_pending || '',
             bills_discounts: data.shift1_bills_discounts || '',
             bills_online: data.shift1_bills_online || '',
+            start_time: data.shift1_start_time || '', end_time: data.shift1_end_time || '',
           },
           shift2: {
             date: data.shift2_date || '', cashier_name: data.shift2_cashier_name || '',
@@ -240,6 +550,7 @@ export default function DailyReportPage() {
             bills_pending: data.shift2_bills_pending || '',
             bills_discounts: data.shift2_bills_discounts || '',
             bills_online: data.shift2_bills_online || '',
+            start_time: data.shift2_start_time || '', end_time: data.shift2_end_time || '',
           },
           shift3: {
             date: data.shift3_date || '', cashier_name: data.shift3_cashier_name || '',
@@ -257,6 +568,7 @@ export default function DailyReportPage() {
             bills_pending: data.shift3_bills_pending || '',
             bills_discounts: data.shift3_bills_discounts || '',
             bills_online: data.shift3_bills_online || '',
+            start_time: data.shift3_start_time || '', end_time: data.shift3_end_time || '',
           },
           total_sales_report: data.total_sales_report?.toString() || '',
           total_paid_expenses: data.total_paid_expenses?.toString() || '',
@@ -327,6 +639,37 @@ export default function DailyReportPage() {
     setForm(p => ({ ...p, [`shift${n}`]: { ...p[`shift${n}` as 'shift1' | 'shift2' | 'shift3'], [field]: val } }))
   }
 
+  // ✅ Shift claim / handover:
+  // - "Start Shift" stamps the current moment as this shift's start time — the
+  //   cashier presses it themselves, so it's always the real time they took over.
+  // - "End Shift" stamps the current moment as this shift's end time, AND
+  //   automatically carries that same moment over as the START time of the
+  //   NEXT shift (only if the next shift doesn't already have a start time,
+  //   so we never overwrite a time someone already set manually).
+  function startShift(num: 1 | 2 | 3) {
+    if (!(form as any)[`shift${num}`].cashier_name?.trim()) {
+      alert('Please enter the cashier name first')
+      return
+    }
+    setShift(num, 'start_time', new Date().toISOString())
+  }
+
+  function endShift(num: 1 | 2 | 3) {
+    const now = new Date().toISOString()
+    setForm(p => {
+      const key = `shift${num}` as 'shift1' | 'shift2' | 'shift3'
+      const nextNum = num + 1
+      const next = { ...p, [key]: { ...(p as any)[key], end_time: now } }
+      if (nextNum <= 3) {
+        const nextKey = `shift${nextNum}` as 'shift1' | 'shift2' | 'shift3'
+        if (!(p as any)[nextKey].start_time) {
+          ;(next as any)[nextKey] = { ...(p as any)[nextKey], start_time: now }
+        }
+      }
+      return next
+    })
+  }
+
   function n(v: string) { return parseFloat(v) || 0 }
   // Round totals to prevent JavaScript's famous floating-point issue
   // (e.g. 0.1 + 0.2 can produce 0.30000000000000004 instead of 0.3)
@@ -351,16 +694,29 @@ export default function DailyReportPage() {
   async function pullShiftFromSystem(num: 1 | 2 | 3) {
     if (!branchFilter) { alert('Please select a branch first'); return }
     if (!form.report_date) { alert('Please select a date first'); return }
+    const shiftKey = `shift${num}` as 'shift1' | 'shift2' | 'shift3'
+    const shiftState = (form as any)[shiftKey]
     setPulling(num)
-    const shiftKey = `shift${num}`
     const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
 
+    // ✅ If this shift has a real claimed start time (via "Start Shift"), pull
+    // orders using the ACTUAL clock window (start → end, or start → now if
+    // still ongoing) instead of the whole day. This is what makes an 8-hour
+    // shift show only its own 8 hours of sales, now that the system runs 24h
+    // with no fixed shift boundaries. Shifts that haven't been claimed yet
+    // fall back to the old behavior (whole day + the orders.shift label).
+    const useTimeWindow = !!shiftState.start_time
+    const windowStart = shiftState.start_time || dayStart
+    const windowEnd = shiftState.end_time || (shiftState.start_time ? new Date().toISOString() : dayEnd)
+
+    let ordersQuery = sb.from('orders')
+      .select('total_amount, discount_amount, payment_method, card_bank, shift, paid_by_name, tables!inner(branch_id)')
+      .eq('status', 'paid').eq('tables.branch_id', branchFilter)
+      .gte('paid_at', windowStart).lte('paid_at', windowEnd)
+    if (!useTimeWindow) ordersQuery = ordersQuery.eq('shift', shiftKey)
+
     const [ordersRes, expRes, delRes] = await Promise.all([
-      sb.from('orders')
-        .select('total_amount, discount_amount, payment_method, card_bank, shift, paid_by_name, tables!inner(branch_id)')
-        .eq('status', 'paid').eq('shift', shiftKey)
-        .eq('tables.branch_id', branchFilter)
-        .gte('paid_at', dayStart).lte('paid_at', dayEnd),
+      ordersQuery,
       sb.from('daily_cash_expenses').select('amount,status')
         .eq('branch_id', branchFilter).eq('shift', shiftKey).eq('expense_date', form.report_date),
       sb.from('delivery_platform_orders').select('amount,platform')
@@ -478,6 +834,8 @@ export default function DailyReportPage() {
       shift1_bills_pending: form.shift1.bills_pending || null,
       shift1_bills_discounts: form.shift1.bills_discounts || null,
       shift1_bills_online: form.shift1.bills_online || null,
+      shift1_start_time: form.shift1.start_time || null,
+      shift1_end_time: form.shift1.end_time || null,
       shift2_date: form.shift2.date || null,
       shift2_cashier_name: form.shift2.cashier_name || null,
       shift2_received_balance: n(form.shift2.received_balance),
@@ -494,6 +852,8 @@ export default function DailyReportPage() {
       shift2_bills_pending: form.shift2.bills_pending || null,
       shift2_bills_discounts: form.shift2.bills_discounts || null,
       shift2_bills_online: form.shift2.bills_online || null,
+      shift2_start_time: form.shift2.start_time || null,
+      shift2_end_time: form.shift2.end_time || null,
       shift3_date: form.shift3.date || null,
       shift3_cashier_name: form.shift3.cashier_name || null,
       shift3_received_balance: n(form.shift3.received_balance),
@@ -510,6 +870,8 @@ export default function DailyReportPage() {
       shift3_bills_pending: form.shift3.bills_pending || null,
       shift3_bills_discounts: form.shift3.bills_discounts || null,
       shift3_bills_online: form.shift3.bills_online || null,
+      shift3_start_time: form.shift3.start_time || null,
+      shift3_end_time: form.shift3.end_time || null,
       total_sales_report: n(form.total_sales_report),
       total_paid_expenses: n(form.total_paid_expenses),
       total_pending_expenses: n(form.total_pending_expenses),
@@ -527,14 +889,26 @@ export default function DailyReportPage() {
       updated_at: new Date().toISOString(),
     }
 
+    let saveError = null
     if (existingId) {
-      await sb.from('daily_reports').update(payload).eq('id', existingId)
+      const { error } = await sb.from('daily_reports').update(payload).eq('id', existingId)
+      saveError = error
     } else {
-      const { data } = await sb.from('daily_reports').insert([payload]).select('id').single()
+      const { data, error } = await sb.from('daily_reports').insert([payload]).select('id').single()
+      saveError = error
       if (data) setExistingId(data.id)
     }
 
     setSaving(false)
+    if (saveError) {
+      // ⚠️ Critical: never silently pretend a save succeeded. If this fires, the
+      // data was NOT written to the database — most likely a missing column
+      // (e.g. a migration that hasn't been run yet). Show the real error so
+      // nothing looks "saved" when it wasn't.
+      console.error('saveReport failed:', saveError)
+      alert('⚠️ SAVE FAILED — nothing was written to the database.\n\n' + saveError.message + '\n\nYour changes are still in the form, but you must fix this before leaving the page or they will be lost.')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
     fetchReports()
@@ -574,6 +948,10 @@ export default function DailyReportPage() {
         </tr>
         <tr>
           <td class="label">Cashier Name</td><td>${s.cashier_name}</td>
+          <td class="label">Shift Time (MY)</td><td>${fmtTimeMY(s.start_time)} – ${fmtTimeMY(s.end_time)}</td>
+        </tr>
+        <tr>
+          <td class="label"></td><td></td>
           <td class="label">Cashier Bills Details</td><td></td>
         </tr>
         <tr>
@@ -602,6 +980,10 @@ export default function DailyReportPage() {
         <tr><td colspan="4" class="section-header">Shift 2 – Date: ${s2.date}</td></tr>
         <tr>
           <td class="label">Cashier Name</td><td>${s2.cashier_name}</td>
+          <td class="label">Shift Time (MY)</td><td>${fmtTimeMY(s2.start_time)} – ${fmtTimeMY(s2.end_time)}</td>
+        </tr>
+        <tr>
+          <td class="label"></td><td></td>
           <td class="label">Cashier Bills Details</td><td></td>
         </tr>
         <tr>
@@ -628,6 +1010,10 @@ export default function DailyReportPage() {
         <tr><td colspan="4" class="section-header">Shift 3 – Date: ${s3.date}</td></tr>
         <tr>
           <td class="label">Cashier Name</td><td>${s3.cashier_name}</td>
+          <td class="label">Shift Time (MY)</td><td>${fmtTimeMY(s3.start_time)} – ${fmtTimeMY(s3.end_time)}</td>
+        </tr>
+        <tr>
+          <td class="label"></td><td></td>
           <td class="label">Cashier Bills Details</td><td></td>
         </tr>
         <tr>
@@ -689,24 +1075,29 @@ export default function DailyReportPage() {
     const win = window.open('', '_blank')
     if (!win) return
     const branchName = branches.find(b => b.id === branchFilter)?.name || ''
-    const grandTotal = round2(orderDetails.reduce((s, o) => s + (o.total_amount || 0), 0))
+    const filtered = orderDetails.filter(o => shiftFilter === 'all' || resolveShiftLabel(o) === shiftFilter)
+    const grandTotal = round2(filtered.reduce((s, o) => s + (o.total_amount || 0), 0))
     const fmt = (v: number) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    const rows = orderDetails.map((o, i) => `
-        <tr>
+    const rows = filtered.map((o, i) => {
+      const lbl = resolveShiftLabel(o)
+      const shiftColor = lbl === 'Shift 1' ? '#3B82F6' : lbl === 'Shift 2' ? '#8B5CF6' : lbl === 'Shift 3' ? '#22C55E' : '#999'
+      return `
+        <tr style="border-left: 3px solid ${shiftColor};">
           <td>${i + 1}</td>
           <td>${o.tables?.name || o.id?.slice(0, 8) || '—'}</td>
-          <td>${o.shift === 'shift1' ? 'Shift 1' : o.shift === 'shift2' ? 'Shift 2' : o.shift === 'shift3' ? 'Shift 3' : '—'}</td>
+          <td style="color:${shiftColor}; font-weight:bold;">${lbl}</td>
           <td>${fmtTimeMY(o.created_at)}</td>
           <td>${fmtTimeMY(o.paid_at)}</td>
           <td>${o.paid_by_name || '—'}</td>
           <td>${o.payment_method || '—'}${o.card_bank ? ` (${o.card_bank})` : ''}</td>
           <td>${fmt(o.discount_amount || 0)}</td>
           <td><b>${fmt(o.total_amount || 0)}</b></td>
-        </tr>`).join('')
+        </tr>`
+    }).join('')
 
     win.document.write(`<!DOCTYPE html><html><head>
       <meta charset="UTF-8">
-      <title>Sales Details - ${form.report_date}</title>
+      <title>Sales Details - ${form.report_date}${shiftFilter !== 'all' ? ' - ' + shiftFilter : ''}</title>
       <style>
         body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
         h2 { text-align: center; font-size: 14px; margin-bottom: 4px; }
@@ -719,7 +1110,7 @@ export default function DailyReportPage() {
       </style>
     </head><body>
       <h2>ORCHID HOUSE RESTAURANT – Sales Details</h2>
-      <h4>${form.report_date} — ${branchName} — Times shown in Malaysia time (24h)</h4>
+      <h4>${form.report_date} — ${branchName}${shiftFilter !== 'all' ? ' — ' + shiftFilter + ' only' : ' — Whole Day'} — Times shown in Malaysia time (24h)</h4>
 
       <table>
         <thead>
@@ -731,7 +1122,7 @@ export default function DailyReportPage() {
         <tbody>
           ${rows}
           <tr class="total-row">
-            <td colspan="8">Total — ${orderDetails.length} orders</td>
+            <td colspan="8">Total — ${filtered.length} orders</td>
             <td>RM ${fmt(grandTotal)}</td>
           </tr>
         </tbody>
@@ -742,152 +1133,6 @@ export default function DailyReportPage() {
     win.document.close()
   }
 
-const label = (text: string) => (
-  <label style={{ fontSize: 11, color: '#FAFAF8', display: 'block', marginBottom: 4 }}>{text}</label>
-)
-
-  function ShiftSection({ num, shift }: { num: 1 | 2 | 3; shift: ReturnType<typeof emptyShift> }) {
-    const shiftKey = `shift${num}`
-    const [expDesc, setExpDesc] = useState('')
-    const [expAmount, setExpAmount] = useState('')
-    const [expStatus, setExpStatus] = useState<'paid' | 'pending'>('paid')
-    const [expSaving, setExpSaving] = useState(false)
-
-    const [delPlatform, setDelPlatform] = useState<'kabab_online' | 'g_online' | 'grab' | 'foodpanda'>('kabab_online')
-    const [delAmount, setDelAmount] = useState('')
-    const [delSaving, setDelSaving] = useState(false)
-
-    async function addExpense() {
-      if (!branchFilter) { alert('Please select a branch first'); return }
-      if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('Please enter a valid description and amount'); return }
-      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
-      setExpSaving(true)
-      await sb.from('daily_cash_expenses').insert([{
-        branch_id: branchFilter, expense_date: form.report_date, shift: shiftKey,
-        cashier_name: shift.cashier_name, description: expDesc.trim(),
-        amount: parseFloat(expAmount), status: expStatus,
-      }])
-      setExpSaving(false)
-      setExpDesc(''); setExpAmount('')
-      pullShiftFromSystem(num)
-    }
-
-    async function addDelivery() {
-      if (!branchFilter) { alert('Please select a branch first'); return }
-      if (!(parseFloat(delAmount) > 0)) { alert('Please enter a valid amount'); return }
-      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
-      setDelSaving(true)
-      await sb.from('delivery_platform_orders').insert([{
-        branch_id: branchFilter, order_date: form.report_date, shift: shiftKey,
-        cashier_name: shift.cashier_name, platform: delPlatform, amount: parseFloat(delAmount),
-      }])
-      setDelSaving(false)
-      setDelAmount('')
-      pullShiftFromSystem(num)
-    }
-
-    return (
-      <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : num === 2 ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: num === 1 ? S.blue : num === 2 ? '#8B5CF6' : S.green }}>
-            {num === 1 ? '🌅' : num === 2 ? '🌙' : '🌃'} Shift {num}
-          </div>
-          <button onClick={() => pullShiftFromSystem(num)} disabled={pulling === num}
-            style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pulling === num ? 0.6 : 1 }}>
-            {pulling === num ? '⏳ Pulling...' : '🔄 Pull from System'}
-          </button>
-        </div>
-        <div style={{ padding: isMobile ? 14 : 20, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
-          {/* Left column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Date')}<input style={inp} type="date" value={shift.date} onChange={e => setShift(num, 'date', e.target.value)} /></div>
-              <div>{label('Cashier Name')}<input style={inp} value={shift.cashier_name} onChange={e => setShift(num, 'cashier_name', e.target.value)} placeholder="Name" /></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Received Balance (RM)')}<NumInput style={numInp} value={shift.received_balance} onChange={v => setShift(num, 'received_balance', v)} placeholder="0.00" /></div>
-              <div>{label('Paid Expenses (RM)')}<NumInput style={numInp} value={shift.paid_expenses} onChange={v => setShift(num, 'paid_expenses', v)} placeholder="0.00" /></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Pending Expenses (RM)')}<NumInput style={numInp} value={shift.pending_expenses} onChange={v => setShift(num, 'pending_expenses', v)} placeholder="0.00" /></div>
-              <div>{label('Visa MAYBANK (RM)')}<NumInput style={numInp} value={shift.visa_maybank} onChange={v => setShift(num, 'visa_maybank', v)} placeholder="0.00" /></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Visa BSN (RM)')}<NumInput style={numInp} value={shift.visa_bsn} onChange={v => setShift(num, 'visa_bsn', v)} placeholder="0.00" /></div>
-              <div>{label('KababOnline Banking (RM)')}<NumInput style={numInp} value={shift.kabab_online} onChange={v => setShift(num, 'kabab_online', v)} placeholder="0.00" /></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('G Online Banking (RM)')}<NumInput style={numInp} value={shift.g_online} onChange={v => setShift(num, 'g_online', v)} placeholder="0.00" /></div>
-              <div>{label('Discounts (RM)')}<NumInput style={numInp} value={shift.discounts} onChange={v => setShift(num, 'discounts', v)} placeholder="0.00" /></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Total Balance (RM)')}<NumInput style={{ ...numInp, color: S.gold, fontWeight: 700 }} value={shift.total_balance} onChange={v => setShift(num, 'total_balance', v)} placeholder="0.00" /></div>
-              <div>{label('Manager Note')}<input style={inp} value={shift.manager_note} onChange={e => setShift(num, 'manager_note', e.target.value)} placeholder="Note..." /></div>
-            </div>
-          </div>
-
-          {/* Right column — Bills Details */}
-          <div style={{ background: S.card, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: S.gold, marginBottom: 4 }}>📋 Cashier Bills Details</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                {label('Paid')}
-                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_paid} onChange={e => setShift(num, 'bills_paid', e.target.value)} placeholder="Paid bills..." />
-              </div>
-              <div>
-                {label('Pending')}
-                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_pending} onChange={e => setShift(num, 'bills_pending', e.target.value)} placeholder="Pending bills..." />
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                {label('Discounts')}
-                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_discounts} onChange={e => setShift(num, 'bills_discounts', e.target.value)} placeholder="Discounts..." />
-              </div>
-              <div>
-                {label('Online')}
-                <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={shift.bills_online} onChange={e => setShift(num, 'bills_online', e.target.value)} placeholder="Online..." />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick-add an expense or a delivery order — saved instantly and calculated automatically */}
-        <div style={{ padding: isMobile ? '0 14px 14px' : '0 20px 20px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
-          <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: S.red, marginBottom: 10 }}>💸 Add Cash Expense</div>
-            <input style={{ ...inp, marginBottom: 8 }} placeholder="Description" value={expDesc} onChange={e => setExpDesc(e.target.value)} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <NumInput style={numInp} placeholder="Amount" value={expAmount} onChange={v => setExpAmount(v)} />
-              <select style={inp} value={expStatus} onChange={e => setExpStatus(e.target.value as any)}>
-                <option value="paid">Paid</option>
-                <option value="pending">Pending</option>
-              </select>
-            </div>
-            <button onClick={addExpense} disabled={expSaving}
-              style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.red, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: expSaving ? 0.6 : 1 }}>
-              {expSaving ? '⏳...' : '➕ Add Expense'}
-            </button>
-          </div>
-
-          <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: S.blue, marginBottom: 10 }}>🛵 Add Delivery Order</div>
-            <select style={{ ...inp, marginBottom: 8 }} value={delPlatform} onChange={e => setDelPlatform(e.target.value as any)}>
-              <option value="kabab_online">Kabab Online</option>
-              <option value="g_online">G Online</option>
-              <option value="grab">Grab</option>
-              <option value="foodpanda">Foodpanda</option>
-            </select>
-            <NumInput style={{ ...numInp, marginBottom: 8, width: '100%', boxSizing: 'border-box' }} placeholder="Amount" value={delAmount} onChange={v => setDelAmount(v)} />
-            <button onClick={addDelivery} disabled={delSaving}
-              style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.blue, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: delSaving ? 0.6 : 1 }}>
-              {delSaving ? '⏳...' : '➕ Add Order'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div style={{ minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }}>
@@ -926,8 +1171,8 @@ const label = (text: string) => (
                 🧾 Sales Details — {form.report_date} ({branches.find(b => b.id === branchFilter)?.name || 'Select a branch'})
               </h2>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={printOrderDetails} disabled={loadingOrders || orderDetails.length === 0}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: (loadingOrders || orderDetails.length === 0) ? 0.5 : 1 }}>
+                <button onClick={printOrderDetails} disabled={loadingOrders || orderDetails.filter(o => shiftFilter === 'all' || resolveShiftLabel(o) === shiftFilter).length === 0}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: (loadingOrders || orderDetails.filter(o => shiftFilter === 'all' || resolveShiftLabel(o) === shiftFilter).length === 0) ? 0.5 : 1 }}>
                   🖨️ Print
                 </button>
                 <button onClick={fetchOrderDetails} disabled={loadingOrders}
@@ -949,6 +1194,41 @@ const label = (text: string) => (
               <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>No paid orders found for this day and branch</div>
             ) : (
               <>
+                {/* Per-shift breakdown, based on each shift's real claimed start/end time.
+                    Click a card to filter the table below to just that shift. */}
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 12 }}>
+                  <div onClick={() => setShiftFilter('all')}
+                    style={{ background: shiftFilter === 'all' ? S.gold3 : S.navy2, borderRadius: 12, border: `1px solid ${shiftFilter === 'all' ? S.gold : S.border}`, padding: '12px 16px', cursor: 'pointer' }}>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>Whole Day</div>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: S.gold }}>RM {fmtMoney(round2(orderDetails.reduce((s, o) => s + (o.total_amount || 0), 0)))}</div>
+                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{orderDetails.length} orders</div>
+                  </div>
+                  {(['Shift 1', 'Shift 2', 'Shift 3', 'Unassigned'] as const).map(labelKey => {
+                    const group = orderDetails.filter(o => resolveShiftLabel(o) === labelKey)
+                    if (group.length === 0) return null
+                    const total = round2(group.reduce((s, o) => s + (o.total_amount || 0), 0))
+                    const active = shiftFilter === labelKey
+                    return (
+                      <div key={labelKey} onClick={() => setShiftFilter(labelKey)}
+                        style={{ background: active ? S.gold3 : S.navy2, borderRadius: 12, border: `1px solid ${active ? S.gold : S.border}`, padding: '12px 16px', cursor: 'pointer' }}>
+                        <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{labelKey}</div>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: S.gold }}>RM {fmtMoney(total)}</div>
+                        <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{group.length} orders</div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {shiftFilter !== 'all' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 12, color: S.gold }}>
+                    Showing {shiftFilter} only (its actual claimed time window)
+                    <button onClick={() => setShiftFilter('all')}
+                      style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                      ✖️ Clear filter
+                    </button>
+                  </div>
+                )}
+
                 <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', direction: 'ltr', fontSize: 12.5 }}>
@@ -966,29 +1246,41 @@ const label = (text: string) => (
                         </tr>
                       </thead>
                       <tbody>
-                        {orderDetails.map((o, i) => (
-                          <tr key={o.id} style={{ borderTop: `1px solid ${S.border}` }}>
-                            <td style={tdStyle}>{i + 1}</td>
-                            <td style={tdStyle}>{o.tables?.name || o.id?.slice(0, 8) || '—'}</td>
-                            <td style={tdStyle}>{o.shift === 'shift1' ? 'Shift 1' : o.shift === 'shift2' ? 'Shift 2' : o.shift === 'shift3' ? 'Shift 3' : '—'}</td>
-                            <td style={tdStyle}>{fmtTimeMY(o.created_at)}</td>
-                            <td style={tdStyle}>{fmtTimeMY(o.paid_at)}</td>
-                            <td style={tdStyle}>{o.paid_by_name || '—'}</td>
-                            <td style={tdStyle}>{o.payment_method || '—'}{o.card_bank ? ` (${o.card_bank})` : ''}</td>
-                            <td style={tdStyle}>{fmtMoney(o.discount_amount || 0)}</td>
-                            <td style={{ ...tdStyle, color: S.gold, fontWeight: 700 }}>{fmtMoney(o.total_amount || 0)}</td>
-                          </tr>
-                        ))}
+                        {orderDetails.filter(o => shiftFilter === 'all' || resolveShiftLabel(o) === shiftFilter).map((o, i) => {
+                          const lbl = resolveShiftLabel(o)
+                          const shiftColor = lbl === 'Shift 1' ? S.blue : lbl === 'Shift 2' ? '#8B5CF6' : lbl === 'Shift 3' ? S.green : S.muted
+                          const shiftBg = lbl === 'Shift 1' ? 'rgba(59,130,246,0.06)' : lbl === 'Shift 2' ? 'rgba(139,92,246,0.06)' : lbl === 'Shift 3' ? 'rgba(34,197,94,0.06)' : 'transparent'
+                          return (
+                            <tr key={o.id} style={{ borderTop: `1px solid ${S.border}`, borderLeft: `3px solid ${shiftColor}`, background: shiftBg }}>
+                              <td style={tdStyle}>{i + 1}</td>
+                              <td style={tdStyle}>{o.tables?.name || o.id?.slice(0, 8) || '—'}</td>
+                              <td style={{ ...tdStyle, color: shiftColor, fontWeight: 700 }}>{lbl}</td>
+                              <td style={tdStyle}>{fmtTimeMY(o.created_at)}</td>
+                              <td style={tdStyle}>{fmtTimeMY(o.paid_at)}</td>
+                              <td style={tdStyle}>{o.paid_by_name || '—'}</td>
+                              <td style={tdStyle}>{o.payment_method || '—'}{o.card_bank ? ` (${o.card_bank})` : ''}</td>
+                              <td style={tdStyle}>{fmtMoney(o.discount_amount || 0)}</td>
+                              <td style={{ ...tdStyle, color: S.gold, fontWeight: 700 }}>{fmtMoney(o.total_amount || 0)}</td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', background: S.navy2, borderRadius: 14, border: `1px solid ${S.goldB}`, padding: '14px 20px' }}>
-                  <div style={{ color: S.muted, fontSize: 13 }}>Order count: {orderDetails.length.toLocaleString('en-US')}</div>
-                  <div style={{ color: S.gold, fontSize: 16, fontWeight: 800 }}>
-                    Total: RM {fmtMoney(round2(orderDetails.reduce((s, o) => s + (o.total_amount || 0), 0)))}
-                  </div>
+                  {(() => {
+                    const filtered = orderDetails.filter(o => shiftFilter === 'all' || resolveShiftLabel(o) === shiftFilter)
+                    return (
+                      <>
+                        <div style={{ color: S.muted, fontSize: 13 }}>Order count: {filtered.length.toLocaleString('en-US')}</div>
+                        <div style={{ color: S.gold, fontSize: 16, fontWeight: 800 }}>
+                          Total: RM {fmtMoney(round2(filtered.reduce((s, o) => s + (o.total_amount || 0), 0)))}
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               </>
             )}
@@ -1037,12 +1329,22 @@ const label = (text: string) => (
                   Live — auto-updating
                 </div>
               )}
+              {cashiersError && (
+                <div style={{ fontSize: 11, color: S.red, fontWeight: 700 }}>
+                  ⚠️ Cashier list error: {cashiersError}
+                </div>
+              )}
+              {!cashiersError && branchFilter && cashiers.length === 0 && (
+                <div style={{ fontSize: 11, color: S.muted }}>
+                  ⚠️ No employees found with role "cashier" for this branch — check the role value
+                </div>
+              )}
             </div>
 
             {/* Shifts */}
-            <ShiftSection num={1} shift={form.shift1} />
-            <ShiftSection num={2} shift={form.shift2} />
-            <ShiftSection num={3} shift={form.shift3} />
+            <ShiftSection num={1} shift={form.shift1} isMobile={isMobile} branchFilter={branchFilter} form={form} pulling={pulling} cashiers={cashiers} sb={sb} setShift={setShift} pullShiftFromSystem={pullShiftFromSystem} startShift={startShift} endShift={endShift} saveReport={saveReport} saving={saving} saved={saved} />
+            <ShiftSection num={2} shift={form.shift2} isMobile={isMobile} branchFilter={branchFilter} form={form} pulling={pulling} cashiers={cashiers} sb={sb} setShift={setShift} pullShiftFromSystem={pullShiftFromSystem} startShift={startShift} endShift={endShift} saveReport={saveReport} saving={saving} saved={saved} />
+            <ShiftSection num={3} shift={form.shift3} isMobile={isMobile} branchFilter={branchFilter} form={form} pulling={pulling} cashiers={cashiers} sb={sb} setShift={setShift} pullShiftFromSystem={pullShiftFromSystem} startShift={startShift} endShift={endShift} saveReport={saveReport} saving={saving} saved={saved} />
 
             {/* Totals */}
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>

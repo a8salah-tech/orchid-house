@@ -98,7 +98,7 @@ type Order = {
   service_charge: number; sst_amount: number; shift: string
   notes: string; created_at: string; confirmed_at: string; paid_at?: string
   customer_id?: string | null; cancel_reason?: string | null; paid_by_name?: string | null
-  tables: { number: number; name: string }
+  tables: { number: number; name: string; section?: string | null }
   order_items: OrderItem[]
 }
 type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; or_code?: string; menu_categories?: { name: string } | { name: string }[]
@@ -267,7 +267,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     : discountType === 'percent' ? subtotal * (parseFloat(discountValue) || 0) / 100
     : parseFloat(discountValue) || 0
   const afterDiscount = Math.max(0, subtotal - discountAmt)
-  const serviceCharge = discountType === 'free' ? 0 : afterDiscount * SERVICE_CHARGE_RATE
+  // ✅ جديد: طلبات التيك أواي (Foodpanda/Grab/Customer/Other) مالهاش رسوم خدمة خالص - مافيش خدمة طاولة أصلًا
+  const isTakeawayOrder = order.tables?.section === 'takeaway'
+  const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : afterDiscount * SERVICE_CHARGE_RATE
   const sst = discountType === 'free' ? 0 : afterDiscount * SST_RATE
   const total = afterDiscount + serviceCharge + sst
 
@@ -535,7 +537,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     <div class="row"><span>Subtotal</span><span>MYR ${subtotal.toFixed(2)}</span></div>
     ${discountAmt > 0 ? `<div class="row"><span>Discount</span><span>- MYR ${discountAmt.toFixed(2)}</span></div>` : ''}
     ${discountType !== 'free' ? `
-    <div class="row"><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toFixed(2)}</span></div>
+    ${!isTakeawayOrder ? `<div class="row"><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toFixed(2)}</span></div>` : ''}
     <div class="row"><span>SST (6%)</span><span>MYR ${sst.toFixed(2)}</span></div>
     ` : ''}
     <div class="line"></div>
@@ -793,7 +795,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
           {[
             { label: 'Subtotal', value: subtotal, color: S.white },
             discountAmt > 0 ? { label: 'Discount', value: -discountAmt, color: S.red } : null,
-            discountType !== 'free' ? { label: 'Service Charge (10%)', value: serviceCharge, color: S.muted } : null,
+            discountType !== 'free' && !isTakeawayOrder ? { label: 'Service Charge (10%)', value: serviceCharge, color: S.muted } : null,
             discountType !== 'free' ? { label: 'SST 6%', value: sst, color: S.muted } : null,
           ].filter(Boolean).map((row, i) => row && (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13 }}>
@@ -1051,7 +1053,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
         <div style={{ display: 'flex', gap: 6, marginTop: 10, marginBottom: 12, overflowX: 'auto' }}>
           <button onClick={() => setSelectedCat('all')} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === 'all' ? S.gold : S.border}`, background: selectedCat === 'all' ? S.gold3 : 'transparent', color: selectedCat === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>All</button>
           {categories.map(c => (
-            <button key={c.id} onClick={() => setSelectedCat(c.id)} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === c.id ? S.gold : S.border}`, background: selectedCat === c.id ? S.gold3 : 'transparent', color: selectedCat === c.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>{c.name}</button>
+            <button key={c.id} onClick={() => setSelectedCat(c.id)} style={{ padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedCat === c.id ? S.gold : S.border}`, background: selectedCat === c.id ? S.gold3 : 'transparent', color: selectedCat === c.id ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'Tajawal, sans-serif' }}>{c.name_en || c.name}</button>
           ))}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
@@ -1159,7 +1161,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, padding: 20, maxWidth: 380, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: S.amber, marginBottom: 4 }}>➕ Open Item</div>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>لأي إضافة مش موجودة في المنيو (زي "عسل زيادة")</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 16 }}>For any addition not on the menu (e.g. "Extra Honey")</div>
 
             {openItemRows.map((row, idx) => (
               <div key={idx} style={{ background: S.card, borderRadius: 12, padding: 12, marginBottom: 10, position: 'relative' }}>
@@ -1572,7 +1574,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       q = q.gte('created_at', `${archiveDate}T00:00:00`).lt('created_at', `${archiveDate}T23:59:59.999`)
@@ -1598,7 +1600,7 @@ export default function CashierPage() {
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -1664,7 +1666,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])

@@ -396,6 +396,18 @@ const filteredItems = items
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank')
   }
 
+  // ✅ جديد: دالة موحّدة تتحقق من "هل الطاولة اتحوّلت لمكان تاني؟" وتحدّث الشاشة فورًا لو أيوه - من غير
+  // ما العميل يحتاج يعمل Refresh يدوي. بنستخدمها هنا (لما يضغط "طلب المزيد") وكمان جوه تأكيد الطلب نفسه
+  async function checkAndFollowRedirect() {
+    if (!table) return
+    const { data: freshTableRow } = await sb.from('tables').select('*').eq('id', table.id).single()
+    const isRedirectRecent = freshTableRow?.redirected_at && (Date.now() - new Date(freshTableRow.redirected_at).getTime()) < 4 * 60 * 60 * 1000
+    if (freshTableRow?.redirected_to_table_id && isRedirectRecent) {
+      const { data: redirectedTableFull } = await sb.from('tables').select('*').eq('id', freshTableRow.redirected_to_table_id).single()
+      if (redirectedTableFull) setTable(redirectedTableFull)
+    }
+  }
+
   async function confirmOrder() {
     if (!table || cart.length === 0) return
     // ✅ Fix (جذري): فحص فوري متزامن — لو فيه تنفيذ شغال already، نوقف على طول من غير أي تأخير
@@ -409,11 +421,17 @@ const filteredItems = items
     // كافي لوحده في الحالة دي، لأن الـstate فضل شايل رقم الطاولة القديم في الذاكرة. هنا بنتأكد فورًا ومباشرة
     // لحظة الإرسال الفعلي نفسه: هل الطاولة الحالية اتحوّلت لمكان تاني؟ ولو أيوه، نتابع الطلب من هناك مباشرة
     let effectiveTableId = table.id
-    const { data: freshTableRow } = await sb.from('tables').select('id, redirected_to_table_id, redirected_at').eq('id', table.id).single()
+    const { data: freshTableRow } = await sb.from('tables').select('*').eq('id', table.id).single()
     // ✅ Fix حرج: نفس شرط الصلاحية (آخر 4 ساعات بس) - يمنع تأثر عميل جديد تمامًا بتحويل قديم خلص من زمان
     const isRedirectRecent = freshTableRow?.redirected_at && (Date.now() - new Date(freshTableRow.redirected_at).getTime()) < 4 * 60 * 60 * 1000
     if (freshTableRow?.redirected_to_table_id && isRedirectRecent) {
-      effectiveTableId = freshTableRow.redirected_to_table_id
+      const { data: redirectedTableFull } = await sb.from('tables').select('*').eq('id', freshTableRow.redirected_to_table_id).single()
+      if (redirectedTableFull) {
+        effectiveTableId = redirectedTableFull.id
+        // ✅ Fix حرج: نحدّث الشاشة نفسها (مش بس البيانات المخزّنة) - عشان العميل يشوف رقم الطاولة
+        // الصحيحة فورًا في شاشة التأكيد، مش رقم الطاولة القديمة اللي كان شايلها في الذاكرة
+        setTable(redirectedTableFull)
+      }
     }
 
     // تحقق لو في طلب موجود للطاولة
@@ -606,7 +624,7 @@ const filteredItems = items
         </div>
 
         {/* ✅ جديد: زر واضح للرجوع للمنيو وطلب المزيد - ضروري بعد ما خلينا الطلب يفضل ظاهر عند فتح الصفحة تاني */}
-        <button onClick={() => setPhase('menu')}
+        <button onClick={async () => { await checkAndFollowRedirect(); setPhase('menu') }}
           style={{ width:'100%', marginTop:16, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:16, padding:'14px', color:C.white, fontWeight:800, fontSize:14, cursor:'pointer', boxShadow:`0 6px 20px ${C.glow2}` }}>
           ➕ Order More Items
         </button>

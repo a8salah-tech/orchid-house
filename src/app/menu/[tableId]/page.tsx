@@ -144,7 +144,10 @@ export default function CustomerMenuPage() {
 
       // ✅ جديد جدًا: لو مفيش طلب نشط على الطاولة دي، لكن الكاشير عمل "تحويل" لطلبها لطاولة تانية،
       // نتابع الطلب تلقائيًا من الطاولة الجديدة - العميل لسه فاتح نفس رابط الـQR القديم، مش محتاج يعمل سكان جديد
-      if (!existing && tbl.redirected_to_table_id) {
+      // ✅ Fix حرج: الإشارة دي لازم تكون حديثة (آخر 4 ساعات بس) - وإلا عميل جديد تمامًا يقعد على نفس الطاولة
+      // دي بعدين (يوم تاني مثلًا) هيتوجّه غلط لطلب قديم خلص من زمان، وده حصل فعليًا وسبب مشكلة حقيقية
+      const isRedirectRecent = tbl.redirected_at && (Date.now() - new Date(tbl.redirected_at).getTime()) < 4 * 60 * 60 * 1000
+      if (!existing && tbl.redirected_to_table_id && isRedirectRecent) {
         const { data: redirectedTable } = await sb.from('tables').select('*').eq('id', tbl.redirected_to_table_id).single()
         if (redirectedTable) {
           const { data: redirectedOrders } = await sb.from('orders')
@@ -406,8 +409,10 @@ const filteredItems = items
     // كافي لوحده في الحالة دي، لأن الـstate فضل شايل رقم الطاولة القديم في الذاكرة. هنا بنتأكد فورًا ومباشرة
     // لحظة الإرسال الفعلي نفسه: هل الطاولة الحالية اتحوّلت لمكان تاني؟ ولو أيوه، نتابع الطلب من هناك مباشرة
     let effectiveTableId = table.id
-    const { data: freshTableRow } = await sb.from('tables').select('id, redirected_to_table_id').eq('id', table.id).single()
-    if (freshTableRow?.redirected_to_table_id) {
+    const { data: freshTableRow } = await sb.from('tables').select('id, redirected_to_table_id, redirected_at').eq('id', table.id).single()
+    // ✅ Fix حرج: نفس شرط الصلاحية (آخر 4 ساعات بس) - يمنع تأثر عميل جديد تمامًا بتحويل قديم خلص من زمان
+    const isRedirectRecent = freshTableRow?.redirected_at && (Date.now() - new Date(freshTableRow.redirected_at).getTime()) < 4 * 60 * 60 * 1000
+    if (freshTableRow?.redirected_to_table_id && isRedirectRecent) {
       effectiveTableId = freshTableRow.redirected_to_table_id
     }
 

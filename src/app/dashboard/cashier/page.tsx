@@ -409,11 +409,12 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       current_order_id: null,
       occupied_since: null,
       redirected_to_table_id: null,
+      redirected_at: null,
     }).eq('id', order.table_id)
 
     // ✅ جديد: لو فيه طاولة قديمة كانت بتوجه للطاولة دي (بسبب تحويل سابق)، نمسح إشارتها كمان
     // عشان مايفضلش عندها إشارة قديمة لطلب اتقفل وخلص خالص
-    await sb.from('tables').update({ redirected_to_table_id: null }).eq('redirected_to_table_id', order.table_id)
+    await sb.from('tables').update({ redirected_to_table_id: null, redirected_at: null }).eq('redirected_to_table_id', order.table_id)
 
     // ✅ جديد: لو الفاتورة كانت مدموجة من طاولتين، نغلق طلبات الطاولة الشريكة كمان ونعيدها متاحة، ونفك الدمج تلقائيًا
     if (order.mergedTableId) {
@@ -1393,6 +1394,7 @@ function TransferTableModal({ order, tables, onClose, onTransferred }: { order: 
       status: 'occupied', current_order_id: order.id, occupied_since: oldTableData?.occupied_since || new Date().toISOString(),
       // ✅ Fix: نلغي أي إشارة تحويل قديمة على الطاولة الجديدة لو كانت موجودة (احتياطًا)
       redirected_to_table_id: null,
+      redirected_at: null,
     }).eq('id', newTable.id)
 
     await sb.from('tables').update({
@@ -1400,6 +1402,7 @@ function TransferTableModal({ order, tables, onClose, onTransferred }: { order: 
       // ✅ جديد: نسجّل إن الطاولة القديمة "اتحوّلت" لطاولة جديدة - عشان أي عميل لسه فاتح صفحة الـQR القديمة
       // بتاعتها يتوجه تلقائيًا لطلبه الصحيح من غير ما يحتاج يعمل سكان جديد
       redirected_to_table_id: newTable.id,
+      redirected_at: new Date().toISOString(),
     }).eq('id', oldTableId)
 
     setMoving(false)

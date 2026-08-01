@@ -80,6 +80,16 @@ function fmtTimeMY(ts: string | null | undefined) {
   })
 }
 
+// Date + time together (Malaysia time) — used anywhere the DATE matters, e.g.
+// overnight shifts that cross midnight, where showing time alone hides
+// whether the date rolled over correctly.
+function fmtDateTimeMY(ts: string | null | undefined) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  const datePart = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+  return `${datePart} ${fmtTimeMY(ts)}`
+}
+
 // ✅ Manual shift time entry (for backfilling past days, e.g. "yesterday").
 // datetime-local inputs have no timezone concept — we treat the value the
 // user types as Malaysia wall-clock time and convert it ourselves.
@@ -270,7 +280,7 @@ function ShiftSection({
                   </button>
                 ) : (
                   <div style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>
-                    🟢 Started: {fmtTimeMY(shift.start_time)}
+                    🟢 Started: {fmtDateTimeMY(shift.start_time)}
                   </div>
                 )}
                 {shift.start_time && !shift.end_time && (
@@ -281,7 +291,12 @@ function ShiftSection({
                 )}
                 {shift.end_time && (
                   <div style={{ fontSize: 12, color: S.muted, fontWeight: 700 }}>
-                    🔴 Ended: {fmtTimeMY(shift.end_time)}
+                    🔴 Ended: {fmtDateTimeMY(shift.end_time)}
+                  </div>
+                )}
+                {shift.start_time && shift.end_time && new Date(shift.end_time).getTime() < new Date(shift.start_time).getTime() && (
+                  <div style={{ fontSize: 11, color: S.red, fontWeight: 700, background: S.redB, padding: '3px 8px', borderRadius: 6 }}>
+                    ⚠️ End time is before start time — fix the DATE (probably needs to be the next day)
                   </div>
                 )}
                 <button onClick={() => setManualTime(v => !v)}
@@ -415,11 +430,14 @@ export default function DailyReportPage() {
   const [shiftFilter, setShiftFilter] = useState<'all' | 'Shift 1' | 'Shift 2' | 'Shift 3' | 'Unassigned'>('all')
   const [loadingOrders, setLoadingOrders] = useState(false)
 
-  // ✅ Figure out which shift an order actually belongs to using the REAL
-  // claimed start/end times for this report's shifts (not the static
-  // orders.shift label, which doesn't reflect shifts of flexible length).
-  // Falls back to the stored label if no shift window contains the order
-  // (e.g. the shift wasn't claimed via Start/End Shift for this report).
+  // ✅ Figure out which shift an order actually belongs to using ONLY the
+  // REAL claimed start/end times for this report's shifts. We deliberately do
+  // NOT fall back to the old orders.shift text label (e.g. 'shift1') — that
+  // label comes from the POS and has no relation to the actual flexible
+  // shift windows now in use, and using it as a fallback was silently
+  // mis-attributing orders (e.g. an order paid just after midnight showing
+  // up as "Shift 1" even though it falls outside shift 1's real hours).
+  // An order with no matching time window is honestly "Unassigned" instead.
   function resolveShiftLabel(order: any): 'Shift 1' | 'Shift 2' | 'Shift 3' | 'Unassigned' {
     const paidAt = order.paid_at ? new Date(order.paid_at).getTime() : null
     if (paidAt !== null) {
@@ -431,9 +449,6 @@ export default function DailyReportPage() {
         if (paidAt >= start && paidAt <= end) return (`Shift ${n}`) as any
       }
     }
-    if (order.shift === 'shift1') return 'Shift 1'
-    if (order.shift === 'shift2') return 'Shift 2'
-    if (order.shift === 'shift3') return 'Shift 3'
     return 'Unassigned'
   }
 

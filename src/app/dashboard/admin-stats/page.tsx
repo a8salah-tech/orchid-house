@@ -56,7 +56,8 @@ function AnimatedNumber({ value, prefix = '', suffix = '', decimals = 0 }: { val
     }
     requestAnimationFrame(animate)
   }, [value])
-  return <>{prefix}{display.toFixed(decimals)}{suffix}</>
+  // ✅ Fix: استخدام toLocaleString بدل toFixed - عشان تظهر فواصل الآلاف (49,829.53 بدل 49829.53)
+  return <>{prefix}{display.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}</>
 }
 
 const STATUS_CFG: Record<string, { label: string; color: string; bg: string }> = {
@@ -111,14 +112,17 @@ function AdminDashboard() {
     const daysSinceMonday = (nowMY.getUTCDay() + 6) % 7
     const calMonthStartStr = `${nowMY.getUTCFullYear()}-${String(nowMY.getUTCMonth() + 1).padStart(2, '0')}-01`
     const calMonthStart = new Date(`${calMonthStartStr}T00:00:00+08:00`).toISOString()
-    const calWeekStartDateStr = new Date(nowMY.getTime() - daysSinceMonday * 86400000).toISOString().split('T')[0]
+    const calWeekStartDateStrRaw = new Date(nowMY.getTime() - daysSinceMonday * 86400000).toISOString().split('T')[0]
+    // ✅ Fix: "الأسبوع" ميرجعش أبدًا لبيانات الشهر اللي فات - لو الاثنين وقع في الشهر السابق، نستخدم أول
+    // يوم في الشهر الحالي بدلًا منه (نأخذ الأحدث/الأقرب للنهاردة بين الاتنين)
+    const calWeekStartDateStr = calWeekStartDateStrRaw < calMonthStartStr ? calMonthStartStr : calWeekStartDateStrRaw
     const calWeekStart = new Date(`${calWeekStartDateStr}T00:00:00+08:00`).toISOString()
 
     const [mainRes, topItemsRes, recentRes, waiterRes, bookingsRes, stockRes] = await Promise.all([
       Promise.resolve(null),
       sb.from('order_items')
         .select('menu_items(name,name_en)', { count: 'exact' })
-        .gte('created_at', weekAgo)
+        .gte('created_at', calWeekStart)
         .limit(100),
       sb.from('orders')
         .select('id,table_id,status,total_amount,created_at,tables(name,number,branches(name))')
@@ -152,12 +156,12 @@ function AdminDashboard() {
       sb.from('customers').select('id', { count: 'exact', head: true }).then(r => r.count || 0),
       sb.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'paid').gte('paid_at', today).then(r => r.count || 0),
       sb.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'cancelled').gte('created_at', today).then(r => r.count || 0),
-      sb.from('orders').select('total_amount').eq('status', 'paid').gte('paid_at', weekAgo).then(r => (r.data || []).reduce((s: number, o: any) => s + (o.total_amount || 0), 0)),
-      sb.from('orders').select('total_amount').eq('status', 'paid').gte('paid_at', monthAgo).then(r => (r.data || []).reduce((s: number, o: any) => s + (o.total_amount || 0), 0)),
+      sb.from('orders').select('total_amount').eq('status', 'paid').gte('paid_at', calWeekStart).then(r => (r.data || []).reduce((s: number, o: any) => s + (o.total_amount || 0), 0)),
+      sb.from('orders').select('total_amount').eq('status', 'paid').gte('paid_at', calMonthStart).then(r => (r.data || []).reduce((s: number, o: any) => s + (o.total_amount || 0), 0)),
       // ✅ جديد: المشتريات (يوم/أسبوع/شهر) - من فواتير المشتريات الفعلية
       sb.from('purchase_invoices').select('total_amount').gte('created_at', today).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
-      sb.from('purchase_invoices').select('total_amount').gte('created_at', weekAgo).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
-      sb.from('purchase_invoices').select('total_amount').gte('created_at', monthAgo).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
+      sb.from('purchase_invoices').select('total_amount').gte('created_at', calWeekStart).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
+      sb.from('purchase_invoices').select('total_amount').gte('created_at', calMonthStart).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
       // ✅ جديد: كل الطلبات المدفوعة لآخر شهر - نستخدمها لتحديد أكتر طاولة طلبت، ومبلغها في كل فترة
       sb.from('orders').select('table_id, total_amount, paid_at, tables(name,number,branches(name))').eq('status', 'paid').gte('paid_at', calMonthStart),
       // ✅ جديد: كل الطاولات مع فرعها وحالتها - لحساب الإشغال منفصل لكل فرع بدل رقم مجمّع
@@ -379,7 +383,7 @@ function AdminDashboard() {
           { icon: '🪑', label: isAr ? 'الطاولات المشغولة' : 'Occupied Tables', value: occupancyPct, suffix: '%', color: occupancyPct > 70 ? S.red : S.green, bg: occupancyPct > 70 ? S.redB : S.greenB, sub: `${stats!.occupied_tables} ${isAr ? 'من' : 'of'} ${stats!.total_tables} ${isAr ? 'طاولة' : 'tables'}`, path: '/dashboard/tables' },
           { icon: '📅', label: isAr ? 'حجوزات اليوم' : "Today's Bookings", value: stats!.bookings_today, color: S.purple, bg: S.purpleB, sub: `${stats!.pending_bookings} ${isAr ? 'معلق' : 'pending'}`, path: '/dashboard/bookings' },
           { icon: '👥', label: isAr ? 'إجمالي العملاء' : 'Total Customers', value: stats!.total_customers, color: S.blue, bg: S.blueB, sub: `${stats!.total_employees} ${isAr ? 'موظف نشط' : 'active staff'}`, path: '/dashboard/customers' },
-          { icon: '📈', label: isAr ? 'إيرادات الأسبوع' : 'Weekly Revenue', value: stats!.revenue_week, prefix: 'MYR ', decimals: 0, color: S.teal, bg: S.tealB, sub: `${isAr ? 'الشهر' : 'Month'}: MYR ${stats!.revenue_month.toFixed(0)}`, path: '/dashboard/reports/monthly' },
+          { icon: '📈', label: isAr ? 'إيرادات الأسبوع' : 'Weekly Revenue', value: stats!.revenue_week, prefix: 'MYR ', decimals: 0, color: S.teal, bg: S.tealB, sub: `${isAr ? 'الشهر' : 'Month'}: MYR ${stats!.revenue_month.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, path: '/dashboard/reports/monthly' },
         ].map((kpi, i) => (
           <div key={i} onClick={() => router.push(kpi.path)}
             style={{ background: kpi.bg, border: `1px solid ${kpi.color}30`, borderRadius: 18, padding: '20px 22px', cursor: 'pointer', animation: `fadeUp .4s ease ${i * 0.06}s both`, transition: 'transform .2s, box-shadow .2s' }}
@@ -423,7 +427,7 @@ function AdminDashboard() {
                     <div style={{ fontSize: 11, color: S.muted }}>{order.time}</div>
                   </div>
                   <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>{st.label}</span>
-                  <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: S.gold }}>MYR {order.total.toFixed(2)}</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: S.gold }}>MYR {order.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                 </div>
               )
             })}
@@ -459,25 +463,32 @@ function AdminDashboard() {
           </div>
 
           {/* Top Items */}
-          <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, padding: '20px 22px', flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: S.white, marginBottom: 14 }}>🔥 {isAr ? 'أكثر الأصناف طلباً (أسبوع)' : 'Top Items (Week)'}</div>
+          <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, padding: '20px 22px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: S.white, marginBottom: 14 }}>🔥 {isAr ? 'أكثر الأصناف طلباً (هذا الشهر)' : 'Top Items (This Month)'}</div>
             {stats!.top_items.length === 0 ? (
               <div style={{ textAlign: 'center', color: S.muted, fontSize: 13, padding: 20 }}>{isAr ? 'لا توجد بيانات' : 'No data'}</div>
-            ) : stats!.top_items.map((item, i) => {
-              const max = stats!.top_items[0].count
-              const pct = (item.count / max) * 100
-              return (
-                <div key={i} style={{ marginBottom: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: S.white, fontWeight: i === 0 ? 700 : 400 }}>{item.name_en || item.name}</span>
-                    <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>{item.count}×</span>
-                  </div>
-                  <div style={{ background: 'rgba(255,255,255,.06)', borderRadius: 20, height: 6 }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: i === 0 ? `linear-gradient(90deg,${S.gold},${S.amber})` : `linear-gradient(90deg,${S.blue},${S.teal})`, borderRadius: 20 }} />
-                  </div>
-                </div>
-              )
-            })}
+            ) : (
+              // ✅ Fix: توزيع الصفوف بالتساوي على طول الكارت (justify-content: space-between) عشان تملأ
+              // أي فراغ متبقي تحت لما الكارت يتمدد ليطابق ارتفاع العمود التاني، بدل ما تقف فوق وتسيب فراغ فاضي
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                {stats!.top_items.map((item, i) => {
+                  const max = stats!.top_items[0].count
+                  const pct = (item.count / max) * 100
+                  return (
+                    <div key={i}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, color: S.white, fontWeight: i === 0 ? 700 : 400 }}>{item.name_en || item.name}</span>
+                        {/* ✅ Fix: بدل "×11" بقى "11" بس - عدد صريح مش رمز ضرب */}
+                        <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>{item.count}</span>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,.06)', borderRadius: 20, height: 6 }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: i === 0 ? `linear-gradient(90deg,${S.gold},${S.amber})` : `linear-gradient(90deg,${S.blue},${S.teal})`, borderRadius: 20 }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -557,7 +568,7 @@ function AdminDashboard() {
                   {dateSearchResult.orders.map((o, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, borderTop: `1px solid ${S.border}`, paddingTop: 6 }}>
                       <span>{o.time}</span>
-                      <span style={{ color: S.white }}>MYR {o.amount.toFixed(2)}</span>
+                      <span style={{ color: S.white }}>MYR {o.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   ))}
                 </div>
@@ -621,7 +632,7 @@ function AdminDashboard() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '2px 10px', fontSize: 10, fontWeight: 700 }}>{st.label}</span>
-                            <span style={{ fontSize: 13, color: S.gold, fontWeight: 800 }}>MYR {o.amount.toFixed(2)}</span>
+                            <span style={{ fontSize: 13, color: S.gold, fontWeight: 800 }}>MYR {o.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         </div>
                       )

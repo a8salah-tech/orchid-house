@@ -401,10 +401,20 @@ const filteredItems = items
     setSubmitting(true)
     const catMap = Object.fromEntries(categories.map(c => [c.id, c.destination]))
 
+    // ✅ Fix حرج جدًا: العميل ممكن يكون فاتح نفس الصفحة من قبل ما الكاشير يعمل "تحويل" للطاولة، ولسه
+    // ما عملش Refresh (ضاغط "طلب المزيد" في نفس الجلسة القديمة). فحص التحويل وقت تحميل الصفحة (Load) مش
+    // كافي لوحده في الحالة دي، لأن الـstate فضل شايل رقم الطاولة القديم في الذاكرة. هنا بنتأكد فورًا ومباشرة
+    // لحظة الإرسال الفعلي نفسه: هل الطاولة الحالية اتحوّلت لمكان تاني؟ ولو أيوه، نتابع الطلب من هناك مباشرة
+    let effectiveTableId = table.id
+    const { data: freshTableRow } = await sb.from('tables').select('id, redirected_to_table_id').eq('id', table.id).single()
+    if (freshTableRow?.redirected_to_table_id) {
+      effectiveTableId = freshTableRow.redirected_to_table_id
+    }
+
     // تحقق لو في طلب موجود للطاولة
     const { data: existingOrders } = await sb.from('orders')
       .select('id,total_amount')
-      .eq('table_id', table.id)
+      .eq('table_id', effectiveTableId)
       .in('status', ['confirmed', 'preparing', 'ready'])
       .order('created_at', { ascending: false })
       .limit(1)
@@ -421,7 +431,7 @@ const filteredItems = items
     } else {
       // أنشئ طلب جديد
       const { data: order, error } = await sb.from('orders').insert([{
-        table_id: table.id, status: 'confirmed',
+        table_id: effectiveTableId, status: 'confirmed',
         total_amount: cartTotal, confirmed_at: new Date().toISOString(),
         // ✅ جديد: نربط العميل المسجّل في نظام Orchid Rewards (لو دخل رقم موبايله في شاشة الترحيب) بالطلب مباشرة
         customer_id: identifiedCustomerId || null,
@@ -463,7 +473,7 @@ const filteredItems = items
       // ✅ نسجل الخطأ الحقيقي في قاعدة البيانات عشان نقدر نشخّصه بعدين (الـ console.error محبوس جوه موبايل العميل ومش وصلنا)
       try {
         await sb.from('order_submission_errors').insert([{
-          table_id: table.id,
+          table_id: effectiveTableId,
           attempt_count: attemptCount,
           error_message: itemsError.message || null,
           error_code: itemsError.code || null,
@@ -491,11 +501,14 @@ const filteredItems = items
       return
     }
 
+    // ✅ Fix حرج جدًا: كان بيحدّث حالة الطاولة القديمة (table.id) لـ"مشغولة" بالطلب الجديد، حتى لو الطلب
+    // فعليًا اتسجل على الطاولة الصحيحة بعد التحويل (effectiveTableId) - وده كان بالظبط سبب ظهور الطاولة
+    // القديمة "مشغولة تاني" بطلب منفصل بعد ما كانت اتفضّت من التحويل
     await sb.from('tables').update({
       status: 'occupied',
       occupied_since: new Date().toISOString(),
       current_order_id: orderId,
-    }).eq('id', table.id)
+    }).eq('id', effectiveTableId)
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
     setConfirmedOrderId(orderId)

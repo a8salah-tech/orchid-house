@@ -66,6 +66,7 @@ interface MenuGroup { group: string; items: MenuItemType[] }
 const ALL_MENU: MenuGroup[] = [
   { group: 'الرئيسية', items: [
     { label: 'لوحة التحكم', label_en: 'Dashboard', icon: '◉', path: '/dashboard', permission: null },
+    { label: 'الإحصائيات الكاملة', label_en: 'Full Statistics', icon: '📊', path: '/dashboard/admin-stats', permission: 'admin_only' },
   ]},
 { group: 'إدارة المخزون', items: [
     { label: 'المستودعات',   label_en: 'Warehouses',      icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },

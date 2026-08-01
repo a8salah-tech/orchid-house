@@ -32,6 +32,71 @@ const numInp: React.CSSProperties = {
   ...inp, textAlign: 'right',
 }
 
+const thStyle: React.CSSProperties = {
+  padding: '10px 12px', textAlign: 'left', color: S.gold, fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap',
+}
+const tdStyle: React.CSSProperties = {
+  padding: '9px 12px', textAlign: 'left', color: S.white, whiteSpace: 'nowrap',
+}
+
+// Fix: HTML type="number" inputs can never display thousand separators (a browser
+// limitation). Instead we use a text input with a numeric keypad (inputMode="decimal"),
+// show the value formatted with commas while unfocused (blur), and show the raw
+// value while focused so typing stays natural.
+function formatWithCommas(raw: string): string {
+  if (raw === '' || raw === null || raw === undefined) return ''
+  const negative = raw.trim().startsWith('-')
+  const parts = raw.replace(/-/g, '').split('.')
+  const intPart = (parts[0] || '').replace(/\D/g, '')
+  if (intPart === '' && (!parts[1] || parts[1] === '')) return raw
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') || '0'
+  const result = parts.length > 1 ? `${formattedInt}.${parts[1]}` : formattedInt
+  return negative ? `-${result}` : result
+}
+
+function stripCommas(val: string): string {
+  return val.replace(/,/g, '')
+}
+
+// ✅ Single source of truth for "what counts as this day" across the whole page.
+// Malaysia has no DST, so +08:00 is always correct. We build the boundary with
+// the offset in JS (Date parses "+08:00" fine locally) then convert to a
+// "Z"-suffixed UTC string before it's sent as a filter value — sending a raw
+// "+08:00" string as a query param can get corrupted (the "+" is read as a
+// space during URL encoding), which silently returns zero/wrong rows instead
+// of an error.
+function getMYDayBounds(reportDate: string) {
+  return {
+    dayStart: new Date(`${reportDate}T00:00:00+08:00`).toISOString(),
+    dayEnd: new Date(`${reportDate}T23:59:59.999+08:00`).toISOString(),
+  }
+}
+
+function NumInput({ value, onChange, style, placeholder }: {
+  value: string
+  onChange: (v: string) => void
+  style?: React.CSSProperties
+  placeholder?: string
+}) {
+  const [focused, setFocused] = useState(false)
+  return (
+    <input
+      style={style}
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={focused ? value : formatWithCommas(value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={e => {
+        const raw = stripCommas(e.target.value)
+        // Allow only digits, a single decimal point, and an optional leading minus sign
+        if (/^-?\d*\.?\d*$/.test(raw)) onChange(raw)
+      }}
+    />
+  )
+}
+
 type ReportSummary = { id: string; report_date: string; total_amount: number }
 
 function emptyShift() {
@@ -48,6 +113,7 @@ function emptyForm() {
     report_date: new Date().toISOString().split('T')[0],
     shift1: emptyShift(),
     shift2: emptyShift(),
+    shift3: emptyShift(),
     total_sales_report: '', total_paid_expenses: '', total_pending_expenses: '',
     total_visa_maybank: '', total_visa_bsn: '', total_kabab_online: '',
     total_g_online: '', total_discounts: '', total_amount: '',
@@ -66,13 +132,49 @@ export default function DailyReportPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [existingId, setExistingId] = useState<string | null>(null)
-  const [view, setView] = useState<'form' | 'history'>('form')
-  // ✅ جديد: الفرع - إجباري، وأساس سحب الأرقام تلقائيًا من النظام
+  const [view, setView] = useState<'form' | 'history' | 'orders'>('form')
+  // Branch — required, and the basis for auto-pulling numbers from the system
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [branchFilter, setBranchFilter] = useState('')
-  const [pulling, setPulling] = useState<1 | 2 | 'top' | null>(null)
+  const [pulling, setPulling] = useState<1 | 2 | 3 | 'top' | null>(null)
 
   const [isMobile, setIsMobile] = useState(false)
+
+  // Order details (separate tab) — every order with its time in Malaysia timezone, 24h format
+  const [orderDetails, setOrderDetails] = useState<any[]>([])
+  const [loadingOrders, setLoadingOrders] = useState(false)
+
+  // Fixed Malaysia timezone (Asia/Kuala_Lumpur = UTC+8 year-round, no DST)
+  function fmtTimeMY(ts: string | null | undefined) {
+    if (!ts) return '—'
+    return new Date(ts).toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    })
+  }
+
+  const [ordersError, setOrdersError] = useState<string | null>(null)
+
+  const fetchOrderDetails = useCallback(async () => {
+    if (!branchFilter || !form.report_date) { setOrderDetails([]); return }
+    setLoadingOrders(true)
+    setOrdersError(null)
+    const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
+    const { data, error } = await sb.from('orders')
+      .select('id, total_amount, discount_amount, payment_method, card_bank, paid_by_name, shift, created_at, paid_at, tables!inner(branch_id, name)')
+      .eq('status', 'paid').eq('tables.branch_id', branchFilter)
+      .gte('paid_at', dayStart).lte('paid_at', dayEnd)
+      .order('paid_at', { ascending: true })
+    if (error) {
+      console.error('fetchOrderDetails error:', error)
+      setOrdersError(error.message)
+    }
+    setOrderDetails(data || [])
+    setLoadingOrders(false)
+  }, [sb, branchFilter, form.report_date])
+
+  useEffect(() => {
+    if (view === 'orders') fetchOrderDetails()
+  }, [view, fetchOrderDetails])
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 860)
     check()
@@ -95,7 +197,7 @@ export default function DailyReportPage() {
 
   useEffect(() => { fetchReports() }, [fetchReports])
 
-  // لما يغير التاريخ يجيب التقرير لو موجود
+  // When the date changes, fetch the report if it exists
   useEffect(() => {
     async function loadReport() {
       if (!form.report_date || !branchFilter) return
@@ -139,6 +241,23 @@ export default function DailyReportPage() {
             bills_discounts: data.shift2_bills_discounts || '',
             bills_online: data.shift2_bills_online || '',
           },
+          shift3: {
+            date: data.shift3_date || '', cashier_name: data.shift3_cashier_name || '',
+            received_balance: data.shift3_received_balance?.toString() || '',
+            paid_expenses: data.shift3_paid_expenses?.toString() || '',
+            pending_expenses: data.shift3_pending_expenses?.toString() || '',
+            visa_maybank: data.shift3_visa_maybank?.toString() || '',
+            visa_bsn: data.shift3_visa_bsn?.toString() || '',
+            kabab_online: data.shift3_kabab_online?.toString() || '',
+            g_online: data.shift3_g_online?.toString() || '',
+            discounts: data.shift3_discounts?.toString() || '',
+            total_balance: data.shift3_total_balance?.toString() || '',
+            manager_note: data.shift3_manager_note || '',
+            bills_paid: data.shift3_bills_paid || '',
+            bills_pending: data.shift3_bills_pending || '',
+            bills_discounts: data.shift3_bills_discounts || '',
+            bills_online: data.shift3_bills_online || '',
+          },
           total_sales_report: data.total_sales_report?.toString() || '',
           total_paid_expenses: data.total_paid_expenses?.toString() || '',
           total_pending_expenses: data.total_pending_expenses?.toString() || '',
@@ -162,15 +281,59 @@ export default function DailyReportPage() {
     loadReport()
   }, [form.report_date, branchFilter, sb])
 
-  function setShift(n: 1 | 2, field: string, val: string) {
-    setForm(p => ({ ...p, [`shift${n}`]: { ...p[`shift${n}` as 'shift1' | 'shift2'], [field]: val } }))
+  // Live auto-refresh (Realtime) without needing a manual page refresh.
+  // As soon as a new order / expense / delivery order / purchase invoice is recorded
+  // in the database for any branch, the app listens via Supabase Realtime and, after a
+  // short debounce (to avoid firing dozens of requests if many changes happen at once),
+  // automatically re-pulls the numbers for every shift and the day total — but only
+  // when the currently selected branch and date match today.
+  const [liveSync, setLiveSync] = useState(false)
+  useEffect(() => {
+    if (!branchFilter || !form.report_date) { setLiveSync(false); return }
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    const isToday = form.report_date === new Date().toISOString().split('T')[0]
+
+    const triggerAutoPull = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        pullDayTotalsFromSystem()
+        pullShiftFromSystem(1)
+        pullShiftFromSystem(2)
+        pullShiftFromSystem(3)
+      }, 1500)
+    }
+
+    // Only enable live sync for today's report (past reports don't need live updates)
+    if (!isToday) { setLiveSync(false); return }
+
+    const channel = sb
+      .channel(`daily-report-live-${branchFilter}-${form.report_date}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, triggerAutoPull)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_cash_expenses' }, triggerAutoPull)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_platform_orders' }, triggerAutoPull)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_invoices' }, triggerAutoPull)
+      .subscribe(status => setLiveSync(status === 'SUBSCRIBED'))
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      setLiveSync(false)
+      sb.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchFilter, form.report_date, sb])
+
+  function setShift(n: 1 | 2 | 3, field: string, val: string) {
+    setForm(p => ({ ...p, [`shift${n}`]: { ...p[`shift${n}` as 'shift1' | 'shift2' | 'shift3'], [field]: val } }))
   }
 
   function n(v: string) { return parseFloat(v) || 0 }
-  // ✅ إصلاح جوهري: تقريب المجاميع لمنع مشكلة الفاصلة العائمة الشهيرة في جافاسكريبت
-  // (مثال: 0.1 + 0.2 قد تُنتج 0.30000000000000004 بدلًا من 0.3)
+  // Round totals to prevent JavaScript's famous floating-point issue
+  // (e.g. 0.1 + 0.2 can produce 0.30000000000000004 instead of 0.3)
   function round2(v: number) { return Math.round((v + Number.EPSILON) * 100) / 100 }
-  // ✅ جديد: تحديد الاسم الأكثر تكرارًا بين مجموعة أوردرات (لمعرفة من كان يمسك الشيفت تلقائيًا)
+  // Display formatter: thousand separators + 2 decimals, for read-only numbers (tables, totals)
+  function fmtMoney(v: number) { return (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+  // Find the most frequent name among a set of orders (to auto-detect who ran the shift)
   function mostFrequentName(names: (string | null | undefined)[]): string {
     const counts: Record<string, number> = {}
     for (const nm of names) {
@@ -184,14 +347,13 @@ export default function DailyReportPage() {
     return best
   }
 
-  // ✅ جديد: سحب أرقام الشيفت من بيانات حقيقية (الأوردرات المدفوعة + المصروفات + طلبات التوصيل المسجّلة)
-  async function pullShiftFromSystem(num: 1 | 2) {
-    if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
-    if (!form.report_date) { alert('من فضلك اختر التاريخ أولاً'); return }
+  // Pull shift numbers from real data (paid orders + expenses + recorded delivery orders)
+  async function pullShiftFromSystem(num: 1 | 2 | 3) {
+    if (!branchFilter) { alert('Please select a branch first'); return }
+    if (!form.report_date) { alert('Please select a date first'); return }
     setPulling(num)
     const shiftKey = `shift${num}`
-    const dayStart = `${form.report_date}T00:00:00`
-    const dayEnd = `${form.report_date}T23:59:59.999`
+    const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
 
     const [ordersRes, expRes, delRes] = await Promise.all([
       sb.from('orders')
@@ -217,14 +379,14 @@ export default function DailyReportPage() {
     const gOnline = round2(delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0))
     const paidExpenses = round2(expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0))
     const pendingExpenses = round2(expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0))
-    // ✅ جديد: تحديد اسم الكاشير تلقائيًا من أكثر اسم تكرر في الأوردرات المدفوعة خلال هذا الشيفت
+    // Auto-detect cashier name from the most frequent name in paid orders during this shift
     const detectedCashier = mostFrequentName(orders.map(o => (o as any).paid_by_name))
 
     setForm(p => ({
       ...p,
       [shiftKey]: {
         ...(p as any)[shiftKey],
-        // ✅ نملأ اسم الكاشير تلقائيًا فقط إذا كان الحقل فارغًا، حتى لا نستبدل اسمًا أدخله المستخدم يدويًا
+        // Only auto-fill the cashier name if the field is empty, so we don't overwrite a manually entered name
         cashier_name: (p as any)[shiftKey]?.cashier_name || detectedCashier || '',
         paid_expenses: String(paidExpenses),
         pending_expenses: String(pendingExpenses),
@@ -239,13 +401,12 @@ export default function DailyReportPage() {
     setPulling(null)
   }
 
-  // ✅ سحب إجماليات اليوم كله (المستوى العلوي: المبيعات، جراب، فودباندا، فواتير المشتريات)
+  // Pull the whole day's totals (top level: sales, Grab, Foodpanda, purchase invoices)
   async function pullDayTotalsFromSystem() {
-    if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
-    if (!form.report_date) { alert('من فضلك اختر التاريخ أولاً'); return }
+    if (!branchFilter) { alert('Please select a branch first'); return }
+    if (!form.report_date) { alert('Please select a date first'); return }
     setPulling('top')
-    const dayStart = `${form.report_date}T00:00:00`
-    const dayEnd = `${form.report_date}T23:59:59.999`
+    const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
 
     const [ordersRes, delRes, purchasesRes, expRes] = await Promise.all([
       sb.from('orders')
@@ -296,7 +457,7 @@ export default function DailyReportPage() {
   }
 
   async function saveReport() {
-    if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
+    if (!branchFilter) { alert('Please select a branch first'); return }
     setSaving(true)
     const payload = {
       report_date: form.report_date,
@@ -333,6 +494,22 @@ export default function DailyReportPage() {
       shift2_bills_pending: form.shift2.bills_pending || null,
       shift2_bills_discounts: form.shift2.bills_discounts || null,
       shift2_bills_online: form.shift2.bills_online || null,
+      shift3_date: form.shift3.date || null,
+      shift3_cashier_name: form.shift3.cashier_name || null,
+      shift3_received_balance: n(form.shift3.received_balance),
+      shift3_paid_expenses: n(form.shift3.paid_expenses),
+      shift3_pending_expenses: n(form.shift3.pending_expenses),
+      shift3_visa_maybank: n(form.shift3.visa_maybank),
+      shift3_visa_bsn: n(form.shift3.visa_bsn),
+      shift3_kabab_online: n(form.shift3.kabab_online),
+      shift3_g_online: n(form.shift3.g_online),
+      shift3_discounts: n(form.shift3.discounts),
+      shift3_total_balance: n(form.shift3.total_balance),
+      shift3_manager_note: form.shift3.manager_note || null,
+      shift3_bills_paid: form.shift3.bills_paid || null,
+      shift3_bills_pending: form.shift3.bills_pending || null,
+      shift3_bills_discounts: form.shift3.bills_discounts || null,
+      shift3_bills_online: form.shift3.bills_online || null,
       total_sales_report: n(form.total_sales_report),
       total_paid_expenses: n(form.total_paid_expenses),
       total_pending_expenses: n(form.total_pending_expenses),
@@ -368,7 +545,8 @@ export default function DailyReportPage() {
     if (!win) return
     const s = form.shift1
     const s2 = form.shift2
-    // ✅ جديد: تنسيق الأرقام بفواصل الآلاف لسهولة القراءة في التقرير المطبوع (مثال: 2,494.52)
+    const s3 = form.shift3
+    // Format numbers with thousand separators for readability in the printed report (e.g. 2,494.52)
     const fmt = (v: string | number) => {
       const num = typeof v === 'string' ? parseFloat(v) : v
       if (isNaN(num as number)) return v
@@ -447,6 +625,32 @@ export default function DailyReportPage() {
       </table>
 
       <table>
+        <tr><td colspan="4" class="section-header">Shift 3 – Date: ${s3.date}</td></tr>
+        <tr>
+          <td class="label">Cashier Name</td><td>${s3.cashier_name}</td>
+          <td class="label">Cashier Bills Details</td><td></td>
+        </tr>
+        <tr>
+          <td class="label">Received Balance (RM)</td><td>${fmt(s3.received_balance)}</td>
+          <td rowspan="2"><b>Paid:</b><br>${s3.bills_paid}</td>
+          <td rowspan="2"><b>Pending:</b><br>${s3.bills_pending}</td>
+        </tr>
+        <tr><td class="label">Paid Expenses (RM)</td><td>${fmt(s3.paid_expenses)}</td></tr>
+        <tr>
+          <td class="label">Pending Expenses (RM)</td><td>${fmt(s3.pending_expenses)}</td>
+          <td rowspan="2"><b>Discounts:</b><br>${s3.bills_discounts}</td>
+          <td rowspan="2"><b>Online:</b><br>${s3.bills_online}</td>
+        </tr>
+        <tr><td class="label">Visa MAYBANK (RM)</td><td>${fmt(s3.visa_maybank)}</td></tr>
+        <tr><td class="label">Visa BSN (RM)</td><td>${fmt(s3.visa_bsn)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">KababOnline Banking (RM)</td><td>${fmt(s3.kabab_online)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">G Online Banking (RM)</td><td>${fmt(s3.g_online)}</td><td colspan="2"></td></tr>
+        <tr><td class="label">Discounts (RM)</td><td>${fmt(s3.discounts)}</td><td colspan="2"></td></tr>
+        <tr class="total-row"><td class="label">Total Balance (RM)</td><td>${fmt(s3.total_balance)}</td><td colspan="2"></td></tr>
+        <tr><td class="label"><b>Manager Note</b></td><td colspan="3">${s3.manager_note}</td></tr>
+      </table>
+
+      <table>
         <tr>
           <td class="label">Total Sales Report</td><td>${fmt(form.total_sales_report)}</td>
           <td class="label">Notes</td><td rowspan="4">${form.notes}</td>
@@ -479,11 +683,70 @@ export default function DailyReportPage() {
     win.document.close()
   }
 
+  // Print the Sales Details tab — every paid order with its opening/payment
+  // time in Malaysia timezone (24h), plus a grand total footer.
+  function printOrderDetails() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const branchName = branches.find(b => b.id === branchFilter)?.name || ''
+    const grandTotal = round2(orderDetails.reduce((s, o) => s + (o.total_amount || 0), 0))
+    const fmt = (v: number) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const rows = orderDetails.map((o, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${o.tables?.name || o.id?.slice(0, 8) || '—'}</td>
+          <td>${o.shift === 'shift1' ? 'Shift 1' : o.shift === 'shift2' ? 'Shift 2' : o.shift === 'shift3' ? 'Shift 3' : '—'}</td>
+          <td>${fmtTimeMY(o.created_at)}</td>
+          <td>${fmtTimeMY(o.paid_at)}</td>
+          <td>${o.paid_by_name || '—'}</td>
+          <td>${o.payment_method || '—'}${o.card_bank ? ` (${o.card_bank})` : ''}</td>
+          <td>${fmt(o.discount_amount || 0)}</td>
+          <td><b>${fmt(o.total_amount || 0)}</b></td>
+        </tr>`).join('')
+
+    win.document.write(`<!DOCTYPE html><html><head>
+      <meta charset="UTF-8">
+      <title>Sales Details - ${form.report_date}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
+        h2 { text-align: center; font-size: 14px; margin-bottom: 4px; }
+        h4 { text-align: center; font-weight: normal; color: #555; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+        td, th { border: 1px solid #000; padding: 5px 8px; font-size: 11px; text-align: left; }
+        th { background: #eee; }
+        .total-row td { font-weight: bold; background: #f5f5f5; font-size: 13px; }
+        @media print { @page { margin: 10mm; } }
+      </style>
+    </head><body>
+      <h2>ORCHID HOUSE RESTAURANT – Sales Details</h2>
+      <h4>${form.report_date} — ${branchName} — Times shown in Malaysia time (24h)</h4>
+
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Table</th><th>Shift</th><th>From (Opened)</th><th>To (Paid)</th>
+            <th>Cashier</th><th>Payment Method</th><th>Discount</th><th>Net (RM)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          <tr class="total-row">
+            <td colspan="8">Total — ${orderDetails.length} orders</td>
+            <td>RM ${fmt(grandTotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <script>window.onload = () => { window.print(); }<\/script>
+    </body></html>`)
+    win.document.close()
+  }
+
 const label = (text: string) => (
   <label style={{ fontSize: 11, color: '#FAFAF8', display: 'block', marginBottom: 4 }}>{text}</label>
 )
 
-  function ShiftSection({ num, shift }: { num: 1 | 2; shift: ReturnType<typeof emptyShift> }) {
+  function ShiftSection({ num, shift }: { num: 1 | 2 | 3; shift: ReturnType<typeof emptyShift> }) {
     const shiftKey = `shift${num}`
     const [expDesc, setExpDesc] = useState('')
     const [expAmount, setExpAmount] = useState('')
@@ -495,9 +758,9 @@ const label = (text: string) => (
     const [delSaving, setDelSaving] = useState(false)
 
     async function addExpense() {
-      if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
-      if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('من فضلك أدخل الوصف والمبلغ صح'); return }
-      if (!shift.cashier_name.trim()) { alert('من فضلك أدخل اسم الكاشير للشيفت ده أولاً'); return }
+      if (!branchFilter) { alert('Please select a branch first'); return }
+      if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('Please enter a valid description and amount'); return }
+      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
       setExpSaving(true)
       await sb.from('daily_cash_expenses').insert([{
         branch_id: branchFilter, expense_date: form.report_date, shift: shiftKey,
@@ -510,9 +773,9 @@ const label = (text: string) => (
     }
 
     async function addDelivery() {
-      if (!branchFilter) { alert('من فضلك اختر الفرع أولاً'); return }
-      if (!(parseFloat(delAmount) > 0)) { alert('من فضلك أدخل المبلغ صح'); return }
-      if (!shift.cashier_name.trim()) { alert('من فضلك أدخل اسم الكاشير للشيفت ده أولاً'); return }
+      if (!branchFilter) { alert('Please select a branch first'); return }
+      if (!(parseFloat(delAmount) > 0)) { alert('Please enter a valid amount'); return }
+      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
       setDelSaving(true)
       await sb.from('delivery_platform_orders').insert([{
         branch_id: branchFilter, order_date: form.report_date, shift: shiftKey,
@@ -525,9 +788,9 @@ const label = (text: string) => (
 
     return (
       <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: num === 1 ? S.blue : '#8B5CF6' }}>
-            {num === 1 ? '🌅' : '🌙'} Shift {num}
+        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : num === 2 ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: num === 1 ? S.blue : num === 2 ? '#8B5CF6' : S.green }}>
+            {num === 1 ? '🌅' : num === 2 ? '🌙' : '🌃'} Shift {num}
           </div>
           <button onClick={() => pullShiftFromSystem(num)} disabled={pulling === num}
             style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pulling === num ? 0.6 : 1 }}>
@@ -542,23 +805,23 @@ const label = (text: string) => (
               <div>{label('Cashier Name')}<input style={inp} value={shift.cashier_name} onChange={e => setShift(num, 'cashier_name', e.target.value)} placeholder="Name" /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Received Balance (RM)')}<input style={numInp} type="number" value={shift.received_balance} onChange={e => setShift(num, 'received_balance', e.target.value)} placeholder="0.00" /></div>
-              <div>{label('Paid Expenses (RM)')}<input style={numInp} type="number" value={shift.paid_expenses} onChange={e => setShift(num, 'paid_expenses', e.target.value)} placeholder="0.00" /></div>
+              <div>{label('Received Balance (RM)')}<NumInput style={numInp} value={shift.received_balance} onChange={v => setShift(num, 'received_balance', v)} placeholder="0.00" /></div>
+              <div>{label('Paid Expenses (RM)')}<NumInput style={numInp} value={shift.paid_expenses} onChange={v => setShift(num, 'paid_expenses', v)} placeholder="0.00" /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Pending Expenses (RM)')}<input style={numInp} type="number" value={shift.pending_expenses} onChange={e => setShift(num, 'pending_expenses', e.target.value)} placeholder="0.00" /></div>
-              <div>{label('Visa MAYBANK (RM)')}<input style={numInp} type="number" value={shift.visa_maybank} onChange={e => setShift(num, 'visa_maybank', e.target.value)} placeholder="0.00" /></div>
+              <div>{label('Pending Expenses (RM)')}<NumInput style={numInp} value={shift.pending_expenses} onChange={v => setShift(num, 'pending_expenses', v)} placeholder="0.00" /></div>
+              <div>{label('Visa MAYBANK (RM)')}<NumInput style={numInp} value={shift.visa_maybank} onChange={v => setShift(num, 'visa_maybank', v)} placeholder="0.00" /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Visa BSN (RM)')}<input style={numInp} type="number" value={shift.visa_bsn} onChange={e => setShift(num, 'visa_bsn', e.target.value)} placeholder="0.00" /></div>
-              <div>{label('KababOnline Banking (RM)')}<input style={numInp} type="number" value={shift.kabab_online} onChange={e => setShift(num, 'kabab_online', e.target.value)} placeholder="0.00" /></div>
+              <div>{label('Visa BSN (RM)')}<NumInput style={numInp} value={shift.visa_bsn} onChange={v => setShift(num, 'visa_bsn', v)} placeholder="0.00" /></div>
+              <div>{label('KababOnline Banking (RM)')}<NumInput style={numInp} value={shift.kabab_online} onChange={v => setShift(num, 'kabab_online', v)} placeholder="0.00" /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('G Online Banking (RM)')}<input style={numInp} type="number" value={shift.g_online} onChange={e => setShift(num, 'g_online', e.target.value)} placeholder="0.00" /></div>
-              <div>{label('Discounts (RM)')}<input style={numInp} type="number" value={shift.discounts} onChange={e => setShift(num, 'discounts', e.target.value)} placeholder="0.00" /></div>
+              <div>{label('G Online Banking (RM)')}<NumInput style={numInp} value={shift.g_online} onChange={v => setShift(num, 'g_online', v)} placeholder="0.00" /></div>
+              <div>{label('Discounts (RM)')}<NumInput style={numInp} value={shift.discounts} onChange={v => setShift(num, 'discounts', v)} placeholder="0.00" /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Total Balance (RM)')}<input style={{ ...numInp, color: S.gold, fontWeight: 700 }} type="number" value={shift.total_balance} onChange={e => setShift(num, 'total_balance', e.target.value)} placeholder="0.00" /></div>
+              <div>{label('Total Balance (RM)')}<NumInput style={{ ...numInp, color: S.gold, fontWeight: 700 }} value={shift.total_balance} onChange={v => setShift(num, 'total_balance', v)} placeholder="0.00" /></div>
               <div>{label('Manager Note')}<input style={inp} value={shift.manager_note} onChange={e => setShift(num, 'manager_note', e.target.value)} placeholder="Note..." /></div>
             </div>
           </div>
@@ -589,36 +852,36 @@ const label = (text: string) => (
           </div>
         </div>
 
-        {/* ✅ جديد: إضافة سريعة لمصروف أو طلب توصيل - بيتسجلوا فورًا ويتحسبوا تلقائيًا */}
+        {/* Quick-add an expense or a delivery order — saved instantly and calculated automatically */}
         <div style={{ padding: isMobile ? '0 14px 14px' : '0 20px 20px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
           <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: S.red, marginBottom: 10 }}>💸 إضافة مصروف نقدي</div>
-            <input style={{ ...inp, marginBottom: 8 }} placeholder="الوصف" value={expDesc} onChange={e => setExpDesc(e.target.value)} />
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.red, marginBottom: 10 }}>💸 Add Cash Expense</div>
+            <input style={{ ...inp, marginBottom: 8 }} placeholder="Description" value={expDesc} onChange={e => setExpDesc(e.target.value)} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <input style={numInp} type="number" placeholder="المبلغ" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+              <NumInput style={numInp} placeholder="Amount" value={expAmount} onChange={v => setExpAmount(v)} />
               <select style={inp} value={expStatus} onChange={e => setExpStatus(e.target.value as any)}>
-                <option value="paid">مدفوع</option>
-                <option value="pending">معلق</option>
+                <option value="paid">Paid</option>
+                <option value="pending">Pending</option>
               </select>
             </div>
             <button onClick={addExpense} disabled={expSaving}
               style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.red, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: expSaving ? 0.6 : 1 }}>
-              {expSaving ? '⏳...' : '➕ إضافة المصروف'}
+              {expSaving ? '⏳...' : '➕ Add Expense'}
             </button>
           </div>
 
           <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: S.blue, marginBottom: 10 }}>🛵 إضافة طلب توصيل</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.blue, marginBottom: 10 }}>🛵 Add Delivery Order</div>
             <select style={{ ...inp, marginBottom: 8 }} value={delPlatform} onChange={e => setDelPlatform(e.target.value as any)}>
               <option value="kabab_online">Kabab Online</option>
               <option value="g_online">G Online</option>
               <option value="grab">Grab</option>
               <option value="foodpanda">Foodpanda</option>
             </select>
-            <input style={{ ...numInp, marginBottom: 8, width: '100%', boxSizing: 'border-box' }} type="number" placeholder="المبلغ" value={delAmount} onChange={e => setDelAmount(e.target.value)} />
+            <NumInput style={{ ...numInp, marginBottom: 8, width: '100%', boxSizing: 'border-box' }} placeholder="Amount" value={delAmount} onChange={v => setDelAmount(v)} />
             <button onClick={addDelivery} disabled={delSaving}
               style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.blue, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: delSaving ? 0.6 : 1 }}>
-              {delSaving ? '⏳...' : '➕ إضافة الطلب'}
+              {delSaving ? '⏳...' : '➕ Add Order'}
             </button>
           </div>
         </div>
@@ -638,6 +901,10 @@ const label = (text: string) => (
             style={{ padding: isMobile ? '7px 12px' : '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.muted, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', flex: isMobile ? 1 : undefined }}>
             {view === 'form' ? '📋 History' : '📝 Form'}
           </button>
+          <button onClick={() => setView('orders')}
+            style={{ padding: isMobile ? '7px 12px' : '8px 16px', borderRadius: 10, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : S.card, color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', fontWeight: view === 'orders' ? 700 : 400, flex: isMobile ? 1 : undefined }}>
+            🧾 Sales Details
+          </button>
           <button onClick={printReport}
             style={{ padding: isMobile ? '7px 12px' : '8px 16px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>
             🖨️ Print
@@ -651,7 +918,82 @@ const label = (text: string) => (
 
       <div style={{ padding: isMobile ? 14 : 24, maxWidth: 1200, margin: '0 auto' }}>
 
-        {view === 'history' ? (
+        {view === 'orders' ? (
+          /* Order Details View — every order's time span, Malaysia timezone, 24h format */
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+              <h2 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>
+                🧾 Sales Details — {form.report_date} ({branches.find(b => b.id === branchFilter)?.name || 'Select a branch'})
+              </h2>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={printOrderDetails} disabled={loadingOrders || orderDetails.length === 0}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: (loadingOrders || orderDetails.length === 0) ? 0.5 : 1 }}>
+                  🖨️ Print
+                </button>
+                <button onClick={fetchOrderDetails} disabled={loadingOrders}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: loadingOrders ? 0.6 : 1 }}>
+                  {loadingOrders ? '⏳ Refreshing...' : '🔄 Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {!branchFilter || !form.report_date ? (
+              <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>Select a branch and date first from the Form tab</div>
+            ) : ordersError ? (
+              <div style={{ textAlign: 'center', padding: 40, color: S.red, background: S.redB, borderRadius: 12, border: `1px solid ${S.red}` }}>
+                ⚠️ Query error: {ordersError}
+              </div>
+            ) : loadingOrders ? (
+              <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
+            ) : orderDetails.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>No paid orders found for this day and branch</div>
+            ) : (
+              <>
+                <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', direction: 'ltr', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(201,168,76,0.12)' }}>
+                          <th style={thStyle}>#</th>
+                          <th style={thStyle}>Table</th>
+                          <th style={thStyle}>Shift</th>
+                          <th style={thStyle}>From (Opened)</th>
+                          <th style={thStyle}>To (Paid)</th>
+                          <th style={thStyle}>Cashier</th>
+                          <th style={thStyle}>Payment Method</th>
+                          <th style={thStyle}>Discount</th>
+                          <th style={thStyle}>Net (RM)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orderDetails.map((o, i) => (
+                          <tr key={o.id} style={{ borderTop: `1px solid ${S.border}` }}>
+                            <td style={tdStyle}>{i + 1}</td>
+                            <td style={tdStyle}>{o.tables?.name || o.id?.slice(0, 8) || '—'}</td>
+                            <td style={tdStyle}>{o.shift === 'shift1' ? 'Shift 1' : o.shift === 'shift2' ? 'Shift 2' : o.shift === 'shift3' ? 'Shift 3' : '—'}</td>
+                            <td style={tdStyle}>{fmtTimeMY(o.created_at)}</td>
+                            <td style={tdStyle}>{fmtTimeMY(o.paid_at)}</td>
+                            <td style={tdStyle}>{o.paid_by_name || '—'}</td>
+                            <td style={tdStyle}>{o.payment_method || '—'}{o.card_bank ? ` (${o.card_bank})` : ''}</td>
+                            <td style={tdStyle}>{fmtMoney(o.discount_amount || 0)}</td>
+                            <td style={{ ...tdStyle, color: S.gold, fontWeight: 700 }}>{fmtMoney(o.total_amount || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', background: S.navy2, borderRadius: 14, border: `1px solid ${S.goldB}`, padding: '14px 20px' }}>
+                  <div style={{ color: S.muted, fontSize: 13 }}>Order count: {orderDetails.length.toLocaleString('en-US')}</div>
+                  <div style={{ color: S.gold, fontSize: 16, fontWeight: 800 }}>
+                    Total: RM {fmtMoney(round2(orderDetails.reduce((s, o) => s + (o.total_amount || 0), 0)))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        ) : view === 'history' ? (
           /* History View */
           <div>
             <h2 style={{ color: S.white, fontSize: 16, fontWeight: 700, marginBottom: 16 }}>📋 Report History</h2>
@@ -689,11 +1031,18 @@ const label = (text: string) => (
               </select>
               {existingId && <div style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ Report exists — editing</div>}
               {!existingId && <div style={{ fontSize: 12, color: S.muted }}>New report</div>}
+              {liveSync && (
+                <div style={{ fontSize: 11, color: S.green, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: S.green, display: 'inline-block' }} />
+                  Live — auto-updating
+                </div>
+              )}
             </div>
 
             {/* Shifts */}
             <ShiftSection num={1} shift={form.shift1} />
             <ShiftSection num={2} shift={form.shift2} />
+            <ShiftSection num={3} shift={form.shift3} />
 
             {/* Totals */}
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
@@ -708,23 +1057,23 @@ const label = (text: string) => (
                 {/* Left totals */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total Sales Report')}<input style={numInp} type="number" value={form.total_sales_report} onChange={e => setForm(p => ({ ...p, total_sales_report: e.target.value }))} placeholder="0.00" /></div>
-                    <div>{label('Total Paid Expenses (RM)')}<input style={numInp} type="number" value={form.total_paid_expenses} onChange={e => setForm(p => ({ ...p, total_paid_expenses: e.target.value }))} placeholder="0.00" /></div>
+                    <div>{label('Total Sales Report')}<NumInput style={numInp} value={form.total_sales_report} onChange={v => setForm(p => ({ ...p, total_sales_report: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total Paid Expenses (RM)')}<NumInput style={numInp} value={form.total_paid_expenses} onChange={v => setForm(p => ({ ...p, total_paid_expenses: v }))} placeholder="0.00" /></div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total Pending Expenses (RM)')}<input style={numInp} type="number" value={form.total_pending_expenses} onChange={e => setForm(p => ({ ...p, total_pending_expenses: e.target.value }))} placeholder="0.00" /></div>
-                    <div>{label('Total Visa MAYBANK (RM)')}<input style={numInp} type="number" value={form.total_visa_maybank} onChange={e => setForm(p => ({ ...p, total_visa_maybank: e.target.value }))} placeholder="0.00" /></div>
+                    <div>{label('Total Pending Expenses (RM)')}<NumInput style={numInp} value={form.total_pending_expenses} onChange={v => setForm(p => ({ ...p, total_pending_expenses: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total Visa MAYBANK (RM)')}<NumInput style={numInp} value={form.total_visa_maybank} onChange={v => setForm(p => ({ ...p, total_visa_maybank: v }))} placeholder="0.00" /></div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total Visa BSN')}<input style={numInp} type="number" value={form.total_visa_bsn} onChange={e => setForm(p => ({ ...p, total_visa_bsn: e.target.value }))} placeholder="0.00" /></div>
-                    <div>{label('Total KababOnline Banking (RM)')}<input style={numInp} type="number" value={form.total_kabab_online} onChange={e => setForm(p => ({ ...p, total_kabab_online: e.target.value }))} placeholder="0.00" /></div>
+                    <div>{label('Total Visa BSN')}<NumInput style={numInp} value={form.total_visa_bsn} onChange={v => setForm(p => ({ ...p, total_visa_bsn: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total KababOnline Banking (RM)')}<NumInput style={numInp} value={form.total_kabab_online} onChange={v => setForm(p => ({ ...p, total_kabab_online: v }))} placeholder="0.00" /></div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total G Online Banking (RM)')}<input style={numInp} type="number" value={form.total_g_online} onChange={e => setForm(p => ({ ...p, total_g_online: e.target.value }))} placeholder="0.00" /></div>
-                    <div>{label('Total Discounts')}<input style={numInp} type="number" value={form.total_discounts} onChange={e => setForm(p => ({ ...p, total_discounts: e.target.value }))} placeholder="0.00" /></div>
+                    <div>{label('Total G Online Banking (RM)')}<NumInput style={numInp} value={form.total_g_online} onChange={v => setForm(p => ({ ...p, total_g_online: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total Discounts')}<NumInput style={numInp} value={form.total_discounts} onChange={v => setForm(p => ({ ...p, total_discounts: v }))} placeholder="0.00" /></div>
                   </div>
                   <div>{label('Total Amount (RM)')}
-                    <input style={{ ...numInp, color: S.gold, fontWeight: 800, fontSize: 16 }} type="number" value={form.total_amount} onChange={e => setForm(p => ({ ...p, total_amount: e.target.value }))} placeholder="0.00" />
+                    <NumInput style={{ ...numInp, color: S.gold, fontWeight: 800, fontSize: 16 }} value={form.total_amount} onChange={v => setForm(p => ({ ...p, total_amount: v }))} placeholder="0.00" />
                   </div>
                 </div>
 
@@ -734,11 +1083,11 @@ const label = (text: string) => (
                     <textarea style={{ ...inp, minHeight: 80, resize: 'vertical' } as React.CSSProperties} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes..." />
                   </div>
                   <div>{label('Total Purchased Bills – Shopping (RM)')}
-                    <input style={numInp} type="number" value={form.total_purchased_bills} onChange={e => setForm(p => ({ ...p, total_purchased_bills: e.target.value }))} placeholder="0.00" />
+                    <NumInput style={numInp} value={form.total_purchased_bills} onChange={v => setForm(p => ({ ...p, total_purchased_bills: v }))} placeholder="0.00" />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Grab (RM)')}<input style={numInp} type="number" value={form.grab} onChange={e => setForm(p => ({ ...p, grab: e.target.value }))} placeholder="0.00" /></div>
-                    <div>{label('Foodpanda (RM)')}<input style={numInp} type="number" value={form.foodpanda} onChange={e => setForm(p => ({ ...p, foodpanda: e.target.value }))} placeholder="0.00" /></div>
+                    <div>{label('Grab (RM)')}<NumInput style={numInp} value={form.grab} onChange={v => setForm(p => ({ ...p, grab: v }))} placeholder="0.00" /></div>
+                    <div>{label('Foodpanda (RM)')}<NumInput style={numInp} value={form.foodpanda} onChange={v => setForm(p => ({ ...p, foodpanda: v }))} placeholder="0.00" /></div>
                   </div>
                   <div>{label('Treasurer Name and Signature')}
                     <input style={inp} value={form.treasurer_name} onChange={e => setForm(p => ({ ...p, treasurer_name: e.target.value }))} placeholder="Treasurer name..." />

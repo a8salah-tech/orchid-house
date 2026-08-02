@@ -58,6 +58,8 @@ export default function ItemMovementPage() {
   const [branches, setBranches] = useState<Branch[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  // ✅ جديد: تحويلات كل أصناف المستودع الحالي - عشان نعرض الكمية مقسّمة (كرتون + علبة) زي صفحة المستودع بالظبط
+  const [productConversions, setProductConversions] = useState<Record<string, { factor: number; bigSymbol: string; smallSymbol: string; storedIsBig: boolean }>>({})
   const [movements, setMovements] = useState<Movement[]>([])
 
   const [selectedBranch, setSelectedBranch] = useState('')
@@ -94,13 +96,36 @@ export default function ItemMovementPage() {
   }, [selectedBranch])
 
   useEffect(() => {
-    if (!selectedWarehouse) { setProducts([]); return }
+    if (!selectedWarehouse) { setProducts([]); setProductConversions({}); return }
     sb.from('warehouse_products')
       .select('id,name,name_en,product_code,current_stock,warehouse_id,unit_id,units(symbol)')
       .eq('warehouse_id', selectedWarehouse)
       .eq('is_active', true)
       .order('name')
-      .then(({ data }) => setProducts((data as any) || []))
+      .then(async ({ data }) => {
+        const prods = (data as any) || []
+        setProducts(prods)
+        // ✅ جديد: جلب تحويلات كل الأصناف دفعة واحدة - عشان نعرض الكمية مقسّمة (كرتون + علبة) في القائمة كلها
+        if (prods.length > 0) {
+          const { data: convs } = await sb.from('unit_conversions')
+            .select('product_id, from_unit_id, to_unit_id, factor, units_from:units!unit_conversions_from_unit_id_fkey(symbol), units_to:units!unit_conversions_to_unit_id_fkey(symbol)')
+            .in('product_id', prods.map((p: any) => p.id))
+          const map: Record<string, any> = {}
+          for (const c of (convs as any[]) || []) {
+            const p = prods.find((pp: any) => pp.id === c.product_id)
+            if (!p) continue
+            map[c.product_id] = {
+              factor: c.factor,
+              bigSymbol: c.units_from?.symbol || '',
+              smallSymbol: c.units_to?.symbol || '',
+              storedIsBig: p.unit_id === c.from_unit_id,
+            }
+          }
+          setProductConversions(map)
+        } else {
+          setProductConversions({})
+        }
+      })
     setSelectedProduct(null)
     setMovements([])
   }, [selectedWarehouse])
@@ -152,6 +177,35 @@ export default function ItemMovementPage() {
     if (m.destination_custom) return { label: m.destination_custom, icon: '📤' }
     if (m.destination) return { label: m.destination, icon: '📤' }
     return { label: 'حركة يدوية', icon: '📝' }
+  }
+
+  // ✅ جديد: تنسيق الكمية مقسّمة (كرتون + علبة) بدل عرض كسر عشري خام طويل - بنفس أسلوب صفحة المستودع بالظبط
+  function formatQty(product: Product, current: number): string {
+    const conv = productConversions[product.id]
+    if (!conv) return `${current} ${product.units?.symbol || ''}`
+    if (conv.storedIsBig) {
+      const bigPart = Math.floor(current)
+      const smallPart = Math.round((current - bigPart) * conv.factor)
+      return `${bigPart} ${conv.bigSymbol} + ${smallPart} ${conv.smallSymbol}`
+    } else {
+      const bigPart = Math.floor(current / conv.factor)
+      const smallPart = Math.round(current - bigPart * conv.factor)
+      return `${bigPart} ${conv.bigSymbol} + ${smallPart} ${conv.smallSymbol}`
+    }
+  }
+
+  // ✅ جديد: نفس منطق التنسيق بس لصفحة التفاصيل (بتستخدم conversionData الخاصة بالصنف المختار حاليًا)
+  function formatDetailQty(current: number): string {
+    if (!conversionData || !selectedProduct) return `${current} ${selectedProduct?.units?.symbol || ''}`
+    if (conversionData.storedUnitIsBig) {
+      const bigPart = Math.floor(current)
+      const smallPart = Math.round((current - bigPart) * conversionData.factor)
+      return `${bigPart} ${conversionData.bigUnitSymbol} + ${smallPart} ${conversionData.smallUnitSymbol}`
+    } else {
+      const bigPart = Math.floor(current / conversionData.factor)
+      const smallPart = Math.round(current - bigPart * conversionData.factor)
+      return `${bigPart} ${conversionData.bigUnitSymbol} + ${smallPart} ${conversionData.smallUnitSymbol}`
+    }
   }
 
   function selectProduct(p: Product) {
@@ -320,7 +374,7 @@ export default function ItemMovementPage() {
               {p.product_code && <span style={{ display: 'inline-block', background: S.gold3, color: S.gold, borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 700, marginBottom: 4 }}>{p.product_code}</span>}
               <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{p.name}</div>
               {p.name_en && <div style={{ fontSize: 11, color: S.muted }}>{p.name_en}</div>}
-              <div style={{ fontSize: 12, color: p.current_stock > 0 ? S.green : S.red, marginTop: 6, fontWeight: 700 }}>{p.current_stock} {p.units?.symbol}</div>
+              <div style={{ fontSize: 12, color: p.current_stock > 0 ? S.green : S.red, marginTop: 6, fontWeight: 700 }}>{formatQty(p, p.current_stock)}</div>
             </div>
           ))}
         </div>
@@ -337,7 +391,7 @@ export default function ItemMovementPage() {
                 {selectedProduct.name_en && <span style={{ fontSize: 12, color: S.muted }}>{selectedProduct.name_en}</span>}
               </div>
               <div style={{ fontSize: 13, color: S.muted, marginTop: 4 }}>
-                الكمية الحالية: <span style={{ color: selectedProduct.current_stock >= 0 ? S.green : S.red, fontWeight: 800 }}>{selectedProduct.current_stock} {selectedProduct.units?.symbol}</span>
+                الكمية الحالية: <span style={{ color: selectedProduct.current_stock >= 0 ? S.green : S.red, fontWeight: 800 }}>{formatDetailQty(selectedProduct.current_stock)}</span>
                 <span style={{ marginRight: 12, marginLeft: 12 }}>·</span>
                 الوحدة الأساسية المخزّنة بها: <span style={{ color: S.gold, fontWeight: 700 }}>{selectedProduct.units?.symbol || '—'}</span>
               </div>
@@ -407,7 +461,7 @@ export default function ItemMovementPage() {
               {/* ✅ Fix: الكمية الحالية بقت في صندوق منفصل وواضح تمامًا - كانت نص صغير ملتصق بصريًا بالحقل اللي بعده */}
               <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: S.muted }}>الكمية الحالية</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{selectedProduct.current_stock} <span style={{ color: S.gold, fontSize: 13 }}>{selectedProduct.units?.symbol}</span></span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{formatDetailQty(selectedProduct.current_stock)}</span>
               </div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>
                 الكمية الصحيحة الجديدة ({conversionData ? conversionData.bigUnitSymbol : selectedProduct.units?.symbol}) *

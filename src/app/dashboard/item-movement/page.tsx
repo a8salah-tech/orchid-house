@@ -70,6 +70,9 @@ export default function ItemMovementPage() {
   const [editReason, setEditReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [conversionNote, setConversionNote] = useState<string | null>(null)
+  // ✅ جديد: بيانات التحويل بشكل منظم (مش نص عرض بس) - عشان نقدر نبني حقل إدخال بالوحدة الفرعية
+  const [conversionData, setConversionData] = useState<{ factor: number; subUnitSymbol: string } | null>(null)
+  const [editSubValue, setEditSubValue] = useState('')
 
   useEffect(() => {
     sb.from('branches').select('id,name').eq('is_active', true).order('name').then(({ data }) => setBranches(data || []))
@@ -155,14 +158,23 @@ export default function ItemMovementPage() {
     sb.from('unit_conversions').select('from_unit_id, to_unit_id, factor, units_from:units!unit_conversions_from_unit_id_fkey(symbol), units_to:units!unit_conversions_to_unit_id_fkey(symbol)')
       .eq('product_id', p.id).maybeSingle()
       .then(({ data }: any) => {
-        if (data) setConversionNote(`1 ${data.units_from?.symbol || ''} = ${data.factor} ${data.units_to?.symbol || ''}`)
-        else setConversionNote(null)
+        if (data) {
+          setConversionNote(`1 ${data.units_from?.symbol || ''} = ${data.factor} ${data.units_to?.symbol || ''}`)
+          // ✅ جديد: نحفظ المعامل واسم الوحدة الفرعية بشكل منظم - عشان نبني حقل إدخال بالوحدة الفرعية في نافذة التصحيح
+          setConversionData({ factor: data.factor, subUnitSymbol: data.units_to?.symbol || '' })
+        } else {
+          setConversionNote(null)
+          setConversionData(null)
+        }
       })
   }
 
   async function saveCorrection() {
     if (!selectedProduct) return
-    const newVal = parseFloat(editValue)
+    const mainQty = parseFloat(editValue) || 0
+    // ✅ جديد: لو فيه وحدة فرعية ومُدخل ليها قيمة، نضيفها للكمية النهائية بعد تحويلها للوحدة الأساسية
+    const subQty = conversionData && editSubValue ? (parseFloat(editSubValue) || 0) / conversionData.factor : 0
+    const newVal = mainQty + subQty
     if (isNaN(newVal)) { alert('يرجى إدخال قيمة صحيحة'); return }
     if (!editReason.trim()) { alert('يرجى إدخال سبب التصحيح'); return }
     setSaving(true)
@@ -180,6 +192,7 @@ export default function ItemMovementPage() {
     setSaving(false)
     setShowEdit(false)
     setEditValue('')
+    setEditSubValue('')
     setEditReason('')
     const { data: updated } = await sb.from('warehouse_products')
       .select('id,name,name_en,product_code,current_stock,warehouse_id,units(symbol)')
@@ -313,7 +326,7 @@ export default function ItemMovementPage() {
               )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => { setEditValue(String(selectedProduct.current_stock)); setShowEdit(true) }}
+              <button onClick={() => { setEditValue(String(selectedProduct.current_stock)); setEditSubValue(''); setShowEdit(true) }}
                 style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 ✏️ تعديل / تصحيح الكمية
               </button>
@@ -371,9 +384,21 @@ export default function ItemMovementPage() {
               <button onClick={() => setShowEdit(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>الكمية الحالية: {selectedProduct.current_stock} {selectedProduct.units?.symbol}</label>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>الكمية الصحيحة الجديدة *</label>
+              {/* ✅ Fix: الكمية الحالية بقت في صندوق منفصل وواضح تمامًا - كانت نص صغير ملتصق بصريًا بالحقل اللي بعده */}
+              <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: S.muted }}>الكمية الحالية</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{selectedProduct.current_stock} <span style={{ color: S.gold, fontSize: 13 }}>{selectedProduct.units?.symbol}</span></span>
+              </div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>الكمية الصحيحة الجديدة ({selectedProduct.units?.symbol}) *</label>
               <input style={inp} type="number" value={editValue} onChange={e => setEditValue(e.target.value)} placeholder="0" />
+              {/* ✅ جديد: حقل الوحدة الفرعية - يظهر بس لو الصنف له معامل تحويل مسجّل (زي 1 كرتون = 4 عبوة) */}
+              {conversionData && (
+                <>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginTop: 12, marginBottom: 6 }}>+ بالوحدة الفرعية ({conversionData.subUnitSymbol})</label>
+                  <input style={inp} type="number" value={editSubValue} onChange={e => setEditSubValue(e.target.value)} placeholder="0" />
+                  <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>ℹ️ مثال: {editValue || 0} {selectedProduct.units?.symbol} + {editSubValue || 0} {conversionData.subUnitSymbol} = {(parseFloat(editValue || '0') + (parseFloat(editSubValue || '0') / conversionData.factor)).toFixed(2)} {selectedProduct.units?.symbol} إجمالي</div>
+                </>
+              )}
             </div>
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>سبب التصحيح *</label>

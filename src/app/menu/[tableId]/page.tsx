@@ -402,23 +402,11 @@ const filteredItems = items
     setSubmitting(true)
     const catMap = Object.fromEntries(categories.map(c => [c.id, c.destination]))
 
-    // ✅ Fix حرج جدًا: العميل ممكن يكون فاتح نفس الصفحة من قبل ما الكاشير يعمل "تحويل" للطاولة، ولسه
-    // ما عملش Refresh (ضاغط "طلب المزيد" في نفس الجلسة القديمة). فحص التحويل وقت تحميل الصفحة (Load) مش
-    // كافي لوحده في الحالة دي، لأن الـstate فضل شايل رقم الطاولة القديم في الذاكرة. هنا بنتأكد فورًا ومباشرة
-    // لحظة الإرسال الفعلي نفسه: هل الطاولة الحالية اتحوّلت لمكان تاني؟ ولو أيوه، نتابع الطلب من هناك مباشرة
-    let effectiveTableId = table.id
-    const { data: freshTableRow } = await sb.from('tables').select('*').eq('id', table.id).single()
-    // ✅ Fix حرج: نفس شرط الصلاحية (آخر 4 ساعات بس) - يمنع تأثر عميل جديد تمامًا بتحويل قديم خلص من زمان
-    const isRedirectRecent = freshTableRow?.redirected_at && (Date.now() - new Date(freshTableRow.redirected_at).getTime()) < 4 * 60 * 60 * 1000
-    if (freshTableRow?.redirected_to_table_id && isRedirectRecent) {
-      const { data: redirectedTableFull } = await sb.from('tables').select('*').eq('id', freshTableRow.redirected_to_table_id).single()
-      if (redirectedTableFull) {
-        effectiveTableId = redirectedTableFull.id
-        // ✅ Fix حرج: نحدّث الشاشة نفسها (مش بس البيانات المخزّنة) - عشان العميل يشوف رقم الطاولة
-        // الصحيحة فورًا في شاشة التأكيد، مش رقم الطاولة القديمة اللي كان شايلها في الذاكرة
-        setTable(redirectedTableFull)
-      }
-    }
+    // ✅ Fix حرج جدًا: شلنا فحص التحويل من هنا بالكامل - كان بيتنفذ لأي عميل يأكد طلب (حتى لو عميل جديد
+    // تمامًا فاتح المنيو فاضي)، فكان بيحوّل طلب العميل الجديد بالغلط لطلب العميل القديم لو الطاولة كانت
+    // اتحوّلت مؤخرًا. المتابعة الصحيحة للعميل القديم بقت مقصورة على "طلب المزيد" (checkAndFollowRedirect)
+    // اللي بيحدّث حالة الطاولة (table) قبل ما يوصل لشاشة التأكيد أصلًا - فمفيش داعي لفحص تاني هنا يتعارض
+    const effectiveTableId = table.id
 
     // تحقق لو في طلب موجود للطاولة
     const { data: existingOrders } = await sb.from('orders')

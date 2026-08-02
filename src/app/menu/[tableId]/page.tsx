@@ -437,6 +437,11 @@ const filteredItems = items
       orderId = order.id
     }
 
+    // ✅ Fix حرج جدًا: بمجرد ما طلب فعلي (جديد أو إضافة) يتسجل على الطاولة دي مباشرة، نمسح أي إشارة تحويل
+    // قديمة عليها فورًا - عشان لو عميل جديد (مختلف تمامًا عن العميل القديم المنقول) طلب هنا وبعدين ضغط
+    // "طلب المزيد"، ميتبعش غلط لطاولة تانية اتحوّل ليها طلب قديم زمان. الطاولة بقى ليها نشاط خاص بيها الآن
+    await sb.from('tables').update({ redirected_to_table_id: null, redirected_at: null }).eq('id', effectiveTableId)
+
     // ✅ Fix: حساب السعر الفعلي الصحيح المطبق وقت الطلب (الحجم المختار أو الخصم)، بدل سعر الصنف الأساسي دايمًا
     function actualUnitPrice(c: CartItem) {
       if (c.selectedSize) return c.selectedSize.price

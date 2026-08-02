@@ -135,31 +135,17 @@ export default function CustomerMenuPage() {
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
-      // ✅ جديد: لو الطاولة عندها طلب نشط بالفعل (لسه ما اتقفلش من الكاشير)، نعرض شاشة "تم التأكيد" مباشرة
+      // ✅ لو الطاولة عندها طلب نشط بالفعل (لسه ما اتقفلش من الكاشير)، نعرض شاشة "تم التأكيد" مباشرة
       // بدل المنيو من الصفر - يفضل الطلب ظاهر للعميل طول ما الطاولة مفتوحة، حتى لو قفل الصفحة وفتحها تاني
       const { data: existingOrders } = await sb.from('orders')
         .select('id').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
         .order('created_at', { ascending: false }).limit(1)
-      let existing = existingOrders?.[0]
+      const existing = existingOrders?.[0]
 
-      // ✅ جديد جدًا: لو مفيش طلب نشط على الطاولة دي، لكن الكاشير عمل "تحويل" لطلبها لطاولة تانية،
-      // نتابع الطلب تلقائيًا من الطاولة الجديدة - العميل لسه فاتح نفس رابط الـQR القديم، مش محتاج يعمل سكان جديد
-      // ✅ Fix حرج: الإشارة دي لازم تكون حديثة (آخر 4 ساعات بس) - وإلا عميل جديد تمامًا يقعد على نفس الطاولة
-      // دي بعدين (يوم تاني مثلًا) هيتوجّه غلط لطلب قديم خلص من زمان، وده حصل فعليًا وسبب مشكلة حقيقية
-      const isRedirectRecent = tbl.redirected_at && (Date.now() - new Date(tbl.redirected_at).getTime()) < 4 * 60 * 60 * 1000
-      if (!existing && tbl.redirected_to_table_id && isRedirectRecent) {
-        const { data: redirectedTable } = await sb.from('tables').select('*').eq('id', tbl.redirected_to_table_id).single()
-        if (redirectedTable) {
-          const { data: redirectedOrders } = await sb.from('orders')
-            .select('id').eq('table_id', redirectedTable.id).in('status', ['confirmed', 'preparing', 'ready'])
-            .order('created_at', { ascending: false }).limit(1)
-          if (redirectedOrders?.[0]) {
-            existing = redirectedOrders[0]
-            // ✅ نحدّث الطاولة الفعلية للجلسة دي - أي طلب جديد بعد كده هيتسجل صح على الطاولة الجديدة مباشرة
-            setTable(redirectedTable)
-          }
-        }
-      }
+      // ✅ Fix حسب طلب المستخدم: شلنا المتابعة التلقائية للتحويل وقت تحميل الصفحة بالكامل - الطاولة دلوقتي
+      // تفضى دايمًا لأي حد يفتح الصفحة من جديد بعد التحويل (حتى لو العميل القديم نفسه قفل الصفحة وفتحها تاني).
+      // المتابعة للطلب المحوّل بقت مقصورة بس على "طلب المزيد" لو العميل لسه فاتح نفس التاب من غير ما يقفلها
+      // (شوف checkAndFollowRedirect) - ده بيحل مشكلة تكرار الطلب من غير ما يأثر على عميل جديد قاعد بعده
 
       if (existing) {
         setConfirmedOrderId(existing.id)

@@ -27,7 +27,6 @@ const inp: React.CSSProperties = {
   color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
   boxSizing: 'border-box', direction: 'rtl',
 }
-// ستايل مخصص لعناصر <option> داخل <select> لمنع ظهورها بخلفية بيضاء افتراضية من المتصفح
 const selectOptionStyle = `
   select { color-scheme: dark; }
   select option { background-color: #0F2040; color: #FAFAF8; }
@@ -51,15 +50,17 @@ interface Movement {
 
 export default function ItemMovementPage() {
   const sb = createClient()
-  const { permissions } = useAuth()
+  const { permissions, employee } = useAuth()
+  // Fix: فتح الصفحة لمدير المستودعات كمان (warehouse_manager) - كانت مقصورة على permissions.all بس
   const isAdmin = permissions?.all === true
+  const canAccess = isAdmin || employee?.role === 'warehouse_manager'
 
   const [branches, setBranches] = useState<Branch[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [movements, setMovements] = useState<Movement[]>([])
 
-  const [selectedBranch, setSelectedBranch] = useState('')   // '' = المستودع الرئيسي (لا فرع)
+  const [selectedBranch, setSelectedBranch] = useState('')
   const [selectedWarehouse, setSelectedWarehouse] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [productSearch, setProductSearch] = useState('')
@@ -70,15 +71,13 @@ export default function ItemMovementPage() {
   const [saving, setSaving] = useState(false)
   const [conversionNote, setConversionNote] = useState<string | null>(null)
 
-  // ── جلب الفروع والمستودعات أول تحميل ──
   useEffect(() => {
     sb.from('branches').select('id,name').eq('is_active', true).order('name').then(({ data }) => setBranches(data || []))
     sb.from('warehouses').select('id,name,branch_id').eq('is_active', true).order('name').then(({ data }) => setWarehouses(data || []))
   }, [])
 
-  // ── تحديد المستودع تلقائيًا عند اختيار الفرع ──
   const visibleWarehouses = useMemo(() => {
-    if (selectedBranch === '') return warehouses.filter(w => !w.branch_id) // المستودع الرئيسي
+    if (selectedBranch === '') return warehouses.filter(w => !w.branch_id)
     return warehouses.filter(w => w.branch_id === selectedBranch)
   }, [selectedBranch, warehouses])
 
@@ -89,7 +88,6 @@ export default function ItemMovementPage() {
     setMovements([])
   }, [selectedBranch])
 
-  // ── جلب أصناف المستودع المختار ──
   useEffect(() => {
     if (!selectedWarehouse) { setProducts([]); return }
     sb.from('warehouse_products')
@@ -112,17 +110,15 @@ export default function ItemMovementPage() {
     )
   }, [products, productSearch])
 
-  // ── جلب حركات الصنف المختار + حساب الرصيد المتراكم ──
   const fetchMovements = useCallback(async (product: Product) => {
     setLoading(true)
     const { data } = await sb.from('stock_movements')
       .select('id,movement_type,quantity,movement_date,notes,created_at,invoice_id,transfer_id,destination,destination_custom')
       .eq('product_id', product.id)
-      .order('created_at', { ascending: false }) // الأجدد أولاً للعرض
+      .order('created_at', { ascending: false })
 
     const rows = (data || []) as Movement[]
 
-    // جلب أرقام الفواتير الفعلية لو فيه حركات مرتبطة بفاتورة
     const invoiceIds = [...new Set(rows.map(r => r.invoice_id).filter(Boolean))] as string[]
     if (invoiceIds.length > 0) {
       const { data: invoices } = await sb.from('purchase_invoices').select('id,invoice_number').in('id', invoiceIds)
@@ -130,12 +126,9 @@ export default function ItemMovementPage() {
       rows.forEach(r => { if (r.invoice_id) r.invoice_number = invMap[r.invoice_id] || null })
     }
 
-    // ✅ حساب الرصيد التراكمي: نبدأ من current_stock الحالي (الأحدث)
-    // ونتراجع للخلف (reverse) — لكل حركة سابقة، نُرجع تأثيرها لنحصل على الرصيد "بعدها" في وقتها
     let runningBalance = product.current_stock
     for (let i = 0; i < rows.length; i++) {
       rows[i].running_balance = runningBalance
-      // نتراجع: لو كانت in، الرصيد قبلها كان أقل بمقدار quantity. لو out، كان أكبر.
       runningBalance = rows[i].movement_type === 'in'
         ? runningBalance - rows[i].quantity
         : runningBalance + rows[i].quantity
@@ -144,7 +137,6 @@ export default function ItemMovementPage() {
     setLoading(false)
   }, [])
 
-  // تحديد نص ونوع مصدر الحركة بشكل واضح للعرض
   function getSourceLabel(m: Movement): { label: string; icon: string } {
     if (m.invoice_id) return { label: `فاتورة مشتريات${m.invoice_number ? ' #' + m.invoice_number : ''}`, icon: '🧾' }
     if (m.transfer_id) return { label: 'تحويل بين مستودعات', icon: '🔄' }
@@ -160,7 +152,6 @@ export default function ItemMovementPage() {
   function selectProduct(p: Product) {
     setSelectedProduct(p)
     fetchMovements(p)
-    // جلب معادلة التحويل التوضيحية (لو موجودة) لعرضها كملاحظة معلوماتية فقط
     sb.from('unit_conversions').select('from_unit_id, to_unit_id, factor, units_from:units!unit_conversions_from_unit_id_fkey(symbol), units_to:units!unit_conversions_to_unit_id_fkey(symbol)')
       .eq('product_id', p.id).maybeSingle()
       .then(({ data }: any) => {
@@ -190,7 +181,6 @@ export default function ItemMovementPage() {
     setShowEdit(false)
     setEditValue('')
     setEditReason('')
-    // إعادة جلب بيانات الصنف والحركات بعد التصحيح
     const { data: updated } = await sb.from('warehouse_products')
       .select('id,name,name_en,product_code,current_stock,warehouse_id,units(symbol)')
       .eq('id', selectedProduct.id)
@@ -247,7 +237,7 @@ export default function ItemMovementPage() {
     win.document.close()
   }
 
-  if (!isAdmin) {
+  if (!canAccess) {
     return (
       <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 64 }}>🔒</div>
@@ -261,13 +251,11 @@ export default function ItemMovementPage() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap');`}</style>
       <style>{selectOptionStyle}</style>
 
-      {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>📜 حركة صنف</h1>
         <p style={{ fontSize: 13, color: S.muted }}>عرض السجل الكامل لحركة صنف معين، مع إمكانية الطباعة والتصحيح المباشر</p>
       </div>
 
-      {/* Filters */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14, marginBottom: 20 }}>
         <div>
           <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>🏪 الفرع</label>
@@ -289,7 +277,6 @@ export default function ItemMovementPage() {
         </div>
       </div>
 
-      {/* Product list (when no product selected yet, or for switching) */}
       {selectedWarehouse && !selectedProduct && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
           {filteredProducts.length === 0 ? (
@@ -306,10 +293,8 @@ export default function ItemMovementPage() {
         </div>
       )}
 
-      {/* Selected product detail + movements table */}
       {selectedProduct && (
         <div>
-          {/* Product header card */}
           <div style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 20px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <button onClick={() => { setSelectedProduct(null); setMovements([]) }} style={{ background: 'transparent', border: 'none', color: S.muted, cursor: 'pointer', fontSize: 12, marginBottom: 6 }}>← رجوع لقائمة الأصناف</button>
@@ -339,7 +324,6 @@ export default function ItemMovementPage() {
             </div>
           </div>
 
-          {/* Movements table */}
           {loading ? (
             <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
           ) : movements.length === 0 ? (
@@ -379,7 +363,6 @@ export default function ItemMovementPage() {
         </div>
       )}
 
-      {/* Edit/Correction Modal */}
       {showEdit && selectedProduct && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 420, padding: 28 }}>

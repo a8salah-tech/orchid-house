@@ -36,7 +36,7 @@ interface Branch { id: string; name: string }
 interface Warehouse { id: string; name: string; branch_id: string | null }
 interface Product {
   id: string; name: string; name_en?: string; product_code?: string
-  current_stock: number; warehouse_id: string
+  current_stock: number; warehouse_id: string; unit_id?: string
   units?: { symbol: string }
 }
 interface Movement {
@@ -70,8 +70,10 @@ export default function ItemMovementPage() {
   const [editReason, setEditReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [conversionNote, setConversionNote] = useState<string | null>(null)
-  // ✅ جديد: بيانات التحويل بشكل منظم (مش نص عرض بس) - عشان نقدر نبني حقل إدخال بالوحدة الفرعية
-  const [conversionData, setConversionData] = useState<{ factor: number; subUnitSymbol: string } | null>(null)
+  // ✅ Fix حسب طلب المستخدم: الوحدة الأكبر (زي كرتون) تظهر دايمًا "أساسية" في أول حقل، والأصغر (زي كيس) دايمًا
+  // "فرعية" في تاني حقل - بغض النظر عن اتجاه التخزين الفعلي في قاعدة البيانات (unit_id). النظام يتولى تحويل
+  // القيمتين المدخلتين لوحدة التخزين الفعلية للصنف داخليًا وقت الحفظ بس، بدون ما يظهر ده للمستخدم خالص
+  const [conversionData, setConversionData] = useState<{ factor: number; bigUnitSymbol: string; smallUnitSymbol: string; storedUnitIsBig: boolean } | null>(null)
   const [editSubValue, setEditSubValue] = useState('')
 
   useEffect(() => {
@@ -94,7 +96,7 @@ export default function ItemMovementPage() {
   useEffect(() => {
     if (!selectedWarehouse) { setProducts([]); return }
     sb.from('warehouse_products')
-      .select('id,name,name_en,product_code,current_stock,warehouse_id,units(symbol)')
+      .select('id,name,name_en,product_code,current_stock,warehouse_id,unit_id,units(symbol)')
       .eq('warehouse_id', selectedWarehouse)
       .eq('is_active', true)
       .order('name')
@@ -160,8 +162,13 @@ export default function ItemMovementPage() {
       .then(({ data }: any) => {
         if (data) {
           setConversionNote(`1 ${data.units_from?.symbol || ''} = ${data.factor} ${data.units_to?.symbol || ''}`)
-          // ✅ جديد: نحفظ المعامل واسم الوحدة الفرعية بشكل منظم - عشان نبني حقل إدخال بالوحدة الفرعية في نافذة التصحيح
-          setConversionData({ factor: data.factor, subUnitSymbol: data.units_to?.symbol || '' })
+          // ✅ الوحدة الكبيرة (from) دايمًا أساسية، والصغيرة (to) دايمًا فرعية - بغض النظر عن التخزين الفعلي
+          setConversionData({
+            factor: data.factor,
+            bigUnitSymbol: data.units_from?.symbol || '',
+            smallUnitSymbol: data.units_to?.symbol || '',
+            storedUnitIsBig: p.unit_id === data.from_unit_id,
+          })
         } else {
           setConversionNote(null)
           setConversionData(null)
@@ -171,10 +178,20 @@ export default function ItemMovementPage() {
 
   async function saveCorrection() {
     if (!selectedProduct) return
-    const mainQty = parseFloat(editValue) || 0
-    // ✅ جديد: لو فيه وحدة فرعية ومُدخل ليها قيمة، نضيفها للكمية النهائية بعد تحويلها للوحدة الأساسية
-    const subQty = conversionData && editSubValue ? (parseFloat(editSubValue) || 0) / conversionData.factor : 0
-    const newVal = mainQty + subQty
+    // ✅ Fix: الحقل الأول دايمًا بالوحدة الكبيرة، والتاني دايمًا بالصغيرة - نحوّل الاتنين لوحدة التخزين
+    // الفعلية للصنف (اللي ممكن تكون أي وحدة منهم) عشان نحسب القيمة النهائية الصحيحة
+    const bigEntered = parseFloat(editValue) || 0
+    const smallEntered = parseFloat(editSubValue) || 0
+    let newVal: number
+    if (!conversionData) {
+      newVal = bigEntered
+    } else if (conversionData.storedUnitIsBig) {
+      // التخزين بالوحدة الكبيرة: الكبيرة تُضاف كما هي، الصغيرة تتحول بالقسمة على المعامل
+      newVal = bigEntered + (smallEntered / conversionData.factor)
+    } else {
+      // التخزين بالوحدة الصغيرة: الكبيرة تتحول بالضرب في المعامل، الصغيرة تُضاف كما هي
+      newVal = (bigEntered * conversionData.factor) + smallEntered
+    }
     if (isNaN(newVal)) { alert('يرجى إدخال قيمة صحيحة'); return }
     if (!editReason.trim()) { alert('يرجى إدخال سبب التصحيح'); return }
     setSaving(true)
@@ -195,14 +212,17 @@ export default function ItemMovementPage() {
     setEditSubValue('')
     setEditReason('')
     const { data: updated } = await sb.from('warehouse_products')
-      .select('id,name,name_en,product_code,current_stock,warehouse_id,units(symbol)')
+      .select('id,name,name_en,product_code,current_stock,warehouse_id,unit_id,units(symbol)')
       .eq('id', selectedProduct.id)
       .maybeSingle()
     if (updated) {
-      setSelectedProduct(updated as any)
       setProducts(prev => prev.map(p => p.id === updated.id ? (updated as any) : p))
-      fetchMovements(updated as any)
     }
+    // ✅ جديد: رجوع تلقائي لقائمة الأصناف بعد الحفظ (بدل الفضل على تفاصيل نفس الصنف) - الفرع والمستودع
+    // فاضلين محتفظ بيهم زي ما هما، فتقدر تختار الصنف اللي بعده على طول من غير أي إعادة اختيار خالص
+    alert('✅ تم حفظ التصحيح بنجاح')
+    setSelectedProduct(null)
+    setMovements([])
   }
 
   function printReport() {
@@ -389,14 +409,23 @@ export default function ItemMovementPage() {
                 <span style={{ fontSize: 12, color: S.muted }}>الكمية الحالية</span>
                 <span style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{selectedProduct.current_stock} <span style={{ color: S.gold, fontSize: 13 }}>{selectedProduct.units?.symbol}</span></span>
               </div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>الكمية الصحيحة الجديدة ({selectedProduct.units?.symbol}) *</label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>
+                الكمية الصحيحة الجديدة ({conversionData ? conversionData.bigUnitSymbol : selectedProduct.units?.symbol}) *
+              </label>
               <input style={inp} type="number" value={editValue} onChange={e => setEditValue(e.target.value)} placeholder="0" />
-              {/* ✅ جديد: حقل الوحدة الفرعية - يظهر بس لو الصنف له معامل تحويل مسجّل (زي 1 كرتون = 4 عبوة) */}
+              {/* ✅ Fix: الوحدة الكبيرة (زي كرتون) تظهر دايمًا أول حقل "أساسي"، والصغيرة (زي كيس) دايمًا تاني حقل "فرعي" -
+                  بغض النظر عن إن قاعدة البيانات بتخزّن الكمية بأي وحدة منهم فعليًا */}
               {conversionData && (
                 <>
-                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginTop: 12, marginBottom: 6 }}>+ بالوحدة الفرعية ({conversionData.subUnitSymbol})</label>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginTop: 12, marginBottom: 6 }}>+ بالوحدة الفرعية ({conversionData.smallUnitSymbol})</label>
                   <input style={inp} type="number" value={editSubValue} onChange={e => setEditSubValue(e.target.value)} placeholder="0" />
-                  <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>ℹ️ مثال: {editValue || 0} {selectedProduct.units?.symbol} + {editSubValue || 0} {conversionData.subUnitSymbol} = {(parseFloat(editValue || '0') + (parseFloat(editSubValue || '0') / conversionData.factor)).toFixed(2)} {selectedProduct.units?.symbol} إجمالي</div>
+                  <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>
+                    ℹ️ مثال: {editValue || 0} {conversionData.bigUnitSymbol} + {editSubValue || 0} {conversionData.smallUnitSymbol} = {(
+                      conversionData.storedUnitIsBig
+                        ? (parseFloat(editValue || '0') + (parseFloat(editSubValue || '0') / conversionData.factor))
+                        : ((parseFloat(editValue || '0') * conversionData.factor) + parseFloat(editSubValue || '0'))
+                    ).toFixed(2)} {selectedProduct.units?.symbol} إجمالي (وحدة التخزين الفعلية)
+                  </div>
                 </>
               )}
             </div>

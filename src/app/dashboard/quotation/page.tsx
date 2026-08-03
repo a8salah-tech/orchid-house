@@ -146,7 +146,7 @@ export default function QuotationPage() {
             <div><strong>Orchid KLCC</strong><br/>4, Lorong Yap Kwan Seng</div>
           </div>
           <div class="contact">
-            📧 info@malaysiaunis.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
+            📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
           </div>
         </div>
         <script>window.onload = () => window.print()</script>
@@ -287,7 +287,7 @@ export default function QuotationPage() {
           <div><strong style={{ color: S.white }}>Orchid KLCC</strong><br />4, Lorong Yap Kwan Seng</div>
         </div>
         <div style={{ fontSize: 13, color: S.white }}>
-          📧 info@malaysiaunis.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200" style={{ color: S.gold, textDecoration: 'none' }}>+60 10-441 0200</a>
+          📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200" style={{ color: S.gold, textDecoration: 'none' }}>+60 10-441 0200</a>
         </div>
       </div>
 

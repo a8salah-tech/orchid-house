@@ -904,6 +904,11 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
   const [newNotes, setNewNotes] = useState('')
   const [newItems, setNewItems] = useState<ExItem[]>([{ item_name: '', quantity: '', unit: '', notes: '' }])
   const [saving, setSaving] = useState(false)
+  // ✅ جديد: لوحة تعديل الكمية المستلمة فعليًا قبل تأكيد الاستلام - عشان الطرف المستلم يقدر
+  // يصحّح الكمية لو استلم أقل أو أكثر من المطلوب، بدل ما يتأكد الاستلام بنفس الكمية دايمًا
+  const [completingId, setCompletingId] = useState<string | null>(null)
+  const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({})
+  const [completingSaving, setCompletingSaving] = useState(false)
 
   // ✅ جديد: دالة مساعدة لإرسال إشعار لموظف محدد عند أي حركة في التبادل بين الفروع
   async function sendNotification(targetEmployeeId: string, title: string, body: string) {
@@ -995,6 +1000,38 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
     if (ex) await sendNotification(ex.requested_by, '🎉 تم إتمام طلب التبادل', 'تم إتمام واستلام طلب التبادل الذي أرسلته بالكامل')
     fetchAll()
   }
+  // ✅ جديد: فتح لوحة تعديل الكمية المستلمة لكل صنف قبل تأكيد الاستلام النهائي
+  function startCompleting(ex: any) {
+    setCompletingId(ex.id)
+    setReceivedQtys(Object.fromEntries((ex.items || []).map((it: any) => [it.id, it.quantity_received ?? it.quantity])))
+  }
+  function cancelCompleting() {
+    setCompletingId(null)
+    setReceivedQtys({})
+  }
+  // ✅ جديد: تأكيد الاستلام بعد تعديل الكميات - بيحفظ الكمية المستلمة فعليًا لكل صنف
+  // (بدل الاعتماد على الكمية المطلوبة الأصلية دايمًا)، وبعدين يكمل نفس منطق completeRequest
+  async function confirmComplete(ex: any) {
+    setCompletingSaving(true)
+    for (const it of (ex.items || [])) {
+      const receivedQty = receivedQtys[it.id] ?? it.quantity
+      await sb.from('inter_branch_exchange_items').update({ quantity_received: receivedQty }).eq('id', it.id)
+    }
+    await sb.from('inter_branch_exchanges').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', ex.id)
+    // ✅ جديد: لو فيه فرق بين المطلوب والمستلم في أي صنف، نوضّح ده في نص الإشعار
+    const discrepancies = (ex.items || []).filter((it: any) => (receivedQtys[it.id] ?? it.quantity) !== it.quantity)
+    await sendNotification(
+      ex.requested_by,
+      discrepancies.length > 0 ? '⚠️ تم إتمام طلب التبادل مع وجود فرق في الكمية' : '🎉 تم إتمام طلب التبادل',
+      discrepancies.length > 0
+        ? `تم إتمام واستلام طلب التبادل، لكن ${discrepancies.length} صنف اختلفت كميته المستلمة عن المطلوبة`
+        : 'تم إتمام واستلام طلب التبادل الذي أرسلته بالكامل'
+    )
+    setCompletingSaving(false)
+    setCompletingId(null)
+    setReceivedQtys({})
+    fetchAll()
+  }
   async function cancelRequest(id: string) {
     if (!confirm('إلغاء هذا الطلب؟')) return
     await sb.from('inter_branch_exchanges').update({ status: 'cancelled' }).eq('id', id)
@@ -1069,12 +1106,38 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
                   <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.icon} {st.label}</span>
                 </div>
                 <div style={{ padding: '12px 16px' }}>
-                  {(ex.items || []).map((it: any) => (
-                    <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-                      <span style={{ color: S.white }}>{it.item_name}</span>
-                      <span style={{ color: S.gold, fontWeight: 700 }}>{it.quantity} {it.unit}</span>
-                    </div>
-                  ))}
+                  {(ex.items || []).map((it: any) => {
+                    // ✅ جديد: لما تكون لوحة تعديل الاستلام مفتوحة لهذا الطلب، نعرض حقل رقمي
+                    // قابل للتعديل بدل الرقم الثابت، بحيث المستلم يقدر يصحّح الكمية الفعلية
+                    if (completingId === ex.id) {
+                      return (
+                        <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', fontSize: 13, gap: 8 }}>
+                          <span style={{ color: S.white, flex: 1 }}>{it.item_name}</span>
+                          <span style={{ color: S.muted, fontSize: 11 }}>المطلوب: {it.quantity} {it.unit}</span>
+                          <input type="number" min="0" value={receivedQtys[it.id] ?? it.quantity}
+                            onChange={e => setReceivedQtys(p => ({ ...p, [it.id]: parseFloat(e.target.value) || 0 }))}
+                            style={{ width: 70, textAlign: 'center', background: 'rgba(255,255,255,0.05)', border: `1px solid ${S.green}60`, borderRadius: 8, padding: '5px 6px', fontSize: 12, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'ltr' }} />
+                        </div>
+                      )
+                    }
+                    // ✅ جديد: بعد اكتمال الطلب، لو الكمية المستلمة تختلف عن المطلوبة، نعرض شارة واضحة
+                    // (نقص بالأحمر أو زيادة بالأخضر) بدل عرض الكمية المطلوبة فقط وكأن كل حاجة وصلت كاملة
+                    const hasReceivedInfo = ex.status === 'completed' && it.quantity_received !== null && it.quantity_received !== undefined
+                    const diff = hasReceivedInfo ? (it.quantity_received - it.quantity) : 0
+                    return (
+                      <div key={it.id} style={{ padding: '4px 0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                          <span style={{ color: S.white }}>{it.item_name}</span>
+                          <span style={{ color: S.gold, fontWeight: 700 }}>{it.quantity} {it.unit}</span>
+                        </div>
+                        {hasReceivedInfo && diff !== 0 && (
+                          <div style={{ fontSize: 11, fontWeight: 700, color: diff < 0 ? S.red : S.green, marginTop: 2 }}>
+                            {diff < 0 ? `⚠️ ناقص ${Math.abs(diff)} ${it.unit || ''} — استُلم ${it.quantity_received} فقط` : `🔺 زيادة ${diff} ${it.unit || ''} — استُلم ${it.quantity_received}`}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                   {ex.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 6 }}>📝 {ex.notes}</div>}
                 </div>
                 <div style={{ padding: '10px 16px', borderTop: `1px solid ${S.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1083,10 +1146,21 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
                       ✅ استلمت الطلب وسأقوم بتجهيزه
                     </button>
                   )}
-                  {isSender && ex.status === 'accepted' && (
-                    <button onClick={() => completeRequest(ex.id)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  {/* ✅ جديد: بدل التنفيذ المباشر، الزر بيفتح لوحة تعديل الكمية المستلمة أولًا */}
+                  {isSender && ex.status === 'accepted' && completingId !== ex.id && (
+                    <button onClick={() => startCompleting(ex)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                       ✅ استلمت الصنف
                     </button>
+                  )}
+                  {isSender && ex.status === 'accepted' && completingId === ex.id && (
+                    <>
+                      <button onClick={() => confirmComplete(ex)} disabled={completingSaving} style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        {completingSaving ? '⏳...' : '💾 تأكيد الكميات المستلمة'}
+                      </button>
+                      <button onClick={cancelCompleting} disabled={completingSaving} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                        إلغاء
+                      </button>
+                    </>
                   )}
                   {isSender && ex.status === 'pending' && (
                     <button onClick={() => cancelRequest(ex.id)} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: 'transparent', color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>

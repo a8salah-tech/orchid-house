@@ -127,6 +127,7 @@ export default function QuotationPage() {
         .header img { width:64px; height:64px; border-radius:50%; object-fit:cover; }
         h1 { font-size:20px; margin:0; color:#1a1a1a; }
         .sub { font-size:12px; color:#666; margin-top:2px; }
+        .company-info { font-size:10px; color:#888; margin-top:6px; line-height:1.5; }
         .meta { display:flex; justify-content:space-between; font-size:13px; margin-bottom:20px; }
         table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:20px; }
         th, td { border:1px solid #ccc; padding:8px 10px; }
@@ -150,6 +151,11 @@ export default function QuotationPage() {
           <div>
             <h1>Orchid House</h1>
             <div class="sub">${branchName} — Price Quotation</div>
+            <div class="company-info">
+              Company Name: ORCHID KEBAB GROUP SDN. BHD.<br/>
+              Business Registration No.: 202201021268 (1466965-K)<br/>
+              Tax Identification No. (TIN): C29826106050
+            </div>
           </div>
         </div>
         <div class="meta">
@@ -173,7 +179,7 @@ export default function QuotationPage() {
             <div><strong>Orchid KLCC</strong><br/>4, Lorong Yap Kwan Seng</div>
           </div>
           <div class="contact">
-            📧 info@malaysiaunis.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
+            📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
           </div>
         </div>
         <script>window.onload = () => window.print()</script>
@@ -193,6 +199,11 @@ export default function QuotationPage() {
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: S.gold, margin: 0 }}>Orchid House</h1>
           <div style={{ fontSize: 12, color: S.muted }}>Price Quotation</div>
+          <div style={{ fontSize: 10, color: S.muted, marginTop: 6, lineHeight: 1.5 }}>
+            Company Name: ORCHID KEBAB GROUP SDN. BHD.<br />
+            Business Registration No.: 202201021268 (1466965-K)<br />
+            Tax Identification No. (TIN): C29826106050
+          </div>
         </div>
       </div>
 
@@ -357,7 +368,7 @@ export default function QuotationPage() {
           <div><strong style={{ color: S.white }}>Orchid KLCC</strong><br />4, Lorong Yap Kwan Seng</div>
         </div>
         <div style={{ fontSize: 13, color: S.white }}>
-          📧 info@malaysiaunis.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200" style={{ color: S.gold, textDecoration: 'none' }}>+60 10-441 0200</a>
+          📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200" style={{ color: S.gold, textDecoration: 'none' }}>+60 10-441 0200</a>
         </div>
       </div>
 

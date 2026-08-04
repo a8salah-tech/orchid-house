@@ -184,9 +184,13 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
     // ✅ جديد: جلب كل معاملات التحويل عشان نستخدمها في قفل الوحدة المسموحة لكل صنف
     sb.from('unit_conversions').select('product_id, from_unit_id, to_unit_id, factor').then(({ data }) => setUnitConversions(data || []))
 
-    // متوسط الاستهلاك الشهري لكل صنف من حركات الصرف (out) خلال آخر 30 يوم
-    const since = new Date(); since.setDate(since.getDate() - 30)
-    sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since.toISOString().slice(0,10))
+    // ✅ Fix: الاستهلاك الشهري كان بيحسب آخر 30 يوم بالرجوع للخلف من تاريخ اليوم، فكانت الأرقام
+    // بتشمل حركات قديمة (بعضها كان متأثر بأخطاء التحويل القديمة قبل الإصلاحات). المطلوب:
+    // تصفير العداد والبدء من تاريخ اليوم بالتحديد، مع تراكم الاستهلاك من هذا التاريخ فصاعدًا
+    // في الأيام القادمة (تاريخ ثابت مقصود، وليس new Date() متحرّك، عشان العداد يتراكم فعليًا
+    // بدل ما يفضل يعرض "اليوم بس" كل مرة يعاد تحميل الصفحة)
+    const since = '2026-08-04'
+    sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since)
       .then(({ data }) => {
         const totals: Record<string, number> = {}
         for (const m of (data || [])) {
@@ -347,7 +351,6 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{item.product_name}</div>
-                      {!item.available_locally && <div style={{ fontSize: 10, color: S.amber, fontWeight: 700 }}>⚠️ غير متوفر محليًا — يحتاج تأكيد من أمين المستودع</div>}
                     </div>
                     <button onClick={() => setItems(p => p.filter((_,idx) => idx!==i))} style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11 }}>🗑️</button>
                   </div>
@@ -439,6 +442,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // ✅ Fix (جذري - مرحلة ١): نتحقق من كل الأصناف الأول من غير ما نخصم أي حاجة خالص
     // (كل شيء أو ولا حاجة - عشان مانخصمش لأصناف نجحت ثم نكتشف صنف فشل بعدهم فيفضل المخزون في حالة ناقصة)
     const failedItems: string[] = []
+    // ✅ جديد: أصناف اتحذفت نهائيًا (Soft Delete) من مستودع الفرع - بتظهر بس أثناء استكمال طلب
+    // معلّق (isResuming)؛ بنستبعدها بشكل دائم من الطلب بدل ما توقف الاستكمال أو تخلي الطلب
+    // يفضل "معلّق" للأبد في انتظار صنف مش هيرجع موجود تاني
+    const permanentlyGoneItems: { itemId: string; name: string }[] = []
     // ✅ جديد: أصناف الكمية المطلوبة فيها أكبر من المتاح فعليًا في المستودع - نوقف ونعرض تنبيه تفاعلي بدل ما نرفض الطلب كله
     const newShortfalls: { itemId: string; name: string; requestedInBase: number; available: number; unitSymbol: string }[] = []
     const plannedMovements: { product_id: string; warehouse_id: string; movement_type: 'out'; quantity: number; movement_date: string; notes: string }[] = []
@@ -464,12 +471,21 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
       if (itemName) {
         // ✅ Fix: نجيب كل أصناف المستودع ونقارن الأسماء بعد تنظيفها من المسافات الزايدة في الطرفين
         // (كان فيه أصناف متسجلة بمسافة زايدة في آخر الاسم، فالمطابقة الدقيقة .ilike كانت بتفشل وتمنع الاعتماد بالغلط)
+        // ✅ جديد: نستبعد الأصناف الموقّفة (is_active = false) من المطابقة - صنف محذوف حذفًا ناعمًا
+        // لازم يُعامل كأنه "غير موجود" فعليًا، مش يتم الخصم منه وكأنه لسه موجود
         const { data: candidates } = await sb.from('warehouse_products')
-          .select('id, unit_id, warehouse_id, name, current_stock, units(symbol)')
-          .eq('warehouse_id', wh.id)
+          .select('id, unit_id, warehouse_id, name, current_stock, units(symbol), is_active')
+          .eq('warehouse_id', wh.id).eq('is_active', true)
         wp = (candidates || []).find((c: any) => c.name.trim().toLowerCase() === itemName.trim().toLowerCase()) || null
       }
       if (!wp) {
+        // ✅ جديد: أثناء استكمال طلب معلّق تحديدًا، لو الصنف مش موجود (اتحذف نهائيًا)، نستبعده
+        // بشكل دائم من الطلب بدل ما نوقف الاستكمال بالكامل بسببه - عشان الطلب يقدر يترحّل
+        // لـ"معتمدة" لو باقي الأصناف تمام، بدل ما يفضل عالق في "معلّق" لصنف مش هيرجع موجود
+        if (isResuming) {
+          permanentlyGoneItems.push({ itemId: item.id, name: itemName || (item as any).product_id })
+          continue
+        }
         failedItems.push(`${itemName || (item as any).product_id} — لم يتم العثور على هذا الصنف في مستودع هذا الفرع`)
         continue
       }
@@ -574,8 +590,15 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     for (const itemId of cancelledItems) {
       await sb.from('internal_warehouse_request_items').update({ is_cancelled: true, quantity_approved: 0 }).eq('id', itemId)
     }
+    // ✅ جديد: الأصناف المحذوفة نهائيًا (اتحذفت من المستودع) تتعلّم مستبعدة بشكل دائم كمان،
+    // لكن عمدًا لا تُحسب ضمن شرط "معلّق" تحت - عشان الطلب يقدر يترحّل لـ"معتمدة" حتى لو
+    // فيه صنف ميت مش هيرجع موجود تاني، بدل ما يفضل عالق في "معلّق" للأبد
+    for (const g of permanentlyGoneItems) {
+      await sb.from('internal_warehouse_request_items').update({ is_cancelled: true, quantity_approved: 0 }).eq('id', g.itemId)
+    }
 
-    // 3) تحديث حالة الطلب - "معلّق" لو تم استبعاد صنف واحد على الأقل (يدويًا أو بسبب رفض التريجر)، وإلا "معتمدة" بالكامل
+    // 3) تحديث حالة الطلب - "معلّق" لو تم استبعاد صنف واحد على الأقل يدويًا أو بسبب رفض التريجر
+    // (الأصناف المحذوفة نهائيًا لا تُحسب هنا عمدًا - انظر التعليق فوق)، وإلا "معتمدة" بالكامل
     const finalStatus = (cancelledItems.size > 0 || raceFailures.length > 0) ? 'partial' : 'approved'
     await sb.from('internal_warehouse_requests').update({
       status: finalStatus, approved_by: actionBy, approved_at: new Date().toISOString(),
@@ -587,6 +610,14 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         '⚠️ تعذّر خصم الأصناف التالية لأن الرصيد تغيّر أثناء عملية الاعتماد (على الأرجح تم اعتماد طلب آخر لنفس الصنف في نفس اللحظة تقريبًا):\n\n' +
         raceFailures.map(f => `• ${f.name} — ${f.error}`).join('\n') +
         '\n\nتم اعتماد باقي الأصناف بنجاح. يرجى مراجعة الرصيد الحالي لهذه الأصناف وإعادة تقديم طلب جديد لها إذا لزم الأمر.'
+      )
+    }
+    // ✅ تنبيه واضح لو تم استبعاد صنف نهائيًا لأنه محذوف من المستودع
+    if (permanentlyGoneItems.length > 0) {
+      alert(
+        'ℹ️ تم استبعاد الأصناف التالية بشكل دائم من هذا الطلب لأنها لم تعد موجودة في مستودع الفرع (تم حذفها):\n\n' +
+        permanentlyGoneItems.map(g => `• ${g.name}`).join('\n') +
+        (finalStatus === 'approved' ? '\n\nتم اعتماد باقي الطلب بنجاح.' : '')
       )
     }
 

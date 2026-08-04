@@ -24,6 +24,13 @@ const S = {
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
+// ✅ عرض عمودي "الرقم الوظيفي" و"الاسم" المثبّتين (Sticky) في جدول الرواتب — يُستخدمان في الهيدر والصفوف معاً
+const ID_COL_W = 64
+const NAME_COL_W = 190
+// ✅ لون خلفية الصف عند تحديده (يجب أن يكون صلباً/Opaque في الأعمدة المثبّتة حتى لا يظهر تداخل مع الأعمدة الأخرى أثناء التمرير الأفقي)
+const SELECTED_ROW_BG = '#152E59'
+const SELECTED_ROW_BG_TRANSLUCENT = 'rgba(59,130,246,0.14)'
+
 const inp: React.CSSProperties = {
   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
   borderRadius: 8, padding: '6px 10px', fontSize: 12, color: '#FAFAF8',
@@ -141,12 +148,14 @@ function Cell({ value, onChange, readOnly = false }: { value: any; onChange: (v:
   )
 }
 
-function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false }: {
+function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false, selected = false, onSelect }: {
   record: PayrollRecord
   empMap: Record<string, Employee>
   onChange: (updated: PayrollRecord) => void
   onOpenPayslip: (record: PayrollRecord) => void
   readOnly?: boolean
+  selected?: boolean
+  onSelect?: () => void
 }) {
   const emp  = empMap[record.employee_id]
   const calc = calcRecord(record)
@@ -155,12 +164,17 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false 
     padding: '6px 8px', fontSize: 11, color: S.white,
     background: 'rgba(255,255,255,0.02)', border: `1px solid ${S.border}`, whiteSpace: 'nowrap',
   }
+  // ✅ خلفية صلبة (Opaque) للعمودين المثبّتين، تتغيّر عند تحديد الصف
+  const stickyBg = selected ? SELECTED_ROW_BG : S.navy3
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
-    <tr>
-      <td style={{ ...thStyle, color: S.muted, textAlign: 'center', minWidth: 30 }}>{emp?.employee_number || '—'}</td>
-      <td style={{ ...thStyle, minWidth: 160, cursor: 'pointer' }} onClick={() => onOpenPayslip(record)} title="اضغط لعرض تقرير الراتب التفصيلي">
+    <tr
+      onClick={onSelect}
+      style={{ cursor: onSelect ? 'pointer' : undefined, background: selected ? SELECTED_ROW_BG_TRANSLUCENT : undefined }}
+    >
+      <td style={{ ...thStyle, color: S.muted, textAlign: 'center', position: 'sticky', right: 0, zIndex: 2, width: ID_COL_W, minWidth: ID_COL_W, background: stickyBg }}>{emp?.employee_number || '—'}</td>
+      <td style={{ ...thStyle, cursor: 'pointer', position: 'sticky', right: ID_COL_W, zIndex: 2, width: NAME_COL_W, minWidth: NAME_COL_W, background: stickyBg }} onClick={e => { e.stopPropagation(); onOpenPayslip(record) }} title="اضغط لعرض تقرير الراتب التفصيلي">
         <div style={{ fontWeight: 700, color: S.gold, fontSize: 12, textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
           {emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}
         </div>
@@ -341,6 +355,8 @@ export default function PayrollPage() {
   const [newMonth,      setNewMonth]      = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() })
   const [search,        setSearch]        = useState('')
   const [payslipRecord, setPayslipRecord] = useState<PayrollRecord | null>(null)
+  // ✅ الموظف المحدد حالياً في الجدول (لتمييزه بلون مختلف)
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
 
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -636,6 +652,10 @@ export default function PayrollPage() {
     position: 'sticky', top: 0, zIndex: 10,
   }
   const thGroupStyle = (color: string): React.CSSProperties => ({ ...thStyle, background: color, fontSize: 9 })
+  // ✅ رؤوس الأعمدة المثبّتة أفقياً أيضاً (ID / Name) — zIndex أعلى عشان تفضل فوق باقي الرؤوس والصفوف وقت التمرير الأفقي
+  const stickyIdHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: 0, zIndex: 20, width: ID_COL_W, minWidth: ID_COL_W }
+  const stickyNameHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: ID_COL_W, zIndex: 20, width: NAME_COL_W, minWidth: NAME_COL_W }
+  const stickyGroupHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: 0, zIndex: 20, width: ID_COL_W + NAME_COL_W, minWidth: ID_COL_W + NAME_COL_W }
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   // حماية الصفحة — أي شخص يحاول الوصول يشوف راتبه فقط
@@ -864,7 +884,7 @@ export default function PayrollPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 2000 }}>
                   <thead>
                     <tr>
-                      <th colSpan={2} style={thStyle}>Employee</th>
+                      <th colSpan={2} style={stickyGroupHeaderStyle}>Employee</th>
                       <th colSpan={4} style={thGroupStyle('rgba(201,168,76,0.3)')}>Basic Info</th>
                       <th colSpan={6} style={thGroupStyle('rgba(34,197,94,0.2)')}>Earnings</th>
                       <th style={thGroupStyle('rgba(34,197,94,0.35)')}>Total Earnings</th>
@@ -876,8 +896,8 @@ export default function PayrollPage() {
                       <th style={thGroupStyle('rgba(139,92,246,0.2)')}>Work Ins.</th>
                     </tr>
                     <tr>
-                      <th style={thStyle}>ID</th>
-                      <th style={thStyle}>Name</th>
+                      <th style={stickyIdHeaderStyle}>ID</th>
+                      <th style={stickyNameHeaderStyle}>Name</th>
                       <th style={thStyle}>Basic Salary</th>
                       <th style={thStyle}>Insurance</th>
                       <th style={thStyle}>Daily Rate</th>
@@ -916,6 +936,8 @@ export default function PayrollPage() {
                         readOnly={!isAdmin}
                         onOpenPayslip={setPayslipRecord}
                         onChange={updated => setRecords(prev => prev.map(p => p.employee_id === updated.employee_id ? updated : p))}
+                        selected={r.employee_id === selectedEmployeeId}
+                        onSelect={() => setSelectedEmployeeId(prev => prev === r.employee_id ? null : r.employee_id)}
                       />
                     ))}
                     <tr style={{ background: 'rgba(201,168,76,0.1)', fontWeight: 800 }}>

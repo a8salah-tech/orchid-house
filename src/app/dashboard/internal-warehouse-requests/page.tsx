@@ -73,7 +73,7 @@ interface InternalRequest {
   branches?: { name: string }
   internal_warehouse_request_items?: {
     id: string; quantity_requested: number; quantity_approved?: number
-    notes?: string
+    notes?: string; is_cancelled?: boolean
     warehouse_products?: { name: string; name_en?: string }
     units?: { symbol: string }
   }[]
@@ -197,6 +197,34 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   }, [])
 
   const currentDeptProducts = allDeptProducts[activeDeptTab] || []
+  // ✅ جديد: تنسيق الاستهلاك الشهري بالوحدة الأساسية والوحدة الفرعية (زي كرتون + عبوة)
+  // بدل رقم عشري طويل غير مقروء (مثال: 0.2454542154515) وبدل عرض المخزون المحلي نهائيًا
+  // (تمت إزالة عرض المخزون بناءً على طلب المستخدم - الاستهلاك الشهري بس هو المطلوب هنا)
+  function formatConsumption(p: any) {
+    const total = monthlyConsumption[p.id] || 0
+    const directConv = unitConversions.find((c: any) => c.product_id === p.id && c.from_unit_id === p.unit_id)
+    const fallbackConv = unitConversions.find((c: any) => c.product_id === p.id)
+    const conv = directConv || fallbackConv
+    const baseUnitSymbol = p.units?.symbol || ''
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return `${Math.round(total * 100) / 100} ${baseUnitSymbol}`
+    }
+    const factor = conv.factor
+    const storedInBig = conv.from_unit_id === p.unit_id
+    let bigQty: number, smallQty: number
+    if (storedInBig) {
+      bigQty = Math.floor(total)
+      smallQty = Math.round((total - bigQty) * factor * 100) / 100
+    } else {
+      bigQty = Math.floor(total / factor)
+      smallQty = Math.round((total % factor) * 100) / 100
+    }
+    const bigUnitSym = (units.find((u: any) => u.id === conv.from_unit_id) as any)?.symbol || baseUnitSymbol
+    const smallUnitSym = (units.find((u: any) => u.id === conv.to_unit_id) as any)?.symbol || baseUnitSymbol
+    if (bigQty === 0 && smallQty !== 0) return `${smallQty} ${smallUnitSym}`
+    if (smallQty === 0) return `${bigQty} ${bigUnitSym}`
+    return `${bigQty} ${bigUnitSym} و ${smallQty} ${smallUnitSym}`
+  }
   // ✅ جديد: الوحدات المسموحة لصنف معيّن = وحدته الأساسية + أي وحدة فرعية مسجّل لها معامل تحويل حقيقي لنفس الصنف
   // عشان نمنع مقدّم الطلب من اختيار وحدة عشوائية غلط زي ما كان بيحصل قبل كده
   function validUnitsForProduct(productId: string, baseUnitId?: string) {
@@ -300,11 +328,8 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                       </div>
                       {isSelected && <span style={{ color: S.gold, fontSize: 13 }}>✓</span>}
                     </div>
-                    {!availableLocally && (
-                      <div style={{ fontSize: 9, color: S.amber, fontWeight: 700, marginBottom: 3 }}>⚠️ غير متوفر محليًا</div>
-                    )}
                     <div style={{ fontSize: 10, color: S.muted }}>
-                      📦 المخزون: {availableLocally ? (p.current_stock ?? 0) : '—'} {p.units?.symbol} · 📊 استهلاك شهري: {(monthlyConsumption[p.id] || 0).toFixed(0)} {p.units?.symbol}
+                      📊 استهلاك شهري: {formatConsumption(p)}
                     </div>
                   </div>
                 )
@@ -393,6 +418,11 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   const role = currentEmployee?.role || ''
 
   const canApprove = ['warehouse_keeper','warehouse_manager'].includes(role) && request.status === 'pending'
+  // ✅ جديد: السماح باستكمال طلب "معلّق" (partial) عشان أمين المستودع يحاول يعتمد الأصناف
+  // المستبعدة فقط تاني (لو وصل المخزون) - متغيّر منفصل عمدًا عن canApprove عشان مايأثرش
+  // على أي مكان تاني بيستخدم canApprove (زي زر الرفض) بدون قصد
+  const canResume = ['warehouse_keeper','warehouse_manager'].includes(role) && request.status === 'partial'
+  const isResuming = request.status === 'partial'
 
   async function approve() {
     if (!actionBy.trim()) { alert('يرجى إدخال اسمك'); return }
@@ -417,6 +447,11 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     for (const item of (request.internal_warehouse_request_items || [])) {
       // ✅ جديد: تجاهل أي صنف تم استبعاده يدويًا من أمين المستودع بالكامل
       if (cancelledItems.has(item.id)) continue
+      // ✅ Fix حرج جدًا: لو الطلب "معلّق" (استكمال بعد استبعاد جزئي)، نتجاهل تمامًا أي صنف
+      // ليس مستبعدًا حاليًا في قاعدة البيانات (يعني اتخصم بنجاح في المحاولة السابقة) - عشان
+      // لا نعيد خصمه مرة ثانية ونسبب خصمًا مضاعفًا لنفس الصنف. فقط الأصناف اللي لسه
+      // is_cancelled = true هي اللي تُعاد محاولتها.
+      if (isResuming && (item as any).is_cancelled !== true) continue
 
       const requestedQty = approvedQtys[item.id] ?? item.quantity_requested
       // ✅ Fix (نهائي وبسيط): ندور على الصنف بالاسم في مستودع الفرع اللي طالب
@@ -483,7 +518,9 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         notes: `طلب مستودع داخلي #${request.request_number} — ${request.department}`,
       })
       // ✅ إضافة: تحديث الوحدة كذلك لو أمين المستودع صحّحها، بالإضافة للكمية المعتمدة كما كان
-      const updatePayload: any = { quantity_approved: requestedQty }
+      // ✅ جديد: نصفّر is_cancelled دائمًا هنا (حتى لو أصلاً false) - مهم بشكل خاص عند نجاح
+      // إعادة محاولة صنف كان مستبعدًا سابقًا، عشان الشارة والحالة يتحدّثوا صح بعد النجاح
+      const updatePayload: any = { quantity_approved: requestedQty, is_cancelled: false }
       if (editedUnits[item.id] && editedUnits[item.id] !== (item as any).unit_id) {
         updatePayload.unit_id = editedUnits[item.id]
       }
@@ -634,7 +671,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
                   {isExcluded && <div style={{ fontSize: 11, color: S.red, fontWeight: 700, marginTop: 3 }}>🚫 مستبعد من هذا الاعتماد</div>}
                 </div>
                 <div style={{ textAlign: 'left', flexShrink: 0 }}>
-                  {canApprove && !isExcluded ? (
+                  {/* ✅ جديد: أثناء استكمال طلب معلّق (isResuming)، عناصر التحكم (الكمية/الوحدة/الاستبعاد)
+                      تظهر فقط للأصناف المستبعدة فعليًا (is_cancelled === true) - أي صنف اتخصم بنجاح
+                      من قبل يفضل بعرض للقراءة فقط ولا يظهر له أي زر تعديل نهائيًا */}
+                  {(canApprove || (canResume && (item as any).is_cancelled === true)) && !isExcluded ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <input type="number" min="0" value={approvedQtys[item.id] ?? item.quantity_requested}
                         onChange={e => setApprovedQtys(p => ({ ...p, [item.id]: parseFloat(e.target.value) || 0 }))}
@@ -650,7 +690,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
                         🚫
                       </button>
                     </div>
-                  ) : isExcluded && canApprove ? (
+                  ) : isExcluded && (canApprove || canResume) ? (
                     <button onClick={() => setCancelledItems(prev => { const next = new Set(prev); next.delete(item.id); return next })}
                       style={{ background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 8, color: S.muted, cursor: 'pointer', fontSize: 11, padding: '6px 10px', fontFamily: 'Tajawal, sans-serif' }}>
                       ↩️ تراجع عن الاستبعاد
@@ -659,7 +699,7 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
                     <div style={{ fontSize: 13, fontWeight: 700, color: S.blue }}>{item.quantity_requested} {item.units?.symbol}</div>
                   )}
                   {(item.quantity_approved||0) > 0 && (request.status === 'approved' || request.status === 'partial') && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>تم خصم: {item.quantity_approved} {item.units?.symbol}</div>}
-                  {(item as any).is_cancelled && <div style={{ fontSize: 11, color: S.red, marginTop: 4 }}>🚫 تم استبعاده من الطلب</div>}
+                  {(item as any).is_cancelled && <div style={{ fontSize: 11, color: S.red, marginTop: 4 }}>🚫 تم استبعاده من الطلب{canResume ? ' — يمكن إعادة المحاولة أعلاه' : ''}</div>}
                 </div>
               </div>
             </div>
@@ -711,23 +751,29 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         {request.status === 'partial' && (
           <div style={{ background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: S.amber, fontWeight: 700 }}>⏸️ معلّق — تم اعتماد وخصم الأصناف المتاحة فقط بواسطة {request.approved_by}، واستُبعد صنف أو أكثر لعدم توفر الكمية</div>
+            {canResume && <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>يمكنك تعديل الكمية/الوحدة للأصناف المستبعدة أعلاه ثم الضغط على "استكمال الطلب المعلّق" أدناه لإعادة المحاولة.</div>}
           </div>
         )}
 
         {/* Actions */}
-        {canApprove && !showReject && (
+        {/* ✅ جديد: القسم ده بيظهر دلوقتي كمان لما يكون الطلب "معلّق" (canResume) - عشان أمين
+            المستودع يقدر يعيد محاولة اعتماد الأصناف المستبعدة بس، مع إخفاء زر الرفض في هذه
+            الحالة لأن رفض طلب اتخصم منه جزء فعليًا مش منطقي ولا آمن */}
+        {(canApprove || canResume) && !showReject && (
           <div style={{ background: S.card, borderRadius: 12, padding: 14, marginBottom: 14 }}>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>اسمك (أمين المستودع) *</label>
             <input style={{ ...inp, marginBottom: 12 }} value={actionBy} onChange={e => setActionBy(e.target.value)} placeholder="أدخل اسمك..." />
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={approve} disabled={updating}
                 style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                {updating ? '⏳...' : '✅ موافقة وخصم من المخزون'}
+                {updating ? '⏳...' : (isResuming ? '🔄 استكمال الطلب المعلّق' : '✅ موافقة وخصم من المخزون')}
               </button>
-              <button onClick={() => setShowReject(true)} disabled={updating}
-                style={{ padding: '10px 16px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                ❌ رفض
-              </button>
+              {!isResuming && (
+                <button onClick={() => setShowReject(true)} disabled={updating}
+                  style={{ padding: '10px 16px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  ❌ رفض
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -780,7 +826,7 @@ export default function InternalWarehouseRequestsPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const { data } = await sb.from('internal_warehouse_requests')
-      .select('*, branches(name), internal_warehouse_request_items(id,product_id,quantity_requested,quantity_approved,unit_id,notes,warehouse_products(name,name_en),units(symbol))')
+      .select('*, branches(name), internal_warehouse_request_items(id,product_id,quantity_requested,quantity_approved,unit_id,notes,is_cancelled,warehouse_products(name,name_en),units(symbol))')
       .order('created_at', { ascending: false })
     setRequests(data || [])
     setLoading(false)

@@ -42,7 +42,7 @@ const createClient = () => createBrowserClient(
 
 const S = {
   navy: '#FFFFFF', navy2: '#FFFFFF', navy3: '#EAF6F4',
-  gold: '#14B8A6', gold2: '#2DD4BF', gold3: 'rgba(20,184,166,0.12)', goldB: 'rgba(20,184,166,0.22)',
+  gold: '#1E3A8A', gold2: '#3B5BC7', gold3: 'rgba(30,58,138,0.12)', goldB: 'rgba(30,58,138,0.22)',
   white: '#0B2B33', muted: '#6B8389', border: 'rgba(15,60,60,0.12)',
   green: '#22C55E', greenB: 'rgba(34,197,94,0.12)',
   red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
@@ -102,6 +102,8 @@ type Order = {
   order_items: OrderItem[]
 }
 type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; or_code?: string; menu_categories?: { name: string } | { name: string }[]
+  // ✅ جديد: هل الصنف لسه مفعّل في المنيو (مش محذوف)؟ - nullable لأن صفوف قديمة ممكن ماتبقاش مسجّلة له قيمة أصلًا
+  is_active?: boolean | null
   // ✅ جديد: أنواع/أحجام الصنف (زي أنواع الشيشة المختلفة) - كانت مفقودة تمامًا من واجهة الكاشير
   sizes?: { id: string; name: string; name_en?: string; price: number; is_active: boolean }[] }
 type Category = { id: string; name: string; name_en: string }
@@ -162,6 +164,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       })
   }, [isAdminUser, order.table_id])
   const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'free'>('cash')
+  // ✅ جديد: المبلغ اللي العميل دفعه كاش - لحساب الباقي (Change Due) تلقائيًا
+  const [cashReceived, setCashReceived] = useState('')
   // ✅ جديد: تحديد البنك لما تكون طريقة الدفع فيزا - عشان تقرير اليومية يقدر يفرّق بين البنكين
   const [cardBank, setCardBank] = useState<'maybank' | 'bsn' | ''>('')
   const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
@@ -272,6 +276,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
   const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : afterDiscount * SERVICE_CHARGE_RATE
   const sst = discountType === 'free' ? 0 : afterDiscount * SST_RATE
   const total = afterDiscount + serviceCharge + sst
+  // ✅ جديد: الباقي المطلوب إرجاعه للعميل لو دفع كاش أكتر من قيمة الفاتورة
+  const cashReceivedNum = parseFloat(cashReceived) || 0
+  const changeDue = Math.max(0, cashReceivedNum - total)
 
   // ✅ helper: الكمية المخصصة لشخص معين من صنف معين
   function getPersonQty(itemId: string, personIdx: number): number {
@@ -531,7 +538,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     <div class="row"><span>Order #:</span><span>${order.id.slice(-6).toUpperCase()}</span></div>
     <div class="line"></div>
     ${order.order_items.filter(i => i.status !== 'cancelled').map(i => `
-    <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name}${i.size_name ? ' (' + i.size_name + ')' : ''} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
+    <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}${i.size_name ? ' (' + i.size_name + ')' : ''} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
     ${i.notes ? `<div style="font-size:10px;color:#666;padding-right:10px">* ${i.notes}</div>` : ''}
     `).join('')}
     <div class="line"></div>
@@ -545,6 +552,10 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     <div class="row bold big"><span>TOTAL</span><span>MYR ${total.toFixed(2)}</span></div>
     <div class="line"></div>
     <div class="row"><span>Payment</span><span>${discountType === 'free' ? 'COMPLIMENTARY' : method.toUpperCase()}</span></div>
+    ${method === 'cash' && discountType !== 'free' && cashReceivedNum >= total && cashReceived.trim() !== '' ? `
+    <div class="row"><span>Cash Received</span><span>MYR ${cashReceivedNum.toFixed(2)}</span></div>
+    <div class="row bold"><span>Change Due</span><span>MYR ${changeDue.toFixed(2)}</span></div>
+    ` : ''}
     <div class="line"></div>
     <div class="center" style="font-size:10px;margin-top:10px">
       Thank you for dining with us!<br>
@@ -586,11 +597,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                     <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
                       {/* ✅ Fix: الكود أولًا ثم الاسم بجانبه مباشرة - نفس ترتيب "#246 Cafe Latte" */}
                       {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
-                      <span>{i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                      <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                     </span>
                     <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
                   </div>
-                  {i.notes && <div style={{ fontSize: 11, color: S.amber, marginTop: 2 }}>📝 {i.notes}</div>}
+                  {i.notes && <div style={{ fontSize: 11, color: S.gold, marginTop: 2 }}>📝 {i.notes}</div>}
                   {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginTop: 2 }}>❌ Cancelled: {i.cancel_reason}</div>}
                 </div>
               ))}
@@ -691,6 +702,24 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                 </button>
               ))}
             </div>
+            {/* ✅ جديد: لما الدفع كاش - نطلب المبلغ المستلم من العميل ونحسب الباقي تلقائيًا */}
+            {method === 'cash' && (
+              <div style={{ marginTop: 8 }}>
+                <input type="number" value={cashReceived} onChange={e => setCashReceived(e.target.value)}
+                  placeholder="💵 Amount received from customer (MYR)"
+                  style={{ ...inp, width: '100%' }} />
+                {cashReceived.trim() !== '' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '10px 14px', borderRadius: 10, background: cashReceivedNum < total ? S.redB : S.greenB, border: `1px solid ${cashReceivedNum < total ? S.red : S.green}40` }}>
+                    <span style={{ fontSize: 12, color: cashReceivedNum < total ? S.red : S.green, fontWeight: 700 }}>
+                      {cashReceivedNum < total ? '⚠️ Insufficient Amount' : '💰 Change Due'}
+                    </span>
+                    <span style={{ fontSize: 16, fontWeight: 900, color: cashReceivedNum < total ? S.red : S.green }}>
+                      {cashReceivedNum < total ? `MYR ${(total - cashReceivedNum).toFixed(2)} short` : `MYR ${changeDue.toFixed(2)}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             {/* ✅ جديد: اختيار البنك إجباري لما تكون فيزا */}
             {method === 'visa' && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 8 }}>
@@ -751,7 +780,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                         if (maxForThisPerson <= 0 && myQty === 0) return null // اتاخدت بالكامل من ناس تانيين
                         return (
                           <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: `1px solid ${S.border}` }}>
-                            <span style={{ fontSize: 11, color: S.white, flex: 1 }}>{item.menu_items?.name_en || item.menu_items?.name} <span style={{ color: S.muted }}>(×{item.quantity} total)</span></span>
+                            <span style={{ fontSize: 11, color: S.white, flex: 1 }}>{item.menu_items?.name_en || item.menu_items?.name || '⚠️ Removed Item'} <span style={{ color: S.muted }}>(×{item.quantity} total)</span></span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <button onClick={() => setPersonItemQty(prev => ({ ...prev, [`${item.id}::${p.idx}`]: Math.max(0, myQty - 1) }))}
                                 disabled={myQty <= 0}
@@ -823,7 +852,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                       if (e.target.checked) next.add(item.id); else next.delete(item.id)
                       return next
                     })} />
-                  <span style={{ fontSize: 12, color: S.white }}>{item.menu_items?.name_en || item.menu_items?.name} ×{item.quantity} — MYR {(item.unit_price * item.quantity).toFixed(2)}</span>
+                  <span style={{ fontSize: 12, color: S.white }}>{item.menu_items?.name_en || item.menu_items?.name || '⚠️ Removed Item'} ×{item.quantity} — MYR {(item.unit_price * item.quantity).toFixed(2)}</span>
                 </label>
               ))}
             </div>
@@ -891,6 +920,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                 : <>Confirm payment of <span style={{ color: S.gold, fontWeight: 800 }}>MYR {total.toFixed(2)}</span> via <span style={{ color: S.gold, fontWeight: 800 }}>{discountType === 'free' ? 'Complimentary (Free)' : method.toUpperCase()}</span>?</>
               }
             </div>
+            {method === 'cash' && discountType !== 'free' && cashReceived.trim() !== '' && cashReceivedNum >= total && (
+              <div style={{ color: S.green, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>💰 Change Due: MYR {changeDue.toFixed(2)}</div>
+            )}
             <div style={{ color: S.red, fontSize: 11, marginBottom: 22 }}>This will close the table and cannot be undone.</div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setConfirmAction(null)} style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -931,10 +963,14 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
   useEffect(() => {
     Promise.all([
       sb.from('menu_categories').select('id,name,name_en').eq('is_active', true).order('sort_order'),
-      sb.from('menu_items').select('id,name,name_en,price,category_id,or_code,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('name'),
+      // ✅ Fix حرج: الاستعلام القديم كان بيفلتر بـ is_available بس، وده مكنش كافي - أصناف اتحذفت من المنيو (is_active: false)
+      // كانت لسه بتظهر في شاشة "Add Order" بتاعة الكاشير طالما is_available فضلت true، فكان ممكن الكاشير يضيف صنف محذوف بالغلط
+      sb.from('menu_items').select('id,name,name_en,price,category_id,or_code,is_active,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('name'),
     ]).then(([cats, itms]) => {
       setCategories(cats.data || [])
-      setItems(itms.data || [])
+      // ✅ نستبعد بس الأصناف اللي اتحدد لها is_active = false صراحةً (يعني اتحذفت فعلًا)
+      // ونسيب أي صنف قيمته null/undefined (صفوف قديمة قبل إضافة العمود) زي ما هو، عشان ما نخفيش أصناف سليمة بالغلط
+      setItems(((itms.data || []) as any[]).filter(i => i.is_active !== false))
     })
   }, [])
 
@@ -1104,7 +1140,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
                   {/* ✅ Fix: نعرض الكود أولًا ثم اسم النوع/الحجم المختار - نفس ترتيب "#246 Cafe Latte" */}
                   <span style={{ color: S.white, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {c.item.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{c.item.or_code}</span>}
-                    <span>{c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} ×{c.qty}</span>
+                    <span>{c.item.name_en || c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} ×{c.qty}</span>
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ color: S.gold }}>MYR {((c.selectedSize?.price ?? c.item.price) * c.qty).toFixed(2)}</span>
@@ -1232,7 +1268,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
         <td>${i + 1}</td>
         <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
         <td>#${o.id.slice(-6).toUpperCase()}</td>
-        <td>${o.order_items?.map(i => (i.menu_items?.name_en || i.menu_items?.name) + ' ×' + i.quantity).join(', ')}</td>
+        <td>${o.order_items?.map(i => (i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item') + ' ×' + i.quantity).join(', ')}</td>
         <td>${o.payment_method?.toUpperCase() || '—'}</td>
         <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : '—'}</td>
         <td>${o.service_charge > 0 ? 'MYR ' + o.service_charge.toFixed(2) : '—'}</td>
@@ -1255,7 +1291,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
       .summary-box { border: 1px solid #ddd; border-radius: 8px; padding: 10px; text-align: center; }
       .summary-box .label { font-size: 10px; color: #666; margin-bottom: 4px; }
       .summary-box .value { font-size: 16px; font-weight: bold; color: #000; }
-      .total-row { background: #C9A84C !important; font-weight: bold; color: #000; }
+      .total-row { background: #1E3A8A !important; font-weight: bold; color: #fff; }
       @media print { @page { size: A4 landscape; margin: 10mm; } }
     </style></head><body>
     <h2>🌸 Orchid House — Shift Report</h2>
@@ -1474,6 +1510,12 @@ export default function CashierPage() {
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(false)
+  // ✅ جديد: بيانات تاب "Closed" - كل العمليات المقفولة (مدفوعة/ملغية) لليوم الحالي بتوقيت ماليزيا + جلسات الشيفتات (الكاشير، بداية/نهاية الشيفت)
+  // المطعم شغال 24 ساعة، فبيانات هذا التاب تتصفّر يوميًا تلقائيًا لأنها تجيب بيانات "اليوم الحالي" فقط
+  const [closedOrders, setClosedOrders] = useState<Order[]>([])
+  const [closedSessions, setClosedSessions] = useState<{ id: string; shift: string; cashier_name: string; started_at: string; ended_at: string | null; branch_id: string | null }[]>([])
+  const [closedLoading, setClosedLoading] = useState(false)
+  const [closedFetched, setClosedFetched] = useState(false)
 
 
   // Init notifications + restore sound state
@@ -1573,6 +1615,8 @@ export default function CashierPage() {
   const [archiveResults, setArchiveResults] = useState<Order[]>([])
   const [archiveLoading, setArchiveLoading] = useState(false)
   const [archiveSearched, setArchiveSearched] = useState(false)
+  // ✅ جديد: الفاتورة المختارة من الأرشيف لعرض تفاصيلها الكاملة في مودال بمنتصف الشاشة
+  const [archiveDetailOrder, setArchiveDetailOrder] = useState<Order | null>(null)
 
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
@@ -1673,6 +1717,33 @@ export default function CashierPage() {
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
+
+  // ✅ جديد: جلب كل العمليات المقفولة (مدفوعة/ملغية) لليوم الحالي بتوقيت ماليزيا، بالإضافة لجلسات الشيفت (الكاشير، وقت البداية/النهاية)
+  const fetchClosedData = useCallback(async () => {
+    setClosedLoading(true)
+    const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const { data: oData } = await sb.from('orders').select(SEL_CLOSED).in('status', ['paid', 'cancelled'])
+      .gte('created_at', `${todayMY}T00:00:00`).lt('created_at', `${todayMY}T23:59:59.999`)
+      .order('created_at', { ascending: false })
+    let results = (oData as any as Order[]) || []
+    // ✅ نقصر النتيجة على الطاولات المسموح بها لهذا المستخدم (نفس منطق fetchAll)، وعلى فرع الأدمن المختار لو محدد
+    const allowedIds = new Set(tables.map(t => t.id))
+    results = results.filter(o => allowedIds.has(o.table_id))
+    if (isAdmin && adminBranchFilter) {
+      results = results.filter(o => tables.find(t => t.id === o.table_id)?.branch_id === adminBranchFilter)
+    }
+    setClosedOrders(results)
+
+    let sq = sb.from('cashier_shift_sessions').select('id,shift,cashier_name,started_at,ended_at,branch_id')
+      .eq('session_date', todayMY).order('started_at', { ascending: true })
+    if (!isAdmin && employee?.branch_id) sq = sq.eq('branch_id', employee.branch_id)
+    if (isAdmin && adminBranchFilter) sq = sq.eq('branch_id', adminBranchFilter)
+    const { data: sData } = await sq
+    setClosedSessions((sData as any) || [])
+    setClosedFetched(true)
+    setClosedLoading(false)
+  }, [sb, tables, isAdmin, adminBranchFilter, employee?.branch_id])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -1866,16 +1937,20 @@ export default function CashierPage() {
       `}</style>
 
       {/* Notification (top banner — waiter calls etc.) */}
+      {/* ✅ Fix: zIndex اتقلل من 999 لـ 150 - عشان لو الكاشير فاتح شاشة طلب (Add Order/Payment وغيرها، zIndex بتاعها 300+)
+          الإشعار يظهر تحتها بدل ما يغطيها ويقاطع اللي بيعمله */}
       {notif && (
-        <div style={{ position: 'fixed', top: 80, left: '50%', transform: 'translateX(-50%)', background: S.blue, color: S.white, padding: '12px 24px', borderRadius: 12, fontWeight: 700, fontSize: 14, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.4)', whiteSpace: 'nowrap' }}>
+        <div style={{ position: 'fixed', top: 80, left: '50%', transform: 'translateX(-50%)', background: S.blue, color: S.white, padding: '12px 24px', borderRadius: 12, fontWeight: 700, fontSize: 14, zIndex: 150, boxShadow: '0 4px 20px rgba(0,0,0,0.4)', whiteSpace: 'nowrap' }}>
           {notif}
         </div>
       )}
 
       {/* New Order Center Alert */}
+      {/* ✅ Fix: zIndex اتقلل من 1000 لـ 200 - نفس السبب: لو فيه شاشة طلب مفتوحة بالفعل (zIndex 300+)، الإشعار الكبير
+          ده هيفضل تحتها ومحجوب بالكامل خلف الـ backdrop بتاعها، وهيبان تلقائيًا لما الكاشير يقفل الشاشة اللي فاتحاها */}
       {newOrderAlert && (
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.6)', backdropFilter: 'blur(2px)' }}>
+          style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.6)', backdropFilter: 'blur(2px)' }}>
           <div
             style={{ background: S.navy2, border: `2px solid ${S.gold}`, borderRadius: 24, padding: '36px 48px', textAlign: 'center', boxShadow: '0 12px 50px rgba(0,0,0,0.55)', animation: 'popIn .25s ease-out', minWidth: 280 }}>
             <div style={{ fontSize: 52, marginBottom: 10 }}>🆕</div>
@@ -2126,7 +2201,7 @@ export default function CashierPage() {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
                 {archiveResults.map(order => (
-                  <div key={order.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.green + '40'}`, padding: 14 }}>
+                  <div key={order.id} onClick={() => setArchiveDetailOrder(order)} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.green + '40'}`, padding: 14, cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <span style={{ color: S.white, fontWeight: 800, fontSize: 14 }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
                       <span style={{ background: order.status === 'cancelled' ? S.redB : S.greenB, color: order.status === 'cancelled' ? S.red : S.green, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
@@ -2141,7 +2216,7 @@ export default function CashierPage() {
                     {order.paid_by_name && <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 {order.paid_by_name}</div>}
                     {order.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginBottom: 4 }}>❌ {order.cancel_reason}</div>}
                     <div style={{ borderTop: `1px solid ${S.border}`, marginTop: 8, paddingTop: 8, fontSize: 12, color: S.muted }}>
-                      {order.order_items.filter(i => i.status !== 'cancelled').map(i => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}
+                      {order.order_items.filter(i => i.status !== 'cancelled').map(i => `${i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'} ×${i.quantity}`).join(', ')}
                     </div>
                   </div>
                 ))}
@@ -2157,14 +2232,135 @@ export default function CashierPage() {
                 { key: 'all',    label: 'All' },
                 { key: 'done',   label: 'Closed' },
               ].map(f => (
-                <button key={f.key} onClick={() => setFilter(f.key as any)}
+                <button key={f.key} onClick={() => { setFilter(f.key as any); if (f.key === 'done' && !closedFetched) fetchClosedData() }}
                   style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filter === f.key ? S.gold : S.border}`, background: filter === f.key ? S.gold3 : 'transparent', color: filter === f.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: filter === f.key ? 700 : 400 }}>
                   {f.label}
                 </button>
               ))}
             </div>
 
-            {filtered.length === 0 ? (
+            {filter === 'done' ? (
+              /* ══ CLOSED — تقرير يومي بالشيفتات (الكاشير، بداية/نهاية الشيفت، إجماليات الكاش/الفيزا) ══ */
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: S.muted }}>📅 {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kuala_Lumpur' })} (Malaysia Time)</span>
+                  <button onClick={fetchClosedData} disabled={closedLoading}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                    {closedLoading ? '⏳...' : '🔄 Refresh'}
+                  </button>
+                </div>
+
+                {closedLoading && !closedFetched ? (
+                  <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
+                ) : closedSessions.length === 0 && closedOrders.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>
+                    <div style={{ fontSize: 40, marginBottom: 10 }}>📭</div>
+                    No closed operations for today yet
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    {closedSessions.map(session => {
+                      const start = new Date(session.started_at).getTime()
+                      const end = session.ended_at ? new Date(session.ended_at).getTime() : Date.now()
+                      const sessOrders = closedOrders.filter(o => {
+                        if (o.shift !== session.shift) return false
+                        if (isAdmin) {
+                          const branchId = tables.find(t => t.id === o.table_id)?.branch_id
+                          if (branchId !== session.branch_id) return false
+                        }
+                        const t = new Date(o.paid_at || o.created_at).getTime()
+                        return t >= start && t <= end
+                      })
+                      const sCash = sessOrders.filter(o => o.payment_method === 'cash' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sVisa = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sOnline = sessOrders.filter(o => o.payment_method === 'online' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sTotal = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      return (
+                        <div key={session.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+                          <div style={{ padding: '14px 16px', background: S.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>🧑‍💼 {session.cashier_name} · {session.shift === 'shift1' ? 'Shift 1' : 'Shift 2'}</div>
+                              <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
+                                Started {new Date(session.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                {' · '}
+                                {session.ended_at ? `Ended ${new Date(session.ended_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : '🟢 Still Active'}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>💵 Cash</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.green }}>MYR {sCash.toFixed(2)}</div>
+                              </div>
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>💳 Visa</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.blue }}>MYR {sVisa.toFixed(2)}</div>
+                              </div>
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>📱 Online</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.purple }}>MYR {sOnline.toFixed(2)}</div>
+                              </div>
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toFixed(2)}</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10, padding: 14 }}>
+                            {sessOrders.length === 0 ? (
+                              <div style={{ color: S.muted, fontSize: 12, padding: '10px 0' }}>No orders in this shift</div>
+                            ) : sessOrders.map(order => (
+                              <div key={order.id} onClick={() => setArchiveDetailOrder(order)}
+                                style={{ background: S.card, borderRadius: 12, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.border}`, padding: 10, cursor: 'pointer' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
+                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toFixed(2)}`}</span>
+                                </div>
+                                <div style={{ fontSize: 10, color: S.muted }}>
+                                  {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                  {order.payment_method ? ` · ${order.payment_method}` : ''}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {/* ✅ عمليات مقفولة اليوم لكنها مش تابعة لأي جلسة شيفت مسجّلة (اتقفلت قبل بدء الشيفت أو بعد انتهائه) - عشان محدش يضيع من التقرير */}
+                    {(() => {
+                      const unassigned = closedOrders.filter(o => !closedSessions.some(session => {
+                        if (o.shift !== session.shift) return false
+                        const t = new Date(o.paid_at || o.created_at).getTime()
+                        const start = new Date(session.started_at).getTime()
+                        const end = session.ended_at ? new Date(session.ended_at).getTime() : Date.now()
+                        return t >= start && t <= end
+                      }))
+                      if (unassigned.length === 0) return null
+                      return (
+                        <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+                          <div style={{ padding: '14px 16px', background: S.card, fontSize: 13, fontWeight: 800, color: S.muted }}>📋 Other Closed Orders Today</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10, padding: 14 }}>
+                            {unassigned.map(order => (
+                              <div key={order.id} onClick={() => setArchiveDetailOrder(order)}
+                                style={{ background: S.card, borderRadius: 12, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.border}`, padding: 10, cursor: 'pointer' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
+                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toFixed(2)}`}</span>
+                                </div>
+                                <div style={{ fontSize: 10, color: S.muted }}>
+                                  {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                  {order.payment_method ? ` · ${order.payment_method}` : ''}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+              </div>
+            ) : filtered.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
                 <div>No orders found</div>
@@ -2216,15 +2412,15 @@ export default function CashierPage() {
                               <div key={i.id} style={{ padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                                   <span style={{ color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none', flex: 1 }}>
-                                    {i.menu_items?.name_en || i.menu_items?.name}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                                    {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
                                   </span>
                                   {isCashierRole && i.status !== 'cancelled' && !['paid', 'cancelled'].includes(order.status) && (
-                                    <button onClick={() => { setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name, totalQty: i.quantity }); setCancelItemQty(i.quantity) }}
+                                    <button onClick={() => { setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item', totalQty: i.quantity }); setCancelItemQty(i.quantity) }}
                                       title="Cancel this item"
                                       style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '2px 6px', flexShrink: 0 }}>✕</button>
                                   )}
                                 </div>
-                                {i.notes && <div style={{ fontSize: 10, color: S.amber, marginTop: 1 }}>📝 {i.notes}</div>}
+                                {i.notes && <div style={{ fontSize: 10, color: S.gold, marginTop: 1 }}>📝 {i.notes}</div>}
                                 {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 10, color: S.red, marginTop: 1 }}>❌ Cancelled: {i.cancel_reason}</div>}
                               </div>
                             ))}
@@ -2313,6 +2509,97 @@ export default function CashierPage() {
         if (employee?.branch_id) closeQ = closeQ.eq('branch_id', employee.branch_id)
         closeQ.then(() => fetchActiveShiftCashier())
       }} />}
+
+      {/* ✅ جديد: مودال تفاصيل فاتورة الأرشيف - يظهر بمنتصف الشاشة عند الضغط على أي طلب في تاب Archive */}
+      {archiveDetailOrder && (
+        <div onClick={() => setArchiveDetailOrder(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 480, padding: 28, margin: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>📦 Invoice Details</h2>
+              <button onClick={() => setArchiveDetailOrder(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: S.muted }}>
+                  {archiveDetailOrder.tables?.name || `Table ${archiveDetailOrder.tables?.number}`} · #{archiveDetailOrder.id.slice(-6).toUpperCase()}
+                </span>
+                <span style={{ background: archiveDetailOrder.status === 'cancelled' ? S.redB : S.greenB, color: archiveDetailOrder.status === 'cancelled' ? S.red : S.green, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                  {archiveDetailOrder.status === 'cancelled' ? '❌ Cancelled' : '✅ Paid'}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 10 }}>{new Date(archiveDetailOrder.created_at).toLocaleString('en-GB')}</div>
+
+              {groupItemsByRound(archiveDetailOrder.order_items).map((round, ri) => (
+                <div key={ri}>
+                  {ri > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', color: S.amber, fontSize: 11, fontWeight: 700 }}>
+                      <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
+                      🔔 Round {ri + 1} (Additional Order) · {timeElapsedSince(round[0]?.created_at)}
+                      <div style={{ flex: 1, height: 1, background: S.amber + '40' }} />
+                    </div>
+                  )}
+                  {round.map(i => (
+                    <div key={i.id} style={{ padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
+                          {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
+                          <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                        </span>
+                        <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                      </div>
+                      {i.notes && <div style={{ fontSize: 11, color: S.gold, marginTop: 2 }}>📝 {i.notes}</div>}
+                      {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginTop: 2 }}>❌ Cancelled: {i.cancel_reason}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, marginBottom: 4 }}>
+                  <span>Subtotal</span>
+                  <span>MYR {archiveDetailOrder.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0).toFixed(2)}</span>
+                </div>
+                {archiveDetailOrder.discount_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.red, marginBottom: 4 }}>
+                    <span>Discount {archiveDetailOrder.discount_type ? `(${archiveDetailOrder.discount_type})` : ''}</span>
+                    <span>- MYR {archiveDetailOrder.discount_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                {archiveDetailOrder.service_charge > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.amber, marginBottom: 4 }}>
+                    <span>Service Charge</span>
+                    <span>MYR {archiveDetailOrder.service_charge.toFixed(2)}</span>
+                  </div>
+                )}
+                {archiveDetailOrder.sst_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.teal, marginBottom: 4 }}>
+                    <span>SST</span>
+                    <span>MYR {archiveDetailOrder.sst_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: S.gold, marginTop: 8 }}>
+                  <span>Total</span>
+                  <span>MYR {(archiveDetailOrder.total_amount || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {archiveDetailOrder.payment_method && (
+                <div style={{ fontSize: 12, color: S.teal, marginTop: 10 }}>
+                  {archiveDetailOrder.payment_method === 'cash' ? '💵' : archiveDetailOrder.payment_method === 'visa' ? '💳' : '📱'} {archiveDetailOrder.payment_method}
+                </div>
+              )}
+              {archiveDetailOrder.paid_by_name && <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>👤 {archiveDetailOrder.paid_by_name}</div>}
+              {archiveDetailOrder.cancel_reason && <div style={{ fontSize: 12, color: S.red, marginTop: 4 }}>❌ Cancelled: {archiveDetailOrder.cancel_reason}</div>}
+              {archiveDetailOrder.notes && <div style={{ fontSize: 12, color: S.gold, marginTop: 4 }}>📝 {archiveDetailOrder.notes}</div>}
+            </div>
+
+            <button onClick={() => setArchiveDetailOrder(null)} style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ✅ مودال سبب الإلغاء الإجباري - للفاتورة الكاملة أو لصنف واحد */}
       {(cancelOrderTarget || cancelItemTarget) && (

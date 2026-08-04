@@ -74,7 +74,7 @@ interface Product {
   current_stock: number; min_stock: number; last_purchase_price: number
   unit_id: string; units?: Unit; is_active: boolean
 }
-interface Movement { id: string; created_at: string; movement_type: string; quantity: number; unit_price: number; destination: string; destination_custom: string; notes: string; movement_date: string; warehouse_products?: { name: string; units?: Unit }; warehouses?: { name: string } }
+interface Movement { id: string; created_at: string; movement_type: string; quantity: number; unit_price: number; product_id?: string; destination: string; destination_custom: string; notes: string; movement_date: string; warehouse_products?: { name: string; units?: Unit }; warehouses?: { name: string } }
 interface Invoice { id: string; invoice_number: string; invoice_date: string; total_amount: number; status: string; notes: string; image_url: string; warehouse_suppliers?: { name: string }; warehouses?: { name: string } }
 
 // ══ Modal إضافة صنف ══
@@ -334,23 +334,84 @@ function StockInModal({ warehouseId, warehouseName, products, units, onClose, on
 }
 
 // ══ Modal خروج بضاعة ══
-function StockOutModal({ warehouseId, warehouseName, products, onClose, onSaved }: {
-  warehouseId: string; warehouseName: string; products: Product[]
+function StockOutModal({ warehouseId, warehouseName, products, unitConversionsAll, onClose, onSaved }: {
+  warehouseId: string; warehouseName: string; products: Product[]; unitConversionsAll?: any[]
   onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
   const destinations = ['المطبخ الرئيسي', 'الصالة', 'البار', 'قسم الحلويات', 'مستودع آخر', 'طرف آخر']
-  const [form, setForm] = useState({ product_id: '', quantity: '', destination: '', destination_custom: '', movement_date: new Date().toISOString().split('T')[0], notes: '' })
+  const [form, setForm] = useState({ product_id: '', quantity: '', quantity_unit: 'big', destination: '', destination_custom: '', movement_date: new Date().toISOString().split('T')[0], notes: '' })
   const selectedProduct = products.find(p => p.id === form.product_id)
+
+  // إيجاد تحويل الوحدة الخاص بالصنف (الوحدة الكبيرة ↔ الوحدة الصغيرة)
+  function getConv(product: Product) {
+    const convs = unitConversionsAll || []
+    const directConv = convs.find((c: any) => c.product_id === product.id && c.from_unit_id === product.unit_id)
+    const fallbackConv = convs.find((c: any) => c.product_id === product.id)
+    return directConv || fallbackConv
+  }
+
+  // ✅ Fix: تنسيق رصيد الصنف بالوحدة الرئيسية والفرعية بدل عرض current_stock الخام
+  // (كان بيظهر أرقام كبيرة جدًا زي 3.9465656565626 لما الرصيد متسجل بأرقام عشرية غير مقربة)
+  function formatStock(product: Product) {
+    const conv = getConv(product)
+    // ✅ Fix: رصيد سالب بيبقى رقمًا واحدًا بالوحدة الأساسية
+    if (product.current_stock < 0) {
+      return { big: null, bigUnit: '', small: Math.round(product.current_stock * 100) / 100, smallUnit: product.units?.symbol || '' }
+    }
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return { big: Math.round((product.current_stock || 0) * 100) / 100, bigUnit: product.units?.symbol || '', small: null as number | null, smallUnit: '' }
+    }
+    const factor = conv.factor
+    let bigQty: number, smallQty: number
+    if (conv.from_unit_id === product.unit_id) {
+      bigQty = Math.floor(product.current_stock)
+      smallQty = Math.round((product.current_stock - bigQty) * factor * 100) / 100
+    } else {
+      bigQty = Math.floor(product.current_stock / factor)
+      smallQty = Math.round((product.current_stock % factor) * 100) / 100
+    }
+    return { big: bigQty, bigUnit: conv.from_unit?.symbol || product.units?.symbol || '', small: smallQty, smallUnit: conv.to_unit?.symbol || '' }
+  }
+
+  function stockLabel(product: Product) {
+    const s = formatStock(product)
+    return s.small !== null && s.small !== undefined ? `${s.big} ${s.bigUnit} و ${s.small} ${s.smallUnit}` : `${s.big} ${s.bigUnit}`
+  }
+
+  // خيارات الوحدة المتاحة لإدخال الكمية بها (كبيرة/صغيرة) — إن لم يوجد تحويل فوحدة واحدة فقط
+  function unitChoices(product: Product) {
+    const conv = getConv(product)
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return [{ value: 'big', label: product.units?.symbol || '' }]
+    }
+    return [
+      { value: 'big', label: conv.from_unit?.symbol || product.units?.symbol || '' },
+      { value: 'small', label: conv.to_unit?.symbol || '' },
+    ]
+  }
+
+  // تحويل الكمية المُدخلة (بالوحدة التي اختارها المستخدم) إلى نفس وحدة current_stock الأساسية
+  function toBaseQty(product: Product, qty: number, unitChoice: string) {
+    const conv = getConv(product)
+    if (!conv || !conv.factor || conv.factor <= 1) return qty
+    const factor = conv.factor
+    const storedInBig = conv.from_unit_id === product.unit_id
+    if (unitChoice === 'small') return storedInBig ? qty / factor : qty
+    return storedInBig ? qty : qty * factor
+  }
 
   async function save() {
     if (!form.product_id || !form.quantity || !form.destination) { alert('يرجى إكمال الحقول المطلوبة'); return }
-    if (selectedProduct && parseFloat(form.quantity) > selectedProduct.current_stock) { alert('الكمية أكبر من المخزون المتاح!'); return }
+    const enteredQty = parseFloat(form.quantity)
+    const baseQty = selectedProduct ? toBaseQty(selectedProduct, enteredQty, form.quantity_unit) : enteredQty
+    if (selectedProduct && baseQty > selectedProduct.current_stock) { alert('الكمية أكبر من المخزون المتاح!'); return }
     setSaving(true)
     const { error } = await supabase.from('stock_movements').insert([{
       movement_type: 'out', product_id: form.product_id, warehouse_id: warehouseId,
-      quantity: parseFloat(form.quantity), destination: form.destination,
+      quantity: baseQty, destination: form.destination,
       destination_custom: (form.destination === 'طرف آخر' || form.destination === 'مستودع آخر') ? form.destination_custom : null,
       movement_date: form.movement_date, notes: form.notes,
     }])
@@ -367,25 +428,61 @@ function StockOutModal({ warehouseId, warehouseName, products, onClose, onSaved 
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
+          <div style={{ position: 'relative' }}>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف *</label>
-            <select style={{ ...inp }} value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))}>
-              <option value="">اختر الصنف</option>
-              {products.map(p => <option key={p.id} value={p.id}>{p.name} (متاح: {p.current_stock} {p.units?.symbol})</option>)}
-            </select>
+            <input
+              style={{ ...inp }}
+              placeholder="🔍 ابحث عن الصنف..."
+              value={form.product_id ? (products.find(p => p.id === form.product_id)?.name || '') : productSearch}
+              onChange={e => {
+                setForm(p => ({ ...p, product_id: '' }))
+                setProductSearch(e.target.value)
+              }}
+            />
+            {!form.product_id && productSearch && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 50, maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                {products
+                  .filter(p => matchesSearch(p.name, productSearch) || matchesSearch(p.name_en, productSearch))
+                  .slice(0, 20)
+                  .map(p => (
+                    <div key={p.id}
+                      onClick={() => { setForm(prev => ({ ...prev, product_id: p.id, quantity_unit: 'big' })); setProductSearch('') }}
+                      style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: S.white, borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = S.card2}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                    >
+                      <span>{p.name}</span>
+                      <span style={{ fontSize: 11, color: p.current_stock <= p.min_stock && p.min_stock > 0 ? S.red : S.muted }}>متاح: {stockLabel(p)}</span>
+                    </div>
+                  ))}
+                {products.filter(p => matchesSearch(p.name, productSearch) || matchesSearch(p.name_en, productSearch)).length === 0 && (
+                  <div style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>لا توجد نتائج</div>
+                )}
+              </div>
+            )}
           </div>
           {selectedProduct && (
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: S.muted }}>المخزون المتاح</span>
               <span style={{ fontSize: 14, fontWeight: 700, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green }}>
-                {selectedProduct.current_stock} {selectedProduct.units?.symbol}
+                {stockLabel(selectedProduct)}
               </span>
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الكمية *</label>
-              <input style={inp} type="number" value={form.quantity} onChange={e => setForm(p => ({ ...p, quantity: e.target.value }))} placeholder="0" />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input style={{ ...inp, flex: 1 }} type="number" value={form.quantity} onChange={e => setForm(p => ({ ...p, quantity: e.target.value }))} placeholder="0" />
+                <select
+                  style={{ ...inp, width: 92, flexShrink: 0 }}
+                  value={form.quantity_unit}
+                  onChange={e => setForm(p => ({ ...p, quantity_unit: e.target.value }))}
+                  disabled={!selectedProduct}
+                >
+                  {selectedProduct ? unitChoices(selectedProduct).map(u => <option key={u.value} value={u.value}>{u.label}</option>) : <option value="big">الوحدة</option>}
+                </select>
+              </div>
             </div>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التاريخ</label>
@@ -422,16 +519,74 @@ function StockOutModal({ warehouseId, warehouseName, products, onClose, onSaved 
 }
 
 // ══ Modal تحويل بين المستودعات ══
-function TransferModal({ warehouseId, warehouseName, products, onClose, onSaved }: {
-  warehouseId: string; warehouseName: string; products: Product[]
+function TransferModal({ warehouseId, warehouseName, products, unitConversionsAll, onClose, onSaved }: {
+  warehouseId: string; warehouseName: string; products: Product[]; unitConversionsAll?: any[]
   onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-  const [form, setForm] = useState({ product_id: '', quantity: '', target_warehouse_id: '', movement_date: new Date().toISOString().split('T')[0], notes: '' })
+  const [productSearch, setProductSearch] = useState('')
+  const [form, setForm] = useState({ product_id: '', quantity: '', quantity_unit: 'big', target_warehouse_id: '', movement_date: new Date().toISOString().split('T')[0], notes: '' })
   const selectedProduct = products.find(p => p.id === form.product_id)
   const targetWarehouses = warehouses.filter(w => w.id !== warehouseId)
+
+  // إيجاد تحويل الوحدة الخاص بالصنف (الوحدة الكبيرة ↔ الوحدة الصغيرة)
+  function getConv(product: Product) {
+    const convs = unitConversionsAll || []
+    const directConv = convs.find((c: any) => c.product_id === product.id && c.from_unit_id === product.unit_id)
+    const fallbackConv = convs.find((c: any) => c.product_id === product.id)
+    return directConv || fallbackConv
+  }
+
+  // ✅ Fix: نفس منطق تنسيق الرصيد بالوحدة الرئيسية والفرعية المستخدم في نافذة خروج بضاعة
+  function formatStock(product: Product) {
+    const conv = getConv(product)
+    // ✅ Fix: رصيد سالب بيبقى رقمًا واحدًا بالوحدة الأساسية
+    if (product.current_stock < 0) {
+      return { big: null, bigUnit: '', small: Math.round(product.current_stock * 100) / 100, smallUnit: product.units?.symbol || '' }
+    }
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return { big: Math.round((product.current_stock || 0) * 100) / 100, bigUnit: product.units?.symbol || '', small: null as number | null, smallUnit: '' }
+    }
+    const factor = conv.factor
+    let bigQty: number, smallQty: number
+    if (conv.from_unit_id === product.unit_id) {
+      bigQty = Math.floor(product.current_stock)
+      smallQty = Math.round((product.current_stock - bigQty) * factor * 100) / 100
+    } else {
+      bigQty = Math.floor(product.current_stock / factor)
+      smallQty = Math.round((product.current_stock % factor) * 100) / 100
+    }
+    return { big: bigQty, bigUnit: conv.from_unit?.symbol || product.units?.symbol || '', small: smallQty, smallUnit: conv.to_unit?.symbol || '' }
+  }
+
+  function stockLabel(product: Product) {
+    const s = formatStock(product)
+    return s.small !== null && s.small !== undefined ? `${s.big} ${s.bigUnit} و ${s.small} ${s.smallUnit}` : `${s.big} ${s.bigUnit}`
+  }
+
+  // خيارات الوحدة المتاحة لإدخال الكمية بها (كبيرة/صغيرة) — إن لم يوجد تحويل فوحدة واحدة فقط
+  function unitChoices(product: Product) {
+    const conv = getConv(product)
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return [{ value: 'big', label: product.units?.symbol || '' }]
+    }
+    return [
+      { value: 'big', label: conv.from_unit?.symbol || product.units?.symbol || '' },
+      { value: 'small', label: conv.to_unit?.symbol || '' },
+    ]
+  }
+
+  // تحويل الكمية المُدخلة (بالوحدة التي اختارها المستخدم) إلى نفس وحدة current_stock الأساسية
+  function toBaseQty(product: Product, qty: number, unitChoice: string) {
+    const conv = getConv(product)
+    if (!conv || !conv.factor || conv.factor <= 1) return qty
+    const factor = conv.factor
+    const storedInBig = conv.from_unit_id === product.unit_id
+    if (unitChoice === 'small') return storedInBig ? qty / factor : qty
+    return storedInBig ? qty : qty * factor
+  }
 
   useEffect(() => {
     supabase.from('warehouses').select('*').order('name').then(({ data }) => setWarehouses(data || []))
@@ -439,10 +594,12 @@ function TransferModal({ warehouseId, warehouseName, products, onClose, onSaved 
 
   async function save() {
     if (!form.product_id || !form.quantity || !form.target_warehouse_id) { alert('يرجى إكمال الحقول المطلوبة'); return }
-    if (selectedProduct && parseFloat(form.quantity) > selectedProduct.current_stock) { alert('الكمية أكبر من المخزون المتاح!'); return }
+    const enteredQty = parseFloat(form.quantity)
+    const baseQty = selectedProduct ? toBaseQty(selectedProduct, enteredQty, form.quantity_unit) : enteredQty
+    if (selectedProduct && baseQty > selectedProduct.current_stock) { alert('الكمية أكبر من المخزون المتاح!'); return }
     setSaving(true)
 
-    const qty = parseFloat(form.quantity)
+    const qty = baseQty
     const transferId = crypto.randomUUID()
     const targetWarehouseName = warehouses.find(w => w.id === form.target_warehouse_id)?.name || ''
 
@@ -499,18 +656,44 @@ function TransferModal({ warehouseId, warehouseName, products, onClose, onSaved 
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
+          <div style={{ position: 'relative' }}>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف *</label>
-            <select style={{ ...inp }} value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))}>
-              <option value="">اختر الصنف</option>
-              {products.map(p => <option key={p.id} value={p.id}>{p.name} (متاح: {p.current_stock} {p.units?.symbol})</option>)}
-            </select>
+            <input
+              style={{ ...inp }}
+              placeholder="🔍 ابحث عن الصنف..."
+              value={form.product_id ? (products.find(p => p.id === form.product_id)?.name || '') : productSearch}
+              onChange={e => {
+                setForm(p => ({ ...p, product_id: '' }))
+                setProductSearch(e.target.value)
+              }}
+            />
+            {!form.product_id && productSearch && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 50, maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                {products
+                  .filter(p => matchesSearch(p.name, productSearch) || matchesSearch(p.name_en, productSearch))
+                  .slice(0, 20)
+                  .map(p => (
+                    <div key={p.id}
+                      onClick={() => { setForm(prev => ({ ...prev, product_id: p.id, quantity_unit: 'big' })); setProductSearch('') }}
+                      style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: S.white, borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = S.card2}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                    >
+                      <span>{p.name}</span>
+                      <span style={{ fontSize: 11, color: p.current_stock <= p.min_stock && p.min_stock > 0 ? S.red : S.muted }}>متاح: {stockLabel(p)}</span>
+                    </div>
+                  ))}
+                {products.filter(p => matchesSearch(p.name, productSearch) || matchesSearch(p.name_en, productSearch)).length === 0 && (
+                  <div style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>لا توجد نتائج</div>
+                )}
+              </div>
+            )}
           </div>
           {selectedProduct && (
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: S.muted }}>المخزون المتاح</span>
               <span style={{ fontSize: 14, fontWeight: 700, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green }}>
-                {selectedProduct.current_stock} {selectedProduct.units?.symbol}
+                {stockLabel(selectedProduct)}
               </span>
             </div>
           )}
@@ -524,7 +707,17 @@ function TransferModal({ warehouseId, warehouseName, products, onClose, onSaved 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الكمية *</label>
-              <input style={inp} type="number" value={form.quantity} onChange={e => setForm(p => ({ ...p, quantity: e.target.value }))} placeholder="0" />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input style={{ ...inp, flex: 1 }} type="number" value={form.quantity} onChange={e => setForm(p => ({ ...p, quantity: e.target.value }))} placeholder="0" />
+                <select
+                  style={{ ...inp, width: 92, flexShrink: 0 }}
+                  value={form.quantity_unit}
+                  onChange={e => setForm(p => ({ ...p, quantity_unit: e.target.value }))}
+                  disabled={!selectedProduct}
+                >
+                  {selectedProduct ? unitChoices(selectedProduct).map(u => <option key={u.value} value={u.value}>{u.label}</option>) : <option value="big">الوحدة</option>}
+                </select>
+              </div>
             </div>
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التاريخ</label>
@@ -985,18 +1178,57 @@ export default function WarehouseDetailPage() {
 ${lowStock.length > 0 ? `
 <div class="section-title">⚠️ منتجات تحتاج إعادة طلب (${lowStock.length})</div>
 <table><thead><tr><th>الصنف</th><th>الفئة</th><th>المتاح</th><th>الحد الأدنى</th><th>الوحدة</th></tr></thead><tbody>
-${lowStock.map(p=>`<tr><td><b>${p.name}</b>${p.name_en?'<br><span style="color:#999;font-size:10px">'+p.name_en+'</span>':''}</td><td>${p.category||'—'}</td><td class="low">${p.current_stock}</td><td>${p.min_stock}</td><td>${p.units?.symbol||'—'}</td></tr>`).join('')}
+${lowStock.map(p=>`<tr><td><b>${p.name}</b>${p.name_en?'<br><span style="color:#999;font-size:10px">'+p.name_en+'</span>':''}</td><td>${p.category||'—'}</td><td class="low">${fmtQty(p.current_stock)}</td><td>${fmtQty(p.min_stock)}</td><td>${p.units?.symbol||'—'}</td></tr>`).join('')}
 </tbody></table>` : ''}
 ${Object.entries(grouped).map(([cat, items]) => `
 <div class="section-title">📦 ${cat} (${items.length})</div>
 <table><thead><tr><th>الصنف</th><th>Item Name</th><th>الوحدة</th><th>المتاح</th><th>الحد الأدنى</th><th>آخر سعر</th></tr></thead><tbody>
-${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align:left;color:#666">${p.name_en||''}</td><td>${p.units?.symbol||'—'}</td><td class="${p.current_stock<=p.min_stock&&p.min_stock>0?'low':'ok'}">${p.current_stock}</td><td>${p.min_stock||0}</td><td>MYR ${(p.last_purchase_price||0).toFixed(2)}</td></tr>`).join('')}
+${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align:left;color:#666">${p.name_en||''}</td><td>${p.units?.symbol||'—'}</td><td class="${p.current_stock<=p.min_stock&&p.min_stock>0?'low':'ok'}">${fmtQty(p.current_stock)}</td><td>${fmtQty(p.min_stock||0)}</td><td>MYR ${(p.last_purchase_price||0).toFixed(2)}</td></tr>`).join('')}
 </tbody></table>`).join('')}
 <div class="footer">Orchid House Restaurant Management System · ${today}</div>
 <script>window.onload=function(){window.print()}<\/script>
 </body></html>`
     win.document.write(html)
     win.document.close()
+  }
+
+  // ✅ Fix: تقريب أي رقم كمية يُعرض في التقارير لمنع ظهور كسور عشرية طويلة غير مقروءة
+  // (زي 0.16666666666666666 الناتجة عن قسمة الكمية على معامل تحويل الوحدة)
+  function fmtQty(n: number | null | undefined) {
+    if (n === null || n === undefined || isNaN(n)) return 0
+    return Math.round(n * 100) / 100
+  }
+
+  // ✅ جديد: تنسيق أي كمية حركة (دخول/خروج) بنفس أسلوب "كرتون + عبوة" المستخدم في عرض الرصيد،
+  // بدل عرضها دايمًا بالوحدة الأساسية فقط (كانت بتظهر مثلاً "0.25 كرتون" بدل "1 عبوة"
+  // رغم إن الاثنين نفس الكمية بالظبط - 1 عبوة = 0.25 كرتون حسب معامل التحويل المسجَّل للصنف)
+  function formatQtyLabel(productId: string | null | undefined, qty: number | null | undefined) {
+    const q = fmtQty(qty)
+    const product = products.find(p => p.id === productId)
+    const fallbackUnit = (products.find(p => p.id === productId) as any)?.units?.symbol || ''
+    if (!product) return `${q} ${fallbackUnit}`
+    const directConv = unitConversionsAll.find((c: any) => c.product_id === productId && c.from_unit_id === product.unit_id)
+    const fallbackConv = unitConversionsAll.find((c: any) => c.product_id === productId)
+    const conv = directConv || fallbackConv
+    const baseUnit = product.units?.symbol || ''
+    if (!conv || !conv.factor || conv.factor <= 1) {
+      return `${q} ${baseUnit}`
+    }
+    const factor = conv.factor
+    const storedInBig = conv.from_unit_id === product.unit_id
+    let bigQty: number, smallQty: number
+    if (storedInBig) {
+      bigQty = Math.floor(q)
+      smallQty = Math.round((q - bigQty) * factor * 100) / 100
+    } else {
+      bigQty = Math.floor(q / factor)
+      smallQty = Math.round((q % factor) * 100) / 100
+    }
+    const bigUnit = conv.from_unit?.symbol || baseUnit
+    const smallUnit = conv.to_unit?.symbol || baseUnit
+    if (bigQty === 0 && smallQty !== 0) return `${smallQty} ${smallUnit}`
+    if (smallQty === 0) return `${bigQty} ${bigUnit}`
+    return `${bigQty} ${bigUnit} و ${smallQty} ${smallUnit}`
   }
 
   // تنسيق المخزون بالوحدتين الكبيرة والصغيرة
@@ -1007,6 +1239,18 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
     const directConv = unitConversionsAll.find((c: any) => c.product_id === product.id && c.from_unit_id === product.unit_id)
     const fallbackConv = unitConversionsAll.find((c: any) => c.product_id === product.id)
     const conv = directConv || fallbackConv
+    // ✅ Fix: الرصيد السالب (نتيجة خصم زائد عن المتاح في حركات سابقة) كان بيدّي أرقامًا متضاربة
+    // الإشارة عند التقسيم لوحدة كبيرة/صغيرة، لأن Math.floor و % في JS بيتصرفوا بشكل غير بديهي مع السالب.
+    // لذلك نعرض الرصيد السالب كرقم واحد بالوحدة الأساسية بدل تقسيمه، مع تنبيه للمستخدم بضرورة المراجعة.
+    if (product.current_stock < 0) {
+      return {
+        big: null,
+        bigUnit: '',
+        small: Math.round(product.current_stock * 100) / 100,
+        smallUnit: product.units?.symbol || '',
+        conversionNote: '⚠️ رصيد سالب — يرجى مراجعة حركات هذا الصنف',
+      }
+    }
     if (!conv || !conv.factor || conv.factor <= 1) {
       return {
         big: null,
@@ -1422,7 +1666,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
       {tab === 'in' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: S.green }}>📥 سجل الفواتير</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: S.green }}>📥 سجل دخول البضاعة</h2>
             <button onClick={() => setShowStockIn(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>+ فاتورة جديدة</button>
           </div>
           <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
@@ -1430,25 +1674,21 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
                 <thead>
                   <tr style={{ background: S.navy3 }}>
-                    {['رقم الفاتورة', 'التاريخ', 'المورد', 'الإجمالي', 'صورة'].map(h => (
+                    {['التاريخ', 'الصنف', 'الكمية', 'سعر الوحدة', 'ملاحظات'].map(h => (
                       <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.length === 0
-                    ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: S.muted }}>لا توجد فواتير بعد</td></tr>
-                    : invoices.map(inv => (
-                      <tr key={inv.id} style={{ borderBottom: `1px solid ${S.border}` }}>
-                        <td style={{ padding: '12px 16px', color: S.gold, fontWeight: 700 }}>{inv.invoice_number || '—'}</td>
-                        <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{inv.invoice_date}</td>
-                        <td style={{ padding: '12px 16px', fontSize: 13, color: S.white }}>{inv.warehouse_suppliers?.name || '—'}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700, color: S.green }}>{formatMYR(inv.total_amount)}</td>
-                        <td style={{ padding: '12px 16px' }}>
-                          {inv.image_url
-                            ? <img src={inv.image_url} alt="فاتورة" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }} onClick={() => window.open(inv.image_url, '_blank')} />
-                            : <span style={{ color: S.muted, fontSize: 11 }}>—</span>}
-                        </td>
+                  {movements.filter(m => m.movement_type === 'in').length === 0
+                    ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: 40, color: S.muted }}>لا توجد حركات دخول بعد</td></tr>
+                    : movements.filter(m => m.movement_type === 'in').map(m => (
+                      <tr key={m.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                        <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{m.movement_date}</td>
+                        <td style={{ padding: '12px 16px', fontWeight: 600, color: S.white }}>{m.warehouse_products?.name}</td>
+                        <td style={{ padding: '12px 16px', fontWeight: 700, color: S.green }}>+{formatQtyLabel(m.product_id, m.quantity)}</td>
+                        <td style={{ padding: '12px 16px', fontSize: 13, color: S.gold }}>{(m as any).unit_price ? formatMYR((m as any).unit_price) : '—'}</td>
+                        <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{m.notes || '—'}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -1482,7 +1722,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                       <tr key={m.id} style={{ borderBottom: `1px solid ${S.border}` }}>
                         <td style={{ padding: '12px 16px', fontSize: 12, color: S.muted }}>{m.movement_date}</td>
                         <td style={{ padding: '12px 16px', fontWeight: 600, color: S.white }}>{m.warehouse_products?.name}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 700, color: S.red }}>-{m.quantity} {m.warehouse_products?.units?.symbol}</td>
+                        <td style={{ padding: '12px 16px', fontWeight: 700, color: S.red }}>-{formatQtyLabel(m.product_id, m.quantity)}</td>
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ background: S.blueB, color: S.blue, borderRadius: 20, padding: '3px 10px', fontSize: 11 }}>
                             {m.destination_custom || m.destination}
@@ -1538,7 +1778,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         </td>
                         <td style={{ padding: '10px 16px', fontWeight: 600, color: S.white }}>{m.warehouse_products?.name}</td>
                         <td style={{ padding: '10px 16px', fontWeight: 700, color: m.movement_type === 'in' ? S.green : S.red }}>
-                          {m.movement_type === 'in' ? '+' : '-'}{m.quantity}
+                          {m.movement_type === 'in' ? '+' : '-'}{formatQtyLabel(m.product_id, m.quantity)}
                         </td>
                         <td style={{ padding: '10px 16px', fontSize: 12, color: S.muted }}>{m.destination || '—'}</td>
                         <td style={{ padding: '10px 16px', fontSize: 12, color: S.muted }}>
@@ -1595,7 +1835,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                         </td>
                         <td style={{ padding: '10px 16px', fontWeight: 600, color: S.white }}>{m.warehouse_products?.name}</td>
                         <td style={{ padding: '10px 16px', fontWeight: 700, color: m.movement_type === 'in' ? S.green : S.red }}>
-                          {m.movement_type === 'in' ? '+' : '-'}{m.quantity} {m.warehouse_products?.units?.symbol}
+                          {m.movement_type === 'in' ? '+' : '-'}{formatQtyLabel(m.product_id, m.quantity)}
                         </td>
                         <td style={{ padding: '10px 16px', fontSize: 12, color: S.blue }}>{m.destination_custom || m.destination || '—'}</td>
                       </tr>
@@ -1622,8 +1862,8 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
               {[
                 { label: 'الكود', value: selectedProduct.product_code || '—', color: S.gold },
                 { label: 'الفئة', value: selectedProduct.category || '—' },
-                { label: 'المخزون الحالي', value: `${selectedProduct.current_stock} ${(selectedProduct as any).units?.symbol || ''}`, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green },
-                { label: 'الحد الأدنى', value: `${selectedProduct.min_stock} ${(selectedProduct as any).units?.symbol || ''}` },
+                { label: 'المخزون الحالي', value: `${fmtQty(selectedProduct.current_stock)} ${(selectedProduct as any).units?.symbol || ''}`, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green },
+                { label: 'الحد الأدنى', value: `${fmtQty(selectedProduct.min_stock)} ${(selectedProduct as any).units?.symbol || ''}` },
                 { label: 'آخر سعر شراء', value: selectedProduct.last_purchase_price ? `${selectedProduct.last_purchase_price} MYR` : 'لم يُحدد', color: S.gold },
                 { label: 'الحالة', value: selectedProduct.is_active === false ? '⏸ موقف' : '✅ نشط', color: selectedProduct.is_active === false ? S.muted : S.green },
               ].map((row, i) => (
@@ -1636,7 +1876,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                 <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 8 }}>آخر الحركات</div>
                 {movements.filter(m => m.warehouse_products?.name === selectedProduct.name).slice(0, 5).map(m => (
                   <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 12px', background: S.card, borderRadius: 8, marginBottom: 5 }}>
-                    <span style={{ fontSize: 12, color: m.movement_type === 'in' ? S.green : S.red }}>{m.movement_type === 'in' ? '📥 +' : '📤 -'}{m.quantity}</span>
+                    <span style={{ fontSize: 12, color: m.movement_type === 'in' ? S.green : S.red }}>{m.movement_type === 'in' ? '📥 +' : '📤 -'}{formatQtyLabel(m.product_id, m.quantity)}</span>
                     <span style={{ fontSize: 11, color: S.muted }}>{m.movement_date}</span>
                     <span style={{ fontSize: 11, color: S.blue }}>{m.destination || '—'}</span>
                   </div>
@@ -1680,11 +1920,11 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
           onClose={() => setShowStockIn(false)} onSaved={() => { setShowStockIn(false); fetchAll() }} />
       )}
       {showStockOut && warehouse && (
-        <StockOutModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products}
+        <StockOutModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products} unitConversionsAll={unitConversionsAll}
           onClose={() => setShowStockOut(false)} onSaved={() => { setShowStockOut(false); fetchAll() }} />
       )}
       {showTransfer && warehouse && (
-        <TransferModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products}
+        <TransferModal warehouseId={warehouseId} warehouseName={warehouse.name} products={products} unitConversionsAll={unitConversionsAll}
           onClose={() => setShowTransfer(false)} onSaved={() => { setShowTransfer(false); fetchAll() }} />
       )}
       {editingCategory && (
@@ -1814,7 +2054,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                               {bigQty === 0 && smallQty === 0 && <div style={{ color: S.muted }}>0</div>}
                             </div>
                           ) : (
-                            <div style={{ color: S.muted, fontSize: 12 }}>{p.current_stock} <span style={{ fontSize: 10 }}>{p.units?.symbol || ''}</span></div>
+                            <div style={{ color: S.muted, fontSize: 12 }}>{fmtQty(p.current_stock)} <span style={{ fontSize: 10 }}>{p.units?.symbol || ''}</span></div>
                           )}
                         </div>
                       </div>

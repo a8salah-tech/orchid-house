@@ -505,23 +505,49 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
       return
     }
 
-    // ✅ مرحلة ٢: كل الأصناف سليمة - ننفذ الخصم الفعلي وتحديث الأصناف
-    for (const mv of plannedMovements) {
-      await sb.from('stock_movements').insert([mv])
-    }
-    for (const upd of plannedUpdates) {
+    // ✅ مرحلة ٢: كل الأصناف سليمة (حسب الفحص الأولي) - ننفذ الخصم الفعلي وتحديث الأصناف
+    // ✅ Fix حرج: نتحقق فعليًا من نتيجة كل عملية إدراج (error) بدل تجاهلها كما كان الحال سابقًا.
+    // السبب: تريجر قاعدة البيانات (لمنع الرصيد السالب) ممكن يرفض عملية معيّنة لو الرصيد
+    // تغيّر بين لحظة الفحص (فوق) ولحظة التنفيذ الفعلي هنا - بسبب اعتماد متزامن لطلب آخر
+    // لنفس الصنف (Race Condition). قبل هذا التعديل، كان الكود بيتجاهل رفض التريجر ويكمل
+    // وكأن كل شيء تم بنجاح، فيظهر الطلب "معتمد بالكامل" للمستخدم بينما بعض الأصناف
+    // لم تُخصم فعليًا من المخزون - وهذا أخطر من الرصيد السالب نفسه (تضارب بين الشاشة والواقع).
+    const raceFailures: { itemId: string; name: string; error: string }[] = []
+    for (let i = 0; i < plannedMovements.length; i++) {
+      const mv = plannedMovements[i]
+      const upd = plannedUpdates[i]
+      const { error: mvErr } = await sb.from('stock_movements').insert([mv])
+      if (mvErr) {
+        const failedItem = (request.internal_warehouse_request_items || []).find(it => it.id === upd.itemId)
+        raceFailures.push({ itemId: upd.itemId, name: (failedItem as any)?.warehouse_products?.name || upd.itemId, error: mvErr.message })
+        continue
+      }
       await sb.from('internal_warehouse_request_items').update(upd.payload).eq('id', upd.itemId)
+    }
+    // ✅ الأصناف اللي رفضها التريجر تتعامل بنفس أسلوب الأصناف المستبعدة يدويًا - نعلّمها
+    // مستبعدة بدل ما تفضل بحالة غير واضحة، والمستخدم بيتنبّه بالتفصيل تحت
+    for (const rf of raceFailures) {
+      await sb.from('internal_warehouse_request_items').update({ is_cancelled: true, quantity_approved: 0 }).eq('id', rf.itemId)
     }
     // ✅ جديد: تعليم الأصناف المستبعدة في قاعدة البيانات
     for (const itemId of cancelledItems) {
       await sb.from('internal_warehouse_request_items').update({ is_cancelled: true, quantity_approved: 0 }).eq('id', itemId)
     }
 
-    // 3) تحديث حالة الطلب - "معلّق" لو تم استبعاد صنف واحد على الأقل، وإلا "معتمدة" بالكامل
-    const finalStatus = cancelledItems.size > 0 ? 'partial' : 'approved'
+    // 3) تحديث حالة الطلب - "معلّق" لو تم استبعاد صنف واحد على الأقل (يدويًا أو بسبب رفض التريجر)، وإلا "معتمدة" بالكامل
+    const finalStatus = (cancelledItems.size > 0 || raceFailures.length > 0) ? 'partial' : 'approved'
     await sb.from('internal_warehouse_requests').update({
       status: finalStatus, approved_by: actionBy, approved_at: new Date().toISOString(),
     }).eq('id', request.id)
+
+    // ✅ تنبيه واضح للمستخدم لو حصل تعارض توقيت مع طلب آخر لنفس الصنف
+    if (raceFailures.length > 0) {
+      alert(
+        '⚠️ تعذّر خصم الأصناف التالية لأن الرصيد تغيّر أثناء عملية الاعتماد (على الأرجح تم اعتماد طلب آخر لنفس الصنف في نفس اللحظة تقريبًا):\n\n' +
+        raceFailures.map(f => `• ${f.name} — ${f.error}`).join('\n') +
+        '\n\nتم اعتماد باقي الأصناف بنجاح. يرجى مراجعة الرصيد الحالي لهذه الأصناف وإعادة تقديم طلب جديد لها إذا لزم الأمر.'
+      )
+    }
 
     approvingRef.current = false
     setUpdating(false)

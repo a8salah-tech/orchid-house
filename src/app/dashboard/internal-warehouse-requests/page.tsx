@@ -150,7 +150,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
         // المحفوظ يشاور على مستودع مختلف تمامًا عن مستودع الطالب، فيفشل الخصم بهدوء عند الموافقة.
         return Promise.all(['المطبخ', 'البار', 'الصالة'].map(dept =>
           sb.from('department_products')
-            .select('product_id, warehouse_products(id,name,name_en,product_code,current_stock,unit_id,warehouse_id,units(symbol))')
+            .select('product_id, warehouse_products(id,name,name_en,product_code,current_stock,unit_id,warehouse_id,units(symbol),is_active)')
             .eq('department', dept)
             .then(({ data }) => ({ dept, data: data || [] }))
         ))
@@ -162,6 +162,10 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
         for (const row of data) {
           const wp = (row as any).warehouse_products
           if (!wp) continue
+          // ✅ Fix حرج: تجاهل الأصناف الموقّفة (is_active = false) بالكامل - قبل هذا التعديل
+          // كانت الأصناف المحذوفة (حذف ناعم Soft Delete) لسه بتظهر للموظفين وهم بيعملوا طلب جديد
+          // رغم إنها مختفية من صفحة المستودع نفسها، لأن هذا الاستعلام مكنش بيفلتر عليها
+          if (wp.is_active === false) continue
           const cleanName = (wp.name || '').trim()
           if (!cleanName) continue
           const existing = seen.get(cleanName)

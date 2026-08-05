@@ -32,6 +32,20 @@ const numInp: React.CSSProperties = {
   ...inp, textAlign: 'right',
 }
 
+// ✅ جديد: نمط لعرض القيم المحسوبة تلقائيًا من النظام (مش قابلة للتعديل اليدوي)
+const roInp: React.CSSProperties = {
+  ...numInp, background: 'rgba(255,255,255,0.02)', color: S.gold, cursor: 'default', fontWeight: 700,
+}
+// ✅ جديد: عرض رقم محسوب تلقائيًا بنفس شكل حقل الإدخال، بس للقراءة فقط
+function ReadOnlyAmount({ value }: { value: string }) {
+  const num = parseFloat(value) || 0
+  return (
+    <div style={roInp}>
+      {num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+    </div>
+  )
+}
+
 const thStyle: React.CSSProperties = {
   padding: '10px 12px', textAlign: 'left', color: S.gold, fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap',
 }
@@ -163,27 +177,20 @@ function emptyForm() {
 }
 
 function ShiftSection({
-  num, shift, isMobile, branchFilter, form, pulling, cashiers, sb,
-  setShift, pullShiftFromSystem, startShift, endShift, saveReport, saving, saved,
+  num, shift, isMobile, branchFilter, form, sb,
+  setShift, onDataChanged,
 }: {
   num: 1 | 2 | 3
   shift: ReturnType<typeof emptyShift>
   isMobile: boolean
   branchFilter: string
   form: ReturnType<typeof emptyForm>
-  pulling: 1 | 2 | 3 | 'top' | null
-  cashiers: { id: string; name: string }[]
   sb: ReturnType<typeof createClient>
   setShift: (n: 1 | 2 | 3, field: string, val: string) => void
-  pullShiftFromSystem: (n: 1 | 2 | 3) => void
-  startShift: (n: 1 | 2 | 3) => void
-  endShift: (n: 1 | 2 | 3) => void
-  saveReport: () => void
-  saving: boolean
-  saved: boolean
+  // ✅ بعد إضافة مصروف أو طلب توصيل خارجي، بنطلب من الصفحة الأم تسحب كل الأرقام تاني تلقائيًا
+  onDataChanged: () => void
 }) {
     const shiftKey = `shift${num}`
-    const [manualTime, setManualTime] = useState(false)
     const [expDesc, setExpDesc] = useState('')
     const [expAmount, setExpAmount] = useState('')
     const [expStatus, setExpStatus] = useState<'paid' | 'pending'>('paid')
@@ -196,7 +203,7 @@ function ShiftSection({
     async function addExpense() {
       if (!branchFilter) { alert('Please select a branch first'); return }
       if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('Please enter a valid description and amount'); return }
-      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
+      if (!shift.cashier_name.trim()) { alert('No cashier is on this shift yet — start the shift from the Cashier screen first'); return }
       setExpSaving(true)
       await sb.from('daily_cash_expenses').insert([{
         branch_id: branchFilter, expense_date: form.report_date, shift: shiftKey,
@@ -205,13 +212,13 @@ function ShiftSection({
       }])
       setExpSaving(false)
       setExpDesc(''); setExpAmount('')
-      pullShiftFromSystem(num)
+      onDataChanged()
     }
 
     async function addDelivery() {
       if (!branchFilter) { alert('Please select a branch first'); return }
       if (!(parseFloat(delAmount) > 0)) { alert('Please enter a valid amount'); return }
-      if (!shift.cashier_name.trim()) { alert('Please enter the cashier name for this shift first'); return }
+      if (!shift.cashier_name.trim()) { alert('No cashier is on this shift yet — start the shift from the Cashier screen first'); return }
       setDelSaving(true)
       await sb.from('delivery_platform_orders').insert([{
         branch_id: branchFilter, order_date: form.report_date, shift: shiftKey,
@@ -219,125 +226,49 @@ function ShiftSection({
       }])
       setDelSaving(false)
       setDelAmount('')
-      pullShiftFromSystem(num)
+      onDataChanged()
     }
 
     return (
       <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : num === 2 ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: num === 1 ? 'rgba(59,130,246,0.15)' : num === 2 ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: num === 1 ? S.blue : num === 2 ? '#8B5CF6' : S.green }}>
             {num === 1 ? '🌅' : num === 2 ? '🌙' : '🌃'} Shift {num}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={saveReport} disabled={saving}
-              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${saved ? S.green : S.gold}`, background: saved ? S.greenB : S.gold3, color: saved ? S.green : S.gold, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: saving ? 0.7 : 1 }}>
-              {saving ? '⏳ Saving...' : saved ? '✅ Saved!' : '💾 Save'}
-            </button>
-            <button onClick={() => pullShiftFromSystem(num)} disabled={pulling === num}
-              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pulling === num ? 0.6 : 1 }}>
-              {pulling === num ? '⏳ Pulling...' : '🔄 Pull from System'}
-            </button>
-          </div>
+          {/* ✅ جديد: بيانات الكاشير وأوقات الشيفت بتيجي تلقائيًا 100% من نفس نظام "Start/End Shift" بتاع شاشة الكاشير - مفيش أي إدخال يدوي هنا خالص */}
+          {!shift.cashier_name && !shift.start_time ? (
+            <div style={{ fontSize: 12, color: S.muted, fontWeight: 700 }}>⏳ Shift not started yet</div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: S.white }}>🧑‍💼 {shift.cashier_name || '—'}</span>
+              <span style={{ fontSize: 11, color: S.muted }}>
+                {shift.start_time ? `Started ${fmtDateTimeMY(shift.start_time)}` : ''}
+                {shift.start_time && (shift.end_time ? ` · Ended ${fmtDateTimeMY(shift.end_time)}` : ' · 🟢 Still Active')}
+              </span>
+            </div>
+          )}
         </div>
         <div style={{ padding: isMobile ? 14 : 20, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
-          {/* Left column */}
+          {/* Left column — كل الأرقام هنا للقراءة فقط (محسوبة تلقائيًا)، ما عدا "Received Balance" و"Manager Note" */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Date')}<input style={inp} type="date" value={shift.date} onChange={e => setShift(num, 'date', e.target.value)} /></div>
-              <div>{label('Cashier Name')}
-                {(() => {
-                  // A cashier already picked for another shift THIS SAME DATE is
-                  // hidden from this dropdown (they become available again the
-                  // next day, since this only looks at the currently loaded report).
-                  const usedElsewhere = new Set(
-                    ([1, 2, 3] as const)
-                      .filter(x => x !== num)
-                      .map(x => (form as any)[`shift${x}`].cashier_name)
-                      .filter(Boolean)
-                  )
-                  const available = cashiers.filter(c => !usedElsewhere.has(c.name) || c.name === shift.cashier_name)
-                  return (
-                    <select style={inp} value={shift.cashier_name} onChange={e => setShift(num, 'cashier_name', e.target.value)}>
-                      <option value="">-- Select Cashier --</option>
-                      {shift.cashier_name && !available.some(c => c.name === shift.cashier_name) && (
-                        <option value={shift.cashier_name}>{shift.cashier_name} (not in employee list)</option>
-                      )}
-                      {available.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                    </select>
-                  )
-                })()}
-              </div>
-            </div>
-
-            {/* Shift claim / handover: cashier starts their own shift, timestamp is captured live;
-                ending it auto-carries that same moment as the next shift's start time. */}
-            <div style={{ background: S.card, borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                {!shift.start_time ? (
-                  <button onClick={() => startShift(num)}
-                    style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    ▶️ Start Shift
-                  </button>
-                ) : (
-                  <div style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>
-                    🟢 Started: {fmtDateTimeMY(shift.start_time)}
-                  </div>
-                )}
-                {shift.start_time && !shift.end_time && (
-                  <button onClick={() => endShift(num)}
-                    style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                    ⏹️ End Shift
-                  </button>
-                )}
-                {shift.end_time && (
-                  <div style={{ fontSize: 12, color: S.muted, fontWeight: 700 }}>
-                    🔴 Ended: {fmtDateTimeMY(shift.end_time)}
-                  </div>
-                )}
-                {shift.start_time && shift.end_time && new Date(shift.end_time).getTime() < new Date(shift.start_time).getTime() && (
-                  <div style={{ fontSize: 11, color: S.red, fontWeight: 700, background: S.redB, padding: '3px 8px', borderRadius: 6 }}>
-                    ⚠️ End time is before start time — fix the DATE (probably needs to be the next day)
-                  </div>
-                )}
-                <button onClick={() => setManualTime(v => !v)}
-                  style={{ marginLeft: 'auto', padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
-                  {manualTime ? '✖️ Hide manual entry' : '✏️ Set time manually (past days)'}
-                </button>
-              </div>
-
-              {manualTime && (
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10, borderTop: `1px solid ${S.border}`, paddingTop: 10 }}>
-                  <div>{label('Start Time (MY, manual)')}
-                    <input style={inp} type="datetime-local"
-                      value={isoToMYInput(shift.start_time)}
-                      onChange={e => setShift(num, 'start_time', myInputToISO(e.target.value))} />
-                  </div>
-                  <div>{label('End Time (MY, manual)')}
-                    <input style={inp} type="datetime-local"
-                      value={isoToMYInput(shift.end_time)}
-                      onChange={e => setShift(num, 'end_time', myInputToISO(e.target.value))} />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>{label('Received Balance (RM)')}<NumInput style={numInp} value={shift.received_balance} onChange={v => setShift(num, 'received_balance', v)} placeholder="0.00" /></div>
-              <div>{label('Paid Expenses (RM)')}<NumInput style={numInp} value={shift.paid_expenses} onChange={v => setShift(num, 'paid_expenses', v)} placeholder="0.00" /></div>
+              <div>{label('Paid Expenses (RM) — auto')}<ReadOnlyAmount value={shift.paid_expenses} /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Pending Expenses (RM)')}<NumInput style={numInp} value={shift.pending_expenses} onChange={v => setShift(num, 'pending_expenses', v)} placeholder="0.00" /></div>
-              <div>{label('Visa MAYBANK (RM)')}<NumInput style={numInp} value={shift.visa_maybank} onChange={v => setShift(num, 'visa_maybank', v)} placeholder="0.00" /></div>
+              <div>{label('Pending Expenses (RM) — auto')}<ReadOnlyAmount value={shift.pending_expenses} /></div>
+              <div>{label('Visa MAYBANK (RM) — auto')}<ReadOnlyAmount value={shift.visa_maybank} /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Visa BSN (RM)')}<NumInput style={numInp} value={shift.visa_bsn} onChange={v => setShift(num, 'visa_bsn', v)} placeholder="0.00" /></div>
-              <div>{label('KababOnline Banking (RM)')}<NumInput style={numInp} value={shift.kabab_online} onChange={v => setShift(num, 'kabab_online', v)} placeholder="0.00" /></div>
+              <div>{label('Visa BSN (RM) — auto')}<ReadOnlyAmount value={shift.visa_bsn} /></div>
+              <div>{label('KababOnline Banking (RM)')}<ReadOnlyAmount value={shift.kabab_online} /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('G Online Banking (RM)')}<NumInput style={numInp} value={shift.g_online} onChange={v => setShift(num, 'g_online', v)} placeholder="0.00" /></div>
-              <div>{label('Discounts (RM)')}<NumInput style={numInp} value={shift.discounts} onChange={v => setShift(num, 'discounts', v)} placeholder="0.00" /></div>
+              <div>{label('G Online Banking (RM)')}<ReadOnlyAmount value={shift.g_online} /></div>
+              <div>{label('Discounts (RM) — auto')}<ReadOnlyAmount value={shift.discounts} /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>{label('Total Balance (RM)')}<NumInput style={{ ...numInp, color: S.gold, fontWeight: 700 }} value={shift.total_balance} onChange={v => setShift(num, 'total_balance', v)} placeholder="0.00" /></div>
+              <div>{label('Total Sales (RM) — auto')}<div style={{ ...roInp, fontSize: 15 }}>{(parseFloat(shift.total_balance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
               <div>{label('Manager Note')}<input style={inp} value={shift.manager_note} onChange={e => setShift(num, 'manager_note', e.target.value)} placeholder="Note..." /></div>
             </div>
           </div>
@@ -419,7 +350,8 @@ export default function DailyReportPage() {
   // Branch — required, and the basis for auto-pulling numbers from the system
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [branchFilter, setBranchFilter] = useState('')
-  const [pulling, setPulling] = useState<1 | 2 | 3 | 'top' | null>(null)
+  // ✅ مؤشر بسيط للعرض بس ("🔄 Updating...") - مفيش زرار يدوي بيتحكم فيه، بيتفعل تلقائيًا وقت السحب
+  const [refreshing, setRefreshing] = useState(false)
 
   const [isMobile, setIsMobile] = useState(false)
 
@@ -522,8 +454,12 @@ export default function DailyReportPage() {
   useEffect(() => { fetchReports() }, [fetchReports])
 
   // When the date changes, fetch the report if it exists
+  // ✅ جديد: formLoaded بيبقى true بس بعد ما التحميل الأولي (سواء تقرير محفوظ أو فورم فاضي) يخلص تمامًا،
+  // عشان الحفظ التلقائي ميشتغلش قبل ما البيانات المحمّلة فعليًا من قاعدة البيانات توصل، فما نفقدش أي بيانات قديمة
+  const [formLoaded, setFormLoaded] = useState(false)
   useEffect(() => {
     async function loadReport() {
+      setFormLoaded(false)
       if (!form.report_date || !branchFilter) return
       const { data } = await sb.from('daily_reports')
         .select('*').eq('report_date', form.report_date).eq('branch_id', branchFilter).maybeSingle()
@@ -604,16 +540,48 @@ export default function DailyReportPage() {
         setExistingId(null)
         setForm(p => ({ ...emptyForm(), report_date: p.report_date }))
       }
+      setFormLoaded(true)
     }
     loadReport()
   }, [form.report_date, branchFilter, sb])
 
+  // ✅ جديد: دالة موحّدة تسحب كل حاجة تلقائيًا - جلسات الشيفتات الحقيقية + كل الأرقام المالية لكل شيفت + إجمالي اليوم
+  // بتشتغل تلقائيًا (مفيش زرار "Pull" يدوي خالص) سواء وانت فاتح تقرير اليوم أو تقرير يوم قديم
+  async function refreshAll() {
+    if (!branchFilter || !form.report_date) return
+    setRefreshing(true)
+    const sessions = await fetchShiftSessions()
+    await Promise.all([
+      pullShiftFromSystem(1, sessions[1]),
+      pullShiftFromSystem(2, sessions[2]),
+      pullShiftFromSystem(3, sessions[3]),
+      pullDayTotalsFromSystem(),
+    ])
+    setRefreshing(false)
+  }
+
+  // ✅ يشتغل أول ما التقرير يخلص تحميله (سواء تقرير محفوظ قبل كده أو فاضي) لأي تاريخ/فرع - بديل كامل لزرار "Pull from System"
+  useEffect(() => {
+    if (!formLoaded) return
+    refreshAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formLoaded, branchFilter, form.report_date])
+
+  // ✅ حفظ تلقائي (Auto-Save) - أي تغيير في الفورم (سواء محسوب تلقائيًا أو مدخل يدوي زي العهدة/الملاحظات)
+  // بيتحفظ لوحده بعد ثانية ونص من آخر تغيير - بديل كامل لزرار "Save Report" اليدوي
+  useEffect(() => {
+    if (!formLoaded || !branchFilter) return
+    const t = setTimeout(() => { saveReport() }, 1500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, formLoaded, branchFilter])
+
   // Live auto-refresh (Realtime) without needing a manual page refresh.
-  // As soon as a new order / expense / delivery order / purchase invoice is recorded
-  // in the database for any branch, the app listens via Supabase Realtime and, after a
-  // short debounce (to avoid firing dozens of requests if many changes happen at once),
-  // automatically re-pulls the numbers for every shift and the day total — but only
-  // when the currently selected branch and date match today.
+  // As soon as a new order / expense / delivery order / purchase invoice / shift session
+  // is recorded in the database for any branch, the app listens via Supabase Realtime and,
+  // after a short debounce (to avoid firing dozens of requests if many changes happen at
+  // once), automatically re-pulls everything — but only when the currently selected
+  // branch and date match today (past reports don't change live).
   const [liveSync, setLiveSync] = useState(false)
   useEffect(() => {
     if (!branchFilter || !form.report_date) { setLiveSync(false); return }
@@ -623,12 +591,7 @@ export default function DailyReportPage() {
 
     const triggerAutoPull = () => {
       if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        pullDayTotalsFromSystem()
-        pullShiftFromSystem(1)
-        pullShiftFromSystem(2)
-        pullShiftFromSystem(3)
-      }, 1500)
+      debounceTimer = setTimeout(() => { refreshAll() }, 1500)
     }
 
     // Only enable live sync for today's report (past reports don't need live updates)
@@ -640,6 +603,8 @@ export default function DailyReportPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_cash_expenses' }, triggerAutoPull)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_platform_orders' }, triggerAutoPull)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_invoices' }, triggerAutoPull)
+      // ✅ جديد: أي تحديث في جلسات الشيفت الحقيقية (بدء/إنهاء شيفت من شاشة الكاشير) يحدّث التقرير فورًا
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cashier_shift_sessions' }, triggerAutoPull)
       .subscribe(status => setLiveSync(status === 'SUBSCRIBED'))
 
     return () => {
@@ -654,36 +619,30 @@ export default function DailyReportPage() {
     setForm(p => ({ ...p, [`shift${n}`]: { ...p[`shift${n}` as 'shift1' | 'shift2' | 'shift3'], [field]: val } }))
   }
 
-  // ✅ Shift claim / handover:
-  // - "Start Shift" stamps the current moment as this shift's start time — the
-  //   cashier presses it themselves, so it's always the real time they took over.
-  // - "End Shift" stamps the current moment as this shift's end time, AND
-  //   automatically carries that same moment over as the START time of the
-  //   NEXT shift (only if the next shift doesn't already have a start time,
-  //   so we never overwrite a time someone already set manually).
-  function startShift(num: 1 | 2 | 3) {
-    if (!(form as any)[`shift${num}`].cashier_name?.trim()) {
-      alert('Please enter the cashier name first')
-      return
-    }
-    setShift(num, 'start_time', new Date().toISOString())
+  // ✅ جديد: نفس مصدر الحقيقة الوحيد لأوقات وأسماء الشيفتات المستخدم في شاشة الكاشير (تاب Closed) —
+  // بدل نظام "Start/End Shift" اليدوي المنفصل اللي كان في التقرير ده، بقينا نجيب البيانات الحقيقية
+  // من نفس الجدول اللي بيتسجل فيه الكاشير شيفته فعليًا وهو بيبدأ شغله على الكاشير
+  //
+  // ✅ Fix حرج: التوزيع بقى حسب **الترتيب الزمني الفعلي** لكل جلسة في اليوم، مش حسب قيمة عمود "shift"
+  // المسجّلة في نظام الكاشير. يعني أول كاشير يبدأ شغله في اليوم بياخد صندوق "Shift 1"، وثاني كاشير (حتى
+  // لو هو نفسه سجّل تحت نفس label الشيفت في نظام الكاشير) بياخد صندوق "Shift 2" تلقائيًا، وهكذا. ده بالظبط
+  // اللي بيخلّي "End Shift" بتاع بشار يظهر منتهي في صندوقه، ومجد يبان في صندوق منفصل تمامًا رقم 2.
+  // لو حصل (نادرًا) أكتر من 3 جلسات حقيقية في يوم واحد، أي جلسة زيادة بتتضاف لصندوق Shift 3 الأخير.
+  async function fetchShiftSessions(): Promise<Record<number, { cashier_name: string; started_at: string; ended_at: string | null }[]>> {
+    const map: Record<number, { cashier_name: string; started_at: string; ended_at: string | null }[]> = { 1: [], 2: [], 3: [] }
+    if (!branchFilter || !form.report_date) return map
+    const { data } = await sb.from('cashier_shift_sessions')
+      .select('cashier_name, started_at, ended_at')
+      .eq('branch_id', branchFilter).eq('session_date', form.report_date)
+      .order('started_at', { ascending: true })
+    const rows = (data as any[]) || []
+    rows.forEach((row, idx) => {
+      const box = Math.min(idx + 1, 3) // بالترتيب: أول جلسة → 1، تانية → 2، تالتة وأي حاجة زيادة → 3
+      map[box].push({ cashier_name: row.cashier_name, started_at: row.started_at, ended_at: row.ended_at })
+    })
+    return map
   }
 
-  function endShift(num: 1 | 2 | 3) {
-    const now = new Date().toISOString()
-    setForm(p => {
-      const key = `shift${num}` as 'shift1' | 'shift2' | 'shift3'
-      const nextNum = num + 1
-      const next = { ...p, [key]: { ...(p as any)[key], end_time: now } }
-      if (nextNum <= 3) {
-        const nextKey = `shift${nextNum}` as 'shift1' | 'shift2' | 'shift3'
-        if (!(p as any)[nextKey].start_time) {
-          ;(next as any)[nextKey] = { ...(p as any)[nextKey], start_time: now }
-        }
-      }
-      return next
-    })
-  }
 
   function n(v: string) { return parseFloat(v) || 0 }
   // Round totals to prevent JavaScript's famous floating-point issue
@@ -706,28 +665,34 @@ export default function DailyReportPage() {
   }
 
   // Pull shift numbers from real data (paid orders + expenses + recorded delivery orders)
-  async function pullShiftFromSystem(num: 1 | 2 | 3) {
-    if (!branchFilter) { alert('Please select a branch first'); return }
-    if (!form.report_date) { alert('Please select a date first'); return }
+  // ✅ sessions: كل جلسات الشيفت ده الحقيقية من cashier_shift_sessions (ممكن تكون أكتر من واحدة - تسليم/استلام بين كاشيرين)
+  async function pullShiftFromSystem(num: 1 | 2 | 3, sessions?: { cashier_name: string; started_at: string; ended_at: string | null }[]) {
+    if (!branchFilter || !form.report_date) return
     const shiftKey = `shift${num}` as 'shift1' | 'shift2' | 'shift3'
-    const shiftState = (form as any)[shiftKey]
-    setPulling(num)
     const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
 
-    // ✅ If this shift has a real claimed start time (via "Start Shift"), pull
-    // orders using the ACTUAL clock window (start → end, or start → now if
-    // still ongoing) instead of the whole day. This is what makes an 8-hour
-    // shift show only its own 8 hours of sales, now that the system runs 24h
-    // with no fixed shift boundaries. Shifts that haven't been claimed yet
-    // fall back to the old behavior (whole day + the orders.shift label).
-    const useTimeWindow = !!shiftState.start_time
-    const windowStart = shiftState.start_time || dayStart
-    const windowEnd = shiftState.end_time || (shiftState.start_time ? new Date().toISOString() : dayEnd)
+    // ✅ لو الشيفت له جلسة أو أكتر مسجّلة فعليًا (من شاشة الكاشير)، بنستخدم كل نافذة زمنية منهم (بداية → نهاية، أو بداية → دلوقتي لو لسه شغالة)
+    // بدل يوم كامل. لو مفيش أي جلسة، بنرجع لسلوك احتياطي (يوم كامل + label الشيفت القديم من نظام الكاشير)
+    //
+    // ✅ Fix حرج: لو الشيفت لسه شغال (مفيش end_time)، نهايته المؤقتة بتتحسب "دلوقتي" - لكن لازم متتعديش نهاية
+    // يوم التقرير نفسه. من غير الحد ده، لو حد فتح/حدّث التقرير بعد نص الليل (والمطعم شغال 24 ساعة)، الشيفت
+    // اللي لسه شغال كان بيسحب معاه كمان كل مبيعات اليوم الجديد، فيطلع الإجمالي أكبر من الحقيقي وأكبر حتى من
+    // إجمالي اليوم نفسه (Total Sales Report) اللي بيفضل محصور صح جوه حدود اليوم.
+    const nowISO = new Date().toISOString()
+    const cappedNow = nowISO < dayEnd ? nowISO : dayEnd
+    const validSessions = (sessions || []).filter(s => !!s.started_at)
+    const useTimeWindow = validSessions.length > 0
+    const windows = useTimeWindow
+      ? validSessions.map(s => ({ start: s.started_at, end: s.ended_at || cappedNow }))
+      : [{ start: dayStart, end: dayEnd }]
+    // أوسع مدى زمني يغطي كل الجلسات، عشان نجيب الأوردرات في استعلام واحد ثم نفلترها بدقة على كل نافذة
+    const rangeStart = windows.reduce((m, w) => (w.start < m ? w.start : m), windows[0].start)
+    const rangeEnd = windows.reduce((m, w) => (w.end > m ? w.end : m), windows[0].end)
 
     let ordersQuery = sb.from('orders')
-      .select('total_amount, discount_amount, payment_method, card_bank, shift, paid_by_name, tables!inner(branch_id)')
+      .select('total_amount, discount_amount, payment_method, card_bank, shift, paid_at, paid_by_name, tables!inner(branch_id)')
       .eq('status', 'paid').eq('tables.branch_id', branchFilter)
-      .gte('paid_at', windowStart).lte('paid_at', windowEnd)
+      .gte('paid_at', rangeStart).lte('paid_at', rangeEnd)
     if (!useTimeWindow) ordersQuery = ordersQuery.eq('shift', shiftKey)
 
     const [ordersRes, expRes, delRes] = await Promise.all([
@@ -738,7 +703,11 @@ export default function DailyReportPage() {
         .eq('branch_id', branchFilter).eq('shift', shiftKey).eq('order_date', form.report_date),
     ])
 
-    const orders = ordersRes.data || []
+    // ✅ فلترة دقيقة: نستبعد أي طلب وقع في فجوة بين جلستين (مثلاً لو فيه وقت فاصل حقيقي بين ما بشار سلّم ومجد استلم)
+    const rawOrders = ordersRes.data || []
+    const orders = useTimeWindow
+      ? rawOrders.filter(o => windows.some(w => o.paid_at! >= w.start && o.paid_at! <= w.end))
+      : rawOrders
     const expenses = expRes.data || []
     const delivery = delRes.data || []
 
@@ -750,15 +719,27 @@ export default function DailyReportPage() {
     const gOnline = round2(delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0))
     const paidExpenses = round2(expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0))
     const pendingExpenses = round2(expenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0))
-    // Auto-detect cashier name from the most frequent name in paid orders during this shift
+    // Auto-detect cashier name from the most frequent name in paid orders during this shift (احتياطي لو مفيش جلسة مسجّلة أصلًا)
     const detectedCashier = mostFrequentName(orders.map(o => (o as any).paid_by_name))
+
+    // ✅ لو أكتر من كاشير اشتغلوا في نفس رقم الشيفت (تسليم/استلام)، بنعرض كل الأسماء مرتبة زمنيًا زي "Bashar → Majd"
+    const uniqueNames = [...new Set(validSessions.map(s => s.cashier_name).filter(Boolean))]
+    const combinedCashierName = uniqueNames.length ? uniqueNames.join(' → ') : detectedCashier
+    const firstStart = validSessions.length ? validSessions[0].started_at : ''
+    const lastSession = validSessions.length ? validSessions[validSessions.length - 1] : null
+    const lastEnd = lastSession ? (lastSession.ended_at || '') : '' // فاضي = لسه في شيفت شغالة دلوقتي
 
     setForm(p => ({
       ...p,
       [shiftKey]: {
         ...(p as any)[shiftKey],
-        // Only auto-fill the cashier name if the field is empty, so we don't overwrite a manually entered name
-        cashier_name: (p as any)[shiftKey]?.cashier_name || detectedCashier || '',
+        // ✅ اسم الكاشير (أو الأسماء) ووقت البداية/النهاية بيجوا 100% من الجلسات الحقيقية بتاعة نظام الكاشير
+        cashier_name: combinedCashierName || '',
+        start_time: firstStart,
+        end_time: lastEnd,
+        date: firstStart
+          ? new Date(firstStart).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+          : form.report_date,
         paid_expenses: String(paidExpenses),
         pending_expenses: String(pendingExpenses),
         visa_maybank: String(visaMaybank),
@@ -769,14 +750,11 @@ export default function DailyReportPage() {
         total_balance: String(salesTotal),
       },
     }))
-    setPulling(null)
   }
 
   // Pull the whole day's totals (top level: sales, Grab, Foodpanda, purchase invoices)
   async function pullDayTotalsFromSystem() {
-    if (!branchFilter) { alert('Please select a branch first'); return }
-    if (!form.report_date) { alert('Please select a date first'); return }
-    setPulling('top')
+    if (!branchFilter || !form.report_date) return
     const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
 
     const [ordersRes, delRes, purchasesRes, expRes] = await Promise.all([
@@ -824,7 +802,6 @@ export default function DailyReportPage() {
       foodpanda: String(foodpandaTotal),
       total_purchased_bills: String(purchasesTotal),
     }))
-    setPulling(null)
   }
 
   async function saveReport() {
@@ -1169,10 +1146,11 @@ export default function DailyReportPage() {
             style={{ padding: isMobile ? '7px 12px' : '8px 16px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>
             🖨️ Print
           </button>
-          <button onClick={saveReport} disabled={saving}
-            style={{ padding: isMobile ? '7px 14px' : '8px 20px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: isMobile ? 12 : 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: saving ? 0.7 : 1, flex: isMobile ? 1 : undefined }}>
-            {saving ? '⏳ Saving...' : saved ? '✅ Saved!' : '💾 Save Report'}
-          </button>
+          {/* ✅ جديد: مفيش زرار حفظ يدوي خالص - التقرير بيتحدث وبيتحفظ لوحده أول بأول */}
+          <div style={{ padding: isMobile ? '7px 12px' : '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, fontSize: isMobile ? 11 : 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, color: refreshing ? S.blue : saving ? S.gold : S.green, display: 'flex', alignItems: 'center', gap: 6, flex: isMobile ? 1 : undefined, justifyContent: 'center' }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: refreshing ? S.blue : saving ? S.gold : S.green, display: 'inline-block' }} />
+            {refreshing ? 'Updating...' : saving ? 'Saving...' : '✅ Up to date'}
+          </div>
         </div>
       </div>
 
@@ -1356,38 +1334,34 @@ export default function DailyReportPage() {
               )}
             </div>
 
-            {/* Shifts */}
-            <ShiftSection num={1} shift={form.shift1} isMobile={isMobile} branchFilter={branchFilter} form={form} pulling={pulling} cashiers={cashiers} sb={sb} setShift={setShift} pullShiftFromSystem={pullShiftFromSystem} startShift={startShift} endShift={endShift} saveReport={saveReport} saving={saving} saved={saved} />
-            <ShiftSection num={2} shift={form.shift2} isMobile={isMobile} branchFilter={branchFilter} form={form} pulling={pulling} cashiers={cashiers} sb={sb} setShift={setShift} pullShiftFromSystem={pullShiftFromSystem} startShift={startShift} endShift={endShift} saveReport={saveReport} saving={saving} saved={saved} />
-            <ShiftSection num={3} shift={form.shift3} isMobile={isMobile} branchFilter={branchFilter} form={form} pulling={pulling} cashiers={cashiers} sb={sb} setShift={setShift} pullShiftFromSystem={pullShiftFromSystem} startShift={startShift} endShift={endShift} saveReport={saveReport} saving={saving} saved={saved} />
+            {/* Shifts — كل حاجة هنا تلقائية 100% (كاشير/أوقات/مبيعات/فيزا) ما عدا العهدة والملاحظات وفورمي الإضافة السريعة */}
+            <ShiftSection num={1} shift={form.shift1} isMobile={isMobile} branchFilter={branchFilter} form={form} sb={sb} setShift={setShift} onDataChanged={refreshAll} />
+            <ShiftSection num={2} shift={form.shift2} isMobile={isMobile} branchFilter={branchFilter} form={form} sb={sb} setShift={setShift} onDataChanged={refreshAll} />
+            <ShiftSection num={3} shift={form.shift3} isMobile={isMobile} branchFilter={branchFilter} form={form} sb={sb} setShift={setShift} onDataChanged={refreshAll} />
 
             {/* Totals */}
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 16 }}>
-              <div style={{ background: 'rgba(201,168,76,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ background: 'rgba(201,168,76,0.15)', padding: '12px 20px', borderBottom: `1px solid ${S.border}` }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>📊 Totals & Summary</div>
-                <button onClick={pullDayTotalsFromSystem} disabled={pulling === 'top'}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: 'rgba(255,255,255,0.06)', color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: pulling === 'top' ? 0.6 : 1 }}>
-                  {pulling === 'top' ? '⏳ Pulling...' : '🔄 Pull Day Totals from System'}
-                </button>
               </div>
               <div style={{ padding: isMobile ? 14 : 20, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 20 }}>
-                {/* Left totals */}
+                {/* Left totals — كلها محسوبة تلقائيًا من النظام (Read-only) */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total Sales Report')}<NumInput style={numInp} value={form.total_sales_report} onChange={v => setForm(p => ({ ...p, total_sales_report: v }))} placeholder="0.00" /></div>
-                    <div>{label('Total Paid Expenses (RM)')}<NumInput style={numInp} value={form.total_paid_expenses} onChange={v => setForm(p => ({ ...p, total_paid_expenses: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total Sales Report — auto')}<ReadOnlyAmount value={form.total_sales_report} /></div>
+                    <div>{label('Total Paid Expenses (RM) — auto')}<ReadOnlyAmount value={form.total_paid_expenses} /></div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total Pending Expenses (RM)')}<NumInput style={numInp} value={form.total_pending_expenses} onChange={v => setForm(p => ({ ...p, total_pending_expenses: v }))} placeholder="0.00" /></div>
-                    <div>{label('Total Visa MAYBANK (RM)')}<NumInput style={numInp} value={form.total_visa_maybank} onChange={v => setForm(p => ({ ...p, total_visa_maybank: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total Pending Expenses (RM) — auto')}<ReadOnlyAmount value={form.total_pending_expenses} /></div>
+                    <div>{label('Total Visa MAYBANK (RM) — auto')}<ReadOnlyAmount value={form.total_visa_maybank} /></div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total Visa BSN')}<NumInput style={numInp} value={form.total_visa_bsn} onChange={v => setForm(p => ({ ...p, total_visa_bsn: v }))} placeholder="0.00" /></div>
-                    <div>{label('Total KababOnline Banking (RM)')}<NumInput style={numInp} value={form.total_kabab_online} onChange={v => setForm(p => ({ ...p, total_kabab_online: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total Visa BSN — auto')}<ReadOnlyAmount value={form.total_visa_bsn} /></div>
+                    <div>{label('Total KababOnline Banking (RM) — auto')}<ReadOnlyAmount value={form.total_kabab_online} /></div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Total G Online Banking (RM)')}<NumInput style={numInp} value={form.total_g_online} onChange={v => setForm(p => ({ ...p, total_g_online: v }))} placeholder="0.00" /></div>
-                    <div>{label('Total Discounts')}<NumInput style={numInp} value={form.total_discounts} onChange={v => setForm(p => ({ ...p, total_discounts: v }))} placeholder="0.00" /></div>
+                    <div>{label('Total G Online Banking (RM) — auto')}<ReadOnlyAmount value={form.total_g_online} /></div>
+                    <div>{label('Total Discounts — auto')}<ReadOnlyAmount value={form.total_discounts} /></div>
                   </div>
                   <div>{label('Total Amount (RM)')}
                     <NumInput style={{ ...numInp, color: S.gold, fontWeight: 800, fontSize: 16 }} value={form.total_amount} onChange={v => setForm(p => ({ ...p, total_amount: v }))} placeholder="0.00" />
@@ -1399,12 +1373,12 @@ export default function DailyReportPage() {
                   <div>{label('Notes')}
                     <textarea style={{ ...inp, minHeight: 80, resize: 'vertical' } as React.CSSProperties} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes..." />
                   </div>
-                  <div>{label('Total Purchased Bills – Shopping (RM)')}
-                    <NumInput style={numInp} value={form.total_purchased_bills} onChange={v => setForm(p => ({ ...p, total_purchased_bills: v }))} placeholder="0.00" />
+                  <div>{label('Total Purchased Bills – Shopping (RM) — auto')}
+                    <ReadOnlyAmount value={form.total_purchased_bills} />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>{label('Grab (RM)')}<NumInput style={numInp} value={form.grab} onChange={v => setForm(p => ({ ...p, grab: v }))} placeholder="0.00" /></div>
-                    <div>{label('Foodpanda (RM)')}<NumInput style={numInp} value={form.foodpanda} onChange={v => setForm(p => ({ ...p, foodpanda: v }))} placeholder="0.00" /></div>
+                    <div>{label('Grab (RM) — auto')}<ReadOnlyAmount value={form.grab} /></div>
+                    <div>{label('Foodpanda (RM) — auto')}<ReadOnlyAmount value={form.foodpanda} /></div>
                   </div>
                   <div>{label('Treasurer Name and Signature')}
                     <input style={inp} value={form.treasurer_name} onChange={e => setForm(p => ({ ...p, treasurer_name: e.target.value }))} placeholder="Treasurer name..." />
@@ -1413,11 +1387,7 @@ export default function DailyReportPage() {
               </div>
             </div>
 
-            {/* Save Button */}
-            <button onClick={saveReport} disabled={saving}
-              style={{ width: '100%', padding: '14px', borderRadius: 12, border: `1px solid ${S.gold}`, background: saved ? S.greenB : S.gold3, color: saved ? S.green : S.gold, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 15, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1, transition: 'all .2s' }}>
-              {saving ? '⏳ Saving...' : saved ? '✅ Report Saved Successfully!' : '💾 Save Report'}
-            </button>
+            {/* ✅ جديد: مفيش زرار حفظ يدوي - التقرير محفوظ أول بأول تلقائيًا (شوف مؤشر الحالة فوق في الهيدر) */}
           </>
         )}
       </div>

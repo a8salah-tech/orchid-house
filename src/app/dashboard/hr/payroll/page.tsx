@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 
@@ -131,19 +132,43 @@ function calcRecord(r: PayrollRecord) {
   return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, totalDeductions, netSalary, amountDue, balance }
 }
 
-function Cell({ value, onChange, readOnly = false }: { value: any; onChange: (v: any) => void; readOnly?: boolean }) {
+function Cell({ value, onChange, readOnly = false, extra, minWidth = 80 }: { value: any; onChange: (v: any) => void; readOnly?: boolean; extra?: React.ReactNode; minWidth?: number }) {
+  // ✅ نص محلي منفصل عن الرقم الفعلي — يسمح بكتابة كسور عشرية ("200." أو "200,5") أثناء الكتابة
+  // بدل ما القيمة تتحول لرقم فوراً وتمسح النقطة/الفاصلة اللي المستخدم لسه بيكتبها
+  const [text, setText] = useState(String(value ?? 0))
+
+  useEffect(() => {
+    const parsedCurrent = parseFloat(text.replace(',', '.'))
+    // نحدّث النص المحلي بس لو القيمة الجاية من برا (record) اتغيّرت فعلاً عن اللي المستخدم كاتبه
+    if (Number.isNaN(parsedCurrent) || parsedCurrent !== value) {
+      setText(String(value ?? 0))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
   return (
-    <td style={{ padding: '4px 6px', border: `1px solid ${S.border}`, minWidth: 80 }}>
-      <input
-        style={{ ...inp, fontSize: 11, padding: '4px 6px', opacity: readOnly ? 0.6 : 1, cursor: readOnly ? 'default' : 'text' }}
-        type="text" inputMode="decimal" value={value}
-        readOnly={readOnly}
-        onChange={e => {
-          if (readOnly) return
-          const v = e.target.value.replace(/[^\d.]/g, '')
-          onChange(parseFloat(v) || 0)
-        }}
-      />
+    <td style={{ padding: '4px 6px', border: `1px solid ${S.border}`, minWidth }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input
+          style={{ ...inp, fontSize: 11, padding: '4px 6px', opacity: readOnly ? 0.6 : 1, cursor: readOnly ? 'default' : 'text', flex: 1, minWidth: 46 }}
+          type="text" inputMode="decimal" value={text}
+          readOnly={readOnly}
+          onChange={e => {
+            if (readOnly) return
+            // ✅ بنقبل أرقام + نقطة + فاصلة (بعض لوحات المفاتيح بتبعت فاصلة كفاصل عشري)
+            const raw = e.target.value.replace(/[^\d.,]/g, '')
+            setText(raw)
+            const num = parseFloat(raw.replace(',', '.'))
+            onChange(Number.isNaN(num) ? 0 : num)
+          }}
+          onBlur={() => {
+            // تنظيف الشكل النهائي بعد ما المستخدم يخلّص الكتابة
+            const num = parseFloat(text.replace(',', '.'))
+            setText(String(Number.isNaN(num) ? 0 : num))
+          }}
+        />
+        {extra}
+      </div>
     </td>
   )
 }
@@ -160,6 +185,10 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   const emp  = empMap[record.employee_id]
   const calc = calcRecord(record)
   const set  = (field: keyof PayrollRecord, val: any) => onChange({ ...record, [field]: val })
+  // ✅ يخزّن القيمة القديمة لـ "المدفوع" مؤقتاً عشان زر التراجع بعد "تحديد كمدفوع بالكامل"
+  const [lastPaid, setLastPaid] = useState<number | null>(null)
+  // ✅ نافذة تأكيد "دفع كامل" — تظهر في منتصف الشاشة بدل نافذة المتصفح الافتراضية
+  const [confirmPaidOpen, setConfirmPaidOpen] = useState(false)
   const thStyle: React.CSSProperties = {
     padding: '6px 8px', fontSize: 11, color: S.white,
     background: 'rgba(255,255,255,0.02)', border: `1px solid ${S.border}`, whiteSpace: 'nowrap',
@@ -169,6 +198,7 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   return (
+    <>
     <tr
       onClick={onSelect}
       style={{ cursor: onSelect ? 'pointer' : undefined, background: selected ? SELECTED_ROW_BG_TRANSLUCENT : undefined }}
@@ -208,13 +238,82 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
       <td style={{ ...thStyle, color: calc.netSalary >= 0 ? S.teal : S.red, fontWeight: 800, textAlign: 'center', minWidth: 90, fontSize: 13 }}>
         {fmt(calc.netSalary)}
       </td>
-      <Cell value={record.amount_due}       onChange={v => set('amount_due', v)} />
-      <Cell value={record.amount_paid}      onChange={v => set('amount_paid', v)} />
+      <Cell
+        value={record.amount_due}
+        onChange={v => set('amount_due', v)}
+        minWidth={110}
+        extra={!readOnly && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); set('amount_due', calc.netSalary > 0 ? calc.netSalary : 0) }}
+            title="مزامنة المستحق مع صافي الراتب المحسوب حالياً"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, flexShrink: 0 }}
+          >🔄</button>
+        )}
+      />
+      <Cell
+        value={record.amount_paid}
+        onChange={v => set('amount_paid', v)}
+        minWidth={110}
+        extra={!readOnly && (
+          lastPaid === null ? (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); setConfirmPaidOpen(true) }}
+              title="تحديد الموظف كمدفوع بالكامل (يساوي المستحق)"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, flexShrink: 0 }}
+            >✅</button>
+          ) : (
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation()
+                set('amount_paid', lastPaid)
+                setLastPaid(null)
+              }}
+              title="تراجع عن آخر تحديد (رجّع القيمة القديمة)"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, flexShrink: 0 }}
+            >↩️</button>
+          )
+        )}
+      />
       <td style={{ ...thStyle, color: (record.amount_due - record.amount_paid) > 0 ? S.amber : S.green, fontWeight: 700, textAlign: 'center' }}>
         {fmt(record.amount_due - record.amount_paid)}
       </td>
       <Cell value={record.work_insurance}   onChange={v => set('work_insurance', v)} />
     </tr>
+    {/* ✅ نافذة تأكيد "دفع كامل" — Portal في منتصف الشاشة بدل نافذة المتصفح الافتراضية */}
+    {confirmPaidOpen && typeof document !== 'undefined' && createPortal(
+      <div
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+        onClick={() => setConfirmPaidOpen(false)}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 14, padding: 24, minWidth: 320, maxWidth: '90vw', textAlign: 'center', fontFamily: 'Tajawal, sans-serif', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
+        >
+          <div style={{ fontSize: 15, color: S.white, marginBottom: 20, lineHeight: 1.8 }}>
+            تأكيد: تحديد <b style={{ color: S.gold }}>{emp?.name || 'الموظف'}</b> كمدفوع بالكامل ({fmt(record.amount_due)})؟
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              onClick={() => {
+                setLastPaid(record.amount_paid)
+                set('amount_paid', record.amount_due)
+                setConfirmPaidOpen(false)
+              }}
+              style={{ padding: '8px 22px', borderRadius: 10, border: `1px solid ${S.teal}`, background: 'rgba(20,184,166,0.15)', color: S.teal, cursor: 'pointer', fontWeight: 700, fontFamily: 'inherit', fontSize: 13 }}
+            >تأكيد</button>
+            <button
+              onClick={() => setConfirmPaidOpen(false)}
+              style={{ padding: '8px 22px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13 }}
+            >إلغاء</button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+    </>
   )
 }
 

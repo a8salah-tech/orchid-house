@@ -380,6 +380,22 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     isPayingRef.current = true
     setSaving(true)
 
+    // ✅ Fix حرج جدًا (طبقة حماية أخيرة): في حالات نادرة جدًا (Race Condition - لو اتنين حاولوا يضيفوا
+    // طلب لنفس الطاولة في نفس اللحظة بالظبط)، ممكن يتعمل أكتر من صف "orders" نشط لنفس الطاولة. لو سبنا
+    // ده يحصل، التحديث تحت (total_amount) هيتكرر على كل الصفوف ويطلع في تقارير المبيعات مضاعف. فقبل
+    // ما نقفل الفاتورة، بنتأكد إن كل الطلبات النشطة لنفس الطاولة اتجمعت في صف واحد بس.
+    const { data: activeOrdersForTable } = await sb.from('orders')
+      .select('id, created_at').eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
+      .order('created_at', { ascending: true })
+    if (activeOrdersForTable && activeOrdersForTable.length > 1) {
+      const primaryId = activeOrdersForTable[0].id
+      const duplicateIds = activeOrdersForTable.slice(1).map(o => o.id)
+      // ننقل كل أصناف الطلبات الزيادة للطلب الأساسي (الأقدم)
+      await sb.from('order_items').update({ order_id: primaryId }).in('order_id', duplicateIds)
+      // ونلغي الطلبات الزيادة نفسها (بإجمالي صفر) عشان محدش يحسبها تاني
+      await sb.from('orders').update({ status: 'cancelled', total_amount: 0, cancel_reason: 'دمج تلقائي - نفس طلب الطاولة' }).in('id', duplicateIds)
+    }
+
     // 1. Mark all active orders for this table as paid
     await sb.from('orders').update({
       status: 'paid',
@@ -466,6 +482,17 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
     isPayingRef.current = true
     setSaving(true)
+
+    // ✅ نفس طبقة الحماية الموجودة في doPay - دمج أي طلبات نشطة مكررة لنفس الطاولة قبل قفل الفاتورة المقسّمة
+    const { data: activeOrdersForTableSplit } = await sb.from('orders')
+      .select('id, created_at').eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
+      .order('created_at', { ascending: true })
+    if (activeOrdersForTableSplit && activeOrdersForTableSplit.length > 1) {
+      const primaryId = activeOrdersForTableSplit[0].id
+      const duplicateIds = activeOrdersForTableSplit.slice(1).map(o => o.id)
+      await sb.from('order_items').update({ order_id: primaryId }).in('order_id', duplicateIds)
+      await sb.from('orders').update({ status: 'cancelled', total_amount: 0, cancel_reason: 'دمج تلقائي - نفس طلب الطاولة' }).in('id', duplicateIds)
+    }
 
     // نسجل كل دفعة على حدة في order_split_payments للأرشفة والتقارير
     await sb.from('order_split_payments').insert(
@@ -1587,11 +1614,14 @@ export default function CashierPage() {
 
   // ✅ جديد: جلب اسم الكاشير اللي ماسك الشيفت الحالي (للفرع والشيفت المختارين) من قاعدة البيانات
   // بيبان لأي حد بيفتح الصفحة، مش بس اللي بدأ الشيفت من جهازه
+  // ✅ Fix حرج: شلنا شرط session_date = النهاردة بالكامل. المطعم شغال 24 ساعة، فلو شيفت بدأ قبل منتصف الليل
+  // واستمر بعده، "النهاردة" بتتغيّر لكن الجلسة لسه شغالة فعليًا - فكان بيختفي اسم الكاشير فجأة بعد منتصف الليل
+  // ويرجع يوري "Start Shift" وكأن محدش ماسك الشيفت. دلوقتي بندور بس على "أحدث جلسة لسه مفتوحة" (ended_at فاضي)
+  // لنفس الشيفت والفرع، بغض النظر عن تاريخها - وده صحيح منطقيًا لأنه أصلًا مفروض تكون جلسة واحدة بس مفتوحة في كل لحظة
   const fetchActiveShiftCashier = useCallback(async () => {
     if (!isCashierRole) return
-    const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
     let q = sb.from('cashier_shift_sessions').select('cashier_name')
-      .eq('shift', shift).eq('session_date', todayMY).is('ended_at', null)
+      .eq('shift', shift).is('ended_at', null)
       .order('started_at', { ascending: false }).limit(1)
     if (employee?.branch_id) q = q.eq('branch_id', employee.branch_id)
     const { data } = await q.maybeSingle()
@@ -1741,9 +1771,17 @@ export default function CashierPage() {
   const fetchClosedData = useCallback(async () => {
     setClosedLoading(true)
     const targetDate = closedDate || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    const dayStart = `${targetDate}T00:00:00`
+    const dayEnd = `${targetDate}T23:59:59.999`
     const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
-    const { data: oData } = await sb.from('orders').select(SEL_CLOSED).in('status', ['paid', 'cancelled'])
-      .gte('created_at', `${targetDate}T00:00:00`).lt('created_at', `${targetDate}T23:59:59.999`)
+    // ✅ Fix حرج جدًا: المطعم شغال 24 ساعة، فطلب ممكن يتفتح قبل نص الليل ويتقفل (يتدفع) بعده. لو حددنا "الطلب
+    // ده بتاع أي يوم" بناءً على created_at (وقت الفتح) زي الأول، كان بيختفي تمامًا من كل تابات Closed - مش
+    // ظاهر في يوم الفتح (لأنه لسه معلّق وقتها) ولا في يوم الدفع (لأن الفلتر بيدور على created_at بتاريخ التاني).
+    // دلوقتي: الطلبات المدفوعة بنحدد يومها بـ paid_at (وقت القفل الفعلي)، والملغية (مالهاش paid_at) بـ created_at
+    const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
+      .or(`and(status.eq.paid,paid_at.gte.${dayStart},paid_at.lte.${dayEnd}),and(status.eq.cancelled,created_at.gte.${dayStart},created_at.lte.${dayEnd})`)
+      // ✅ الترتيب بقى حسب وقت القفل الفعلي (paid_at) - مش وقت فتح الطلب - عشان الفواتير تظهر بترتيب زمني صحيح
+      .order('paid_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
     let results = (oData as any as Order[]) || []
     // ✅ نقصر النتيجة على الطاولات المسموح بها لهذا المستخدم (نفس منطق fetchAll)، وعلى فرع الأدمن المختار لو محدد
@@ -1754,8 +1792,15 @@ export default function CashierPage() {
     }
     setClosedOrders(results)
 
+    // ✅ Fix حرج: شيفت بدأ قبل نص الليل ولسه شغال (أو اتقفل بعده) كان بيتسجّل بـ session_date بتاريخ الأمس،
+    // فمكنش يظهر أبدًا تحت "النهاردة" حتى لو طلباته الأخيرة اتدفعت فعليًا النهاردة. دلوقتي بنجيب أي جلسة:
+    // تاريخها بيطابق اليوم المطلوب، أو اتقفلت النهاردة، أو لسه شغالة فعليًا (ended_at فاضي) - لو بنعرض "النهاردة"
+    const isViewingToday = targetDate === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
     let sq = sb.from('cashier_shift_sessions').select('id,shift,cashier_name,started_at,ended_at,branch_id')
-      .eq('session_date', targetDate).order('started_at', { ascending: true })
+      .or(isViewingToday
+        ? `session_date.eq.${targetDate},and(ended_at.gte.${dayStart},ended_at.lte.${dayEnd}),ended_at.is.null`
+        : `session_date.eq.${targetDate},and(ended_at.gte.${dayStart},ended_at.lte.${dayEnd})`)
+      .order('started_at', { ascending: true })
     if (!isAdmin && employee?.branch_id) sq = sq.eq('branch_id', employee.branch_id)
     if (isAdmin && adminBranchFilter) sq = sq.eq('branch_id', adminBranchFilter)
     const { data: sData } = await sq
@@ -2015,12 +2060,13 @@ export default function CashierPage() {
               <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 12, color: S.red, fontWeight: 700 }}>{activeCount} active</div>
             )}
             <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 {isMobile ? '' : 'Tables'}</button>
-            <button onClick={() => setView('orders')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' ? S.gold : S.border}`, background: view === 'orders' ? S.gold3 : 'transparent', color: view === 'orders' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 {isMobile ? '' : 'Orders'}</button>
+            <button onClick={() => { setView('orders'); setFilter('active') }} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' && filter !== 'done' ? S.gold : S.border}`, background: view === 'orders' && filter !== 'done' ? S.gold3 : 'transparent', color: view === 'orders' && filter !== 'done' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 {isMobile ? '' : 'Orders'}</button>
             {isCashierRole && (
               <button onClick={() => { setView('archive'); if (!archiveSearched) searchArchive() }} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'archive' ? S.purple : S.border}`, background: (view as string) === 'archive' ? S.purpleB : 'transparent', color: (view as string) === 'archive' ? S.purple : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📦 {isMobile ? '' : 'Archive'}</button>
             )}
             {isCashierRole && (
-              <button onClick={() => setView('shift' as any)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'shift' ? S.teal : S.border}`, background: (view as string) === 'shift' ? S.tealB : 'transparent', color: (view as string) === 'shift' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 {isMobile ? '' : 'Shift'}</button>
+              <button onClick={() => { setView('orders'); setFilter('done' as any); if (!closedFetched) fetchClosedData() }}
+                style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' && filter === 'done' ? S.teal : S.border}`, background: view === 'orders' && filter === 'done' ? S.tealB : 'transparent', color: view === 'orders' && filter === 'done' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 {isMobile ? '' : 'Shift'}</button>
             )}
           </div>
         </div>
@@ -2594,9 +2640,11 @@ export default function CashierPage() {
         setShowShiftReport(false); setShiftStarted(false); setShiftStart(null)
         localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start')
         // ✅ جديد: إغلاق جلسة الشيفت في قاعدة البيانات كمان
-        const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+        // ✅ Fix حرج: شلنا شرط session_date = النهاردة - كان بيمنع قفل الجلسة صح لو الشيفت عدّى منتصف الليل
+        // (المطعم شغال 24 ساعة)، فتفضل الجلسة "مفتوحة" في قاعدة البيانات للأبد حتى لو ضغط الكاشير "End Shift" فعليًا.
+        // دلوقتي بنقفل أحدث جلسة مفتوحة فعليًا لنفس الشيفت والفرع، بغض النظر عن تاريخها
         let closeQ = sb.from('cashier_shift_sessions').update({ ended_at: new Date().toISOString() })
-          .eq('shift', shift).eq('session_date', todayMY).is('ended_at', null)
+          .eq('shift', shift).is('ended_at', null)
         if (employee?.branch_id) closeQ = closeQ.eq('branch_id', employee.branch_id)
         closeQ.then(() => fetchActiveShiftCashier())
       }} />}

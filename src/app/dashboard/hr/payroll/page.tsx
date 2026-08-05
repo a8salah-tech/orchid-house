@@ -32,6 +32,8 @@ const NAME_COL_W = 190
 const LATE_HOUR_PENALTY = 20
 // ✅ لون خلفية الصف عند تحديده (يجب أن يكون صلباً/Opaque في الأعمدة المثبّتة حتى لا يظهر تداخل مع الأعمدة الأخرى أثناء التمرير الأفقي)
 const SELECTED_ROW_BG = '#152E59'
+// ✅ خلفية صلبة (Opaque) لخلية "TOTAL" المثبّتة أفقياً في آخر صف بالجدول (نفس لون rgba(201,168,76,0.15) بس بدون شفافية)
+const TOTAL_ROW_BG = '#222E41'
 const SELECTED_ROW_BG_TRANSLUCENT = 'rgba(59,130,246,0.14)'
 
 const inp: React.CSSProperties = {
@@ -115,6 +117,20 @@ function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: strin
   }
   // موقوف (is_active = false) بدون تاريخ إيقاف مسجل (حالة قديمة قبل إضافة هذه الميزة) — أأمن نوقف الراتب من الآن
   return { basicSalary: 0, daysWorked: 0, note: '⏸ موظف موقوف عن العمل (بدون تاريخ إيقاف مسجل)' }
+}
+
+// ✅ بيحوّل لون شفاف (rgba) لنفس اللون لكن صلب (Opaque) بدمجه فوق خلفية أساسية —
+// ضروري لأي عنصر Sticky (زي رؤوس الجدول) عشان محتوى الصفوف اللي بيتمرر تحته ميظهرش شفاف من وراه
+function solidOver(rgba: string, baseHex: string = '#0F2040'): string {
+  const m = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
+  if (!m) return rgba
+  const r = parseInt(m[1], 10), g = parseInt(m[2], 10), b = parseInt(m[3], 10)
+  const a = m[4] !== undefined ? parseFloat(m[4]) : 1
+  const baseR = parseInt(baseHex.slice(1, 3), 16)
+  const baseG = parseInt(baseHex.slice(3, 5), 16)
+  const baseB = parseInt(baseHex.slice(5, 7), 16)
+  const mix = (base: number, c: number) => Math.round(base * (1 - a) + c * a)
+  return `rgb(${mix(baseR, r)}, ${mix(baseG, g)}, ${mix(baseB, b)})`
 }
 
 function calcRecord(r: PayrollRecord) {
@@ -459,6 +475,13 @@ export default function PayrollPage() {
   const [payslipRecord, setPayslipRecord] = useState<PayrollRecord | null>(null)
   // ✅ الموظف المحدد حالياً في الجدول (لتمييزه بلون مختلف)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
+  // ✅ ارتفاع صف الهيدر الأول الحقيقي (بيتقاس فعلياً من DOM، مش رقم ثابت مخمّن) — عشان صف الهيدر الثاني
+  // يتثبّت تحته بالظبط بدون أي تراكب، مهما اختلف حجم الخط أو التفاف النص
+  const headerRow1Ref = useRef<HTMLTableRowElement>(null)
+  const [headerRow1H, setHeaderRow1H] = useState(31)
+  useEffect(() => {
+    if (headerRow1Ref.current) setHeaderRow1H(headerRow1Ref.current.getBoundingClientRect().height)
+  }, [])
 
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -734,10 +757,40 @@ export default function PayrollPage() {
     return filteredRecords.filter(r => r.employee_id === currentUser?.id)
   }, [filteredRecords, isAdmin, currentUser?.id, currentUser?.role])
 
+  // ✅ إجماليات شاملة لكل عمود رقمي في الجدول — تُستخدم في صف TOTAL أسفل الجدول
   const totals = useMemo(() => visibleRecords.reduce((acc, r) => {
     const c = calcRecord(r)
-    return { earnings: acc.earnings + c.totalEarnings, deductions: acc.deductions + c.totalDeductions, net: acc.net + c.netSalary, paid: acc.paid + r.amount_paid, balance: acc.balance + (r.amount_due - r.amount_paid) }
-  }, { earnings: 0, deductions: 0, net: 0, paid: 0, balance: 0 }), [visibleRecords])
+    return {
+      basicSalary: acc.basicSalary + r.basic_salary,
+      insurance: acc.insurance + r.insurance,
+      otDays: acc.otDays + r.overtime_days,
+      otHours: acc.otHours + r.overtime_hours,
+      allowance1: acc.allowance1 + r.allowance_1,
+      allowance2: acc.allowance2 + r.allowance_2,
+      allowance3: acc.allowance3 + r.allowance_3,
+      earnings: acc.earnings + c.totalEarnings,
+      absenceDays: acc.absenceDays + r.absence_days,
+      lateHours: acc.lateHours + r.late_hours,
+      earlyExitHours: acc.earlyExitHours + r.early_exit_hours,
+      tax: acc.tax + r.tax,
+      ded1: acc.ded1 + r.deduction_1,
+      ded2: acc.ded2 + r.deduction_2,
+      ded3: acc.ded3 + r.deduction_3,
+      deductions: acc.deductions + c.totalDeductions,
+      advance: acc.advance + r.advance,
+      advanceBalance: acc.advanceBalance + r.advance_balance,
+      carriedForward: acc.carriedForward + r.carried_forward,
+      net: acc.net + c.netSalary,
+      due: acc.due + r.amount_due,
+      paid: acc.paid + r.amount_paid,
+      balance: acc.balance + (r.amount_due - r.amount_paid),
+      workInsurance: acc.workInsurance + r.work_insurance,
+    }
+  }, {
+    basicSalary: 0, insurance: 0, otDays: 0, otHours: 0, allowance1: 0, allowance2: 0, allowance3: 0,
+    earnings: 0, absenceDays: 0, lateHours: 0, earlyExitHours: 0, tax: 0, ded1: 0, ded2: 0, ded3: 0,
+    deductions: 0, advance: 0, advanceBalance: 0, carriedForward: 0, net: 0, due: 0, paid: 0, balance: 0, workInsurance: 0,
+  }), [visibleRecords])
 
   // ✅ إحصائيات كل فرع — admin و branch_manager فقط
   const branchStats = useMemo(() => {
@@ -753,10 +806,12 @@ export default function PayrollPage() {
     border: `1px solid ${S.border}`, whiteSpace: 'nowrap', textAlign: 'center',
     position: 'sticky', top: 0, zIndex: 10,
   }
-  const thGroupStyle = (color: string): React.CSSProperties => ({ ...thStyle, background: color, fontSize: 9 })
+  const thGroupStyle = (color: string): React.CSSProperties => ({ ...thStyle, background: solidOver(color), fontSize: 9 })
+  // ✅ نسخة من thStyle لصف الهيدر الثاني — نفس الشكل بالظبط، بس تثبيتها الرأسي يبدأ من تحت الصف الأول (بالارتفاع المقاس فعلياً)
+  const thStyleRow2: React.CSSProperties = { ...thStyle, top: headerRow1H }
   // ✅ رؤوس الأعمدة المثبّتة أفقياً أيضاً (ID / Name) — zIndex أعلى عشان تفضل فوق باقي الرؤوس والصفوف وقت التمرير الأفقي
-  const stickyIdHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: 0, zIndex: 20, width: ID_COL_W, minWidth: ID_COL_W }
-  const stickyNameHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: ID_COL_W, zIndex: 20, width: NAME_COL_W, minWidth: NAME_COL_W }
+  const stickyIdHeaderStyle: React.CSSProperties = { ...thStyleRow2, position: 'sticky', right: 0, zIndex: 20, width: ID_COL_W, minWidth: ID_COL_W }
+  const stickyNameHeaderStyle: React.CSSProperties = { ...thStyleRow2, position: 'sticky', right: ID_COL_W, zIndex: 20, width: NAME_COL_W, minWidth: NAME_COL_W }
   const stickyGroupHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: 0, zIndex: 20, width: ID_COL_W + NAME_COL_W, minWidth: ID_COL_W + NAME_COL_W }
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -985,7 +1040,7 @@ export default function PayrollPage() {
               <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 280px)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 2000 }}>
                   <thead>
-                    <tr>
+                    <tr ref={headerRow1Ref}>
                       <th colSpan={2} style={stickyGroupHeaderStyle}>Employee</th>
                       <th colSpan={4} style={thGroupStyle('rgba(201,168,76,0.3)')}>Basic Info</th>
                       <th colSpan={6} style={thGroupStyle('rgba(34,197,94,0.2)')}>Earnings</th>
@@ -1000,33 +1055,33 @@ export default function PayrollPage() {
                     <tr>
                       <th style={stickyIdHeaderStyle}>ID</th>
                       <th style={stickyNameHeaderStyle}>Name</th>
-                      <th style={thStyle}>Basic Salary</th>
-                      <th style={thStyle}>Insurance</th>
-                      <th style={thStyle}>Daily Rate</th>
-                      <th style={thStyle}>Hourly Rate</th>
-                      <th style={thStyle}>OT Days</th>
-                      <th style={thStyle}>OT Hours</th>
-                      <th style={thStyle}>Allow 1</th>
-                      <th style={thStyle}>Allow 2</th>
-                      <th style={thStyle}>Allow 3</th>
-                      <th style={{ ...thStyle, background: 'rgba(34,197,94,0.35)' }}>Total</th>
-                      <th style={thStyle}>Absence</th>
-                      <th style={thStyle} title="يُحسب تلقائيًا من بيانات الحضور (late_minutes)">⏱️ Late (h) 🔄</th>
-                      <th style={thStyle}>Early Exit</th>
-                      <th style={thStyle}>Insurance</th>
-                      <th style={thStyle}>Tax</th>
-                      <th style={thStyle}>Ded 1</th>
-                      <th style={thStyle}>Ded 2</th>
-                      <th style={thStyle}>Ded 3</th>
-                      <th style={{ ...thStyle, background: 'rgba(239,68,68,0.35)' }}>Total</th>
-                      <th style={thStyle}>Advance</th>
-                      <th style={thStyle}>Adv Balance</th>
-                      <th style={thStyle}>Carried Fwd</th>
-                      <th style={{ ...thStyle, background: 'rgba(20,184,166,0.4)', color: S.teal }}>NET</th>
-                      <th style={thStyle}>Due</th>
-                      <th style={thStyle}>Paid</th>
-                      <th style={thStyle}>Balance</th>
-                      <th style={thStyle}>Work Ins.</th>
+                      <th style={thStyleRow2}>Basic Salary</th>
+                      <th style={thStyleRow2}>Insurance</th>
+                      <th style={thStyleRow2}>Daily Rate</th>
+                      <th style={thStyleRow2}>Hourly Rate</th>
+                      <th style={thStyleRow2}>OT Days</th>
+                      <th style={thStyleRow2}>OT Hours</th>
+                      <th style={thStyleRow2}>Allow 1</th>
+                      <th style={thStyleRow2}>Allow 2</th>
+                      <th style={thStyleRow2}>Allow 3</th>
+                      <th style={{ ...thStyleRow2, background: solidOver('rgba(34,197,94,0.35)') }}>Total</th>
+                      <th style={thStyleRow2}>Absence</th>
+                      <th style={thStyleRow2} title="يُحسب تلقائيًا من بيانات الحضور (late_minutes)">⏱️ Late (h) 🔄</th>
+                      <th style={thStyleRow2}>Early Exit</th>
+                      <th style={thStyleRow2}>Insurance</th>
+                      <th style={thStyleRow2}>Tax</th>
+                      <th style={thStyleRow2}>Ded 1</th>
+                      <th style={thStyleRow2}>Ded 2</th>
+                      <th style={thStyleRow2}>Ded 3</th>
+                      <th style={{ ...thStyleRow2, background: solidOver('rgba(239,68,68,0.35)') }}>Total</th>
+                      <th style={thStyleRow2}>Advance</th>
+                      <th style={thStyleRow2}>Adv Balance</th>
+                      <th style={thStyleRow2}>Carried Fwd</th>
+                      <th style={{ ...thStyleRow2, background: solidOver('rgba(20,184,166,0.4)'), color: S.teal }}>NET</th>
+                      <th style={thStyleRow2}>Due</th>
+                      <th style={thStyleRow2}>Paid</th>
+                      <th style={thStyleRow2}>Balance</th>
+                      <th style={thStyleRow2}>Work Ins.</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1042,16 +1097,35 @@ export default function PayrollPage() {
                         onSelect={() => setSelectedEmployeeId(prev => prev === r.employee_id ? null : r.employee_id)}
                       />
                     ))}
-                    <tr style={{ background: 'rgba(201,168,76,0.1)', fontWeight: 800 }}>
-                      <td colSpan={11} style={{ padding: '10px 14px', border: `1px solid ${S.border}`, color: S.gold, fontSize: 13, textAlign: 'right' }}>TOTAL</td>
+                    <tr style={{ background: 'rgba(201,168,76,0.15)', fontWeight: 800 }}>
+                      <td colSpan={2} style={{ padding: '10px 8px', border: `1px solid ${S.border}`, color: S.gold, fontSize: 13, textAlign: 'center', position: 'sticky', right: 0, zIndex: 5, width: ID_COL_W + NAME_COL_W, minWidth: ID_COL_W + NAME_COL_W, background: TOTAL_ROW_BG }}>TOTAL</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.basicSalary)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.insurance)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12, color: S.muted }}>—</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12, color: S.muted }}>—</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.otDays)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.otHours)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.allowance1)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.allowance2)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.allowance3)}</td>
                       <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.green, textAlign: 'center', fontSize: 13 }}>{fmt(totals.earnings)}</td>
-                      <td colSpan={8} style={{ border: `1px solid ${S.border}` }} />
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.absenceDays)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.lateHours)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.earlyExitHours)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.insurance)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.tax)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.ded1)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.ded2)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.ded3)}</td>
                       <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.red, textAlign: 'center', fontSize: 13 }}>{fmt(totals.deductions)}</td>
-                      <td colSpan={3} style={{ border: `1px solid ${S.border}` }} />
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.advance)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.advanceBalance)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.carriedForward)}</td>
                       <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.teal, textAlign: 'center', fontSize: 14 }}>{fmt(totals.net)}</td>
-                      <td colSpan={2} style={{ border: `1px solid ${S.border}` }} />
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.due)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.paid)}</td>
                       <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: totals.balance > 0 ? S.amber : S.green, textAlign: 'center', fontSize: 13 }}>{fmt(totals.balance)}</td>
-                      <td style={{ border: `1px solid ${S.border}` }} />
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.workInsurance)}</td>
                     </tr>
                   </tbody>
                 </table>

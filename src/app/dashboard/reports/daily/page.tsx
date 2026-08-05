@@ -1212,6 +1212,13 @@ export default function DailyReportPage() {
                   })}
                 </div>
 
+                {orderDetails.some(o => resolveShiftLabel(o) === 'Unassigned') && (
+                  <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: S.muted, lineHeight: 1.6 }}>
+                    ℹ️ <b style={{ color: S.white }}>Unassigned</b> = طلبات اتدفعت قبل ما أي كاشير يضغط "Start Shift" في اليوم ده (أو في فجوة بين شيفتين محدش فيها بدأ شيفت رسمي).
+                    مش خطأ في الحساب — دي طلبات حقيقية، وتقدر تشوف مين قفلها بالظبط من عمود "Cashier" في الجدول تحت (فلتر على "Unassigned" فوق عشان تشوفها لوحدها).
+                  </div>
+                )}
+
                 {shiftFilter !== 'all' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: 12, color: S.gold }}>
                     Showing {shiftFilter} only (its actual claimed time window)

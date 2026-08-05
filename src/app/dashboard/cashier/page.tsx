@@ -1049,20 +1049,36 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
   async function placeOrder() {
     if (cart.length === 0) return
     setSaving(true)
-    const { data: order } = await sb.from('orders').insert([{
-      table_id: tableId, status: 'confirmed',
-      total_amount: total, confirmed_at: new Date().toISOString(),
-    }]).select('id').single()
-    if (!order) { setSaving(false); return }
+    // ✅ Fix حرج جدًا: بنتأكد الأول لو الطاولة عندها طلب نشط بالفعل (confirmed/preparing/ready) ونستخدمه،
+    // بدل ما ننشئ صف "orders" جديد كل مرة. الكود القديم كان بينشئ صف جديد في كل ضغطة "Add Order"، فلو
+    // اتضغطت على نفس الطاولة (خصوصًا حسابات Takeaway الوهمية) أكتر من مرة في نفس الشيفت، كانت بتتعمل
+    // صفوف "orders" منفصلة متعددة لنفس الطاولة. وقت الدفع، الكود بيحدّث *كل* الصفوف النشطة لنفس الطاولة
+    // بنفس الإجمالي الكامل للفاتورة — فيتكرر نفس المبلغ على كل صف، وتقارير المبيعات (Closed/Archive/اليومية)
+    // كانت بتجمعهم كأنهم فواتير منفصلة حقيقية، فيطلع الإجمالي أضعاف الحقيقي.
+    const { data: existingOrder } = await sb.from('orders')
+      .select('id, total_amount').eq('table_id', tableId).in('status', ['confirmed', 'preparing', 'ready']).limit(1).maybeSingle()
+
+    let orderId: string
+    if (existingOrder?.id) {
+      orderId = existingOrder.id
+      await sb.from('orders').update({ total_amount: (existingOrder.total_amount || 0) + total }).eq('id', orderId)
+    } else {
+      const { data: newOrder } = await sb.from('orders').insert([{
+        table_id: tableId, status: 'confirmed',
+        total_amount: total, confirmed_at: new Date().toISOString(),
+      }]).select('id').single()
+      if (!newOrder) { setSaving(false); return }
+      orderId = newOrder.id
+    }
     await sb.from('order_items').insert(cart.map(c => ({
-      order_id: order.id, menu_item_id: c.item.id,
+      order_id: orderId, menu_item_id: c.item.id,
       quantity: c.qty, unit_price: c.selectedSize?.price ?? c.item.price,
       // ✅ جديد: نسجل اسم النوع/الحجم المختار (زي نوع الشيشة) عشان يظهر بوضوح للمطبخ والفاتورة
       size_name: c.selectedSize ? (c.selectedSize.name_en || c.selectedSize.name) : null,
       notes: c.notes || null, status: 'pending',
       destination: 'kitchen',
     })))
-    await sb.from('tables').update({ status: 'occupied', current_order_id: order.id, occupied_since: new Date().toISOString() }).eq('id', tableId)
+    await sb.from('tables').update({ status: 'occupied', current_order_id: orderId, occupied_since: new Date().toISOString() }).eq('id', tableId)
     setSaving(false)
     onSaved()
   }
@@ -1718,13 +1734,16 @@ export default function CashierPage() {
     return (data as any) || []
   }, [sb])
 
-  // ✅ جديد: جلب كل العمليات المقفولة (مدفوعة/ملغية) لليوم الحالي بتوقيت ماليزيا، بالإضافة لجلسات الشيفت (الكاشير، وقت البداية/النهاية)
+  // ✅ جديد: تاريخ تاب "Closed" - افتراضيًا النهاردة، لكن الأدمن يقدر يغيّره لأي يوم قديم
+  const [closedDate, setClosedDate] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
+
+  // ✅ جديد: جلب كل العمليات المقفولة (مدفوعة/ملغية) ليوم معيّن بتوقيت ماليزيا (النهاردة افتراضيًا، أو أي يوم يختاره الأدمن)، بالإضافة لجلسات الشيفت (الكاشير، وقت البداية/النهاية)
   const fetchClosedData = useCallback(async () => {
     setClosedLoading(true)
-    const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
-    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const targetDate = closedDate || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     const { data: oData } = await sb.from('orders').select(SEL_CLOSED).in('status', ['paid', 'cancelled'])
-      .gte('created_at', `${todayMY}T00:00:00`).lt('created_at', `${todayMY}T23:59:59.999`)
+      .gte('created_at', `${targetDate}T00:00:00`).lt('created_at', `${targetDate}T23:59:59.999`)
       .order('created_at', { ascending: false })
     let results = (oData as any as Order[]) || []
     // ✅ نقصر النتيجة على الطاولات المسموح بها لهذا المستخدم (نفس منطق fetchAll)، وعلى فرع الأدمن المختار لو محدد
@@ -1736,14 +1755,20 @@ export default function CashierPage() {
     setClosedOrders(results)
 
     let sq = sb.from('cashier_shift_sessions').select('id,shift,cashier_name,started_at,ended_at,branch_id')
-      .eq('session_date', todayMY).order('started_at', { ascending: true })
+      .eq('session_date', targetDate).order('started_at', { ascending: true })
     if (!isAdmin && employee?.branch_id) sq = sq.eq('branch_id', employee.branch_id)
     if (isAdmin && adminBranchFilter) sq = sq.eq('branch_id', adminBranchFilter)
     const { data: sData } = await sq
     setClosedSessions((sData as any) || [])
     setClosedFetched(true)
     setClosedLoading(false)
-  }, [sb, tables, isAdmin, adminBranchFilter, employee?.branch_id])
+  }, [sb, tables, isAdmin, adminBranchFilter, employee?.branch_id, closedDate])
+
+  // ✅ لما الأدمن يغيّر التاريخ، نسحب البيانات تلقائيًا للتاريخ الجديد (من غير ما يحتاج يدوس تحديث بنفسه)
+  useEffect(() => {
+    if (closedFetched) fetchClosedData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closedDate])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -2243,7 +2268,22 @@ export default function CashierPage() {
               /* ══ CLOSED — تقرير يومي بالشيفتات (الكاشير، بداية/نهاية الشيفت، إجماليات الكاش/الفيزا) ══ */
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: S.muted }}>📅 {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kuala_Lumpur' })} (Malaysia Time)</span>
+                  {/* ✅ جديد: الأدمن بس يقدر يغيّر التاريخ ويجيب أي يوم قديم - غير الأدمن بيشوف تاريخ النهاردة بس */}
+                  {isAdmin ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input type="date" value={closedDate} max={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })}
+                        onChange={e => setClosedDate(e.target.value)}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+                      {closedDate !== new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }) && (
+                        <button onClick={() => setClosedDate(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))}
+                          style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          Today
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 12, color: S.muted }}>📅 {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kuala_Lumpur' })} (Malaysia Time)</span>
+                  )}
                   <button onClick={fetchClosedData} disabled={closedLoading}
                     style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
                     {closedLoading ? '⏳...' : '🔄 Refresh'}
@@ -2255,10 +2295,51 @@ export default function CashierPage() {
                 ) : closedSessions.length === 0 && closedOrders.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>
                     <div style={{ fontSize: 40, marginBottom: 10 }}>📭</div>
-                    No closed operations for today yet
+                    No closed operations for this day
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                    {/* ✅ جديد: بطاقة إجمالي اليوم كله (كل الشيفتات مع بعض) - كاش/فيزا (مقسّمة على البنك لو فيه خصم)/أونلاين/خصومات/إجمالي */}
+                    {(() => {
+                      const dayPaid = closedOrders.filter(o => o.status === 'paid')
+                      const dCash = dayPaid.filter(o => o.payment_method === 'cash').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const dVisa = dayPaid.filter(o => o.payment_method === 'visa').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const dVisaMaybank = dayPaid.filter(o => o.payment_method === 'visa' && (o as any).card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const dVisaBsn = dayPaid.filter(o => o.payment_method === 'visa' && (o as any).card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const dOnline = dayPaid.filter(o => o.payment_method === 'online').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const dDiscount = dayPaid.reduce((s, o) => s + (o.discount_amount || 0), 0)
+                      const dTotal = dayPaid.reduce((s, o) => s + (o.total_amount || 0), 0)
+                      return (
+                        <div style={{ background: S.gold3, borderRadius: 16, border: `1px solid ${S.gold}`, padding: '16px 18px' }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, marginBottom: 10 }}>📊 Whole Day Total ({closedDate})</div>
+                          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontSize: 10, color: S.muted }}>💵 Cash</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.green }}>MYR {dCash.toFixed(2)}</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{(dVisaMaybank > 0 || dVisaBsn > 0) ? ` (Maybank ${dVisaMaybank.toFixed(2)} · BSN ${dVisaBsn.toFixed(2)})` : ''}</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.blue }}>MYR {dVisa.toFixed(2)}</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontSize: 10, color: S.muted }}>📱 Online</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.purple }}>MYR {dOnline.toFixed(2)}</div>
+                            </div>
+                            {dDiscount > 0 && (
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dDiscount.toFixed(2)}</div>
+                              </div>
+                            )}
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {dTotal.toFixed(2)}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
                     {closedSessions.map(session => {
                       const start = new Date(session.started_at).getTime()
                       const end = session.ended_at ? new Date(session.ended_at).getTime() : Date.now()
@@ -2273,13 +2354,16 @@ export default function CashierPage() {
                       })
                       const sCash = sessOrders.filter(o => o.payment_method === 'cash' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const sVisa = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sVisaMaybank = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid' && (o as any).card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sVisaBsn = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid' && (o as any).card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const sOnline = sessOrders.filter(o => o.payment_method === 'online' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sDiscount = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.discount_amount || 0), 0)
                       const sTotal = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
                       return (
                         <div key={session.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
                           <div style={{ padding: '14px 16px', background: S.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                             <div>
-                              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>🧑‍💼 {session.cashier_name} · {session.shift === 'shift1' ? 'Shift 1' : 'Shift 2'}</div>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>🧑‍💼 {session.cashier_name} · {session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'}</div>
                               <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
                                 Started {new Date(session.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                                 {' · '}
@@ -2292,13 +2376,20 @@ export default function CashierPage() {
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.green }}>MYR {sCash.toFixed(2)}</div>
                               </div>
                               <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>💳 Visa</div>
+                                {/* ✅ جديد: لو في خصم في الشيفت، نوري تقسيم الفيزا حسب البنك (Maybank/BSN) على نفس الصف */}
+                                <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{sDiscount > 0 && (sVisaMaybank > 0 || sVisaBsn > 0) ? ` (Maybank ${sVisaMaybank.toFixed(2)} · BSN ${sVisaBsn.toFixed(2)})` : ''}</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.blue }}>MYR {sVisa.toFixed(2)}</div>
                               </div>
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>📱 Online</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.purple }}>MYR {sOnline.toFixed(2)}</div>
                               </div>
+                              {sDiscount > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sDiscount.toFixed(2)}</div>
+                                </div>
+                              )}
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toFixed(2)}</div>

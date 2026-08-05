@@ -626,23 +626,23 @@ function printRequest() {
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Request #${request.request_number}</title>
 <style>
-  body { font-family: Arial, sans-serif; padding: 30px; font-size: 13px; color: #1a1a1a; }
-  .header { text-align: center; border-bottom: 3px solid #C9A84C; padding-bottom: 16px; margin-bottom: 24px; }
-  .logo { font-size: 22px; font-weight: 900; color: #1a1a1a; margin-bottom: 4px; }
-  .subtitle { font-size: 14px; color: #C9A84C; font-weight: 700; }
-  .req-number { font-size: 12px; color: #666; margin-top: 4px; }
-  .employee-card { background: #FAF7ED; border: 2px solid #C9A84C; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
-  .employee-card .name { font-size: 18px; font-weight: 900; color: #1a1a1a; }
-  .employee-card .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-  .employee-card .field-label { font-size: 11px; color: #888; }
-  .employee-card .field-value { font-size: 14px; font-weight: 700; color: #1a1a1a; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-  td { padding: 10px 14px; border-bottom: 1px solid #e5e5e5; font-size: 13px; vertical-align: top; }
+  body { font-family: Arial, sans-serif; padding: 18px; font-size: 12.5px; color: #1a1a1a; }
+  .header { text-align: center; border-bottom: 3px solid #C9A84C; padding-bottom: 10px; margin-bottom: 16px; }
+  .logo { font-size: 20px; font-weight: 900; color: #1a1a1a; margin-bottom: 3px; }
+  .subtitle { font-size: 13px; color: #C9A84C; font-weight: 700; }
+  .req-number { font-size: 11px; color: #666; margin-top: 3px; }
+  .employee-card { background: #FAF7ED; border: 2px solid #C9A84C; border-radius: 8px; padding: 12px 18px; margin-bottom: 14px; }
+  .employee-card .name { font-size: 16px; font-weight: 900; color: #1a1a1a; }
+  .employee-card .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .employee-card .field-label { font-size: 10px; color: #888; }
+  .employee-card .field-value { font-size: 13px; font-weight: 700; color: #1a1a1a; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  td { padding: 7px 14px; border-bottom: 1px solid #e5e5e5; font-size: 12.5px; vertical-align: top; }
   td:first-child { font-weight: 700; color: #444; width: 200px; background: #fafafa; }
-  .section-title { background: #f0f0f0; font-weight: 700; color: #333; padding: 8px 14px; margin-top: 20px; margin-bottom: 0; border-right: 4px solid #C9A84C; }
-  .description { white-space: pre-line; line-height: 1.8; }
-  .footer { text-align: center; margin-top: 40px; font-size: 11px; color: #999; border-top: 1px solid #e5e5e5; padding-top: 12px; }
-  @media print { @page { margin: 15mm; } }
+  .section-title { background: #f0f0f0; font-weight: 700; color: #333; padding: 6px 14px; margin-top: 12px; margin-bottom: 0; border-right: 4px solid #C9A84C; page-break-after: avoid; }
+  .description { white-space: pre-line; line-height: 1.6; }
+  .footer { text-align: center; margin-top: 20px; font-size: 10.5px; color: #999; border-top: 1px solid #e5e5e5; padding-top: 8px; }
+  @media print { @page { size: A4; margin: 10mm; } }
 </style>
 </head><body>
 <div class="header">
@@ -672,9 +672,9 @@ function printRequest() {
 <table><tr><td colspan="2"><div class="description">${request.description}</div></td></tr></table>
 ${request.approved_by ? '<p class="section-title">Approval</p><table><tr><td>Approved By</td><td>' + request.approved_by + '</td></tr></table>' : ''}
 ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><table><tr><td colspan="2">' + request.rejection_reason + '</td></tr></table>' : ''}
-<div style="margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:40px;">
-  <div style="border-top:1px solid #ccc;padding-top:8px;text-align:center;font-size:12px;color:#666;">Employee Signature</div>
-  <div style="border-top:1px solid #ccc;padding-top:8px;text-align:center;font-size:12px;color:#666;">Manager Signature</div>
+<div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:40px;">
+  <div style="border-top:1px solid #ccc;padding-top:6px;text-align:center;font-size:11px;color:#666;">Employee Signature</div>
+  <div style="border-top:1px solid #ccc;padding-top:6px;text-align:center;font-size:11px;color:#666;">Manager Signature</div>
 </div>
 <div class="footer">Orchid House Restaurant Management System</div>
 <script>window.onload=function(){window.print()}<\/script>

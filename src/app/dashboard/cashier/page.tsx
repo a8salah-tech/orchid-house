@@ -1716,7 +1716,8 @@ export default function CashierPage() {
     const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
-      q = q.gte('created_at', `${archiveDate}T00:00:00`).lt('created_at', `${archiveDate}T23:59:59.999`)
+      // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
+      q = q.gte('created_at', `${archiveDate}T00:00:00+08:00`).lt('created_at', `${archiveDate}T23:59:59.999+08:00`)
     }
     const { data } = await q
     let results = (data as any as Order[]) || []
@@ -1825,8 +1826,11 @@ export default function CashierPage() {
   const fetchClosedData = useCallback(async () => {
     setClosedLoading(true)
     const targetDate = closedDate || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
-    const dayStart = `${targetDate}T00:00:00`
-    const dayEnd = `${targetDate}T23:59:59.999`
+    // ✅ Fix حرج جدًا: لازم نحدد المنطقة الزمنية صراحةً (+08:00 توقيت ماليزيا)، وإلا قاعدة البيانات بتفهم
+    // الوقت ده كـ UTC تلقائيًا - يعني "00:00" بتتفهم كـ 8 الصبح بتوقيت ماليزيا مش نص الليل! وده كان بيخلي أي
+    // طلب اتدفع قبل الساعة 8 الصبح (زي وقت الفجر/الليل) يقع بره نطاق اليوم المحسوب بالغلط، فيبان إجمالي صفر
+    const dayStart = `${targetDate}T00:00:00+08:00`
+    const dayEnd = `${targetDate}T23:59:59.999+08:00`
     const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     // ✅ Fix حرج جدًا: المطعم شغال 24 ساعة، فطلب ممكن يتفتح قبل نص الليل ويتقفل (يتدفع) بعده. لو حددنا "الطلب
     // ده بتاع أي يوم" بناءً على created_at (وقت الفتح) زي الأول، كان بيختفي تمامًا من كل تابات Closed - مش

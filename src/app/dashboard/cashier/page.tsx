@@ -1831,24 +1831,6 @@ export default function CashierPage() {
     // طلب اتدفع قبل الساعة 8 الصبح (زي وقت الفجر/الليل) يقع بره نطاق اليوم المحسوب بالغلط، فيبان إجمالي صفر
     const dayStart = `${targetDate}T00:00:00+08:00`
     const dayEnd = `${targetDate}T23:59:59.999+08:00`
-    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
-    // ✅ Fix حرج جدًا: المطعم شغال 24 ساعة، فطلب ممكن يتفتح قبل نص الليل ويتقفل (يتدفع) بعده. لو حددنا "الطلب
-    // ده بتاع أي يوم" بناءً على created_at (وقت الفتح) زي الأول، كان بيختفي تمامًا من كل تابات Closed - مش
-    // ظاهر في يوم الفتح (لأنه لسه معلّق وقتها) ولا في يوم الدفع (لأن الفلتر بيدور على created_at بتاريخ التاني).
-    // دلوقتي: الطلبات المدفوعة بنحدد يومها بـ paid_at (وقت القفل الفعلي)، والملغية (مالهاش paid_at) بـ created_at
-    const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
-      .or(`and(status.eq.paid,paid_at.gte.${dayStart},paid_at.lte.${dayEnd}),and(status.eq.cancelled,created_at.gte.${dayStart},created_at.lte.${dayEnd})`)
-      // ✅ الترتيب بقى حسب وقت القفل الفعلي (paid_at) - مش وقت فتح الطلب - عشان الفواتير تظهر بترتيب زمني صحيح
-      .order('paid_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-    let results = (oData as any as Order[]) || []
-    // ✅ نقصر النتيجة على الطاولات المسموح بها لهذا المستخدم (نفس منطق fetchAll)، وعلى فرع الأدمن المختار لو محدد
-    const allowedIds = new Set(tables.map(t => t.id))
-    results = results.filter(o => allowedIds.has(o.table_id))
-    if (isAdmin && adminBranchFilter) {
-      results = results.filter(o => tables.find(t => t.id === o.table_id)?.branch_id === adminBranchFilter)
-    }
-    setClosedOrders(results)
 
     // ✅ Fix حرج: شيفت بدأ قبل نص الليل ولسه شغال (أو اتقفل بعده) كان بيتسجّل بـ session_date بتاريخ الأمس،
     // فمكنش يظهر أبدًا تحت "النهاردة" حتى لو طلباته الأخيرة اتدفعت فعليًا النهاردة. دلوقتي بنجيب أي جلسة:
@@ -1862,7 +1844,36 @@ export default function CashierPage() {
     if (!isAdmin && employee?.branch_id) sq = sq.eq('branch_id', employee.branch_id)
     if (isAdmin && adminBranchFilter) sq = sq.eq('branch_id', adminBranchFilter)
     const { data: sData } = await sq
-    setClosedSessions((sData as any) || [])
+    const sessions = (sData as any[]) || []
+    setClosedSessions(sessions)
+
+    // ✅ جديد: تاب Closed بتاع الكاشير المفروض يوري "الشيفت كامل من أوله لآخره" حتى لو عدّى منتصف الليل -
+    // بعكس تقرير اليومية اللي لازم يتقسم على أيام تقويمية للمحاسبة. عشان كده بنوسّع نطاق جلب الطلبات ليغطي
+    // من أول جلسة شيفت (حتى لو بدأت امبارح) لحد نهاية اليوم المطلوب (أو دلوقتي لو فيه شيفت لسه شغال)
+    let ordersRangeStart = dayStart
+    let ordersRangeEnd = dayEnd
+    for (const s of sessions) {
+      if (s.started_at < ordersRangeStart) ordersRangeStart = s.started_at
+      const sEnd = s.ended_at || new Date().toISOString()
+      if (sEnd > ordersRangeEnd) ordersRangeEnd = sEnd
+    }
+
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
+    // والملغية (مالهاش paid_at) بتفضل محصورة في اليوم المطلوب بس (created_at)
+    const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
+      .or(`and(status.eq.paid,paid_at.gte.${ordersRangeStart},paid_at.lte.${ordersRangeEnd}),and(status.eq.cancelled,created_at.gte.${dayStart},created_at.lte.${dayEnd})`)
+      // ✅ الترتيب بقى حسب وقت القفل الفعلي (paid_at) - مش وقت فتح الطلب - عشان الفواتير تظهر بترتيب زمني صحيح
+      .order('paid_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+    let results = (oData as any as Order[]) || []
+    // ✅ نقصر النتيجة على الطاولات المسموح بها لهذا المستخدم (نفس منطق fetchAll)، وعلى فرع الأدمن المختار لو محدد
+    const allowedIds = new Set(tables.map(t => t.id))
+    results = results.filter(o => allowedIds.has(o.table_id))
+    if (isAdmin && adminBranchFilter) {
+      results = results.filter(o => tables.find(t => t.id === o.table_id)?.branch_id === adminBranchFilter)
+    }
+    setClosedOrders(results)
 
     // ✅ جديد: جلب مصروفات الكاش المسجّلة لليوم ده - نفس جدول daily_cash_expenses اللي زرار "💸 Add Expense" بيكتب فيه
     let eq = sb.from('daily_cash_expenses').select('id,shift,cashier_name,description,amount,status,created_at,branch_id')
@@ -2422,7 +2433,11 @@ export default function CashierPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                     {/* ✅ جديد: بطاقة إجمالي اليوم كله (كل الشيفتات مع بعض) - كاش/فيزا (مقسّمة على البنك لو فيه خصم)/أونلاين/خصومات/إجمالي */}
                     {(() => {
-                      const dayPaid = closedOrders.filter(o => o.status === 'paid')
+                      // ✅ نحسب حدود اليوم المطلوب هنا كمان، عشان نحصر "Whole Day Total" في اليوم ده بالظبط
+                      // (closedOrders بقى بيغطي نطاق أوسع من كده عشان الشيفتات العابرة لمنتصف الليل)
+                      const dStart = `${closedDate}T00:00:00+08:00`
+                      const dEnd = `${closedDate}T23:59:59.999+08:00`
+                      const dayPaid = closedOrders.filter(o => o.status === 'paid' && o.paid_at && o.paid_at >= dStart && o.paid_at <= dEnd)
                       const dCash = dayPaid.filter(o => o.payment_method === 'cash').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const dVisa = dayPaid.filter(o => o.payment_method === 'visa').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const dVisaMaybank = dayPaid.filter(o => o.payment_method === 'visa' && (o as any).card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)

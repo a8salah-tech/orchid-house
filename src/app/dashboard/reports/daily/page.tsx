@@ -649,21 +649,16 @@ export default function DailyReportPage() {
     const map: Record<number, { cashier_name: string; started_at: string; ended_at: string | null }[]> = { 1: [], 2: [], 3: [] }
     if (!branchFilter || !form.report_date) return map
     const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
+    // ✅ Fix حرج جدًا: أي جلسة "عابرة لمنتصف الليل" أو "لسه مفتوحة" لازم تكون بدأت خلال آخر 24 ساعة بس قبل
+    // بداية اليوم المطلوب - وإلا شيفتات قديمة جدًا اتنسيت مفتوحة (زي من أسابيع فاتت) أو اتقفلت بالغلط في وقت
+    // متأخر (زي باج قفل الشيفت اللي كان بيقفل كل الجلسات المفتوحة مش بس الحالية) كانت بتظهر غلط في تقرير اليوم
+    const recentThreshold = new Date(new Date(dayStart).getTime() - 24 * 60 * 60 * 1000).toISOString()
     const { data } = await sb.from('cashier_shift_sessions')
       .select('cashier_name, started_at, ended_at')
       .eq('branch_id', branchFilter)
-      .or(`session_date.eq.${form.report_date},and(ended_at.gte.${dayStart},ended_at.lte.${dayEnd}),ended_at.is.null`)
+      .or(`session_date.eq.${form.report_date},and(ended_at.gte.${dayStart},ended_at.lte.${dayEnd},started_at.gte.${recentThreshold}),and(ended_at.is.null,started_at.gte.${recentThreshold})`)
       .order('started_at', { ascending: true })
-    const rows = (data as any[]) || []
-    const rowsFiltered = rows.filter(row => {
-      // ✅ نستبعد أي جلسة "لسه شغالة" بس بدأت وانتهى تأثيرها في يوم مختلف تمامًا عن اليوم المطلوب
-      // (احتياطي دقيق: الشرط فوق ممكن يجيب جلسة مفتوحة قديمة جدًا لو محدش قفلها بالغلط)
-      if (!row.ended_at) {
-        const startedDate = new Date(row.started_at).getTime()
-        return startedDate <= new Date(dayEnd).getTime()
-      }
-      return true
-    })
+    const rowsFiltered = (data as any[]) || []
     rowsFiltered.forEach((row, idx) => {
       const box = Math.min(idx + 1, 3) // بالترتيب: أول جلسة → 1، تانية → 2، تالتة وأي حاجة زيادة → 3
       map[box].push({ cashier_name: row.cashier_name, started_at: row.started_at, ended_at: row.ended_at })

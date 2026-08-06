@@ -2502,7 +2502,10 @@ export default function CashierPage() {
                       const start = new Date(session.started_at).getTime()
                       const end = session.ended_at ? new Date(session.ended_at).getTime() : Date.now()
                       const sessOrders = closedOrders.filter(o => {
-                        if (o.shift !== session.shift) return false
+                        // ✅ Fix حرج: شلنا شرط مطابقة عمود shift المسجّل على الطلب - الطلبات الجاية من طلب
+                        // العميل مباشرة (QR) مالهاش وسيلة تسجّل الشيفت الصح وقت إنشائها (بتتسجل بقيمة افتراضية
+                        // ثابتة)، فكانت مستحيل تتطابق مع اسم الشيفت الحقيقي حتى لو التوقيت صح 100%. دلوقتي
+                        // بنعتمد بس على الوقت الفعلي (نفس المنطق اللي نجح في تقرير اليومية)
                         if (isAdmin) {
                           const branchId = tables.find(t => t.id === o.table_id)?.branch_id
                           if (branchId !== session.branch_id) return false
@@ -2622,7 +2625,7 @@ export default function CashierPage() {
                     {/* ✅ عمليات مقفولة اليوم لكنها مش تابعة لأي جلسة شيفت مسجّلة (اتقفلت قبل بدء الشيفت أو بعد انتهائه) - عشان محدش يضيع من التقرير */}
                     {(() => {
                       const unassigned = closedOrders.filter(o => !closedSessions.some(session => {
-                        if (o.shift !== session.shift) return false
+                        // ✅ Fix حرج: نفس المنطق - الاعتماد على الوقت بس بدل مطابقة عمود shift غير الموثوق
                         const t = new Date(o.paid_at || o.created_at).getTime()
                         const start = new Date(session.started_at).getTime()
                         const end = session.ended_at ? new Date(session.ended_at).getTime() : Date.now()
@@ -2843,17 +2846,22 @@ export default function CashierPage() {
         </div>
       )}
 
-      {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => {
+      {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={async () => {
         setShowShiftReport(false); setShiftStarted(false); setShiftStart(null)
         localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start')
         // ✅ جديد: إغلاق جلسة الشيفت في قاعدة البيانات كمان
-        // ✅ Fix حرج: شلنا شرط session_date = النهاردة - كان بيمنع قفل الجلسة صح لو الشيفت عدّى منتصف الليل
-        // (المطعم شغال 24 ساعة)، فتفضل الجلسة "مفتوحة" في قاعدة البيانات للأبد حتى لو ضغط الكاشير "End Shift" فعليًا.
-        // دلوقتي بنقفل أحدث جلسة مفتوحة فعليًا لنفس الشيفت والفرع، بغض النظر عن تاريخها
-        let closeQ = sb.from('cashier_shift_sessions').update({ ended_at: new Date().toISOString() })
-          .eq('shift', shift).is('ended_at', null)
-        if (employee?.branch_id) closeQ = closeQ.eq('branch_id', employee.branch_id)
-        closeQ.then(() => fetchActiveShiftCashier())
+        // ✅ Fix حرج جدًا: قبل كده كنا بنقفل *كل* الجلسات المفتوحة لنفس رقم الشيفت بغض النظر عن تاريخها -
+        // وده كان بيقفل بالغلط شيفتات قديمة جدًا (من أسابيع فاتت) اتنسيت مفتوحة (ended_at فاضي) من غير قصد،
+        // وبيحطلها وقت نهاية = النهاردة، فتقرير اليومية كان بيفتكرها "شيفتات اليوم". دلوقتي بنجيب أحدث جلسة
+        // مفتوحة بالتحديد (بالـ id بتاعها) ونقفل هي بس، مش أي جلسة تانية قديمة
+        let selQ = sb.from('cashier_shift_sessions').select('id')
+          .eq('shift', shift).is('ended_at', null).order('started_at', { ascending: false }).limit(1)
+        if (employee?.branch_id) selQ = selQ.eq('branch_id', employee.branch_id)
+        const { data: latestSession } = await selQ.maybeSingle()
+        if (latestSession?.id) {
+          await sb.from('cashier_shift_sessions').update({ ended_at: new Date().toISOString() }).eq('id', latestSession.id)
+        }
+        fetchActiveShiftCashier()
       }} />}
 
       {/* ✅ جديد: مودال تفاصيل فاتورة الأرشيف - يظهر بمنتصف الشاشة عند الضغط على أي طلب في تاب Archive */}

@@ -163,7 +163,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         if (isAdminUser) setOrderBranchName((data as any)?.branches?.name || null)
       })
   }, [isAdminUser, order.table_id])
-  const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'free'>('cash')
+  // ✅ Fix: لطاولات Grab/Foodpanda، الطريقة الافتراضية بقت "Credit" تلقائيًا من أول ما تفتح الفاتورة - بدل ما تفضل
+  // "Cash" وتحتاج الكاشير يفتكر يغيّرها يدويًا كل مرة (ممكن ينسى فيتسجل غلط)
+  const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'credit' | 'free'>(
+    () => /grab|foodpanda/i.test(order.tables?.name || '') ? 'credit' : 'cash'
+  )
   // ✅ جديد: المبلغ اللي العميل دفعه كاش - لحساب الباقي (Change Due) تلقائيًا
   const [cashReceived, setCashReceived] = useState('')
   // ✅ جديد: تحديد البنك لما تكون طريقة الدفع فيزا - عشان تقرير اليومية يقدر يفرّق بين البنكين
@@ -273,6 +277,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
   const afterDiscount = Math.max(0, subtotal - discountAmt)
   // ✅ جديد: طلبات التيك أواي (Foodpanda/Grab/Customer/Other) مالهاش رسوم خدمة خالص - مافيش خدمة طاولة أصلًا
   const isTakeawayOrder = order.tables?.section === 'takeaway'
+  // ✅ جديد: حسابات التوصيل الخارجية (Grab/Foodpanda) بتدفع للمطعم لاحقًا (تسوية دورية)، مش وقت قفل الفاتورة -
+  // فمحتاجين نفرّق بينها وبين الكاش الحقيقي اللي في درج الكاشير
+  const isPlatformCreditOrder = /grab|foodpanda/i.test(order.tables?.name || '')
   const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : afterDiscount * SERVICE_CHARGE_RATE
   const sst = discountType === 'free' ? 0 : afterDiscount * SST_RATE
   const total = afterDiscount + serviceCharge + sst
@@ -717,11 +724,13 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         {discountType !== 'free' && !splitMode && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Payment Method</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isPlatformCreditOrder ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: 8 }}>
               {[
                 { k: 'cash', label: '💵 Cash', color: S.green },
                 { k: 'visa', label: '💳 Visa', color: S.blue },
                 { k: 'online', label: '📱 Online', color: S.purple },
+                // ✅ جديد: يظهر بس لطاولات جراب/فودباندا - الفلوس هتتحصّل من المنصة لاحقًا مش دلوقتي
+                ...(isPlatformCreditOrder ? [{ k: 'credit', label: '🧾 Credit', color: S.amber }] : []),
               ].map(m => (
                 <button key={m.k} onClick={() => setMethod(m.k as any)}
                   style={{ padding: '10px', borderRadius: 10, border: `1px solid ${method === m.k ? m.color : S.border}`, background: method === m.k ? m.color + '20' : 'transparent', color: method === m.k ? m.color : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: method === m.k ? 700 : 400 }}>
@@ -729,6 +738,12 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                 </button>
               ))}
             </div>
+            {/* ✅ New: clarifies this amount will be collected later from the platform, not real cash/card right now */}
+            {method === 'credit' && (
+              <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 10, background: S.amberB, border: `1px solid ${S.amber}40`, fontSize: 12, color: S.amber }}>
+                🧾 This amount will be recorded as Credit and won't count as cash in the drawer — it will be collected from the platform (Grab/Foodpanda) during their periodic settlement.
+              </div>
+            )}
             {/* ✅ جديد: لما الدفع كاش - نطلب المبلغ المستلم من العميل ونحسب الباقي تلقائيًا */}
             {method === 'cash' && (
               <div style={{ marginTop: 8 }}>
@@ -1550,6 +1565,13 @@ export default function CashierPage() {
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
   // ✅ جديد: اسم الكاشير اللي ماسك الشيفت المختار حاليًا - بييجي من قاعدة البيانات فيبان لأي حد بيفتح الصفحة
   const [activeShiftCashierName, setActiveShiftCashierName] = useState<string | null>(null)
+  // ✅ جديد: تسجيل مصروف نقدي أثناء الشيفت مباشرة من شاشة الكاشير (بدل ما يحتاج يفتح صفحة اليومية)
+  const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [expDesc, setExpDesc] = useState('')
+  const [expAmount, setExpAmount] = useState('')
+  const [expStatus, setExpStatus] = useState<'paid' | 'pending'>('paid')
+  const [expSaving, setExpSaving] = useState(false)
+  const [expSaved, setExpSaved] = useState(false)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(false)
@@ -2082,6 +2104,13 @@ export default function CashierPage() {
               🧑‍💼 Cashier: {activeShiftCashierName}
             </div>
           )}
+          {/* ✅ جديد: تسجيل مصروف نقدي أثناء الشيفت مباشرة - زي "خرجت 100 رينجت لشراء حاجة" */}
+          {shiftStarted && (
+            <button onClick={() => setShowExpenseModal(true)}
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              💸 {isMobile ? '' : 'Add Expense'}
+            </button>
+          )}
           {!shiftStarted ? (
             <button onClick={() => {
               const now = new Date()
@@ -2353,6 +2382,8 @@ export default function CashierPage() {
                       const dVisaMaybank = dayPaid.filter(o => o.payment_method === 'visa' && (o as any).card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const dVisaBsn = dayPaid.filter(o => o.payment_method === 'visa' && (o as any).card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const dOnline = dayPaid.filter(o => o.payment_method === 'online').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ جديد: إجمالي الآجل (Credit) ليوم كامل - مش كاش فعلي، دي فلوس متوقعة من جراب/فودباندا
+                      const dCredit = dayPaid.filter(o => o.payment_method === 'credit').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const dDiscount = dayPaid.reduce((s, o) => s + (o.discount_amount || 0), 0)
                       const dTotal = dayPaid.reduce((s, o) => s + (o.total_amount || 0), 0)
                       return (
@@ -2371,6 +2402,12 @@ export default function CashierPage() {
                               <div style={{ fontSize: 10, color: S.muted }}>📱 Online</div>
                               <div style={{ fontSize: 15, fontWeight: 800, color: S.purple }}>MYR {dOnline.toFixed(2)}</div>
                             </div>
+                            {dCredit > 0 && (
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit (Grab/Foodpanda)</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dCredit.toFixed(2)}</div>
+                              </div>
+                            )}
                             {dDiscount > 0 && (
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
@@ -2403,6 +2440,8 @@ export default function CashierPage() {
                       const sVisaMaybank = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid' && (o as any).card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const sVisaBsn = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid' && (o as any).card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const sOnline = sessOrders.filter(o => o.payment_method === 'online' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ جديد: إجمالي الآجل (Credit) لهذا الشيفت
+                      const sCredit = sessOrders.filter(o => o.payment_method === 'credit' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const sDiscount = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.discount_amount || 0), 0)
                       const sTotal = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
                       return (
@@ -2430,6 +2469,12 @@ export default function CashierPage() {
                                 <div style={{ fontSize: 10, color: S.muted }}>📱 Online</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.purple }}>MYR {sOnline.toFixed(2)}</div>
                               </div>
+                              {sCredit > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sCredit.toFixed(2)}</div>
+                                </div>
+                              )}
                               {sDiscount > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
@@ -2636,6 +2681,53 @@ export default function CashierPage() {
           </div>
         </div>
       )}
+      {/* ✅ New: log a cash expense during the shift - saved into the same daily_cash_expenses table the Daily Report reads automatically */}
+      {showExpenseModal && (
+        <div onClick={() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 380, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>💸 Add Cash Expense</h2>
+              <button onClick={() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false) }}
+                style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>
+              🧑‍💼 {activeShiftCashierName || employee?.name} · {shift === 'shift1' ? 'Shift 1' : 'Shift 2'}
+              <br />This amount will be automatically deducted from the shift's cash total in the Daily Report
+            </div>
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }} placeholder="Description - e.g. bought mineral water"
+              value={expDesc} onChange={e => setExpDesc(e.target.value)} />
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }} type="number" placeholder="Amount (MYR)"
+              value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+              {[{ k: 'paid', label: '✅ Already Spent' }, { k: 'pending', label: '⏳ Still Pending' }].map(s => (
+                <button key={s.k} onClick={() => setExpStatus(s.k as any)}
+                  style={{ padding: '8px', borderRadius: 8, border: `1px solid ${expStatus === s.k ? S.gold : S.border}`, background: expStatus === s.k ? S.gold3 : 'transparent', color: expStatus === s.k ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: expStatus === s.k ? 700 : 400 }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={async () => {
+                if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('Please enter a valid description and amount'); return }
+                setExpSaving(true)
+                const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+                await sb.from('daily_cash_expenses').insert([{
+                  branch_id: employee?.branch_id || null, expense_date: todayMY, shift,
+                  cashier_name: activeShiftCashierName || employee?.name || 'Unknown',
+                  description: expDesc.trim(), amount: parseFloat(expAmount), status: expStatus,
+                }])
+                setExpSaving(false); setExpSaved(true)
+                setTimeout(() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false) }, 1200)
+              }}
+              disabled={expSaving}
+              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: expSaved ? S.green : S.red, color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: expSaving ? 0.6 : 1 }}>
+              {expSaving ? '⏳ Saving...' : expSaved ? '✅ Saved!' : '💾 Save Expense'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={() => {
         setShowShiftReport(false); setShiftStarted(false); setShiftStart(null)
         localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start')

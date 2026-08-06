@@ -90,6 +90,106 @@ function timeElapsedSince(dateStr?: string): string {
   return remMins > 0 ? `${hrs}h ${remMins}m ago` : `${hrs}h ago`
 }
 
+// ✅ جديد: طباعة تقرير تفصيلي كامل لشيفت مقفول من تاب Closed - كل طاولة، كل صنف، كل تفصيلة من أول الشيفت لآخره
+function printClosedShiftReport(session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }, sessOrders: Order[], expenses: { description: string; amount: number; status: string; created_at: string }[], totals: { cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number; discount: number; total: number; expPaid: number; expPending: number }) {
+  const win = window.open('', '_blank')
+  if (!win) return
+  const shiftLabel = session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'
+  const paidOrders = sessOrders.filter(o => o.status === 'paid').sort((a, b) => new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime())
+  const cancelledOrders = sessOrders.filter(o => o.status === 'cancelled')
+
+  const orderRows = paidOrders.map((o, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
+      <td>#${o.id.slice(-6).toUpperCase()}</td>
+      <td>${(o.order_items || []).filter(it => it.status !== 'cancelled').map(it => (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + (it.size_name ? ' (' + it.size_name + ')' : '') + ' ×' + it.quantity).join(', ')}</td>
+      <td>${o.payment_method?.toUpperCase() || '—'}${(o as any).card_bank ? ' (' + (o as any).card_bank + ')' : ''}</td>
+      <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : '—'}</td>
+      <td>${o.paid_by_name || '—'}</td>
+      <td><b>MYR ${(o.total_amount || 0).toFixed(2)}</b></td>
+      <td>${o.paid_at ? new Date(o.paid_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+    </tr>`).join('')
+
+  const cancelledRows = cancelledOrders.map((o, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
+      <td>#${o.id.slice(-6).toUpperCase()}</td>
+      <td>${(o.order_items || []).map(it => (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + ' ×' + it.quantity).join(', ')}</td>
+      <td>${o.cancel_reason || '—'}</td>
+      <td>${o.created_at ? new Date(o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+    </tr>`).join('')
+
+  const expenseRows = expenses.map((e, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${e.description}</td>
+      <td>${e.status === 'paid' ? '✅ Paid' : '⏳ Pending'}</td>
+      <td><b>MYR ${e.amount.toFixed(2)}</b></td>
+      <td>${new Date(e.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
+    </tr>`).join('')
+
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Shift Report — ${session.cashier_name} — ${shiftLabel}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11px; margin: 15px; color: #000; }
+    h2 { text-align: center; font-size: 16px; margin-bottom: 4px; }
+    h3 { text-align: center; font-size: 12px; color: #555; margin-bottom: 4px; }
+    h4 { font-size: 13px; margin: 18px 0 8px; border-bottom: 2px solid #1E3A8A; padding-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    th { background: #0A1628; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; }
+    td { padding: 5px 8px; border-bottom: 1px solid #ddd; font-size: 10px; }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+    .summary-box { border: 1px solid #ddd; border-radius: 8px; padding: 10px; text-align: center; }
+    .summary-box .label { font-size: 10px; color: #666; margin-bottom: 4px; }
+    .summary-box .value { font-size: 15px; font-weight: bold; color: #000; }
+    .total-row { background: #1E3A8A !important; font-weight: bold; color: #fff; }
+    .no-data { color: #999; font-size: 11px; padding: 8px 0; }
+    @media print { @page { size: A4 landscape; margin: 10mm; } }
+  </style></head><body>
+  <h2>🌸 Orchid House — Full Shift Report</h2>
+  <h3>🧑‍💼 ${session.cashier_name} · ${shiftLabel}</h3>
+  <h3>Started: ${new Date(session.started_at).toLocaleString('en-GB')} ${session.ended_at ? '· Ended: ' + new Date(session.ended_at).toLocaleString('en-GB') : '· 🟢 Still Active (printed at ' + new Date().toLocaleTimeString('en-GB') + ')'}</h3>
+
+  <div class="summary">
+    <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toFixed(2)} · BSN ${totals.visaBsn.toFixed(2)})</div><div class="value">MYR ${totals.visa.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">📱 Online</div><div class="value">MYR ${totals.online.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">⏳ Expenses Pending</div><div class="value">MYR ${totals.expPending.toFixed(2)}</div></div>
+    <div class="summary-box" style="background:#1E3A8A;border-color:#1E3A8A;"><div class="label" style="color:#cbd5e1;">💰 Total Sales</div><div class="value" style="color:#fff;">MYR ${totals.total.toFixed(2)}</div></div>
+  </div>
+
+  <h4>📋 All Paid Orders (${paidOrders.length})</h4>
+  ${paidOrders.length ? `<table>
+    <thead><tr><th>#</th><th>Table</th><th>Order #</th><th>Items</th><th>Payment</th><th>Discount</th><th>Cashier</th><th>Total</th><th>Time</th></tr></thead>
+    <tbody>${orderRows}
+      <tr class="total-row"><td colspan="7">TOTAL — ${paidOrders.length} orders</td><td>MYR ${totals.total.toFixed(2)}</td><td>—</td></tr>
+    </tbody>
+  </table>` : `<div class="no-data">No paid orders in this shift.</div>`}
+
+  ${cancelledOrders.length ? `
+  <h4>❌ Cancelled Orders (${cancelledOrders.length})</h4>
+  <table>
+    <thead><tr><th>#</th><th>Table</th><th>Order #</th><th>Items</th><th>Reason</th><th>Time</th></tr></thead>
+    <tbody>${cancelledRows}</tbody>
+  </table>` : ''}
+
+  <h4>💸 Cash Expenses (${expenses.length})</h4>
+  ${expenses.length ? `<table>
+    <thead><tr><th>#</th><th>Description</th><th>Status</th><th>Amount</th><th>Time</th></tr></thead>
+    <tbody>${expenseRows}</tbody>
+  </table>` : `<div class="no-data">No expenses recorded in this shift.</div>`}
+
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`)
+  win.document.close()
+}
+
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
 type Order = {
@@ -2591,6 +2691,15 @@ export default function CashierPage() {
                                 <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toFixed(2)}</div>
                               </div>
+                              {/* ✅ جديد: طباعة تقرير تفصيلي كامل لهذا الشيفت - كل الطاولات والأصناف والمصروفات */}
+                              <button
+                                onClick={() => printClosedShiftReport(
+                                  session, sessOrders, sExpenses,
+                                  { cash: sCash, visa: sVisa, visaMaybank: sVisaMaybank, visaBsn: sVisaBsn, online: sOnline, credit: sCredit, discount: sDiscount, total: sTotal, expPaid: sExpPaid, expPending: sExpPending }
+                                )}
+                                style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', alignSelf: 'center' }}>
+                                🖨️ Print
+                              </button>
                               {/* ✅ جديد: مصروفات هذا الشيفت */}
                               {sExpPaid > 0 && (
                                 <div style={{ textAlign: 'center' }}>

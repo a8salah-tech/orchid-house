@@ -1375,7 +1375,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
       @media print { @page { size: A4 landscape; margin: 10mm; } }
     </style></head><body>
     <h2>🌸 Orchid House — Shift Report</h2>
-    <h3>${shift === 'shift1' ? 'Shift 1' : 'Shift 2'} · ${now.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+    <h3>${shift === 'shift1' ? 'Shift 1' : shift === 'shift2' ? 'Shift 2' : 'Shift 3'} · ${now.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
     ${shiftStart ? ' · Started: ' + shiftStart.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}
     · Closed: ${now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</h3>
     <table>
@@ -1415,7 +1415,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
             <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📊 Shift Report</h2>
-            <p style={{ fontSize: 12, color: S.muted }}>{shift === 'shift1' ? 'Shift 1' : 'Shift 2'} · {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            <p style={{ fontSize: 12, color: S.muted }}>{shift === 'shift1' ? 'Shift 1' : shift === 'shift2' ? 'Shift 2' : 'Shift 3'} · {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={printShiftReport} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
@@ -1582,7 +1582,7 @@ export default function CashierPage() {
   useEffect(() => { tablesRef.current = tables }, [tables])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'active' | 'all' | 'done'>('active')
-  const [shift, setShift] = useState<'shift1' | 'shift2'>('shift1')
+  const [shift, setShift] = useState<'shift1' | 'shift2' | 'shift3'>('shift1')
   const [shiftStarted, setShiftStarted] = useState(false)
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
   // ✅ جديد: اسم الكاشير اللي ماسك الشيفت المختار حاليًا - بييجي من قاعدة البيانات فيبان لأي حد بيفتح الصفحة
@@ -1684,7 +1684,7 @@ export default function CashierPage() {
       setShiftStarted(true)
       setShiftStart(new Date(start))
     }
-    if (sv) setShift(sv as 'shift1' | 'shift2')
+    if (sv) setShift(sv as 'shift1' | 'shift2' | 'shift3')
   }, [])
   const [tick, setTick] = useState(0)
   const [notif, setNotif] = useState<string | null>(null)
@@ -2138,6 +2138,7 @@ export default function CashierPage() {
           <select value={shift} onChange={e => setShift(e.target.value as any)} style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 10px', color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
             <option value="shift1">Shift 1</option>
             <option value="shift2">Shift 2</option>
+            <option value="shift3">Shift 3</option>
           </select>
           {/* ✅ جديد: شارة اسم الكاشير الحالي - تظهر لأي شخص يفتح الصفحة، مش بس اللي بدأ الشيفت من جهازه */}
           {activeShiftCashierName && (
@@ -2485,7 +2486,7 @@ export default function CashierPage() {
                                   <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
                                     <span style={{ color: S.white }}>
                                       {exp.status === 'paid' ? '✅' : '⏳'} {exp.description}
-                                      <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {exp.shift === 'shift1' ? 'Shift 1' : 'Shift 2'} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                                      <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {exp.shift === 'shift1' ? 'Shift 1' : exp.shift === 'shift2' ? 'Shift 2' : 'Shift 3'} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
                                     </span>
                                     <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
                                   </div>
@@ -2806,7 +2807,7 @@ export default function CashierPage() {
                 style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>
-              🧑‍💼 {activeShiftCashierName || employee?.name} · {shift === 'shift1' ? 'Shift 1' : 'Shift 2'}
+              🧑‍💼 {activeShiftCashierName || employee?.name} · {shift === 'shift1' ? 'Shift 1' : shift === 'shift2' ? 'Shift 2' : 'Shift 3'}
               <br />This amount will be automatically deducted from the shift's cash total in the Daily Report
             </div>
             <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }} placeholder="Description - e.g. bought mineral water"

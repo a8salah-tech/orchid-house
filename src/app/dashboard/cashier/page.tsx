@@ -344,6 +344,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     cash:   { code: '1101', name: 'الصندوق النقدي - الكاشير' },
     visa:   { code: '1111', name: 'مستحقات العملاء - بطاقات ائتمان' },
     online: { code: '1105', name: 'المدفوعات الإلكترونية المعلقة' },
+    // ✅ جديد: حساب مستقل لمبالغ Grab/Foodpanda الآجلة - عشان متتسجلش غلط كأنها كاش في الدرج
+    credit: { code: '1121', name: 'مستحقات منصات التوصيل - Grab/Foodpanda' },
   }
   async function createSalesJournalEntry(debitLines: { method: string; amount: number }[], salesAmt: number, serviceChargeAmt: number, sstAmt: number, tableName: string) {
     if (!orderBranchId) { console.error('createSalesJournalEntry: مفيش branch_id، هنتجاهل القيد التلقائي'); return }
@@ -386,6 +388,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
     isPayingRef.current = true
     setSaving(true)
+    // ✅ Fix حرج: لف الدالة كلها بـ try/catch/finally - قبل كده لو حصل أي خطأ في نص العملية (زي فشل استعلام
+    // دمج الطلبات المكررة)، الكود كان بيتوقف بصمت من غير أي رسالة، فالطاولة كانت بترجع تبان "شغالة" لسه
+    // من غير ما الكاشير يعرف السبب. دلوقتي أي خطأ هيظهر رسالة واضحة، وisPayingRef هيترجع false تلقائيًا
+    // عشان يقدر يعيد المحاولة على طول بدل ما يفضل عالق
+    try {
 
     // ✅ Fix حرج جدًا (طبقة حماية أخيرة): في حالات نادرة جدًا (Race Condition - لو اتنين حاولوا يضيفوا
     // طلب لنفس الطاولة في نفس اللحظة بالظبط)، ممكن يتعمل أكتر من صف "orders" نشط لنفس الطاولة. لو سبنا
@@ -465,8 +472,15 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       }
     }
 
-    setSaving(false)
     onPaid()
+    } catch (err: any) {
+      // ✅ Fix حرج: بدل ما الخطأ يتبلع بصمت، نوريه واضح للكاشير عشان يعرف يبلّغ بيه أو يعيد المحاولة
+      console.error('doPay error:', err)
+      alert('⚠️ Payment failed: ' + (err?.message || 'Unknown error') + '\n\nPlease try again or contact support.')
+    } finally {
+      setSaving(false)
+      isPayingRef.current = false
+    }
   }
   // ✅ زرار "Confirm Payment" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ الدفع على طول
   function pay() {
@@ -489,6 +503,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
     isPayingRef.current = true
     setSaving(true)
+    // ✅ Fix حرج: نفس حماية doPay - try/catch/finally عشان أي خطأ يظهر واضح بدل ما يتبلع بصمت
+    try {
 
     // ✅ نفس طبقة الحماية الموجودة في doPay - دمج أي طلبات نشطة مكررة لنفس الطاولة قبل قفل الفاتورة المقسّمة
     const { data: activeOrdersForTableSplit } = await sb.from('orders')
@@ -549,8 +565,14 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       occupied_since: null,
     }).eq('id', order.table_id)
 
-    setSaving(false)
     onPaid()
+    } catch (err: any) {
+      console.error('doPaySplit error:', err)
+      alert('⚠️ Payment failed: ' + (err?.message || 'Unknown error') + '\n\nPlease try again or contact support.')
+    } finally {
+      setSaving(false)
+      isPayingRef.current = false
+    }
   }
 
   function printReceipt() {
@@ -1579,6 +1601,8 @@ export default function CashierPage() {
   // المطعم شغال 24 ساعة، فبيانات هذا التاب تتصفّر يوميًا تلقائيًا لأنها تجيب بيانات "اليوم الحالي" فقط
   const [closedOrders, setClosedOrders] = useState<Order[]>([])
   const [closedSessions, setClosedSessions] = useState<{ id: string; shift: string; cashier_name: string; started_at: string; ended_at: string | null; branch_id: string | null }[]>([])
+  // ✅ جديد: مصروفات الكاش المسجّلة لليوم المعروض في Closed - كانت بتتسجل في قاعدة البيانات بس مفيهاش أي عرض هنا
+  const [closedExpenses, setClosedExpenses] = useState<{ id: string; shift: string; cashier_name: string; description: string; amount: number; status: string; created_at: string; branch_id: string | null }[]>([])
   const [closedLoading, setClosedLoading] = useState(false)
   const [closedFetched, setClosedFetched] = useState(false)
 
@@ -1714,6 +1738,9 @@ export default function CashierPage() {
 
   const [fetchError, setFetchError] = useState<string | null>(null)
 
+  // ✅ Fix حرج: قائمة مؤقتة بالطاولات اللي اتدفعت لتوها - عشان لو fetchAll اشتغل بعد الدفع مباشرة ورجّع نسخة
+  // من قاعدة البيانات لسه مش متزامنة تمامًا (تأخير طبيعي بسيط)، منمنعهاش من إرجاع الطلب المدفوع للشاشة بالغلط
+  const recentlyPaidTableIdsRef = useRef<Set<string>>(new Set())
   const fetchAll = useCallback(async () => {
     const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
@@ -1742,7 +1769,12 @@ export default function CashierPage() {
     const filteredOrders = isAdmin
       ? (activeRes.data as any) || []
       : ((activeRes.data as any) || []).filter((o: any) => allowedTableIds.has(o.table_id))
-    setOrders(filteredOrders)
+    // ✅ Fix حرج: نستبعد أي طاولة اتدفعت حديثًا (آخر كذا ثانية) حتى لو ظهرت في نتيجة الاستعلام - حماية من
+    // تأخير التزامن الطبيعي بين لحظة الكتابة (UPDATE) ولحظة القراءة (SELECT) اللي كان بيرجّع الطلب المدفوع للشاشة
+    const finalOrders = recentlyPaidTableIdsRef.current.size > 0
+      ? filteredOrders.filter((o: any) => !recentlyPaidTableIdsRef.current.has(o.table_id))
+      : filteredOrders
+    setOrders(finalOrders)
     setTables(allowedTables)
     // ✅ جديد: جلب الدمجات النشطة (اللي لسه ما اتفكتش) للطاولات المتاحة لهذا المستخدم
     if (allowedTableIds.size > 0) {
@@ -1827,6 +1859,15 @@ export default function CashierPage() {
     if (isAdmin && adminBranchFilter) sq = sq.eq('branch_id', adminBranchFilter)
     const { data: sData } = await sq
     setClosedSessions((sData as any) || [])
+
+    // ✅ جديد: جلب مصروفات الكاش المسجّلة لليوم ده - نفس جدول daily_cash_expenses اللي زرار "💸 Add Expense" بيكتب فيه
+    let eq = sb.from('daily_cash_expenses').select('id,shift,cashier_name,description,amount,status,created_at,branch_id')
+      .eq('expense_date', targetDate).order('created_at', { ascending: false })
+    if (!isAdmin && employee?.branch_id) eq = eq.eq('branch_id', employee.branch_id)
+    if (isAdmin && adminBranchFilter) eq = eq.eq('branch_id', adminBranchFilter)
+    const { data: expData } = await eq
+    setClosedExpenses((expData as any) || [])
+
     setClosedFetched(true)
     setClosedLoading(false)
   }, [sb, tables, isAdmin, adminBranchFilter, employee?.branch_id, closedDate])
@@ -2386,6 +2427,9 @@ export default function CashierPage() {
                       const dCredit = dayPaid.filter(o => o.payment_method === 'credit').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const dDiscount = dayPaid.reduce((s, o) => s + (o.discount_amount || 0), 0)
                       const dTotal = dayPaid.reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ جديد: إجمالي المصروفات (المدفوعة والمعلّقة) لليوم كله من زرار "💸 Add Expense"
+                      const dExpPaid = closedExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
+                      const dExpPending = closedExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
                       return (
                         <div style={{ background: S.gold3, borderRadius: 16, border: `1px solid ${S.gold}`, padding: '16px 18px' }}>
                           <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, marginBottom: 10 }}>📊 Whole Day Total ({closedDate})</div>
@@ -2418,7 +2462,37 @@ export default function CashierPage() {
                               <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
                               <div style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {dTotal.toFixed(2)}</div>
                             </div>
+                            {/* ✅ جديد: بطاقتي المصروفات المدفوعة/المعلّقة ليوم كامل */}
+                            {dExpPaid > 0 && (
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses Paid</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dExpPaid.toFixed(2)}</div>
+                              </div>
+                            )}
+                            {dExpPending > 0 && (
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>⏳ Expenses Pending</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dExpPending.toFixed(2)}</div>
+                              </div>
+                            )}
                           </div>
+                          {/* ✅ جديد: قائمة تفصيلية بكل مصروف على حدة ليوم كامل، عشان يبان واضح إن المصروف اتسجل فعلاً */}
+                          {closedExpenses.length > 0 && (
+                            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${S.gold}40` }}>
+                              <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, fontWeight: 700 }}>💸 Expenses Log</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {closedExpenses.map(exp => (
+                                  <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                                    <span style={{ color: S.white }}>
+                                      {exp.status === 'paid' ? '✅' : '⏳'} {exp.description}
+                                      <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {exp.shift === 'shift1' ? 'Shift 1' : 'Shift 2'} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    </span>
+                                    <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )
                     })()}
@@ -2444,6 +2518,15 @@ export default function CashierPage() {
                       const sCredit = sessOrders.filter(o => o.payment_method === 'credit' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
                       const sDiscount = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.discount_amount || 0), 0)
                       const sTotal = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ جديد: مصروفات هذا الشيفت بالذات - نفس نافذة الوقت اللي بنفلتر بيها الطلبات
+                      const sExpenses = closedExpenses.filter(e => {
+                        if (e.shift !== session.shift) return false
+                        if (isAdmin && e.branch_id !== session.branch_id) return false
+                        const t = new Date(e.created_at).getTime()
+                        return t >= start && t <= end
+                      })
+                      const sExpPaid = sExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
+                      const sExpPending = sExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
                       return (
                         <div key={session.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
                           <div style={{ padding: '14px 16px', background: S.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
@@ -2485,8 +2568,35 @@ export default function CashierPage() {
                                 <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toFixed(2)}</div>
                               </div>
+                              {/* ✅ جديد: مصروفات هذا الشيفت */}
+                              {sExpPaid > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sExpPaid.toFixed(2)}</div>
+                                </div>
+                              )}
+                              {sExpPending > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>⏳ Pending Exp.</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sExpPending.toFixed(2)}</div>
+                                </div>
+                              )}
                             </div>
                           </div>
+                          {/* ✅ جديد: قائمة تفصيلية بمصروفات هذا الشيفت بالذات */}
+                          {sExpenses.length > 0 && (
+                            <div style={{ padding: '0 16px 14px', borderTop: `1px solid ${S.border}`, paddingTop: 10 }}>
+                              <div style={{ fontSize: 11, color: S.muted, marginBottom: 6, fontWeight: 700 }}>💸 Expenses</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                {sExpenses.map(exp => (
+                                  <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                                    <span style={{ color: S.white }}>{exp.status === 'paid' ? '✅' : '⏳'} {exp.description}</span>
+                                    <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10, padding: 14 }}>
                             {sessOrders.length === 0 ? (
                               <div style={{ color: S.muted, fontSize: 12, padding: '10px 0' }}>No orders in this shift</div>
@@ -2637,6 +2747,10 @@ export default function CashierPage() {
       {payOrder && <PaymentModal order={payOrder} tables={tables} onClose={() => setPayOrder(null)} onPaid={() => {
         const paidTableId = payOrder.table_id
         setPayOrder(null)
+        // ✅ Fix حرج: نسجّل الطاولة دي كـ"اتدفعت لتوها" لمدة 10 ثواني - أي fetchAll هيستبعدها من النتيجة
+        // حتى لو قاعدة البيانات رجّعت نسخة لسه مش متزامنة تمامًا، عشان محدش يشوف الطلب "يرجع" بعد ما اتقفل
+        recentlyPaidTableIdsRef.current.add(paidTableId)
+        setTimeout(() => { recentlyPaidTableIdsRef.current.delete(paidTableId) }, 10000)
         // فوراً امسح الطلبات المدفوعة من الـ state
         setOrders(prev => prev.filter(o => !(o.table_id === paidTableId && ['confirmed','preparing','ready'].includes(o.status))))
         // وحدّث الطاولة في الـ state مباشرة

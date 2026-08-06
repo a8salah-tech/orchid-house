@@ -18,6 +18,8 @@ const S = {
   red: '#EF4444', redB: 'rgba(239,68,68,0.12)',
   blue: '#3B82F6', blueB: 'rgba(59,130,246,0.12)',
   card: 'rgba(255,255,255,0.04)', card2: 'rgba(255,255,255,0.08)',
+  // ✅ جديد: مضافين عشان مودال تفاصيل الفاتورة (رسوم الخدمة/SST) اللي بيستخدمهم
+  amber: '#F59E0B', teal: '#14B8A6',
 }
 
 const inp: React.CSSProperties = {
@@ -156,7 +158,8 @@ function emptyShift() {
   return {
     date: '', cashier_name: '', received_balance: '', paid_expenses: '',
     pending_expenses: '', visa_maybank: '', visa_bsn: '', kabab_online: '',
-    g_online: '', discounts: '', total_balance: '', manager_note: '',
+    // ✅ جديد: مبالغ "Credit" - طلبات Grab/Foodpanda اللي بتتحصّل من المنصة لاحقًا مش كاش وقت الفاتورة
+    g_online: '', credit: '', discounts: '', total_balance: '', manager_note: '',
     bills_paid: '', bills_pending: '', bills_discounts: '', bills_online: '',
     start_time: '', end_time: '', // ✅ new: shift claim/handover timestamps (ISO strings)
   }
@@ -170,7 +173,8 @@ function emptyForm() {
     shift3: emptyShift(),
     total_sales_report: '', total_paid_expenses: '', total_pending_expenses: '',
     total_visa_maybank: '', total_visa_bsn: '', total_kabab_online: '',
-    total_g_online: '', total_discounts: '', total_amount: '',
+    // ✅ جديد: إجمالي Credit ليوم كامل
+    total_g_online: '', total_credit: '', total_discounts: '', total_amount: '',
     notes: '', total_purchased_bills: '', grab: '', foodpanda: '',
     treasurer_name: '',
   }
@@ -265,11 +269,14 @@ function ShiftSection({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>{label('G Online Banking (RM)')}<ReadOnlyAmount value={shift.g_online} /></div>
+              <div>{label('Credit — Grab/Foodpanda (RM) — auto')}<ReadOnlyAmount value={shift.credit} /></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>{label('Discounts (RM) — auto')}<ReadOnlyAmount value={shift.discounts} /></div>
+              <div>{label('Manager Note')}<input style={inp} value={shift.manager_note} onChange={e => setShift(num, 'manager_note', e.target.value)} placeholder="Note..." /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>{label('Total Sales (RM) — auto')}<div style={{ ...roInp, fontSize: 15 }}>{(parseFloat(shift.total_balance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
-              <div>{label('Manager Note')}<input style={inp} value={shift.manager_note} onChange={e => setShift(num, 'manager_note', e.target.value)} placeholder="Note..." /></div>
             </div>
           </div>
 
@@ -357,6 +364,8 @@ export default function DailyReportPage() {
 
   // Order details (separate tab) — every order with its time in Malaysia timezone, 24h format
   const [orderDetails, setOrderDetails] = useState<any[]>([])
+  // ✅ جديد: تفاصيل الطلب المختار من جدول Sales Details - بيظهر في مودال بمنتصف الشاشة
+  const [orderDetailModal, setOrderDetailModal] = useState<any | null>(null)
   // Which shift to show in Sales Details — 'all' = whole day, or one specific shift
   // (based on its real start/end time, not the calendar day)
   const [shiftFilter, setShiftFilter] = useState<'all' | 'Shift 1' | 'Shift 2' | 'Shift 3' | 'Unassigned'>('all')
@@ -392,7 +401,7 @@ export default function DailyReportPage() {
     setOrdersError(null)
     const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
     const { data, error } = await sb.from('orders')
-      .select('id, total_amount, discount_amount, payment_method, card_bank, paid_by_name, shift, created_at, paid_at, tables!inner(branch_id, name)')
+      .select('id, total_amount, discount_amount, discount_type, service_charge, sst_amount, payment_method, card_bank, paid_by_name, shift, notes, created_at, paid_at, tables!inner(branch_id, name), order_items(id,quantity,unit_price,notes,size_name,status,cancel_reason,menu_items(name,name_en,or_code))')
       .eq('status', 'paid').eq('tables.branch_id', branchFilter)
       .gte('paid_at', dayStart).lte('paid_at', dayEnd)
       .order('paid_at', { ascending: true })
@@ -476,6 +485,7 @@ export default function DailyReportPage() {
             visa_bsn: data.shift1_visa_bsn?.toString() || '',
             kabab_online: data.shift1_kabab_online?.toString() || '',
             g_online: data.shift1_g_online?.toString() || '',
+            credit: data.shift1_credit?.toString() || '',
             discounts: data.shift1_discounts?.toString() || '',
             total_balance: data.shift1_total_balance?.toString() || '',
             manager_note: data.shift1_manager_note || '',
@@ -494,6 +504,7 @@ export default function DailyReportPage() {
             visa_bsn: data.shift2_visa_bsn?.toString() || '',
             kabab_online: data.shift2_kabab_online?.toString() || '',
             g_online: data.shift2_g_online?.toString() || '',
+            credit: data.shift2_credit?.toString() || '',
             discounts: data.shift2_discounts?.toString() || '',
             total_balance: data.shift2_total_balance?.toString() || '',
             manager_note: data.shift2_manager_note || '',
@@ -512,6 +523,7 @@ export default function DailyReportPage() {
             visa_bsn: data.shift3_visa_bsn?.toString() || '',
             kabab_online: data.shift3_kabab_online?.toString() || '',
             g_online: data.shift3_g_online?.toString() || '',
+            credit: data.shift3_credit?.toString() || '',
             discounts: data.shift3_discounts?.toString() || '',
             total_balance: data.shift3_total_balance?.toString() || '',
             manager_note: data.shift3_manager_note || '',
@@ -528,6 +540,7 @@ export default function DailyReportPage() {
           total_visa_bsn: data.total_visa_bsn?.toString() || '',
           total_kabab_online: data.total_kabab_online?.toString() || '',
           total_g_online: data.total_g_online?.toString() || '',
+          total_credit: data.total_credit?.toString() || '',
           total_discounts: data.total_discounts?.toString() || '',
           total_amount: data.total_amount?.toString() || '',
           notes: data.notes || '',
@@ -628,18 +641,72 @@ export default function DailyReportPage() {
   // لو هو نفسه سجّل تحت نفس label الشيفت في نظام الكاشير) بياخد صندوق "Shift 2" تلقائيًا، وهكذا. ده بالظبط
   // اللي بيخلّي "End Shift" بتاع بشار يظهر منتهي في صندوقه، ومجد يبان في صندوق منفصل تمامًا رقم 2.
   // لو حصل (نادرًا) أكتر من 3 جلسات حقيقية في يوم واحد، أي جلسة زيادة بتتضاف لصندوق Shift 3 الأخير.
+  // ✅ Fix حرج جدًا: المطعم شغال 24 ساعة، فكاشير زي مجد ممكن يبدأ شيفته الساعة 7 مساءً ويكمّل لحد 5 الفجر
+  // اليوم اللي بعده. الجلسة دي بتتسجّل بـ session_date = تاريخ يوم أمس (يوم البداية)، فكانت بتختفي تمامًا
+  // من تقرير اليوم التالي حتى لو نص الشيفت (من نص الليل لحد 5 الفجر) بيخص اليوم ده فعليًا. دلوقتي بنجيب
+  // أي جلسة: تاريخها يطابق اليوم المطلوب، أو اتقفلت خلال اليوم ده (حتى لو بدأت أمس)، أو لسه شغالة فعليًا
   async function fetchShiftSessions(): Promise<Record<number, { cashier_name: string; started_at: string; ended_at: string | null }[]>> {
     const map: Record<number, { cashier_name: string; started_at: string; ended_at: string | null }[]> = { 1: [], 2: [], 3: [] }
     if (!branchFilter || !form.report_date) return map
+    const { dayStart, dayEnd } = getMYDayBounds(form.report_date)
     const { data } = await sb.from('cashier_shift_sessions')
       .select('cashier_name, started_at, ended_at')
-      .eq('branch_id', branchFilter).eq('session_date', form.report_date)
+      .eq('branch_id', branchFilter)
+      .or(`session_date.eq.${form.report_date},and(ended_at.gte.${dayStart},ended_at.lte.${dayEnd}),ended_at.is.null`)
       .order('started_at', { ascending: true })
     const rows = (data as any[]) || []
-    rows.forEach((row, idx) => {
+    const rowsFiltered = rows.filter(row => {
+      // ✅ نستبعد أي جلسة "لسه شغالة" بس بدأت وانتهى تأثيرها في يوم مختلف تمامًا عن اليوم المطلوب
+      // (احتياطي دقيق: الشرط فوق ممكن يجيب جلسة مفتوحة قديمة جدًا لو محدش قفلها بالغلط)
+      if (!row.ended_at) {
+        const startedDate = new Date(row.started_at).getTime()
+        return startedDate <= new Date(dayEnd).getTime()
+      }
+      return true
+    })
+    rowsFiltered.forEach((row, idx) => {
       const box = Math.min(idx + 1, 3) // بالترتيب: أول جلسة → 1، تانية → 2، تالتة وأي حاجة زيادة → 3
       map[box].push({ cashier_name: row.cashier_name, started_at: row.started_at, ended_at: row.ended_at })
     })
+
+    // ✅ جديد: لو فيه فجوة حقيقية (مفيش كاشير مسجّل خلالها) بين شيفتين، وصندوق Shift 3 لسه فاضي (يعني
+    // مفيش جلسة تالتة حقيقية أصلاً)، بنحط الفجوة دي في Shift 3 بنفسها - بدل ما تختفي في "Unassigned" العام.
+    // كده بيبقى واضح "مفيش حد كان ماسك الشيفت من الساعة كذا للساعة كذا" بدل ما يتوه وسط أرقام عامة.
+    // الحد الأدنى للفجوة عشان تستاهل صندوق مستقل = 15 دقيقة (أقل من كده مش مستاهلة نعرضها كشيفت منفصل)
+    const GAP_THRESHOLD_MS = 15 * 60 * 1000
+    if (map[3].length === 0 && rowsFiltered.length >= 1) {
+      let gapStart: number | null = null
+      let gapEnd: number | null = null
+      // بندوّر على أكبر فجوة بين نهاية جلسة وبداية اللي بعدها
+      for (let i = 0; i < rowsFiltered.length - 1; i++) {
+        const prevEnd = rowsFiltered[i].ended_at ? new Date(rowsFiltered[i].ended_at as string).getTime() : null
+        const nextStart = new Date(rowsFiltered[i + 1].started_at).getTime()
+        if (prevEnd && nextStart > prevEnd) {
+          const gapLen = nextStart - prevEnd
+          if (gapLen >= GAP_THRESHOLD_MS && (gapStart === null || gapLen > (gapEnd! - gapStart!))) {
+            gapStart = prevEnd
+            gapEnd = nextStart
+          }
+        }
+      }
+      // ولو مفيش فجوة بين جلستين، بنشوف هل فيه فجوة قبل أول جلسة في اليوم (من نص الليل لحد ما حد بدأ شيفته)
+      if (gapStart === null) {
+        const firstStart = new Date(rowsFiltered[0].started_at).getTime()
+        const dayStartMs = new Date(dayStart).getTime()
+        if (firstStart - dayStartMs >= GAP_THRESHOLD_MS) {
+          gapStart = dayStartMs
+          gapEnd = firstStart
+        }
+      }
+      if (gapStart !== null && gapEnd !== null) {
+        map[3].push({
+          cashier_name: '⚠️ No Cashier (Gap)',
+          started_at: new Date(gapStart).toISOString(),
+          ended_at: new Date(gapEnd).toISOString(),
+        })
+      }
+    }
+
     return map
   }
 
@@ -682,8 +749,12 @@ export default function DailyReportPage() {
     const cappedNow = nowISO < dayEnd ? nowISO : dayEnd
     const validSessions = (sessions || []).filter(s => !!s.started_at)
     const useTimeWindow = validSessions.length > 0
+    // ✅ Fix حرج: لو الجلسة بدأت *قبل* منتصف ليل يوم التقرير (شيفت زي مجد بدأ الساعة 7 مساءً امبارح واستمر
+    // لحد الفجر النهاردة)، بنحسب بس الجزء اللي بيخص يوم التقرير ده (من منتصف الليل) - مش كل الجلسة من بدايتها
+    // الحقيقية، وإلا مبيعات يوم أمس بالكامل كانت هتتحسب غلط جوه تقرير اليوم ده. وقت العرض (Started HH:MM) لسه
+    // بيوري الوقت الحقيقي اللي الكاشير بدأ فيه فعليًا، بس حساب المبيعات بس بيتقصّر على جزء اليوم الحالي
     const windows = useTimeWindow
-      ? validSessions.map(s => ({ start: s.started_at, end: s.ended_at || cappedNow }))
+      ? validSessions.map(s => ({ start: s.started_at < dayStart ? dayStart : s.started_at, end: s.ended_at || cappedNow }))
       : [{ start: dayStart, end: dayEnd }]
     // أوسع مدى زمني يغطي كل الجلسات، عشان نجيب الأوردرات في استعلام واحد ثم نفلترها بدقة على كل نافذة
     const rangeStart = windows.reduce((m, w) => (w.start < m ? w.start : m), windows[0].start)
@@ -715,6 +786,8 @@ export default function DailyReportPage() {
     const discountsTotal = round2(orders.reduce((s, o) => s + (o.discount_amount || 0), 0))
     const visaMaybank = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0))
     const visaBsn = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0))
+    // ✅ جديد: إجمالي Credit لهذا الشيفت - طلبات Grab/Foodpanda اللي اتقفلت بـ"Ajil/Credit" في شاشة الكاشير
+    const creditTotal = round2(orders.filter(o => o.payment_method === 'credit').reduce((s, o) => s + (o.total_amount || 0), 0))
     const kababOnline = round2(delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0))
     const gOnline = round2(delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0))
     const paidExpenses = round2(expenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0))
@@ -746,6 +819,7 @@ export default function DailyReportPage() {
         visa_bsn: String(visaBsn),
         kabab_online: String(kababOnline),
         g_online: String(gOnline),
+        credit: String(creditTotal),
         discounts: String(discountsTotal),
         total_balance: String(salesTotal),
       },
@@ -782,6 +856,8 @@ export default function DailyReportPage() {
     const discountsTotal = round2(orders.reduce((s, o) => s + (o.discount_amount || 0), 0))
     const visaMaybank = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0))
     const visaBsn = round2(orders.filter(o => o.payment_method === 'visa' && o.card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0))
+    // ✅ جديد: إجمالي Credit ليوم كامل - طلبات Grab/Foodpanda اللي اتقفلت بـ"Ajil/Credit"
+    const creditTotalDay = round2(orders.filter(o => o.payment_method === 'credit').reduce((s, o) => s + (o.total_amount || 0), 0))
     const kababOnline = round2(delivery.filter(d => d.platform === 'kabab_online').reduce((s, d) => s + (d.amount || 0), 0))
     const gOnline = round2(delivery.filter(d => d.platform === 'g_online').reduce((s, d) => s + (d.amount || 0), 0))
     const grabTotal = round2(delivery.filter(d => d.platform === 'grab').reduce((s, d) => s + (d.amount || 0), 0))
@@ -797,6 +873,7 @@ export default function DailyReportPage() {
       total_visa_bsn: String(visaBsn),
       total_kabab_online: String(kababOnline),
       total_g_online: String(gOnline),
+      total_credit: String(creditTotalDay),
       total_discounts: String(discountsTotal),
       grab: String(grabTotal),
       foodpanda: String(foodpandaTotal),
@@ -819,6 +896,7 @@ export default function DailyReportPage() {
       shift1_visa_bsn: n(form.shift1.visa_bsn),
       shift1_kabab_online: n(form.shift1.kabab_online),
       shift1_g_online: n(form.shift1.g_online),
+      shift1_credit: n(form.shift1.credit),
       shift1_discounts: n(form.shift1.discounts),
       shift1_total_balance: n(form.shift1.total_balance),
       shift1_manager_note: form.shift1.manager_note || null,
@@ -837,6 +915,7 @@ export default function DailyReportPage() {
       shift2_visa_bsn: n(form.shift2.visa_bsn),
       shift2_kabab_online: n(form.shift2.kabab_online),
       shift2_g_online: n(form.shift2.g_online),
+      shift2_credit: n(form.shift2.credit),
       shift2_discounts: n(form.shift2.discounts),
       shift2_total_balance: n(form.shift2.total_balance),
       shift2_manager_note: form.shift2.manager_note || null,
@@ -855,6 +934,7 @@ export default function DailyReportPage() {
       shift3_visa_bsn: n(form.shift3.visa_bsn),
       shift3_kabab_online: n(form.shift3.kabab_online),
       shift3_g_online: n(form.shift3.g_online),
+      shift3_credit: n(form.shift3.credit),
       shift3_discounts: n(form.shift3.discounts),
       shift3_total_balance: n(form.shift3.total_balance),
       shift3_manager_note: form.shift3.manager_note || null,
@@ -871,6 +951,7 @@ export default function DailyReportPage() {
       total_visa_bsn: n(form.total_visa_bsn),
       total_kabab_online: n(form.total_kabab_online),
       total_g_online: n(form.total_g_online),
+      total_credit: n(form.total_credit),
       total_discounts: n(form.total_discounts),
       total_amount: n(form.total_amount),
       notes: form.notes || null,
@@ -1251,7 +1332,7 @@ export default function DailyReportPage() {
                           const shiftColor = lbl === 'Shift 1' ? S.blue : lbl === 'Shift 2' ? '#8B5CF6' : lbl === 'Shift 3' ? S.green : S.muted
                           const shiftBg = lbl === 'Shift 1' ? 'rgba(59,130,246,0.06)' : lbl === 'Shift 2' ? 'rgba(139,92,246,0.06)' : lbl === 'Shift 3' ? 'rgba(34,197,94,0.06)' : 'transparent'
                           return (
-                            <tr key={o.id} style={{ borderTop: `1px solid ${S.border}`, borderLeft: `3px solid ${shiftColor}`, background: shiftBg }}>
+                            <tr key={o.id} onClick={() => setOrderDetailModal(o)} style={{ borderTop: `1px solid ${S.border}`, borderLeft: `3px solid ${shiftColor}`, background: shiftBg, cursor: 'pointer' }}>
                               <td style={tdStyle}>{i + 1}</td>
                               <td style={tdStyle}>{o.tables?.name || o.id?.slice(0, 8) || '—'}</td>
                               <td style={{ ...tdStyle, color: shiftColor, fontWeight: 700 }}>{lbl}</td>
@@ -1368,6 +1449,9 @@ export default function DailyReportPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>{label('Total G Online Banking (RM) — auto')}<ReadOnlyAmount value={form.total_g_online} /></div>
+                    <div>{label('Total Credit — Grab/Foodpanda (RM) — auto')}<ReadOnlyAmount value={form.total_credit} /></div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>{label('Total Discounts — auto')}<ReadOnlyAmount value={form.total_discounts} /></div>
                   </div>
                   <div>{label('Total Amount (RM)')}
@@ -1398,6 +1482,88 @@ export default function DailyReportPage() {
           </>
         )}
       </div>
+
+      {/* ✅ جديد: مودال تفاصيل الفاتورة - يظهر بمنتصف الشاشة عند الضغط على أي صف في جدول Sales Details */}
+      {orderDetailModal && (
+        <div onClick={() => setOrderDetailModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 480, padding: 28, margin: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>🧾 Invoice Details</h2>
+              <button onClick={() => setOrderDetailModal(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: S.muted }}>
+                  {orderDetailModal.tables?.name || `Order #${orderDetailModal.id?.slice(-6).toUpperCase()}`}
+                </span>
+                <span style={{ background: S.goldB, color: S.gold, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                  {resolveShiftLabel(orderDetailModal)}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 10 }}>
+                Opened {fmtDateTimeMY(orderDetailModal.created_at)} · Paid {fmtDateTimeMY(orderDetailModal.paid_at)}
+              </div>
+
+              {(orderDetailModal.order_items || []).map((i: any) => (
+                <div key={i.id} style={{ padding: '5px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
+                      {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
+                      <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                    </span>
+                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                  </div>
+                  {i.notes && <div style={{ fontSize: 11, color: S.gold, marginTop: 2 }}>📝 {i.notes}</div>}
+                  {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginTop: 2 }}>❌ Cancelled: {i.cancel_reason}</div>}
+                </div>
+              ))}
+
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, marginBottom: 4 }}>
+                  <span>Subtotal</span>
+                  <span>MYR {(orderDetailModal.order_items || []).filter((i: any) => i.status !== 'cancelled').reduce((s: number, i: any) => s + i.unit_price * i.quantity, 0).toFixed(2)}</span>
+                </div>
+                {orderDetailModal.discount_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.red, marginBottom: 4 }}>
+                    <span>Discount {orderDetailModal.discount_type ? `(${orderDetailModal.discount_type})` : ''}</span>
+                    <span>- MYR {orderDetailModal.discount_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                {orderDetailModal.service_charge > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.amber, marginBottom: 4 }}>
+                    <span>Service Charge</span>
+                    <span>MYR {orderDetailModal.service_charge.toFixed(2)}</span>
+                  </div>
+                )}
+                {orderDetailModal.sst_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.teal, marginBottom: 4 }}>
+                    <span>SST</span>
+                    <span>MYR {orderDetailModal.sst_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: S.gold, marginTop: 8 }}>
+                  <span>Total</span>
+                  <span>MYR {(orderDetailModal.total_amount || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              {orderDetailModal.payment_method && (
+                <div style={{ fontSize: 12, color: S.teal, marginTop: 10 }}>
+                  {orderDetailModal.payment_method === 'cash' ? '💵' : orderDetailModal.payment_method === 'visa' ? '💳' : orderDetailModal.payment_method === 'credit' ? '🧾' : '📱'} {orderDetailModal.payment_method}
+                  {orderDetailModal.card_bank ? ` (${orderDetailModal.card_bank})` : ''}
+                </div>
+              )}
+              {orderDetailModal.paid_by_name && <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>👤 {orderDetailModal.paid_by_name}</div>}
+              {orderDetailModal.notes && <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>📝 {orderDetailModal.notes}</div>}
+            </div>
+
+            <button onClick={() => setOrderDetailModal(null)} style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

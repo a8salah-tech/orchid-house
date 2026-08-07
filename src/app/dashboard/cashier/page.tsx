@@ -282,8 +282,10 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
 
   // ✅ تقسيم الفاتورة على أكتر من شخص
   const [splitMode, setSplitMode] = useState(false)
-  const [splitType, setSplitType] = useState<'equal' | 'items'>('equal')
+  const [splitType, setSplitType] = useState<'equal' | 'items' | 'amount'>('equal')
   const [splitCount, setSplitCount] = useState(2)
+  // ✅ جديد: "وضع المبلغ المخصص" - لما عميل واحد يدفع جزء كاش وجزء فيزا لنفس الفاتورة (بدل تقسيم بين أشخاص)
+  const [customAmounts, setCustomAmounts] = useState<Record<number, string>>({})
   const [personItemQty, setPersonItemQty] = useState<Record<string, number>>({}) // key: `${itemId}::${personIdx}` → qty assigned to that person
   const [personMethods, setPersonMethods] = useState<Record<number, 'cash' | 'visa' | 'online'>>({})
   const [personPaid, setPersonPaid] = useState<Record<number, boolean>>({})
@@ -409,6 +411,15 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       const roundingDiff = total - baseShare * n
       shares[n - 1] = Math.round((shares[n - 1] + roundingDiff) * 100) / 100
       return shares.map((amount, idx) => ({ idx, label: `Person ${idx + 1}`, amount }))
+    }
+    if (splitType === 'amount') {
+      // ✅ جديد: مبلغ مخصص لكل طريقة دفع (زي "60 كاش + 40 فيزا" لنفس الفاتورة) - آخر واحد بيتحسب تلقائيًا كباقي
+      const n = Math.max(2, splitCount)
+      const entered: number[] = Array.from({ length: n - 1 }, (_, idx) => Math.max(0, parseFloat(customAmounts[idx]) || 0))
+      const enteredSum = entered.reduce((s, v) => s + v, 0)
+      const remainder = Math.round(Math.max(0, total - enteredSum) * 100) / 100
+      const amounts = [...entered, remainder]
+      return amounts.map((amount, idx) => ({ idx, label: `Payment ${idx + 1}`, amount }))
     }
     // splitType === 'items'
     const n = Math.max(2, splitCount)
@@ -901,7 +912,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         {/* Split Bill Panel */}
         {discountType !== 'free' && splitMode && isCashierRole && (
           <div style={{ marginBottom: 16, background: S.card, borderRadius: 12, padding: 14 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
               <button onClick={() => setSplitType('equal')}
                 style={{ padding: '9px', borderRadius: 10, border: `1px solid ${splitType === 'equal' ? S.gold : S.border}`, background: splitType === 'equal' ? S.gold3 : 'transparent', color: splitType === 'equal' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 ⚖️ Split Equally
@@ -910,15 +921,44 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                 style={{ padding: '9px', borderRadius: 10, border: `1px solid ${splitType === 'items' ? S.gold : S.border}`, background: splitType === 'items' ? S.gold3 : 'transparent', color: splitType === 'items' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 🍽️ Assign Items Per Person
               </button>
+              {/* ✅ جديد: لعميل واحد بيدفع جزء كاش وجزء فيزا (أو أي مزيج طرق) لنفس الفاتورة */}
+              <button onClick={() => { setSplitType('amount'); setSplitCount(2) }}
+                style={{ padding: '9px', borderRadius: 10, border: `1px solid ${splitType === 'amount' ? S.gold : S.border}`, background: splitType === 'amount' ? S.gold3 : 'transparent', color: splitType === 'amount' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                💰 Mixed Payment
+              </button>
             </div>
 
+            {/* ✅ جديد: إدخال المبالغ يدويًا في وضع الدفع المخصص - آخر واحد بيتحسب تلقائيًا كباقي الإجمالي */}
+            {splitType === 'amount' && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>
+                  Enter the amount for each payment — the last one fills in automatically with the remainder of MYR {total.toFixed(2)}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {Array.from({ length: Math.max(2, splitCount) - 1 }, (_, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: S.white, minWidth: 80 }}>Payment {idx + 1}</span>
+                      <input type="number" value={customAmounts[idx] || ''} onChange={e => setCustomAmounts(prev => ({ ...prev, [idx]: e.target.value }))}
+                        placeholder="0.00" style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', outline: 'none' }} />
+                    </div>
+                  ))}
+                  <button onClick={() => setSplitCount(c => c + 1)}
+                    style={{ padding: '6px', borderRadius: 8, border: `1px dashed ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                    ➕ Add another payment method
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* عدد الأشخاص - واحد بس فوق، بيتحكم في الاتنين */}
+            {splitType !== 'amount' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <span style={{ fontSize: 12, color: S.muted }}>Number of People</span>
               <button onClick={() => setSplitCount(c => Math.max(2, c - 1))} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>−</button>
               <span style={{ fontSize: 15, fontWeight: 800, color: S.gold, minWidth: 20, textAlign: 'center' }}>{Math.max(2, splitCount)}</span>
               <button onClick={() => setSplitCount(c => c + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 16 }}>+</button>
             </div>
+            )}
 
             {splitType === 'items' && unassignedItemsCount > 0 && (
               <div style={{ fontSize: 11, color: S.red, marginBottom: 10 }}>⚠️ {unassignedItemsCount} item(s) still not fully assigned to anyone</div>

@@ -91,7 +91,18 @@ function timeElapsedSince(dateStr?: string): string {
 }
 
 // ✅ جديد: طباعة تقرير تفصيلي كامل لشيفت مقفول من تاب Closed - كل طاولة، كل صنف، كل تفصيلة من أول الشيفت لآخره
-function printClosedShiftReport(session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }, sessOrders: Order[], expenses: { description: string; amount: number; status: string; created_at: string }[], totals: { cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number; discount: number; total: number; expPaid: number; expPending: number }) {
+// ✅ جديد: بيرجّع قائمة الدفعات الحقيقية لأي فاتورة - لو عادية بيرجّع دفعة واحدة بطريقتها المسجّلة،
+// ولو مقسّمة (split) بيرجّع كل الدفعات الفرعية الحقيقية من order_split_payments بدل ما تضيع تحت "split" عامة
+function getPaymentBreakdown(order: Order, splitPayments: { order_id: string; amount: number; payment_method: string; card_bank: string | null }[]): { method: string; card_bank: string | null; amount: number }[] {
+  if (order.payment_method === 'split') {
+    const parts = splitPayments.filter(sp => sp.order_id === order.id)
+    if (parts.length > 0) return parts.map(p => ({ method: p.payment_method, card_bank: p.card_bank, amount: p.amount }))
+    return [] // مفيش تفاصيل متاحة (نادر) - نتجاهلها بدل ما نحسبها غلط
+  }
+  return [{ method: order.payment_method, card_bank: (order as any).card_bank || null, amount: order.total_amount || 0 }]
+}
+
+function printClosedShiftReport(session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }, sessOrders: Order[], expenses: { description: string; amount: number; status: string; created_at: string }[], totals: { cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number; discount: number; total: number; expPaid: number; expPending: number }, splitPayments: { order_id: string; amount: number; payment_method: string; card_bank: string | null }[] = []) {
   const win = window.open('', '_blank')
   if (!win) return
   const shiftLabel = session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'
@@ -104,7 +115,9 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
       <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
       <td>#${o.id.slice(-6).toUpperCase()}</td>
       <td>${(o.order_items || []).filter(it => it.status !== 'cancelled').map(it => (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + (it.size_name ? ' (' + it.size_name + ')' : '') + ' ×' + it.quantity).join(', ')}</td>
-      <td>${o.payment_method?.toUpperCase() || '—'}${(o as any).card_bank ? ' (' + (o as any).card_bank + ')' : ''}</td>
+      <td>${o.payment_method === 'split'
+          ? splitPayments.filter(sp => sp.order_id === o.id).map(sp => `${sp.payment_method.toUpperCase()}${sp.card_bank ? ' (' + sp.card_bank + ')' : ''} MYR ${sp.amount.toFixed(2)}`).join(' + ') || 'SPLIT'
+          : `${o.payment_method?.toUpperCase() || '—'}${(o as any).card_bank ? ' (' + (o as any).card_bank + ')' : ''}`}</td>
       <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : (o.payment_method === 'free' ? 'FREE' : '—')}</td>
       <td>${o.notes ? o.notes.replace(/</g, '&lt;') : '—'}</td>
       <td>${o.paid_by_name || '—'}</td>
@@ -244,7 +257,7 @@ function lastOrderTime(order?: Order | null): string | null {
 }
 
 // ══ Payment Modal ══
-function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onTransfer: (order: Order) => void; tables?: TableRow[] }) {
+function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tables }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onPaymentStart?: (tableId: string) => void; onTransfer: (order: Order) => void; tables?: TableRow[] }) {
   const sb = createClient()
   const { employee, permissions } = useAuth()
   const isCashierRole = permissions?.all === true || ['cashier', 'assistant_cashier'].includes(employee?.role || '')
@@ -504,6 +517,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
     isPayingRef.current = true
     setSaving(true)
+    // ✅ Fix حرج: نستبعد الطاولة من أول لحظة تبدأ فيها عملية الدفع (قبل أي استعلام)، مش بعد ما العملية تخلص -
+    // عشان أي تحديث شاشة (fetchAll) يحصل أثناء خطوات الدفع نفسه (زي دمج طلب مكرر) ميرجّعش الطلب بالغلط
+    onPaymentStart?.(order.table_id)
     // ✅ Fix حرج: لف الدالة كلها بـ try/catch/finally - قبل كده لو حصل أي خطأ في نص العملية (زي فشل استعلام
     // دمج الطلبات المكررة)، الكود كان بيتوقف بصمت من غير أي رسالة، فالطاولة كانت بترجع تبان "شغالة" لسه
     // من غير ما الكاشير يعرف السبب. دلوقتي أي خطأ هيظهر رسالة واضحة، وisPayingRef هيترجع false تلقائيًا
@@ -527,7 +543,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     }
 
     // 1. Mark all active orders for this table as paid
-    await sb.from('orders').update({
+    const { error: mainPayError } = await sb.from('orders').update({
       status: 'paid',
       payment_method: discountType === 'free' ? 'free' : method,
       card_bank: method === 'visa' ? (cardBank || null) : null,
@@ -545,6 +561,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         ? [order.notes, `${discountType === 'free' ? '🎁 Free reason' : '🏷️ Discount reason'}: ${discountReason.trim()}`].filter(Boolean).join(' | ')
         : (order.notes || null),
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
+    // ✅ Fix حرج جدًا: Supabase مابيرميش استثناء تلقائي لما السيرفر يرفض الطلب - بنتأكد صراحة ونرمي خطأ فعلي
+    if (mainPayError) throw new Error('Failed to mark order as paid: ' + mainPayError.message)
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
     if (selectedCustomer?.id) {
@@ -636,6 +654,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     if (isPayingRef.current) return // ✅ منع التنفيذ المزدوج
     isPayingRef.current = true
     setSaving(true)
+    // ✅ Fix حرج: نستبعد الطاولة من أول لحظة (زي doPay بالظبط) - مهم جدًا هنا لأن فيه خطوة دمج/إلغاء تحصل
+    // قبل الدفع النهائي، وكانت بتسبب تحديث شاشة مبكر يرجّع الطلب قبل ما نبدأ نستبعد الطاولة
+    onPaymentStart?.(order.table_id)
     // ✅ Fix حرج: نفس حماية doPay - try/catch/finally عشان أي خطأ يظهر واضح بدل ما يتبلع بصمت
     try {
 
@@ -650,8 +671,13 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       await sb.from('orders').update({ status: 'cancelled', total_amount: 0, cancel_reason: 'دمج تلقائي - نفس طلب الطاولة' }).in('id', duplicateIds)
     }
 
+    // ✅ Fix حرج جدًا: نمسح أي دفعات تقسيم قديمة لنفس الطلب ده الأول (لو فيه من محاولة سابقة فشلت جزئيًا -
+    // مثلاً نجح تسجيل الدفعات لكن فشل تحديث الفاتورة بعدها لأي سبب) - عشان إعادة المحاولة متضيفش صفوف
+    // مكررة فوق القديمة. الحذف ده آمن 100% لأننا هننشئ الصفوف الصحيحة الجديدة فورًا بعده في نفس العملية
+    await sb.from('order_split_payments').delete().eq('order_id', order.id)
+
     // نسجل كل دفعة على حدة في order_split_payments للأرشفة والتقارير
-    await sb.from('order_split_payments').insert(
+    const { error: splitInsertError } = await sb.from('order_split_payments').insert(
       splitPeople.map(p => ({
         order_id: order.id,
         person_label: p.label,
@@ -661,16 +687,22 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         card_bank: personMethods[p.idx] === 'visa' ? (personCardBank[p.idx] || null) : null,
       }))
     )
+    // ✅ Fix حرج جدًا: Supabase مابيرميش استثناء (Exception) تلقائي لما السيرفر يرفض الطلب (403/400) - بيرجع
+    // بس { error } بهدوء والكود بيكمل عادي كأن كل حاجة تمام! عشان كده try/catch مكنش بيمسك الأخطاء دي خالص.
+    // دلوقتي بنتأكد من النتيجة صراحة ونرمي خطأ فعلي لو فشلت، عشان يوصل لـ catch ويوري رسالة واضحة للكاشير
+    if (splitInsertError) throw new Error('Failed to save split payments: ' + splitInsertError.message)
 
-    const methodsUsed = [...new Set(splitPeople.map(p => personMethods[p.idx] || 'cash'))]
-    const summaryMethod = `split(${methodsUsed.join('+')})`
+    // ✅ Fix حرج جدًا: كانت القيمة نص ديناميكي زي "split(cash+online)"، وده كان بيخالف قيد قاعدة البيانات
+    // (orders_payment_method_check) اللي بيسمح بس بقائمة ثابتة من القيم. التفاصيل الحقيقية لكل دفعة (الطريقة
+    // والبنك) محفوظة أصلاً في جدول order_split_payments المنفصل، فمش محتاجين نكرر التفاصيل هنا خالص
+    const summaryMethod = 'split'
     // ✅ جديد: بنك أول دفعة فيزا في التقسيم - بيتسجّل على الطلب الرئيسي نفسه عشان يتحسب صح في تقارير
     // Visa Maybank/BSN (اللي بتقرا من عمود card_bank بتاع الطلب مباشرة، مش من جدول الدفعات المقسّمة)
     const firstVisaPerson = splitPeople.find(p => personMethods[p.idx] === 'visa')
     const orderLevelCardBank = firstVisaPerson ? (personCardBank[firstVisaPerson.idx] || null) : null
 
     // نفس خطوات إغلاق الفاتورة العادية، بس payment_method بيوضح إنها كانت فاتورة مقسّمة
-    await sb.from('orders').update({
+    const { error: splitPayError } = await sb.from('orders').update({
       status: 'paid',
       payment_method: summaryMethod,
       card_bank: orderLevelCardBank,
@@ -687,6 +719,7 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         ? [order.notes, `🏷️ Discount reason: ${discountReason.trim()}`].filter(Boolean).join(' | ')
         : (order.notes || null),
     }).eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
+    if (splitPayError) throw new Error('Failed to mark order as paid: ' + splitPayError.message)
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
     if (selectedCustomer?.id) {
@@ -1792,6 +1825,8 @@ export default function CashierPage() {
   const [closedSessions, setClosedSessions] = useState<{ id: string; shift: string; cashier_name: string; started_at: string; ended_at: string | null; branch_id: string | null }[]>([])
   // ✅ جديد: مصروفات الكاش المسجّلة لليوم المعروض في Closed - كانت بتتسجل في قاعدة البيانات بس مفيهاش أي عرض هنا
   const [closedExpenses, setClosedExpenses] = useState<{ id: string; shift: string; cashier_name: string; description: string; amount: number; status: string; created_at: string; branch_id: string | null }[]>([])
+  // ✅ جديد: تفاصيل دفعات الفواتير المقسّمة (Split Payment) - مطلوبة عشان نجمع كام كاش وكام فيزا فعليًا حتى للفواتير المقسّمة
+  const [closedSplitPayments, setClosedSplitPayments] = useState<{ order_id: string; person_label: string; amount: number; payment_method: string; card_bank: string | null }[]>([])
   const [closedLoading, setClosedLoading] = useState(false)
   const [closedFetched, setClosedFetched] = useState(false)
 
@@ -2063,6 +2098,17 @@ export default function CashierPage() {
       results = results.filter(o => tables.find(t => t.id === o.table_id)?.branch_id === adminBranchFilter)
     }
     setClosedOrders(results)
+
+    // ✅ جديد: لأي فاتورة مقسّمة (payment_method = 'split')، نجيب تفاصيل كل دفعة فيها (طريقتها وبنكها الحقيقي)
+    // عشان نقدر نجمعها صح جوه أعمدة Cash/Visa/Online/Credit بدل ما تضيع تحت "split" عامة
+    const splitOrderIds = results.filter(o => o.payment_method === 'split').map(o => o.id)
+    if (splitOrderIds.length > 0) {
+      const { data: splitData } = await sb.from('order_split_payments')
+        .select('order_id, person_label, amount, payment_method, card_bank').in('order_id', splitOrderIds)
+      setClosedSplitPayments((splitData as any) || [])
+    } else {
+      setClosedSplitPayments([])
+    }
 
     // ✅ جديد: جلب مصروفات الكاش المسجّلة لليوم ده - نفس جدول daily_cash_expenses اللي زرار "💸 Add Expense" بيكتب فيه
     let eq = sb.from('daily_cash_expenses').select('id,shift,cashier_name,description,amount,status,created_at,branch_id')
@@ -2627,13 +2673,17 @@ export default function CashierPage() {
                       const dStart = `${closedDate}T00:00:00+08:00`
                       const dEnd = `${closedDate}T23:59:59.999+08:00`
                       const dayPaid = closedOrders.filter(o => o.status === 'paid' && o.paid_at && o.paid_at >= dStart && o.paid_at <= dEnd)
-                      const dCash = dayPaid.filter(o => o.payment_method === 'cash').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const dVisa = dayPaid.filter(o => o.payment_method === 'visa').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const dVisaMaybank = dayPaid.filter(o => o.payment_method === 'visa' && (o as any).card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const dVisaBsn = dayPaid.filter(o => o.payment_method === 'visa' && (o as any).card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const dOnline = dayPaid.filter(o => o.payment_method === 'online').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ Fix حرج: بدل ما نحسب من payment_method المسجّل على الفاتورة مباشرة (اللي بيبقى "split"
+                      // للفواتير المقسّمة ومش بيتحسب في أي عمود)، بنفكّك كل فاتورة لدفعاتها الحقيقية (getPaymentBreakdown)
+                      // ونجمعها حسب الطريقة الفعلية لكل دفعة - كده الفواتير المقسّمة بتتحسب صح في Cash/Visa/Online/Credit
+                      const dayPayments = dayPaid.flatMap(o => getPaymentBreakdown(o, closedSplitPayments))
+                      const dCash = dayPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
+                      const dVisa = dayPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
+                      const dVisaMaybank = dayPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
+                      const dVisaBsn = dayPayments.filter(p => p.method === 'visa' && p.card_bank === 'bsn').reduce((s, p) => s + p.amount, 0)
+                      const dOnline = dayPayments.filter(p => p.method === 'online').reduce((s, p) => s + p.amount, 0)
                       // ✅ جديد: إجمالي الآجل (Credit) ليوم كامل - مش كاش فعلي، دي فلوس متوقعة من جراب/فودباندا
-                      const dCredit = dayPaid.filter(o => o.payment_method === 'credit').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const dCredit = dayPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
                       const dDiscount = dayPaid.reduce((s, o) => s + (o.discount_amount || 0), 0)
                       const dTotal = dayPaid.reduce((s, o) => s + (o.total_amount || 0), 0)
                       // ✅ جديد: إجمالي المصروفات (المدفوعة والمعلّقة) لليوم كله من زرار "💸 Add Expense"
@@ -2721,13 +2771,17 @@ export default function CashierPage() {
                         const t = new Date(o.paid_at || o.created_at).getTime()
                         return t >= start && t <= end
                       })
-                      const sCash = sessOrders.filter(o => o.payment_method === 'cash' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const sVisa = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const sVisaMaybank = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid' && (o as any).card_bank === 'maybank').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const sVisaBsn = sessOrders.filter(o => o.payment_method === 'visa' && o.status === 'paid' && (o as any).card_bank === 'bsn').reduce((s, o) => s + (o.total_amount || 0), 0)
-                      const sOnline = sessOrders.filter(o => o.payment_method === 'online' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ Fix حرج: نفس منطق Whole Day Total - نفكّك كل فاتورة مدفوعة لدفعاتها الحقيقية عشان
+                      // الفواتير المقسّمة تتحسب صح في Cash/Visa/Online/Credit بدل ما تضيع تحت "split"
+                      const sessPaidOrders = sessOrders.filter(o => o.status === 'paid')
+                      const sessPayments = sessPaidOrders.flatMap(o => getPaymentBreakdown(o, closedSplitPayments))
+                      const sCash = sessPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
+                      const sVisa = sessPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
+                      const sVisaMaybank = sessPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
+                      const sVisaBsn = sessPayments.filter(p => p.method === 'visa' && p.card_bank === 'bsn').reduce((s, p) => s + p.amount, 0)
+                      const sOnline = sessPayments.filter(p => p.method === 'online').reduce((s, p) => s + p.amount, 0)
                       // ✅ جديد: إجمالي الآجل (Credit) لهذا الشيفت
-                      const sCredit = sessOrders.filter(o => o.payment_method === 'credit' && o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sCredit = sessPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
                       const sDiscount = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.discount_amount || 0), 0)
                       const sTotal = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
                       // ✅ جديد: مصروفات هذا الشيفت بالذات - نفس نافذة الوقت اللي بنفلتر بيها الطلبات
@@ -2784,7 +2838,8 @@ export default function CashierPage() {
                               <button
                                 onClick={() => printClosedShiftReport(
                                   session, sessOrders, sExpenses,
-                                  { cash: sCash, visa: sVisa, visaMaybank: sVisaMaybank, visaBsn: sVisaBsn, online: sOnline, credit: sCredit, discount: sDiscount, total: sTotal, expPaid: sExpPaid, expPending: sExpPending }
+                                  { cash: sCash, visa: sVisa, visaMaybank: sVisaMaybank, visaBsn: sVisaBsn, online: sOnline, credit: sCredit, discount: sDiscount, total: sTotal, expPaid: sExpPaid, expPending: sExpPending },
+                                  closedSplitPayments
                                 )}
                                 style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', alignSelf: 'center' }}>
                                 🖨️ Print
@@ -2965,13 +3020,19 @@ export default function CashierPage() {
       </div>
 
       {/* Modals */}
-      {payOrder && <PaymentModal order={payOrder} tables={tables} onClose={() => setPayOrder(null)} onPaid={() => {
+      {payOrder && <PaymentModal order={payOrder} tables={tables}
+        onPaymentStart={(tableId) => {
+          // ✅ Fix حرج: نستبعد الطاولة من أول لحظة تبدأ فيها عملية الدفع (قبل ما تخلص خالص) - عشان أي
+          // تحديث شاشة يحصل أثناء خطوات الدفع (زي دمج طلب مكرر في Split Payment) ميرجّعش الطلب بالغلط
+          recentlyPaidTableIdsRef.current.add(tableId)
+          setTimeout(() => { recentlyPaidTableIdsRef.current.delete(tableId) }, 15000)
+        }}
+        onClose={() => setPayOrder(null)} onPaid={() => {
         const paidTableId = payOrder.table_id
         setPayOrder(null)
-        // ✅ Fix حرج: نسجّل الطاولة دي كـ"اتدفعت لتوها" لمدة 10 ثواني - أي fetchAll هيستبعدها من النتيجة
-        // حتى لو قاعدة البيانات رجّعت نسخة لسه مش متزامنة تمامًا، عشان محدش يشوف الطلب "يرجع" بعد ما اتقفل
+        // ✅ نضمن الاستبعاد لمدة كافية بعد نجاح الدفع كمان (لو onPaymentStart اتنفذ من فترة والوقت قرب يخلص)
         recentlyPaidTableIdsRef.current.add(paidTableId)
-        setTimeout(() => { recentlyPaidTableIdsRef.current.delete(paidTableId) }, 10000)
+        setTimeout(() => { recentlyPaidTableIdsRef.current.delete(paidTableId) }, 15000)
         // فوراً امسح الطلبات المدفوعة من الـ state
         setOrders(prev => prev.filter(o => !(o.table_id === paidTableId && ['confirmed','preparing','ready'].includes(o.status))))
         // وحدّث الطاولة في الـ state مباشرة
@@ -3155,9 +3216,24 @@ export default function CashierPage() {
                 </div>
               </div>
 
-              {archiveDetailOrder.payment_method && (
+              {archiveDetailOrder.payment_method === 'split' ? (
+                <div style={{ marginTop: 10, background: S.card, borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontSize: 11, color: S.muted, marginBottom: 6, fontWeight: 700 }}>✂️ Split Payment Breakdown</div>
+                  {closedSplitPayments.filter(sp => sp.order_id === archiveDetailOrder.id).length > 0 ? (
+                    closedSplitPayments.filter(sp => sp.order_id === archiveDetailOrder.id).map((sp, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.teal, marginTop: 2 }}>
+                        <span>{sp.payment_method === 'cash' ? '💵' : sp.payment_method === 'visa' ? '💳' : '📱'} {sp.payment_method}{sp.card_bank ? ` (${sp.card_bank})` : ''}</span>
+                        <span>MYR {sp.amount.toFixed(2)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ fontSize: 12, color: S.muted }}>Split payment — details unavailable in this view</div>
+                  )}
+                </div>
+              ) : archiveDetailOrder.payment_method && (
                 <div style={{ fontSize: 12, color: S.teal, marginTop: 10 }}>
-                  {archiveDetailOrder.payment_method === 'cash' ? '💵' : archiveDetailOrder.payment_method === 'visa' ? '💳' : '📱'} {archiveDetailOrder.payment_method}
+                  {archiveDetailOrder.payment_method === 'cash' ? '💵' : archiveDetailOrder.payment_method === 'visa' ? '💳' : archiveDetailOrder.payment_method === 'credit' ? '🧾' : '📱'} {archiveDetailOrder.payment_method}
+                  {(archiveDetailOrder as any).card_bank ? ` (${(archiveDetailOrder as any).card_bank})` : ''}
                 </div>
               )}
               {archiveDetailOrder.paid_by_name && <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>👤 {archiveDetailOrder.paid_by_name}</div>}

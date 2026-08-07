@@ -738,6 +738,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <td>${r.check_in_distance != null ? r.check_in_distance + 'm' : '—'}</td>
       <td>${r.check_out_distance != null ? r.check_out_distance + 'm' : '—'}</td>
       <td>${workHours(r)}</td>
+      <td style="color:${r.late_minutes > 0 ? 'orange' : '#999'}">${r.late_minutes > 0 ? r.late_minutes + 'm' : '—'}</td>
       <td style="color:${r.status === 'present' ? 'green' : r.status === 'late' ? 'orange' : 'red'}">${r.status || 'present'}</td>
     </tr>`).join('')
 
@@ -766,9 +767,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <div class="info-box"><div class="info-label" style="color:green">✅ Present Days</div><div class="info-value" style="color:green">${presentDays}</div></div>
       <div class="info-box"><div class="info-label" style="color:red">❌ Absent Days</div><div class="info-value" style="color:red">${absentDays}</div></div>
       <div class="info-box"><div class="info-label" style="color:orange">⏰ Late Days</div><div class="info-value" style="color:orange">${lateDays}</div></div>
+      <div class="info-box"><div class="info-label" style="color:orange">🐢 Total Late Time</div><div class="info-value" style="color:orange">${Math.floor(totalLateMins/60)}h ${totalLateMins%60}m</div></div>
     </div>
     <table>
-      <thead><tr><th>Date</th><th>{isAr ? 'تسجيل حضور' : 'Check In'}</th><th>{isAr ? 'تسجيل انصراف' : 'Check Out'}</th><th>In Distance</th><th>Out Distance</th><th>Duration</th><th>Status</th></tr></thead>
+      <thead><tr><th>Date</th><th>${isAr ? 'تسجيل حضور' : 'Check In'}</th><th>${isAr ? 'تسجيل انصراف' : 'Check Out'}</th><th>In Distance</th><th>Out Distance</th><th>Duration</th><th>Late</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:24px;display:flex;justify-content:space-between;font-size:11px;color:#666">

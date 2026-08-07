@@ -601,6 +601,34 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     setEditValue(toDatetimeLocal(currentValue))
   }
 
+  // ✅ يحسب دقايق التأخير وحالة الحضور (late/present) بمقارنة وقت الدخول الفعلي بموعد بداية الشيفت المجدول لنفس اليوم،
+  // بنفس منطق تسجيل الدخول الذاتي بالظبط (grace period 10 دقايق). بنستخدمها هنا عشان أي تصحيح يدوي أو إضافة يدوية
+  // لوقت الدخول تُعيد حساب التأخير صح، بدل ما تفضل قيمة late_minutes قديمة أو صفر رغم إن الوقت الفعلي متأخر
+  async function computeLateInfo(employeeId: string, dateStr: string, checkInIso: string): Promise<{ status: string; late_minutes: number }> {
+    const { data: sch } = await sb.from('shift_schedules')
+      .select('*, shifts(start_time,end_time), custom_start, custom_end')
+      .eq('employee_id', employeeId)
+      .eq('date', dateStr)
+      .maybeSingle()
+
+    const startStr = sch?.custom_start || sch?.shifts?.start_time
+    const [y, mo, d] = dateStr.split('-').map(Number)
+    let shiftStartMs: number
+    if (startStr) {
+      const [h, m] = startStr.split(':').map(Number)
+      // ✅ نفس منطق تحويل التوقيت المحلي (ماليزيا UTC+8) المستخدم في باقي الصفحة — الحساب يفضل صح
+      // بغض النظر عن التايم زون بتاع جهاز الأدمن اللي بيعدّل السجل
+      shiftStartMs = Date.UTC(y, mo - 1, d, h, m, 0) - 8 * 60 * 60 * 1000
+    } else {
+      // مفيش شيفت مجدول — نفس الافتراضي المستخدم في تسجيل الدخول الذاتي (9 صباحاً)
+      shiftStartMs = Date.UTC(y, mo - 1, d, 9, 0, 0) - 8 * 60 * 60 * 1000
+    }
+
+    const diffMins = Math.floor((new Date(checkInIso).getTime() - shiftStartMs) / 60000)
+    const status = diffMins > 10 ? 'late' : 'present'
+    return { status, late_minutes: status === 'late' ? diffMins : 0 }
+  }
+
   async function saveEditedTime(empName: string) {
     if (!editingCell || !editValue) return
     const label = editingCell.field === 'check_in_time' ? 'الدخول' : 'الخروج'
@@ -608,7 +636,17 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     // ✅ الحقل datetime-local بيرجع وقت محلي (ماليزيا UTC+8)، لازم نحوله لـ UTC قبل الحفظ
     const localDate = new Date(editValue + ':00')
     const utcIso = new Date(localDate.getTime() - 8 * 60 * 60 * 1000).toISOString()
-    const { error } = await sb.from('attendance').update({ [editingCell.field]: utcIso }).eq('id', editingCell.recordId)
+    const updatePayload: Record<string, any> = { [editingCell.field]: utcIso }
+    // ✅ لو بنعدّل وقت الدخول تحديداً، لازم نعيد حساب التأخير كمان — وإلا هيفضل الرقم القديم غلط حتى بعد التصحيح
+    if (editingCell.field === 'check_in_time') {
+      const rec = records.find(r => r.id === editingCell.recordId)
+      if (rec) {
+        const { status, late_minutes } = await computeLateInfo(rec.employee_id, rec.date, utcIso)
+        updatePayload.status = status
+        updatePayload.late_minutes = late_minutes
+      }
+    }
+    const { error } = await sb.from('attendance').update(updatePayload).eq('id', editingCell.recordId)
     if (error) { alert('حصل خطأ: ' + error.message); return }
     setEditingCell(null)
     fetchData()
@@ -655,8 +693,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       const outLocal = new Date(addCheckOut + ':00')
       checkOutUtc = new Date(outLocal.getTime() - 8 * 60 * 60 * 1000).toISOString()
     }
+    // ✅ نحسب حالة الحضور ودقايق التأخير للسجل اليدوي بنفس منطق تسجيل الدخول الذاتي، بدل ما تفضل صفر افتراضياً
+    const { status, late_minutes } = await computeLateInfo(empId, date, checkInUtc)
     const { error } = await sb.from('attendance').insert([{
-      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc,
+      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes,
     }])
     if (error) { alert('حصل خطأ: ' + error.message); return }
     setAddingAttendanceFor(null)
@@ -681,6 +721,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const presentDays    = reportData.filter(r => r.check_in_time && r.status !== 'absent').length
   const absentDays     = reportData.filter(r => r.status === 'absent').length
   const lateDays       = reportData.filter(r => r.status === 'late').length
+  // ✅ إجمالي دقايق التأخير الفعلية على مدار الشهر كله (مش بس عدد الأيام المتأخرة)
+  const totalLateMins  = reportData.reduce((s, r) => s + (r.late_minutes || 0), 0)
   const dailyRate      = reportEmployee?.salary ? reportEmployee.salary / 30 : 0
   const earnedSalary   = dailyRate * presentDays
   const deductions     = dailyRate * absentDays
@@ -995,6 +1037,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   { label: 'Present Days', value: presentDays,  color: S.green,  bg: S.greenB,  icon: '✅' },
                   { label: 'Absent Days',  value: absentDays,   color: S.red,    bg: S.redB,    icon: '❌' },
                   { label: 'Late Days',    value: lateDays,     color: S.amber,  bg: S.amberB,  icon: '⏰' },
+                  { label: 'Total Late Time', value: `${Math.floor(totalLateMins/60)}h ${totalLateMins%60}m`, color: S.amber, bg: S.amberB, icon: '🐢' },
                   { label: 'Total Hours',  value: `${Math.floor(totalWorkMins/60)}h ${totalWorkMins%60}m`, color: S.blue, bg: S.blueB, icon: '⏱' },
                 ].map((s, i) => (
                   <div key={i} style={{ background: s.bg, borderRadius: 12, border: `1px solid ${s.color}30`, padding: '14px 16px' }}>
@@ -1020,7 +1063,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: S.navy3 }}>
-                        {['Date', 'Check In', 'In Distance', 'Check Out', 'Out Distance', 'Duration', 'Status'].map(h => (
+                        {['Date', 'Check In', 'In Distance', 'Check Out', 'Out Distance', 'Duration', 'Late', 'Status'].map(h => (
                           <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
@@ -1038,6 +1081,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                             {r.check_out_distance != null ? `${r.check_out_distance}m` : '—'}
                           </td>
                           <td style={{ padding: '10px 14px', fontSize: 13, color: S.gold }}>{workHours(r)}</td>
+                          <td style={{ padding: '10px 14px', fontSize: 13, color: r.late_minutes > 0 ? S.amber : S.muted }}>
+                            {r.late_minutes > 0 ? `${r.late_minutes}m` : '—'}
+                          </td>
                           <td style={{ padding: '10px 14px' }}>
                             <span style={{ background: r.status === 'present' ? S.greenB : r.status === 'late' ? S.amberB : S.redB, color: r.status === 'present' ? S.green : r.status === 'late' ? S.amber : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
                               {r.status || 'present'}

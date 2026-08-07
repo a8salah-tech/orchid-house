@@ -487,7 +487,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [loading,      setLoading]      = useState(true)
   const [saving,       setSaving]       = useState(false)
   const [filterBranch, setFilterBranch] = useState(() => empInfo?.branch_id || 'all')
-  const [tab,          setTab]          = useState<'day' | 'report'>('day')
+  const [tab,          setTab]          = useState<'day' | 'report' | 'absence' | 'health'>('day')
   const [reportEmp,    setReportEmp]    = useState('')
   const [reportMonth,  setReportMonth]  = useState(new Date().toISOString().slice(0, 7))
   const [reportData,   setReportData]   = useState<any[]>([])
@@ -496,6 +496,22 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [recalcMonth, setRecalcMonth] = useState(new Date().toISOString().slice(0, 7))
   const [recalculating, setRecalculating] = useState(false)
   const [recalcProgress, setRecalcProgress] = useState<{ done: number; total: number } | null>(null)
+  // ✅ كشف الغياب التلقائي: مقارنة الشيفتات المجدولة (shift_schedules) بسجلات الحضور الفعلية (attendance)
+  const [absenceMonth, setAbsenceMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [detectingAbsence, setDetectingAbsence] = useState(false)
+  const [missingRows, setMissingRows] = useState<{ employee_id: string; date: string; empName: string; empNumber: string; isActive: boolean; shiftLabel: string }[]>([])
+  const [hideInactiveEmps, setHideInactiveEmps] = useState(true)
+  const [absenceSearch, setAbsenceSearch] = useState('')
+  // ✅ فحص صحة الحضور: تقسيم الموظفين لـ3 مجموعات حسب نمط تسجيل الدخول (Admin only)
+  const [healthMonth, setHealthMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [checkingHealth, setCheckingHealth] = useState(false)
+  const [hasRunHealth, setHasRunHealth] = useState(false)
+  const [healthRows, setHealthRows] = useState<{ employee_id: string; name: string; employee_number: string; department: string; is_active: boolean; scheduledDays: number; attendedDays: number; missingDays: number; lastCheckin: string | null }[]>([])
+  const [healthHideInactive, setHealthHideInactive] = useState(true)
+  const [healthEndDate, setHealthEndDate] = useState('')
+  const [selectedMissing, setSelectedMissing] = useState<Set<string>>(new Set())
+  const [confirmingAbsence, setConfirmingAbsence] = useState(false)
+  const [hasRunDetection, setHasRunDetection] = useState(false)
 
   // ✅ جديد: كشف الموبايل عشان نظبط تنسيق الشبكات والأزرار
   const [isMobile, setIsMobile] = useState(false)
@@ -645,13 +661,27 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       const [ry, rm] = recalcMonth.split('-').map(Number)
       const endDate = new Date(Date.UTC(ry, rm, 1)).toISOString().slice(0, 10)
 
-      const { data: monthRecords, error: fetchErr } = await sb.from('attendance')
-        .select('id, employee_id, date, check_in_time')
-        .gte('date', startDate).lt('date', endDate)
-        .not('check_in_time', 'is', null)
+      // ✅ Supabase بيحدّ أي select بـ 1000 صف كحد أقصى افتراضياً — لازم نسحب على دفعات (Pagination)
+      // عشان نضمن إننا هنجيب كل السجلات فعلاً، مش أول 1000 بس (خطر جداً مع أكتر من 200 موظف × 31 يوم)
+      const PAGE_SIZE = 1000
+      let monthRecords: { id: string; employee_id: string; date: string; check_in_time: string | null }[] = []
+      let page = 0
+      while (true) {
+        const { data: batch, error: fetchErr } = await sb.from('attendance')
+          .select('id, employee_id, date, check_in_time')
+          .gte('date', startDate).lt('date', endDate)
+          .not('check_in_time', 'is', null)
+          .order('id')
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
-      if (fetchErr) { alert('حصل خطأ أثناء جلب السجلات: ' + fetchErr.message); return }
-      if (!monthRecords || monthRecords.length === 0) { alert(`مفيش سجلات حضور فيها وقت دخول في شهر ${recalcMonth}.`); return }
+        if (fetchErr) { alert('حصل خطأ أثناء جلب السجلات: ' + fetchErr.message); return }
+        if (!batch || batch.length === 0) break
+        monthRecords = monthRecords.concat(batch)
+        if (batch.length < PAGE_SIZE) break
+        page++
+      }
+
+      if (monthRecords.length === 0) { alert(`مفيش سجلات حضور فيها وقت دخول في شهر ${recalcMonth}.`); return }
 
       setRecalcProgress({ done: 0, total: monthRecords.length })
       let updated = 0
@@ -670,6 +700,238 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       setRecalculating(false)
       setRecalcProgress(null)
     }
+  }
+
+  // ✅ كشف الغياب التلقائي: بيقارن كل يوم كان فيه شيفت مجدول للموظف (shift_schedules, status='confirmed')
+  // بسجلات الحضور الفعلية (attendance مع check_in_time)، وبيستبعد أي يوم اتسجل غياب له بالفعل في جدول absences
+  // ✅ فحص صحة الحضور: بيحسب لكل موظف عدد أيام الشيفت المجدولة، عدد أيام الحضور الفعلي، وآخر يوم سجّل فيه دخول،
+  // وبيقسّمهم لـ3 مجموعات عشان نفرّق بين "مشكلة تقنية في التطبيق" و"موظف سايب الشغل فعلاً" و"نمط طبيعي"
+  async function runAttendanceHealthCheck() {
+    setCheckingHealth(true)
+    setHasRunHealth(false)
+    setHealthRows([])
+    try {
+      const startDate = `${healthMonth}-01`
+      const [hy, hm] = healthMonth.split('-').map(Number)
+      const monthEnd = new Date(Date.UTC(hy, hm, 1)).toISOString().slice(0, 10)
+      const todayStr = new Date().toISOString().slice(0, 10)
+      const endDate = monthEnd < todayStr ? monthEnd : todayStr
+
+      async function fetchAllPaged<T>(build: (from: number, to: number) => any): Promise<T[]> {
+        const PAGE_SIZE = 1000
+        let all: T[] = []
+        let p = 0
+        while (true) {
+          const { data, error } = await build(p * PAGE_SIZE, p * PAGE_SIZE + PAGE_SIZE - 1)
+          if (error) throw error
+          if (!data || data.length === 0) break
+          all = all.concat(data)
+          if (data.length < PAGE_SIZE) break
+          p++
+        }
+        return all
+      }
+
+      const [schedules, attendanceRows, allEmpsData] = await Promise.all([
+        fetchAllPaged<{ employee_id: string; date: string; shift_id: string | null; custom_start: string | null }>(
+          (from, to) => sb.from('shift_schedules')
+            .select('employee_id,date,shift_id,custom_start')
+            .eq('status', 'confirmed')
+            .gte('date', startDate).lt('date', endDate)
+            .order('id').range(from, to)
+        ),
+        fetchAllPaged<{ employee_id: string; date: string }>(
+          (from, to) => sb.from('attendance')
+            .select('employee_id,date')
+            .not('check_in_time', 'is', null)
+            .gte('date', startDate).lt('date', endDate)
+            .order('id').range(from, to)
+        ),
+        sb.from('employees').select('id,name,name_en,employee_number,department,is_active').then(r => r.data || []),
+      ])
+
+      const empMap: Record<string, any> = {}
+      ;(allEmpsData as any[]).forEach(e => { empMap[e.id] = e })
+
+      const attendedByEmp: Record<string, Set<string>> = {}
+      for (const a of attendanceRows) {
+        const d = String(a.date).slice(0, 10)
+        if (!attendedByEmp[a.employee_id]) attendedByEmp[a.employee_id] = new Set()
+        attendedByEmp[a.employee_id].add(d)
+      }
+
+      const scheduledByEmp: Record<string, string[]> = {}
+      for (const s of schedules) {
+        if (!s.shift_id && !s.custom_start) continue // يوم إجازة، مش شيفت فعلي
+        const d = String(s.date).slice(0, 10)
+        if (!scheduledByEmp[s.employee_id]) scheduledByEmp[s.employee_id] = []
+        scheduledByEmp[s.employee_id].push(d)
+      }
+
+      const rows: typeof healthRows = []
+      for (const employeeId of Object.keys(scheduledByEmp)) {
+        const scheduledDates = scheduledByEmp[employeeId].sort()
+        const attended = attendedByEmp[employeeId] || new Set<string>()
+        const attendedDays = scheduledDates.filter(d => attended.has(d)).length
+        const missingDays = scheduledDates.length - attendedDays
+        if (missingDays <= 5) continue // فرق بسيط جداً — مش محتاج مراجعة
+        const lastCheckin = attended.size > 0 ? Array.from(attended).sort().slice(-1)[0] : null
+        const emp = empMap[employeeId]
+        rows.push({
+          employee_id: employeeId,
+          name: emp ? `${emp.name}${emp.name_en ? ' ' + emp.name_en : ''}` : 'Unknown / Deleted',
+          employee_number: emp?.employee_number || '—',
+          department: emp?.department || '—',
+          is_active: emp?.is_active ?? false,
+          scheduledDays: scheduledDates.length,
+          attendedDays,
+          missingDays,
+          lastCheckin,
+        })
+      }
+      rows.sort((a, b) => b.missingDays - a.missingDays)
+      setHealthRows(rows)
+      setHealthEndDate(endDate)
+      setHasRunHealth(true)
+    } catch (err: any) {
+      alert('Error running health check: ' + (err?.message || String(err)))
+    } finally {
+      setCheckingHealth(false)
+    }
+  }
+
+  async function detectMissingAttendance() {
+    setDetectingAbsence(true)
+    setMissingRows([])
+    setSelectedMissing(new Set())
+    setHasRunDetection(false)
+    try {
+      const startDate = `${absenceMonth}-01`
+      const [ay, am] = absenceMonth.split('-').map(Number)
+      const monthEnd = new Date(Date.UTC(ay, am, 1)).toISOString().slice(0, 10)
+      // ✅ لازم نستبعد أي يوم لسه ماجاش (مستقبلي)، وإلا أي شيفت مجدول قدّام هيظهر "غايب" غلط
+      // لمجرد إن اليوم ده أصلاً لسه ماحصلش، مش لأن حد غايب فعلاً
+      const todayStr = new Date().toISOString().slice(0, 10)
+      const endDate = monthEnd < todayStr ? monthEnd : todayStr
+
+      // ✅ سحب على دفعات (Pagination) — نفس درس الـ1000 صف اللي اتعلمناه قبل كده
+      async function fetchAllPaged<T>(build: (from: number, to: number) => any): Promise<T[]> {
+        const PAGE_SIZE = 1000
+        let all: T[] = []
+        let p = 0
+        while (true) {
+          const { data, error } = await build(p * PAGE_SIZE, p * PAGE_SIZE + PAGE_SIZE - 1)
+          if (error) throw error
+          if (!data || data.length === 0) break
+          all = all.concat(data)
+          if (data.length < PAGE_SIZE) break
+          p++
+        }
+        return all
+      }
+
+      const [schedules, attendanceRows, existingAbsences] = await Promise.all([
+        fetchAllPaged<{ employee_id: string; date: string; shift_id: string | null; custom_start: string | null; custom_end: string | null; shifts: { name: string } | null }>(
+          (from, to) => sb.from('shift_schedules')
+            .select('employee_id,date,shift_id,custom_start,custom_end,shifts(name)')
+            .eq('status', 'confirmed')
+            .gte('date', startDate).lt('date', endDate)
+            .order('id').range(from, to)
+        ),
+        fetchAllPaged<{ employee_id: string; date: string }>(
+          (from, to) => sb.from('attendance')
+            .select('employee_id,date')
+            .not('check_in_time', 'is', null)
+            .gte('date', startDate).lt('date', endDate)
+            .order('id').range(from, to)
+        ),
+        fetchAllPaged<{ employee_id: string; date: string }>(
+          (from, to) => sb.from('absences')
+            .select('employee_id,date')
+            .gte('date', startDate).lt('date', endDate)
+            .order('id').range(from, to)
+        ),
+      ])
+
+      const attendedSet = new Set(attendanceRows.map(a => `${a.employee_id}|${String(a.date).slice(0, 10)}`))
+      const absentAlreadySet = new Set(existingAbsences.map(a => `${a.employee_id}|${String(a.date).slice(0, 10)}`))
+      // ✅ لازم نجيب كل الموظفين (مش بس الأكتيف زي state الرئيسية) عشان الأسماء تبان صح،
+      // وعشان نقدر نميّز موظف غير أكتيف بدل ما يظهر "—" غامض
+      const { data: allEmpsData } = await sb.from('employees').select('id,name,name_en,employee_number,is_active')
+      const empMap: Record<string, { name: string; name_en?: string; employee_number: string; is_active: boolean }> = {}
+      ;(allEmpsData || []).forEach((e: any) => { empMap[e.id] = e })
+
+      const missing: typeof missingRows = []
+      for (const s of schedules) {
+        // ✅ صف بدون shift_id وبدون custom_start = يوم إجازة/بدون شيفت فعلي (مش التزام حضور حقيقي)،
+        // نفس المنطق اللي شاشة "جدول الموظف" بتستخدمه لتمييز الإجازة — نستبعده هنا عشان مايتحسبش غياب
+        if (!s.shift_id && !s.custom_start) continue
+        const dateStr = String(s.date).slice(0, 10)
+        const key = `${s.employee_id}|${dateStr}`
+        if (attendedSet.has(key)) continue       // حضر فعلاً
+        if (absentAlreadySet.has(key)) continue   // متسجل غياب له بالفعل
+        const emp = empMap[s.employee_id]
+        missing.push({
+          employee_id: s.employee_id,
+          date: dateStr,
+          empName: emp ? `${emp.name}${emp.name_en ? ' ' + emp.name_en : ''}` : '⚠️ موظف محذوف/غير معروف',
+          empNumber: emp?.employee_number || '—',
+          isActive: emp?.is_active ?? false,
+          shiftLabel: s.custom_start && s.custom_end ? `${s.custom_start.slice(0,5)}–${s.custom_end.slice(0,5)}` : (s.shifts?.name || '—'),
+        })
+      }
+      missing.sort((a, b) => a.date.localeCompare(b.date) || a.empName.localeCompare(b.empName))
+      setMissingRows(missing)
+      // ✅ مفيش تحديد تلقائي — الأدمن لازم يراجع ويحدد يدوياً، خصوصاً إن الأعداد ممكن تطلع كبيرة جداً
+      // لو فيه فجوة في استخدام تسجيل الدخول (مش كل "مفيش check-in" معناه غياب فعلي)
+      setSelectedMissing(new Set())
+      setHasRunDetection(true)
+    } catch (err: any) {
+      alert('حصل خطأ أثناء الكشف: ' + (err?.message || String(err)))
+    } finally {
+      setDetectingAbsence(false)
+    }
+  }
+
+  function toggleMissingRow(key: string) {
+    setSelectedMissing(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  // ✅ يحفظ الحالات المحددة فعلياً كسجلات غياب في جدول absences (status='active' عشان صفحة الرواتب تحسبها)
+  async function confirmSelectedAbsences() {
+    const rows = missingRows.filter(m => selectedMissing.has(`${m.employee_id}|${m.date}`))
+    if (rows.length === 0) { alert('مفيش حالات محددة.'); return }
+    if (!confirm(`⚠️ هل أنت متأكد من تسجيل ${rows.length} يوم غياب؟ هيتم خصمهم في صفحة الرواتب.`)) return
+    setConfirmingAbsence(true)
+    try {
+      const payload = rows.map(r => ({
+        employee_id: r.employee_id,
+        date: r.date,
+        status: 'active',
+        notes: 'غياب تلقائي — لا يوجد تسجيل حضور رغم وجود شيفت مجدول',
+        created_by: empInfo?.id || null,
+        manager_approved_by: empInfo?.id || null,
+        manager_approved_at: new Date().toISOString(),
+        submitted_at: new Date().toISOString(),
+      }))
+      let inserted = 0
+      for (let i = 0; i < payload.length; i += 200) {
+        const { error } = await sb.from('absences').insert(payload.slice(i, i + 200))
+        if (!error) inserted += payload.slice(i, i + 200).length
+      }
+      alert(`✅ تم تسجيل ${inserted} من أصل ${rows.length} يوم غياب.`)
+      detectMissingAbsenceRefresh()
+    } finally {
+      setConfirmingAbsence(false)
+    }
+  }
+
+  function detectMissingAbsenceRefresh() {
+    detectMissingAttendance()
   }
 
   async function saveEditedTime(empName: string) {
@@ -835,14 +1097,19 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     <div>
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 4, marginBottom: 24, width: 'fit-content' }}>
-        {([['day', '📅 Daily View'], ['report', '📊 Employee Report']] as [typeof tab, string][]).map(([t, label]) => (
+        {([
+          ['day', '📅 Daily View'],
+          ['report', '📊 Employee Report'],
+          ...(isAdmin ? ([['absence', '🔍 Absence Detection'], ['health', '🩺 Attendance Health']] as [typeof tab, string][]) : []),
+        ] as [typeof tab, string][]).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '9px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === t ? 800 : 400, background: tab === t ? S.gold3 : 'transparent', color: tab === t ? S.gold : S.muted }}>
             {label}
           </button>
         ))}
       </div>
 
-      {/* ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل — لتصحيح سجلات قديمة (زي يوليو) */}
+      {/* ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل — للأدمن بس */}
+      {isAdmin && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(245,158,11,0.08)', border: `1px solid ${S.amber}40`, borderRadius: 12, padding: '10px 14px', marginBottom: 20, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: S.amber, fontWeight: 700, whiteSpace: 'nowrap' }}>🔄 إعادة حساب التأخير لشهر كامل (لتصحيح سجلات قديمة)</span>
         <input type="month" style={{ ...inp2, width: 140 }} value={recalcMonth} onChange={e => setRecalcMonth(e.target.value)} disabled={recalculating} />
@@ -854,7 +1121,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
           {recalculating ? (recalcProgress ? `⏳ جاري التحديث... ${recalcProgress.done}/${recalcProgress.total}` : '⏳ جاري التحضير...') : 'إعادة الحساب'}
         </button>
       </div>
-
+      )}
       {tab === 'day' && (
         <>
           {/* Branch Cards */}
@@ -1155,6 +1422,210 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Absence Detection Tab */}
+      {tab === 'absence' && isAdmin && (
+        <div>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🔍 كشف الغياب التلقائي</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 14, lineHeight: 1.7 }}>
+              بيقارن كل يوم كان فيه شيفت مجدول للموظف بسجلات الحضور الفعلية، ويستبعد أي يوم اتسجّل غياب له بالفعل.
+              النتيجة قايمة مراجعة فقط — <b style={{ color: S.red }}>مفيش أي حالة متحددة تلقائياً</b>، اختار يدوياً بس اللي متأكد منه فعلاً قبل ما تأكّد.
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="month" style={{ ...inp2, width: 160 }} value={absenceMonth} onChange={e => setAbsenceMonth(e.target.value)} disabled={detectingAbsence} />
+              <button
+                onClick={detectMissingAttendance}
+                disabled={detectingAbsence}
+                style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: detectingAbsence ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', opacity: detectingAbsence ? 0.6 : 1 }}
+              >{detectingAbsence ? '⏳ جاري الفحص...' : '🔍 ابدأ الكشف'}</button>
+            </div>
+          </div>
+
+          {hasRunDetection && (() => {
+            const activeFiltered = hideInactiveEmps ? missingRows.filter(m => m.isActive) : missingRows
+            const searchTerm = absenceSearch.trim().toLowerCase()
+            const visibleRows = searchTerm
+              ? activeFiltered.filter(m => m.empName.toLowerCase().includes(searchTerm) || m.empNumber.toLowerCase().includes(searchTerm))
+              : activeFiltered
+            const inactiveCount = missingRows.length - missingRows.filter(m => m.isActive).length
+            return missingRows.length === 0 ? (
+              <div style={{ background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 14, padding: 24, textAlign: 'center', color: S.green, fontSize: 13, fontWeight: 700 }}>
+                ✅ مفيش أي غياب غير مسجّل لموظف أكتيف — كل الأيام اللي فيها شيفت مجدول إما اتسجّل فيها حضور أو غياب بالفعل.
+                {inactiveCount > 0 && <div style={{ marginTop: 8, color: S.muted, fontWeight: 400, fontSize: 11 }}>(فيه {inactiveCount} حالة لموظفين غير أكتيف متخفية — فعّل الفلتر تحت لو عايز تشوفهم)</div>}
+              </div>
+            ) : (
+              <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: `1px solid ${S.border}`, flexWrap: 'wrap', gap: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 12, color: S.amber, fontWeight: 700 }}>
+                      ⚠️ {visibleRows.length} حالة محتملة — {selectedMissing.size} محددة دلوقتي
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: S.muted, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={hideInactiveEmps} onChange={e => setHideInactiveEmps(e.target.checked)} />
+                      إخفاء الموظفين الغير أكتيف ({inactiveCount} حالة مخفية)
+                    </label>
+                  </div>
+                  <input
+                    style={{ ...inp2, width: 220 }}
+                    placeholder="🔍 دوّر باسم الموظف أو رقمه..."
+                    value={absenceSearch}
+                    onChange={e => setAbsenceSearch(e.target.value)}
+                  />
+                  <button
+                    onClick={confirmSelectedAbsences}
+                    disabled={confirmingAbsence || selectedMissing.size === 0}
+                    style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: (confirmingAbsence || selectedMissing.size === 0) ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', opacity: (confirmingAbsence || selectedMissing.size === 0) ? 0.5 : 1 }}
+                  >{confirmingAbsence ? '⏳ جاري التسجيل...' : `✅ تأكيد ${selectedMissing.size} غياب وتسجيلهم`}</button>
+                </div>
+                {visibleRows.length === 0 ? (
+                  <div style={{ padding: 24, textAlign: 'center', color: S.muted, fontSize: 12 }}>مفيش نتايج مطابقة للبحث.</div>
+                ) : (
+                <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        {['', 'التاريخ', 'الموظف', 'رقم الموظف', 'الشيفت المجدول'].map(h => (
+                          <th key={h} style={{ position: 'sticky', top: 0, background: S.navy3, padding: '8px 12px', fontSize: 11, color: S.muted, textAlign: 'center', border: `1px solid ${S.border}` }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRows.map(m => {
+                        const key = `${m.employee_id}|${m.date}`
+                        const checked = selectedMissing.has(key)
+                        return (
+                          <tr key={key} onClick={() => toggleMissingRow(key)} style={{ cursor: 'pointer', background: checked ? 'rgba(239,68,68,0.06)' : undefined }}>
+                            <td style={{ padding: '8px 12px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
+                              <input type="checkbox" checked={checked} onChange={() => toggleMissingRow(key)} onClick={e => e.stopPropagation()} />
+                            </td>
+                            <td style={{ padding: '8px 12px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center' }}>{m.date}</td>
+                            <td style={{ padding: '8px 12px', border: `1px solid ${S.border}`, fontSize: 12 }}>
+                              {m.empName}
+                              {!m.isActive && <span style={{ marginRight: 6, fontSize: 10, color: S.muted, background: 'rgba(255,255,255,0.06)', borderRadius: 6, padding: '1px 6px' }}>غير أكتيف</span>}
+                            </td>
+                            <td style={{ padding: '8px 12px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center', color: S.muted }}>{m.empNumber}</td>
+                            <td style={{ padding: '8px 12px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center' }}>{m.shiftLabel}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
+      {/* Attendance Health Check Tab — Admin only, all in English */}
+      {tab === 'health' && isAdmin && (
+        <div>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🩺 Attendance Health Check</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 14, lineHeight: 1.7 }}>
+              Compares each employee's scheduled shifts against their actual check-ins for the month, and splits employees
+              with a large gap into 3 groups. This is a diagnostic tool only — it does not write anything to the database.
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="month" style={{ ...inp2, width: 160 }} value={healthMonth} onChange={e => setHealthMonth(e.target.value)} disabled={checkingHealth} />
+              <button
+                onClick={runAttendanceHealthCheck}
+                disabled={checkingHealth}
+                style={{ padding: '8px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: checkingHealth ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', opacity: checkingHealth ? 0.6 : 1 }}
+              >{checkingHealth ? '⏳ Checking...' : '🩺 Run Health Check'}</button>
+              {hasRunHealth && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: S.muted, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={healthHideInactive} onChange={e => setHealthHideInactive(e.target.checked)} />
+                  Hide inactive employees
+                </label>
+              )}
+            </div>
+          </div>
+
+          {hasRunHealth && (() => {
+            const RECENT_DAYS = 7
+            const cutoff = new Date(healthEndDate)
+            cutoff.setUTCDate(cutoff.getUTCDate() - RECENT_DAYS)
+            const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+            const filtered = healthHideInactive ? healthRows.filter(r => r.is_active) : healthRows
+            // ✅ مش كفاية إن آخر تسجيل يكون قريب — لازم كمان نسبة الحضور تكون معقولة، وإلا موظف حضر يومين بس بالصدفة
+            // آخرهم قريب من نهاية الفترة هيتصنّف غلط "نمط طبيعي" رغم إنه فعلياً غياب شبه كامل
+            const MIN_ATTENDANCE_RATIO = 0.5
+            const isRecent = (r: typeof healthRows[number]) => !!r.lastCheckin && r.lastCheckin >= cutoffStr
+            const hasReasonableRatio = (r: typeof healthRows[number]) => r.scheduledDays > 0 && (r.attendedDays / r.scheduledDays) >= MIN_ATTENDANCE_RATIO
+            const group1 = filtered.filter(r => r.attendedDays === 0)
+            const group2 = filtered.filter(r => r.attendedDays > 0 && !(isRecent(r) && hasReasonableRatio(r)))
+            const group3 = filtered.filter(r => r.attendedDays > 0 && isRecent(r) && hasReasonableRatio(r))
+
+            const renderGroup = (title: string, desc: string, color: string, bg: string, rows: typeof healthRows) => (
+              <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden', marginBottom: 20 }}>
+                <div style={{ padding: '14px 18px', borderBottom: `1px solid ${S.border}`, background: bg }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color }}>{title} — {rows.length} employee{rows.length !== 1 ? 's' : ''}</div>
+                  <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{desc}</div>
+                </div>
+                {rows.length === 0 ? (
+                  <div style={{ padding: 18, textAlign: 'center', color: S.muted, fontSize: 12 }}>No employees in this group.</div>
+                ) : (
+                  <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          {['Employee', 'ID', 'Department', 'Scheduled', 'Attended', 'Missing', 'Last Check-in', 'Status'].map(h => (
+                            <th key={h} style={{ position: 'sticky', top: 0, background: S.navy3, padding: '7px 10px', fontSize: 10, color: S.muted, textAlign: 'center', border: `1px solid ${S.border}` }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(r => (
+                          <tr key={r.employee_id}>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 12 }}>{r.name}</td>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center', color: S.muted }}>{r.employee_number}</td>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center' }}>{r.department}</td>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center' }}>{r.scheduledDays}</td>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center', color: S.green }}>{r.attendedDays}</td>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center', color: S.red, fontWeight: 700 }}>{r.missingDays}</td>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 12, textAlign: 'center' }}>{r.lastCheckin || 'Never'}</td>
+                            <td style={{ padding: '7px 10px', border: `1px solid ${S.border}`, fontSize: 11, textAlign: 'center' }}>
+                              {r.is_active ? <span style={{ color: S.green }}>Active</span> : <span style={{ color: S.muted }}>Inactive</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+
+            return filtered.length === 0 ? (
+              <div style={{ background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 14, padding: 24, textAlign: 'center', color: S.green, fontSize: 13, fontWeight: 700 }}>
+                ✅ No employees with a significant attendance gap (more than 5 missing days) this month.
+              </div>
+            ) : (
+              <>
+                {renderGroup(
+                  '🔴 Zero Attendance',
+                  'Scheduled every day but never checked in once — most likely a technical / app-usage issue, or the employee has actually left. Verify with their manager before assuming absence.',
+                  S.red, S.redB, group1
+                )}
+                {renderGroup(
+                  '🟡 Stopped Mid-Month / Low Attendance',
+                  `Either stopped checking in completely (no check-in in the last ${RECENT_DAYS} days of the period), or checked in on less than ${MIN_ATTENDANCE_RATIO * 100}% of scheduled days overall. Needs individual review.`,
+                  S.amber, S.amberB, group2
+                )}
+                {renderGroup(
+                  '🟢 Ongoing Pattern',
+                  `Checking in recently (within the last ${RECENT_DAYS} days) AND attended at least ${MIN_ATTENDANCE_RATIO * 100}% of scheduled days — likely a mix of real absence and minor technical gaps.`,
+                  S.blue, S.blueB, group3
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
     </div>

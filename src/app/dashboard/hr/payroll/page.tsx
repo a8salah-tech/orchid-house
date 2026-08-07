@@ -530,7 +530,9 @@ export default function PayrollPage() {
 
     // ✅ حساب بداية ونهاية الشهر أولاً عشان نقدر نستخدمهم في الفلترة
     const monthStart = `${month.year}-${String(month.month).padStart(2,'0')}-01`
-    const monthEnd   = new Date(month.year, month.month, 0).toISOString().split('T')[0]
+    // ✅ لازم نستخدم Date.UTC هنا بدل new Date() العادي — عشان الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي
+    // (لو اتحسب بالتوقيت المحلي وبعدين اتحول لـ UTC، ممكن يقتطع آخر يوم في الشهر ويفوّت بيانات حضور/تأخير حقيقية)
+    const monthEnd   = new Date(Date.UTC(month.year, month.month, 0)).toISOString().split('T')[0]
 
     // ✅ فلتر موظفي الفرع المختار + استبعاد أي موظف كان متوقف بالكامل قبل بداية الشهر ده
     // (لو اتوقف جوه الشهر نفسه، بيفضل ظاهر عشان راتبه المتناسب لحد يوم التوقف)
@@ -547,16 +549,36 @@ export default function PayrollPage() {
 
     const empIds = filteredEmps.map(e => e.id)
 
-    const [violRes, absRes, lateRes] = await Promise.all([
+    // ✅ جلب دقائق التأخير على دفعات (Pagination) — Supabase بيحدّ أي select بـ 1000 صف افتراضياً،
+    // وممكن يتخطى الـ 1000 بسهولة مع أكتر من 200 موظف × 31 يوم، فكنا بنفوّت جزء كبير من البيانات من غير ما نلاحظ
+    async function fetchAllAttendanceLate(): Promise<{ employee_id: string; late_minutes: number }[]> {
+      if (empIds.length === 0) return []
+      const PAGE_SIZE = 1000
+      let all: { employee_id: string; late_minutes: number }[] = []
+      let page = 0
+      while (true) {
+        const { data: batch } = await sb.from('attendance')
+          .select('employee_id,late_minutes')
+          .gte('date', monthStart).lte('date', monthEnd)
+          .in('employee_id', empIds)
+          .order('id')
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+        if (!batch || batch.length === 0) break
+        all = all.concat(batch as any)
+        if (batch.length < PAGE_SIZE) break
+        page++
+      }
+      return all
+    }
+
+    const [violRes, absRes, lateRows] = await Promise.all([
       empIds.length > 0
         ? sb.from('violations').select('employee_id,amount').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
       empIds.length > 0
         ? sb.from('absences').select('employee_id').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
-      empIds.length > 0
-        ? sb.from('attendance').select('employee_id,late_minutes').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
-        : Promise.resolve({ data: [] }),
+      fetchAllAttendanceLate(),
     ])
 
     // احسب خصم المخالفات والغياب لكل موظف
@@ -570,7 +592,7 @@ export default function PayrollPage() {
     }
     // ✅ إجمالي دقائق التأخير لكل موظف خلال الشهر من جدول الحضور — محوّلة لساعات
     const lateMap: Record<string, number> = {}
-    for (const a of ((lateRes as any).data || [])) {
+    for (const a of lateRows) {
       lateMap[a.employee_id] = (lateMap[a.employee_id] || 0) + (a.late_minutes || 0)
     }
 

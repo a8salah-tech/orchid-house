@@ -507,6 +507,9 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
           } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
             qty = requestedQty / conv.factor
           }
+          // ✅ Fix: تقريب النتيجة لـ 6 خانات عشرية عشان نمنع تخزين بواقي دقة الفاصلة العشرية
+          // في JavaScript (مثال: 1 ÷ 6 = 0.16666666666666666) مباشرة في قاعدة البيانات
+          qty = Math.round(qty * 1000000) / 1000000
         } else {
           // ✅ Fix حرج: لو مفيش معامل تحويل مسجل، نوقف اعتماد الصنف ده تمامًا بدل ما نخصم الرقم الخام غلط
           // (ده كان سبب مباشر لخصم آلاف الوحدات غلط من المخزون - زي طلب "4360 غرام" بيتخصم كأنه 4360 "كرتون")
@@ -634,7 +637,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     // نحسب الكمية الجديدة بنفس وحدة الطلب الأصلية (مش وحدة المخزون الأساسية بالضرورة)
     const ratio = available / requestedInBase
     const newQty = Math.max(0, (approvedQtys[itemId] ?? item.quantity_requested) * ratio)
-    setApprovedQtys(p => ({ ...p, [itemId]: Math.floor(newQty * 100) / 100 }))
+    // ✅ Fix: Math.floor كان بيقص أي نتيجة قريبة جدًا من رقم صحيح للأسفل غلط بسبب دقة الفاصلة
+    // العشرية في JavaScript (مثال: 1/6 × 6 = 0.9999999999999999 مش 1 بالظبط) - فكان بيظهر
+    // 0.99 بدل 1.00 الصحيحة. Math.round بيتعامل مع الحالة دي صح لأنه بيقرّب لأقرب رقم مش لأسفل دايمًا
+    setApprovedQtys(p => ({ ...p, [itemId]: Math.round(newQty * 100) / 100 }))
     setShortfalls(null)
   }
 

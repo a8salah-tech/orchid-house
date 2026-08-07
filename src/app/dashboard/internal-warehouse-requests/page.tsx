@@ -39,6 +39,13 @@ const SENIOR_ROLES = ['admin', 'branch_manager']
 
 // ✅ بعض الموظفين القدامى مسجل قسمهم بالإنجليزي في قاعدة البيانات (Hall/Kitchen/Bar)
 // بدل العربي (الصالة/المطبخ/البار) — هذه الدالة توحّد القيمتين كمتساويتين
+// ✅ جديد: بناء الاسم الكامل للموظف (الاسم + الاسم الإنجليزي لو موجود) بدل الاعتماد على الاسم الأول بس،
+// بنفس النمط المستخدم في ملف طلبات الفروع (exFullName)
+function fullEmployeeName(e: { name?: string; name_en?: string } | null | undefined): string {
+  if (!e) return ''
+  return [e.name, e.name_en].filter(Boolean).join(' ')
+}
+
 function normalizeDept(dept: string | null | undefined): string {
   const map: Record<string, string> = {
     'hall': 'الصالة', 'kitchen': 'المطبخ', 'bar': 'البار',
@@ -123,13 +130,25 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [units, setUnits] = useState<any[]>([])
   // ✅ جديد: معاملات التحويل - عشان نحدد الوحدات المسموحة فقط لكل صنف (الأساسية + أي وحدة فرعية مسجلة له)
   const [unitConversions, setUnitConversions] = useState<any[]>([])
-  const [items, setItems] = useState<{ product_id: string; product_name: string; available_locally: boolean; qty: string; unit_id: string; base_unit_id: string; notes: string }[]>([{ product_id: '', product_name: '', available_locally: true, qty: '', unit_id: '', base_unit_id: '', notes: '' }])
+  const [items, setItems] = useState<{ product_id: string; product_name: string; product_name_en?: string; available_locally: boolean; qty: string; unit_id: string; base_unit_id: string; notes: string }[]>([{ product_id: '', product_name: '', available_locally: true, qty: '', unit_id: '', base_unit_id: '', notes: '' }])
   const [search, setSearch] = useState('')
   const [activeDeptTab, setActiveDeptTab] = useState('المطبخ')
   const [monthlyConsumption, setMonthlyConsumption] = useState<Record<string, number>>({})
   const role = currentEmployee?.role || ''
   const autoDept = role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : normalizeDept(currentEmployee?.department)
-  const [form, setForm] = useState({ department: autoDept, requested_by: currentEmployee?.name || '', notes: '' })
+  const [form, setForm] = useState({ department: autoDept, requested_by: fullEmployeeName(currentEmployee) || '', notes: '' })
+
+  // ✅ Fix: الكائن currentEmployee القادم من useAuth() ممكن ميحتويش عمود name_en (حسب الحقول اللي
+  // الـ AuthProvider بيجيبها)، حتى لو موجود فعليًا في قاعدة البيانات - فبنجيب بيانات الموظف
+  // مباشرة هنا للتأكد من توفر name_en، ونحدّث حقل "مقدم الطلب" تلقائيًا لو لسه ماتغيّرش يدويًا
+  useEffect(() => {
+    if (!currentEmployee?.id) return
+    sb.from('employees').select('name, name_en').eq('id', currentEmployee.id).maybeSingle().then(({ data }) => {
+      if (!data) return
+      const full = fullEmployeeName(data)
+      if (full) setForm(p => (p.requested_by === fullEmployeeName(currentEmployee) || p.requested_by === (currentEmployee?.name || '') || !p.requested_by) ? { ...p, requested_by: full } : p)
+    })
+  }, [currentEmployee?.id])
 
   useEffect(() => {
     const branchId = currentEmployee?.branch_id
@@ -320,7 +339,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                     else {
                       const unitId = p.unit_id || (p.units ? units.find((u:any) => u.symbol === p.units?.symbol)?.id||'' : '')
                       // ✅ Fix: نحفظ الوحدة الأساسية للصنف ونقفل عليها كقيمة افتراضية، عشان مقدّم الطلب ميختارش وحدة غلط
-                      setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, product_name: p.name, available_locally: availableLocally, qty: '', unit_id: unitId, base_unit_id: unitId, notes: '' }])
+                      setItems(prev => [...prev.filter(it => it.product_id !== ''), { product_id: p.id, product_name: p.name, product_name_en: p.name_en, available_locally: availableLocally, qty: '', unit_id: unitId, base_unit_id: unitId, notes: '' }])
                     }
                   }} style={{ background: isSelected ? S.gold3 : 'rgba(255,255,255,0.03)', borderRadius: 10, border: `1px solid ${isSelected ? S.gold : !availableLocally ? S.amber+'40' : S.border}`, padding: '10px 12px', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
@@ -329,6 +348,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                           <span style={{ display: 'inline-block', background: S.gold3, color: S.gold, borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 700, fontFamily: 'system-ui', marginBottom: 3 }}>{p.product_code}</span>
                         )}
                         <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? S.gold : S.white }}>{p.name}</div>
+                        {p.name_en && <div style={{ fontSize: 10, color: S.muted, direction: 'ltr', textAlign: 'right' }}>{p.name_en}</div>}
                       </div>
                       {isSelected && <span style={{ color: S.gold, fontSize: 13 }}>✓</span>}
                     </div>
@@ -351,6 +371,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{item.product_name}</div>
+                      {item.product_name_en && <div style={{ fontSize: 10, color: S.muted, direction: 'ltr', textAlign: 'right' }}>{item.product_name_en}</div>}
                     </div>
                     <button onClick={() => setItems(p => p.filter((_,idx) => idx!==i))} style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11 }}>🗑️</button>
                   </div>
@@ -400,7 +421,17 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
   // - حالة setUpdating لوحدها مش كافية لأن تحديثها في React مش فوري، فضغطتين سريعتين جدًا
   // ممكن يعدّوا الاتنين قبل ما الزرار يتقفل فعليًا، ويسببوا خصم الكمية مرتين (زي اللي حصل مع طلب فرع #151)
   const approvingRef = useRef(false)
-  const [actionBy, setActionBy] = useState(currentEmployee?.name || '')
+  const [actionBy, setActionBy] = useState(fullEmployeeName(currentEmployee) || '')
+  // ✅ Fix: نفس إصلاح مقدّم الطلب - نجيب name_en مباشرة من قاعدة البيانات لضمان ظهور الاسم الكامل
+  // حتى لو الكائن القادم من useAuth() ميحتويش عليه
+  useEffect(() => {
+    if (!currentEmployee?.id) return
+    sb.from('employees').select('name, name_en').eq('id', currentEmployee.id).maybeSingle().then(({ data }) => {
+      if (!data) return
+      const full = fullEmployeeName(data)
+      if (full) setActionBy(prev => (prev === fullEmployeeName(currentEmployee) || prev === (currentEmployee?.name || '') || !prev) ? full : prev)
+    })
+  }, [currentEmployee?.id])
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
   const [approvedQtys, setApprovedQtys] = useState<Record<string, number>>(

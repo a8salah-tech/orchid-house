@@ -151,6 +151,9 @@ export default function MarketPurchasesPage() {
   // ── Purchaser editing state ──
   const [editingReq, setEditingReq] = useState<PurchaseRequest | null>(null)
   const [purchaseEdits, setPurchaseEdits] = useState<Record<string, { quantity: string; unit_id: string }>>({})
+  // ✅ جديد: تعديل الكمية/الوحدة قبل تأكيد الاستلام في نافذة "تأكيد الاستلام + رفع صورة"
+  // (حالة منفصلة عن purchaseEdits عشان متتعارضش مع نافذة تسجيل المشتريات)
+  const [receiveEdits, setReceiveEdits] = useState<Record<string, { quantity: string; unit_id: string }>>({})
   // ✅ جديد: حالة مؤقتة لإدخال الكمية المتوفرة بالمخزون لكل صنف قبل الحفظ
   const [availableEdits, setAvailableEdits] = useState<Record<string, { qty: string; branchId: string }>>({})
   const [saving, setSaving] = useState(false)
@@ -367,6 +370,16 @@ export default function MarketPurchasesPage() {
     if (!receivingReq) return
     if (!receiveImg) { alert('يرجى رفع صورة إثبات الاستلام'); return }
     setConfirming(true)
+    // ✅ جديد: حفظ الكمية/الوحدة المُعدَّلة لكل صنف (لو المستلم غيّرها) قبل رفع الصورة وتأكيد الحالة
+    for (const it of (receivingReq.market_purchase_request_items || [])) {
+      const edit = receiveEdits[it.id]
+      if (!edit) continue
+      const qty = parseFloat(edit.quantity)
+      if (isNaN(qty) || !edit.unit_id) continue
+      await sb.from('market_purchase_request_items').update({
+        purchased_quantity: qty, purchased_unit_id: edit.unit_id,
+      }).eq('id', it.id)
+    }
     const fileName = `market-purchases/${receivingReq.id}-${Date.now()}.jpg`
     const { data: upData } = await sb.storage.from('employees').upload(fileName, receiveImg, { upsert: true })
     let imgUrl = ''
@@ -386,6 +399,7 @@ export default function MarketPurchasesPage() {
     setReceivingReq(null)
     setReceiveImg(null)
     setReceiveImgPreview('')
+    setReceiveEdits({})
   }
 
   // ✅ جديد: تصفية اقتراحات الأصناف من قائمة أصناف المستودع حسب ما يكتبه المستخدم
@@ -850,7 +864,18 @@ export default function MarketPurchasesPage() {
                 </div>
                 {/* ✅ Fix: تم إخفاء السعر والإجمالي عن الموظف الطالب بناءً على الطلب - يبقى ظاهرًا فقط لمسؤول المستودع والإدارة في تاب طلبات الشراء */}
                 {req.status === 'purchased' && (
-                  <button onClick={() => setReceivingReq(req)}
+                  <button onClick={() => {
+                    setReceivingReq(req)
+                    // ✅ جديد: تعبئة الكميات مبدئيًا بالكمية المشتراة (أو المطلوبة لو مفيش كمية مشتراة مسجّلة)
+                    const init: Record<string, { quantity: string; unit_id: string }> = {}
+                    for (const it of (req.market_purchase_request_items || [])) {
+                      init[it.id] = {
+                        quantity: String(it.purchased_quantity ?? it.requested_quantity),
+                        unit_id: it.purchased_unit_id || it.requested_unit_id,
+                      }
+                    }
+                    setReceiveEdits(init)
+                  }}
                     style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                     ✅ تأكيد الاستلام + رفع صورة
                   </button>
@@ -1385,7 +1410,31 @@ export default function MarketPurchasesPage() {
           <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 420, padding: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 18 }}>
               <h2 style={{ fontSize: 16, fontWeight: 800 }}>✅ تأكيد الاستلام</h2>
-              <button onClick={() => { setReceivingReq(null); setReceiveImg(null); setReceiveImgPreview('') }} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => { setReceivingReq(null); setReceiveImg(null); setReceiveImgPreview(''); setReceiveEdits({}) }} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            {/* ✅ جديد: تعديل الكمية/الوحدة المستلمة فعليًا لكل صنف قبل رفع الصورة - عشان المستلم
+                يقدر يصحّح الفرق لو استلم أقل أو أكثر من المطلوب/المشترى، بنفس الوحدة الأساسية أو الفرعية */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, maxHeight: 260, overflowY: 'auto' }}>
+              {(receivingReq.market_purchase_request_items || []).map(it => {
+                const edit = receiveEdits[it.id] || { quantity: String(it.purchased_quantity ?? it.requested_quantity), unit_id: it.purchased_unit_id || it.requested_unit_id }
+                return (
+                  <div key={it.id} style={{ background: S.card, borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 6 }}>
+                      {it.item_name || it.warehouse_products?.name}
+                      <span style={{ color: S.muted, fontWeight: 400, fontSize: 10 }}> (طُلب: {it.requested_quantity} {it.req_unit?.symbol})</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input type="number" min={0} step="0.01" value={edit.quantity}
+                        onChange={e => setReceiveEdits(p => ({ ...p, [it.id]: { ...edit, quantity: e.target.value } }))}
+                        style={{ flex: 1, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 8px', fontSize: 12, color: S.white, outline: 'none' }} />
+                      <select value={edit.unit_id} onChange={e => setReceiveEdits(p => ({ ...p, [it.id]: { ...edit, unit_id: e.target.value } }))}
+                        style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 8px', fontSize: 12, color: S.white, outline: 'none', cursor: 'pointer' }}>
+                        {units.map(u => <option key={u.id} value={u.id}>{u.symbol}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>📷 صورة إثبات الاستلام *</label>
             <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && handleReceiveImgSelect(e.target.files[0])} style={{ marginBottom: 14, fontSize: 12, color: S.white }} />

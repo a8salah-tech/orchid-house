@@ -663,7 +663,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         setRecalcProgress({ done: i + 1, total: monthRecords.length })
       }
 
-      alert(`✅ تم تحديث ${updated} من أصل ${monthRecords.length} سجل حضور لشهر ${recalcMonth}.\nراجع صفحة الرواتب للشهر ده تاني عشان الخصومات تتحدث معاها.`)
+      alert(`✅ تم تحديث ${updated} من أصل ${monthRecords.length} سجل حضور لشهر ${recalcMonth}.\nراجع صفحة الرواتب  لهذه الشهر مرة اخري    .`)
       if (tab === 'report' && reportEmp) loadReport()
       fetchData()
     } finally {

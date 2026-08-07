@@ -288,6 +288,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
   const [customAmounts, setCustomAmounts] = useState<Record<number, string>>({})
   const [personItemQty, setPersonItemQty] = useState<Record<string, number>>({}) // key: `${itemId}::${personIdx}` → qty assigned to that person
   const [personMethods, setPersonMethods] = useState<Record<number, 'cash' | 'visa' | 'online'>>({})
+  // ✅ جديد: بنك الفيزا لكل دفعة منفصلة (Maybank/BSN) - كان ناقص في وضع Split/Mixed Payment
+  const [personCardBank, setPersonCardBank] = useState<Record<number, 'maybank' | 'bsn' | ''>>({})
   const [personPaid, setPersonPaid] = useState<Record<number, boolean>>({})
   // ✅ مودال تأكيد الدفع (بدل window.confirm) - عشان يظهر منسق في نص الشاشة
   const [confirmAction, setConfirmAction] = useState<'pay' | 'split' | null>(null)
@@ -635,16 +637,23 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         person_label: p.label,
         amount: p.amount,
         payment_method: personMethods[p.idx] || 'cash',
+        // ✅ جديد: بنك الفيزا لكل دفعة (لو كانت فيزا) - كان ناقص خالص قبل كده
+        card_bank: personMethods[p.idx] === 'visa' ? (personCardBank[p.idx] || null) : null,
       }))
     )
 
     const methodsUsed = [...new Set(splitPeople.map(p => personMethods[p.idx] || 'cash'))]
     const summaryMethod = `split(${methodsUsed.join('+')})`
+    // ✅ جديد: بنك أول دفعة فيزا في التقسيم - بيتسجّل على الطلب الرئيسي نفسه عشان يتحسب صح في تقارير
+    // Visa Maybank/BSN (اللي بتقرا من عمود card_bank بتاع الطلب مباشرة، مش من جدول الدفعات المقسّمة)
+    const firstVisaPerson = splitPeople.find(p => personMethods[p.idx] === 'visa')
+    const orderLevelCardBank = firstVisaPerson ? (personCardBank[firstVisaPerson.idx] || null) : null
 
     // نفس خطوات إغلاق الفاتورة العادية، بس payment_method بيوضح إنها كانت فاتورة مقسّمة
     await sb.from('orders').update({
       status: 'paid',
       payment_method: summaryMethod,
+      card_bank: orderLevelCardBank,
       discount_amount: discountAmt,
       discount_type: discountType === 'free' ? 'free' : discountType,
       service_charge: serviceCharge,
@@ -1012,8 +1021,19 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
                       </button>
                     ))}
                   </div>
+                  {/* ✅ جديد: اختيار البنك إجباري لما الدفعة دي تكون فيزا - كان ناقص هنا وموجود بس في الدفع العادي */}
+                  {personMethods[p.idx] === 'visa' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 8 }}>
+                      {[{ k: 'maybank', label: '🏦 Maybank' }, { k: 'bsn', label: '🏦 BSN' }].map(b => (
+                        <button key={b.k} onClick={() => setPersonCardBank(prev => ({ ...prev, [p.idx]: b.k as any }))}
+                          style={{ padding: '7px', borderRadius: 8, border: `1px solid ${personCardBank[p.idx] === b.k ? S.gold : S.border}`, background: personCardBank[p.idx] === b.k ? S.gold3 : 'transparent', color: personCardBank[p.idx] === b.k ? S.gold : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: personCardBank[p.idx] === b.k ? 700 : 400 }}>
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button
-                    disabled={!personMethods[p.idx]}
+                    disabled={!personMethods[p.idx] || (personMethods[p.idx] === 'visa' && !personCardBank[p.idx])}
                     onClick={() => setPersonPaid(prev => ({ ...prev, [p.idx]: !prev[p.idx] }))}
                     style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: personPaid[p.idx] ? S.green : (personMethods[p.idx] ? S.gold : S.border), color: personPaid[p.idx] ? '#fff' : S.navy, cursor: personMethods[p.idx] ? 'pointer' : 'not-allowed', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: personMethods[p.idx] ? 1 : 0.5 }}>
                     {personPaid[p.idx] ? '✅ Paid' : 'Mark as Paid'}

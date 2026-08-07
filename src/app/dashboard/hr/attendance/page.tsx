@@ -492,6 +492,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [reportMonth,  setReportMonth]  = useState(new Date().toISOString().slice(0, 7))
   const [reportData,   setReportData]   = useState<any[]>([])
   const [loadingReport, setLoadingReport] = useState(false)
+  // ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل (لتصحيح سجلات قديمة زي شهر يوليو)
+  const [recalcMonth, setRecalcMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [recalculating, setRecalculating] = useState(false)
+  const [recalcProgress, setRecalcProgress] = useState<{ done: number; total: number } | null>(null)
 
   // ✅ جديد: كشف الموبايل عشان نظبط تنسيق الشبكات والأزرار
   const [isMobile, setIsMobile] = useState(false)
@@ -627,6 +631,45 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     const diffMins = Math.floor((new Date(checkInIso).getTime() - shiftStartMs) / 60000)
     const status = diffMins > 10 ? 'late' : 'present'
     return { status, late_minutes: status === 'late' ? diffMins : 0 }
+  }
+
+  // ✅ إعادة حساب دقايق التأخير لكل موظفين الشركة في شهر كامل بأثر رجعي — لتصحيح سجلات قديمة (زي يوليو) كانت
+  // اتسجّلت أو اتعدّلت يدوياً قبل ما نضيف الحساب التلقائي، وكانت late_minutes فيها 0 أو غلط رغم إن الموظف اتأخر فعلاً
+  async function recalcMonthLateMinutes() {
+    if (!confirm(`⚠️ هل أنت متأكد من إعادة حساب دقايق التأخير لكل الموظفين في شهر ${recalcMonth}؟\n\nهيتم تحديث كل سجل حضور فيه وقت دخول مسجّل بمقارنته بموعد الشيفت المجدول.`)) return
+    setRecalculating(true)
+    setRecalcProgress(null)
+    try {
+      const startDate = `${recalcMonth}-01`
+      const endDateObj = new Date(recalcMonth + '-01')
+      endDateObj.setMonth(endDateObj.getMonth() + 1)
+      const endDate = endDateObj.toISOString().slice(0, 10)
+
+      const { data: monthRecords, error: fetchErr } = await sb.from('attendance')
+        .select('id, employee_id, date, check_in_time')
+        .gte('date', startDate).lt('date', endDate)
+        .not('check_in_time', 'is', null)
+
+      if (fetchErr) { alert('حصل خطأ أثناء جلب السجلات: ' + fetchErr.message); return }
+      if (!monthRecords || monthRecords.length === 0) { alert(`مفيش سجلات حضور فيها وقت دخول في شهر ${recalcMonth}.`); return }
+
+      setRecalcProgress({ done: 0, total: monthRecords.length })
+      let updated = 0
+      for (let i = 0; i < monthRecords.length; i++) {
+        const rec = monthRecords[i]
+        const { status, late_minutes } = await computeLateInfo(rec.employee_id, rec.date, rec.check_in_time!)
+        const { error: updErr } = await sb.from('attendance').update({ status, late_minutes }).eq('id', rec.id)
+        if (!updErr) updated++
+        setRecalcProgress({ done: i + 1, total: monthRecords.length })
+      }
+
+      alert(`✅ تم تحديث ${updated} من أصل ${monthRecords.length} سجل حضور لشهر ${recalcMonth}.\nراجع صفحة الرواتب للشهر ده تاني عشان الخصومات تتحدث معاها.`)
+      if (tab === 'report' && reportEmp) loadReport()
+      fetchData()
+    } finally {
+      setRecalculating(false)
+      setRecalcProgress(null)
+    }
   }
 
   async function saveEditedTime(empName: string) {
@@ -797,6 +840,19 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
             {label}
           </button>
         ))}
+      </div>
+
+      {/* ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل — لتصحيح سجلات قديمة (زي يوليو) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(245,158,11,0.08)', border: `1px solid ${S.amber}40`, borderRadius: 12, padding: '10px 14px', marginBottom: 20, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: S.amber, fontWeight: 700, whiteSpace: 'nowrap' }}>🔄 إعادة حساب التأخير لشهر كامل (لتصحيح سجلات قديمة)</span>
+        <input type="month" style={{ ...inp2, width: 140 }} value={recalcMonth} onChange={e => setRecalcMonth(e.target.value)} disabled={recalculating} />
+        <button
+          onClick={recalcMonthLateMinutes}
+          disabled={recalculating}
+          style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: recalculating ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', opacity: recalculating ? 0.6 : 1, whiteSpace: 'nowrap' }}
+        >
+          {recalculating ? (recalcProgress ? `⏳ جاري التحديث... ${recalcProgress.done}/${recalcProgress.total}` : '⏳ جاري التحضير...') : 'إعادة الحساب'}
+        </button>
       </div>
 
       {tab === 'day' && (

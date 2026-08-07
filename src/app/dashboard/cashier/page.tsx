@@ -2685,7 +2685,10 @@ export default function CashierPage() {
                       // ✅ جديد: إجمالي الآجل (Credit) ليوم كامل - مش كاش فعلي، دي فلوس متوقعة من جراب/فودباندا
                       const dCredit = dayPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
                       const dDiscount = dayPaid.reduce((s, o) => s + (o.discount_amount || 0), 0)
-                      const dTotal = dayPaid.reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ Fix: الإجمالي (💰 Total) المفروض يمثّل الفلوس الفعلية عند الكاشير بس (كاش + فيزا + أونلاين) -
+                      // مش شامل الـCredit لأنه فلوس آجلة لسه متحصلتش من المنصة (Grab/Foodpanda)، فمينفعش تتحسب
+                      // كأنها موجودة في الدرج دلوقتي. الـCredit بيفضل ظاهر لوحده كبند منفصل بس مش جزء من الإجمالي
+                      const dTotal = dayPayments.filter(p => p.method !== 'credit').reduce((s, p) => s + p.amount, 0)
                       // ✅ جديد: إجمالي المصروفات (المدفوعة والمعلّقة) لليوم كله من زرار "💸 Add Expense"
                       const dExpPaid = closedExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
                       const dExpPending = closedExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
@@ -2783,7 +2786,8 @@ export default function CashierPage() {
                       // ✅ جديد: إجمالي الآجل (Credit) لهذا الشيفت
                       const sCredit = sessPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
                       const sDiscount = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.discount_amount || 0), 0)
-                      const sTotal = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.total_amount || 0), 0)
+                      // ✅ Fix: نفس منطق Whole Day Total - الإجمالي هنا كمان بيستبعد Credit
+                      const sTotal = sessPayments.filter(p => p.method !== 'credit').reduce((s, p) => s + p.amount, 0)
                       // ✅ جديد: مصروفات هذا الشيفت بالذات - نفس نافذة الوقت اللي بنفلتر بيها الطلبات
                       const sExpenses = closedExpenses.filter(e => {
                         if (e.shift !== session.shift) return false

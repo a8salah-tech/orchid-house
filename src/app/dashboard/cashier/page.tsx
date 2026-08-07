@@ -105,7 +105,8 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
       <td>#${o.id.slice(-6).toUpperCase()}</td>
       <td>${(o.order_items || []).filter(it => it.status !== 'cancelled').map(it => (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + (it.size_name ? ' (' + it.size_name + ')' : '') + ' ×' + it.quantity).join(', ')}</td>
       <td>${o.payment_method?.toUpperCase() || '—'}${(o as any).card_bank ? ' (' + (o as any).card_bank + ')' : ''}</td>
-      <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : '—'}</td>
+      <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : (o.payment_method === 'free' ? 'FREE' : '—')}</td>
+      <td>${o.notes ? o.notes.replace(/</g, '&lt;') : '—'}</td>
       <td>${o.paid_by_name || '—'}</td>
       <td><b>MYR ${(o.total_amount || 0).toFixed(2)}</b></td>
       <td>${o.paid_at ? new Date(o.paid_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
@@ -166,9 +167,9 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
 
   <h4>📋 All Paid Orders (${paidOrders.length})</h4>
   ${paidOrders.length ? `<table>
-    <thead><tr><th>#</th><th>Table</th><th>Order #</th><th>Items</th><th>Payment</th><th>Discount</th><th>Cashier</th><th>Total</th><th>Time</th></tr></thead>
+    <thead><tr><th>#</th><th>Table</th><th>Order #</th><th>Items</th><th>Payment</th><th>Discount</th><th>Reason</th><th>Cashier</th><th>Total</th><th>Time</th></tr></thead>
     <tbody>${orderRows}
-      <tr class="total-row"><td colspan="7">TOTAL — ${paidOrders.length} orders</td><td>MYR ${totals.total.toFixed(2)}</td><td>—</td></tr>
+      <tr class="total-row"><td colspan="8">TOTAL — ${paidOrders.length} orders</td><td>MYR ${totals.total.toFixed(2)}</td><td>—</td></tr>
     </tbody>
   </table>` : `<div class="no-data">No paid orders in this shift.</div>`}
 
@@ -274,6 +275,8 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
   const [cardBank, setCardBank] = useState<'maybank' | 'bsn' | ''>('')
   const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
   const [discountValue, setDiscountValue] = useState('')
+  // ✅ جديد: سبب الخصم أو الفري - إلزامي عشان يبقى واضح ليه اتعمل، ويظهر في Closed وتقرير الشيفت
+  const [discountReason, setDiscountReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [customers, setCustomers] = useState<any[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
@@ -537,6 +540,10 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       customer_id: selectedCustomer?.id || null,
       paid_by: employee?.id || null,
       paid_by_name: employee?.name || null,
+      // ✅ جديد: سبب الخصم/الفري بيتضاف لملاحظات الطلب - عشان يبقى واضح ليه اتعمل وقت مراجعة Closed/تقرير الشيفت
+      notes: (discountType === 'amount' || discountType === 'percent' || discountType === 'free') && discountReason.trim()
+        ? [order.notes, `${discountType === 'free' ? '🎁 Free reason' : '🏷️ Discount reason'}: ${discountReason.trim()}`].filter(Boolean).join(' | ')
+        : (order.notes || null),
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
@@ -576,6 +583,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
         customer_id: selectedCustomer?.id || null,
         paid_by: employee?.id || null,
         paid_by_name: employee?.name || null,
+        notes: (discountType === 'amount' || discountType === 'percent' || discountType === 'free') && discountReason.trim()
+          ? `${discountType === 'free' ? '🎁 Free reason' : '🏷️ Discount reason'}: ${discountReason.trim()}`
+          : null,
       }).eq('table_id', order.mergedTableId).in('status', ['confirmed','preparing','ready'])
       await sb.from('tables').update({
         status: 'available', current_order_id: null, occupied_since: null,
@@ -600,6 +610,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     // ✅ Fix: فتحنا الدفع للدور المحدود (مشرف/مدير الصالة) كمان - عشان يقدروا يفضّوا الطاولة لو الكاشير مشغول
     if (!(isCashierRole || isLimitedTableRole)) { alert('🔒 Payment requires cashier access'); return }
     if (method === 'visa' && !cardBank) { alert('من فضلك حدد البنك (Maybank / BSN)'); return }
+    // ✅ جديد: سبب الخصم/الفري إلزامي عشان يبقى واضح ليه اتعمل
+    if ((discountType === 'amount' || discountType === 'percent' || discountType === 'free') && !discountReason.trim()) {
+      alert(discountType === 'free' ? 'من فضلك اكتب سبب الـ Free' : 'من فضلك اكتب سبب الخصم')
+      return
+    }
     setConfirmAction('pay')
   }
 
@@ -609,6 +624,11 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
     // ✅ Fix: فتحنا الدفع للدور المحدود (مشرف/مدير الصالة) كمان
     if (!(isCashierRole || isLimitedTableRole)) { alert('🔒 Payment requires cashier access'); return }
     if (!allSplitPeoplePaid) return
+    // ✅ جديد: سبب الخصم/الفري إلزامي هنا كمان (splitMode بيتقفل تلقائيًا لو discountType === 'free'، فبيهمنا amount/percent بس هنا)
+    if ((discountType === 'amount' || discountType === 'percent') && !discountReason.trim()) {
+      alert('من فضلك اكتب سبب الخصم')
+      return
+    }
     setConfirmAction('split')
   }
 
@@ -663,6 +683,9 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
       customer_id: selectedCustomer?.id || null,
       paid_by: employee?.id || null,
       paid_by_name: employee?.name || null,
+      notes: (discountType === 'amount' || discountType === 'percent') && discountReason.trim()
+        ? [order.notes, `🏷️ Discount reason: ${discountReason.trim()}`].filter(Boolean).join(' | ')
+        : (order.notes || null),
     }).eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
@@ -849,6 +872,12 @@ function PaymentModal({ order, onClose, onPaid, onTransfer, tables }: { order: O
           {(discountType === 'amount' || discountType === 'percent') && (
             <input style={inp} type="number" value={discountValue} onChange={e => setDiscountValue(e.target.value)}
               placeholder={discountType === 'percent' ? 'Discount %' : 'Amount Discount MYR'} />
+          )}
+          {/* ✅ جديد: سبب الخصم/الفري - إلزامي، وبيظهر بعد كده في Closed وتقرير الشيفت عشان يبقى واضح ليه اتعمل */}
+          {(discountType === 'amount' || discountType === 'percent' || discountType === 'free') && (
+            <input style={{ ...inp, marginTop: 8, borderColor: !discountReason.trim() ? S.red + '60' : undefined }}
+              value={discountReason} onChange={e => setDiscountReason(e.target.value)}
+              placeholder={discountType === 'free' ? 'Why is this free? (required)' : 'Why this discount? (required)'} />
           )}
         </div>
 

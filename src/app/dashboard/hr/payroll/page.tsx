@@ -856,6 +856,11 @@ export default function PayrollPage() {
               {selectedMonth.status === 'finalized' ? '✅ Finalized' : '📝 Draft'}
             </span>
             <input style={{ ...inp, width: isMobile ? '100%' : 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
+            <button
+              onClick={() => loadMonthRecords(selectedMonth, selectedBranch)}
+              title="إعادة سحب البيانات من جداول الحضور/المخالفات/الغياب من جديد (مفيد بعد أي تعديل في صفحة الحضور)"
+              style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}
+            >🔄 Refresh</button>
             <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>🖨️ Print Sheet</button>
             <button onClick={printAllPayslips} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>📄 Print All Payslips</button>
             {isAdmin && selectedMonth.status !== 'finalized' && (

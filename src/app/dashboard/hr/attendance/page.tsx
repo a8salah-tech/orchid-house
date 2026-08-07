@@ -540,9 +540,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (!reportEmp) return
     setLoadingReport(true)
     const startDate = `${reportMonth}-01`
-    const endDate   = new Date(reportMonth + '-01')
-    endDate.setMonth(endDate.getMonth() + 1)
-    const endStr = endDate.toISOString().split('T')[0]
+    // ✅ Date.UTC بدل new Date() العادي — عشان الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي (نفس باج monthEnd في صفحة الرواتب)
+    const [ry, rm] = reportMonth.split('-').map(Number)
+    const endStr = new Date(Date.UTC(ry, rm, 1)).toISOString().split('T')[0]
 
     const { data } = await sb.from('attendance')
       .select('*')
@@ -641,9 +641,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     setRecalcProgress(null)
     try {
       const startDate = `${recalcMonth}-01`
-      const endDateObj = new Date(recalcMonth + '-01')
-      endDateObj.setMonth(endDateObj.getMonth() + 1)
-      const endDate = endDateObj.toISOString().slice(0, 10)
+      // ✅ Date.UTC بدل new Date() العادي — نفس تصحيح باج التوقيت المحلي اللي عملناه في صفحة الرواتب و loadReport
+      const [ry, rm] = recalcMonth.split('-').map(Number)
+      const endDate = new Date(Date.UTC(ry, rm, 1)).toISOString().slice(0, 10)
 
       const { data: monthRecords, error: fetchErr } = await sb.from('attendance')
         .select('id, employee_id, date, check_in_time')
@@ -663,7 +663,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         setRecalcProgress({ done: i + 1, total: monthRecords.length })
       }
 
-      alert(`✅ تم تحديث ${updated} من أصل ${monthRecords.length} سجل حضور لشهر ${recalcMonth}.\nراجع صفحة الرواتب  لهذه الشهر مرة اخري    .`)
+      alert(`✅ تم تحديث ${updated} من أصل ${monthRecords.length} سجل حضور لشهر ${recalcMonth}.\nراجع صفحة الرواتب للشهر ده تاني عشان الخصومات تتحدث معاها.`)
       if (tab === 'report' && reportEmp) loadReport()
       fetchData()
     } finally {

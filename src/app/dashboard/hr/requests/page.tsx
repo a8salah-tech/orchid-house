@@ -567,7 +567,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
 
     // ✅ خصم سلفة الراتب تلقائيًا من راتب شهر الاعتماد نفسه (وليس شهر السداد الفعلي)
     // مثال: السلفة تُعتمد 25 مايو → تُخصم من راتب شهر مايو (الذي يُسلَّم فعليًا في يونيو)
-    if (newStatus === 'completed' && request.request_type === 'salary_advance' && request.amount) {
+    // ✅ نحمي من الإضافة المزدوجة: لا نضيف المبلغ إلا إذا لم تكن حالة الطلب "completed" من قبل هذا التحديث
+    if (newStatus === 'completed' && request.status !== 'completed' && request.request_type === 'salary_advance' && request.amount) {
       const now = new Date()
       const targetMonth = now.getMonth() + 1
       const targetYear = now.getFullYear()
@@ -613,6 +614,30 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
             amount_due: 0, amount_paid: 0,
             work_insurance: empData?.work_insurance || 0,
           }])
+        }
+      }
+    }
+
+    // ✅ عكس أثر السلفة: لو الطلب كان "completed" من قبل (أي أن مبلغه أُضيف بالفعل للرواتب)
+    // وتم الآن تغيير حالته لأي حالة أخرى (رفض، إلغاء، تصحيح خطأ إداري)، لازم نطرح المبلغ من الرواتب
+    // مرة أخرى — وإلا يبقى المبلغ "عالقاً" في الرواتب رغم أن الطلب لم يعد معتمداً
+    if (newStatus !== 'completed' && request.status === 'completed' && request.request_type === 'salary_advance' && request.amount) {
+      const now = new Date()
+      const targetMonth = now.getMonth() + 1
+      const targetYear = now.getFullYear()
+      const { data: payrollMonth } = await supabase.from('payroll_months')
+        .select('id, status').eq('month', targetMonth).eq('year', targetYear).maybeSingle()
+      if (payrollMonth) {
+        if (payrollMonth.status === 'finalized') {
+          alert('⚠️ تنبيه: تم تغيير حالة الطلب، لكن شهر الرواتب المرتبط به مُعتمَد (Finalized) بالفعل — لم يُطرح المبلغ تلقائياً. راجع حقل "سلفة" لهذا الموظف يدوياً.')
+        } else {
+          const { data: existingRecord } = await supabase.from('payroll_records')
+            .select('id, advance').eq('payroll_month_id', payrollMonth.id).eq('employee_id', request.employee_id).maybeSingle()
+          if (existingRecord) {
+            await supabase.from('payroll_records').update({
+              advance: Math.max(0, (existingRecord.advance || 0) - request.amount),
+            }).eq('id', existingRecord.id)
+          }
         }
       }
     }

@@ -2377,7 +2377,7 @@ export default function CashierPage() {
             {isCashierRole && (
               <button onClick={() => { setView('archive'); if (!archiveSearched) searchArchive() }} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${(view as string) === 'archive' ? S.purple : S.border}`, background: (view as string) === 'archive' ? S.purpleB : 'transparent', color: (view as string) === 'archive' ? S.purple : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📦 {isMobile ? '' : 'Archive'}</button>
             )}
-            {isCashierRole && (
+            {isAdmin && (
               <button onClick={() => { setView('orders'); setFilter('done' as any); if (!closedFetched) fetchClosedData() }}
                 style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' && filter === 'done' ? S.teal : S.border}`, background: view === 'orders' && filter === 'done' ? S.tealB : 'transparent', color: view === 'orders' && filter === 'done' ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📊 {isMobile ? '' : 'Shift'}</button>
             )}
@@ -2622,7 +2622,8 @@ export default function CashierPage() {
               {[
                 { key: 'active', label: 'Active' },
                 { key: 'all',    label: 'All' },
-                { key: 'done',   label: 'Closed' },
+                // ✅ فلتر Closed بقى بيظهر للأدمن بس - نفس شرط زرار "📊 Shift" فوق، عشان مايبقاش فيه مدخل بديل
+                ...(isAdmin ? [{ key: 'done', label: 'Closed' }] : []),
               ].map(f => (
                 <button key={f.key} onClick={() => { setFilter(f.key as any); if (f.key === 'done' && !closedFetched) fetchClosedData() }}
                   style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filter === f.key ? S.gold : S.border}`, background: filter === f.key ? S.gold3 : 'transparent', color: filter === f.key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: filter === f.key ? 700 : 400 }}>
@@ -2631,7 +2632,7 @@ export default function CashierPage() {
               ))}
             </div>
 
-            {filter === 'done' ? (
+            {filter === 'done' && isAdmin ? (
               /* ══ CLOSED — تقرير يومي بالشيفتات (الكاشير، بداية/نهاية الشيفت، إجماليات الكاش/الفيزا) ══ */
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>

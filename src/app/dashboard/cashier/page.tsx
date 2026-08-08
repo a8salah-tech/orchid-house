@@ -372,10 +372,21 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     onPaid() // نعيد تحميل البيانات وإغلاق المودال، بنفس أثر إتمام أي عملية
   }
 
+  // ✅ Fix حرج: كان بيجيب أول 200 عميل بس (مرتبين بالاسم) ويبحث فيهم محليًا - يعني أي عميل اسمه بيبدأ بحرف
+  // متأخر أبجديًا وبره أول 200 كان مستحيل يتلاقى في البحث مهما كتبت رقم تليفونه صح. دلوقتي البحث بيستعلم
+  // من قاعدة البيانات مباشرة مع كل حرف تكتبه (نفس أسلوب البحث في مودال العربون)، فمفيش أي حد ممكن يضيع
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false)
   useEffect(() => {
-    sb.from('customers').select('id,name,phone,email,loyalty_points').order('name').limit(200)
-      .then(({ data }) => setCustomers(data || []))
-  }, [])
+    if (!customerSearch.trim()) { setCustomers([]); return }
+    setCustomerSearchLoading(true)
+    const t = setTimeout(() => {
+      sb.from('customers').select('id,name,phone,email,loyalty_points')
+        .or(`name.ilike.%${customerSearch}%,phone.ilike.%${customerSearch}%,email.ilike.%${customerSearch}%`)
+        .limit(20)
+        .then(({ data }) => { setCustomers(data || []); setCustomerSearchLoading(false) })
+    }, 300) // ✅ debounce بسيط عشان مانستعلمش على كل حرف فورًا
+    return () => clearTimeout(t)
+  }, [customerSearch])
 
   // ✅ لو الأوردر أصلاً مرتبط بعميل (مثلاً من لعبة "مين هيدفع؟" في صفحة المنيو)، نجيب بياناته ونحطه كمختار تلقائيًا
   // بدل ما يفضل فاضي ويتمسح الربط لو الكاشير أكد الدفع من غير ما يختار العميل يدوي تاني
@@ -889,6 +900,10 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
                 onChange={e => { setCustomerSearch(e.target.value); setShowCustomerDrop(true) }}
                 onFocus={() => setShowCustomerDrop(true)}
               />
+              {customerSearchLoading && <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>⏳ Searching...</div>}
+              {!customerSearchLoading && customerSearch.trim().length > 0 && filteredCustomers.length === 0 && (
+                <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>⚠️ No customer found</div>
+              )}
               {showCustomerDrop && customerSearch && filteredCustomers.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 100, marginTop: 4, maxHeight: 200, overflowY: 'auto' }}>
                   {filteredCustomers.map(c => (

@@ -44,6 +44,37 @@ const inp: React.CSSProperties = {
 }
 
 type PayrollMonth = { id: string; month: number; year: number; status: string; notes?: string; created_at: string }
+
+// ✅ نفس منطق حساب حدود الشهر (Date.UTC) الذي صحّحنا بيه باج التوقيت المحلي — دالة موحّدة لكي نتجنب تكرار نفس الباج
+function getMonthDateRange(month: { month: number; year: number }): { monthStart: string; monthEnd: string } {
+  const monthStart = `${month.year}-${String(month.month).padStart(2, '0')}-01`
+  const monthEnd = new Date(Date.UTC(month.year, month.month, 0)).toISOString().split('T')[0]
+  return { monthStart, monthEnd }
+}
+
+// ✅ يحسب إحصائيات الحضور من سجلات attendance خام: عدد أيام البصمة، أعلى يوم حضور (بالساعات)، وأقل يوم حضور
+type AttendanceStats = {
+  checkinDays: number
+  maxDay: { date: string; minutes: number } | null
+  minDay: { date: string; minutes: number } | null
+}
+function computeAttendanceStats(rows: { date: string; check_in_time: string | null; check_out_time: string | null }[]): AttendanceStats {
+  const checkinDays = rows.filter(r => r.check_in_time).length
+  const withDuration = rows
+    .filter(r => r.check_in_time && r.check_out_time)
+    .map(r => ({ date: r.date, minutes: Math.floor((new Date(r.check_out_time!).getTime() - new Date(r.check_in_time!).getTime()) / 60000) }))
+    .filter(r => r.minutes > 0)
+  let maxDay: { date: string; minutes: number } | null = null
+  let minDay: { date: string; minutes: number } | null = null
+  for (const d of withDuration) {
+    if (!maxDay || d.minutes > maxDay.minutes) maxDay = d
+    if (!minDay || d.minutes < minDay.minutes) minDay = d
+  }
+  return { checkinDays, maxDay, minDay }
+}
+function fmtDuration(mins: number): string {
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`
+}
 type Branch = { id: string; name: string }
 type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
@@ -94,17 +125,17 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
 // ✅ حساب الراتب بالتناسب حسب تاريخ إيقاف الموظف (deactivated_at) ومقارنته بالشهر الحالي
 // monthStart/monthEnd بصيغة 'YYYY-MM-DD' (مقارنة نصية تعمل صحيح لأن الصيغة موحّدة)
 function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: string): { basicSalary: number; daysWorked: number | null; note: string | null } {
-  // موظف نشط ومفيش تاريخ إيقاف مسجل — راتب طبيعي بالكامل
+  // موظف نشط ولا توجد تاريخ إيقاف مسجل — راتب طبيعي بالكامل
   if (emp.is_active !== false && !emp.deactivated_at) {
     return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
   }
   if (emp.deactivated_at) {
     if (emp.deactivated_at < monthStart) {
-      // الشهر كامل بعد تاريخ الإيقاف — مفيش راتب
+      // الشهر كامل بعد تاريخ الإيقاف — لا توجد راتب
       return { basicSalary: 0, daysWorked: 0, note: `⏸ موقوف عن العمل من ${emp.deactivated_at}` }
     }
     if (emp.deactivated_at > monthEnd) {
-      // الشهر ده كان قبل الإيقاف — كان نشط بالكامل، راتب طبيعي
+      // هذا الشهر كان قبل الإيقاف — كان نشط بالكامل، راتب طبيعي
       return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
     }
     // شهر الإيقاف نفسه — تناسب حسب عدد الأيام الفعلية
@@ -120,7 +151,7 @@ function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: strin
 }
 
 // ✅ بيحوّل لون شفاف (rgba) لنفس اللون لكن صلب (Opaque) بدمجه فوق خلفية أساسية —
-// ضروري لأي عنصر Sticky (زي رؤوس الجدول) عشان محتوى الصفوف اللي بيتمرر تحته ميظهرش شفاف من وراه
+// ضروري لأي عنصر Sticky (مثل رؤوس الجدول) لكي محتوى الصفوف الذي بيتمرر تحته ميظهرش شفاف من وراه
 function solidOver(rgba: string, baseHex: string = '#0F2040'): string {
   const m = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
   if (!m) return rgba
@@ -153,12 +184,12 @@ function calcRecord(r: PayrollRecord) {
 
 function Cell({ value, onChange, readOnly = false, extra, minWidth = 80 }: { value: any; onChange: (v: any) => void; readOnly?: boolean; extra?: React.ReactNode; minWidth?: number }) {
   // ✅ نص محلي منفصل عن الرقم الفعلي — يسمح بكتابة كسور عشرية ("200." أو "200,5") أثناء الكتابة
-  // بدل ما القيمة تتحول لرقم فوراً وتمسح النقطة/الفاصلة اللي المستخدم لسه بيكتبها
+  // بدل ما القيمة تتحول لرقم فوراً وتمسح النقطة/الفاصلة الذي المستخدم بعد بيكتبها
   const [text, setText] = useState(String(value ?? 0))
 
   useEffect(() => {
     const parsedCurrent = parseFloat(text.replace(',', '.'))
-    // نحدّث النص المحلي بس لو القيمة الجاية من برا (record) اتغيّرت فعلاً عن اللي المستخدم كاتبه
+    // نحدّث النص المحلي بس لو القيمة الجاية من خارج (record) اتغيّرت فعلاً عن الذي المستخدم كاتبه
     if (Number.isNaN(parsedCurrent) || parsedCurrent !== value) {
       setText(String(value ?? 0))
     }
@@ -192,7 +223,7 @@ function Cell({ value, onChange, readOnly = false, extra, minWidth = 80 }: { val
   )
 }
 
-function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false, selected = false, onSelect }: {
+function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false, selected = false, onSelect, isMobile = false }: {
   record: PayrollRecord
   empMap: Record<string, Employee>
   onChange: (updated: PayrollRecord) => void
@@ -200,11 +231,12 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   readOnly?: boolean
   selected?: boolean
   onSelect?: () => void
+  isMobile?: boolean
 }) {
   const emp  = empMap[record.employee_id]
   const calc = calcRecord(record)
   const set  = (field: keyof PayrollRecord, val: any) => onChange({ ...record, [field]: val })
-  // ✅ يخزّن القيمة القديمة لـ "المدفوع" مؤقتاً عشان زر التراجع بعد "تحديد كمدفوع بالكامل"
+  // ✅ يخزّن القيمة القديمة لـ "المدفوع" مؤقتاً لكي زر التراجع بعد "تحديد كمدفوع بالكامل"
   const [lastPaid, setLastPaid] = useState<number | null>(null)
   // ✅ نافذة تأكيد "دفع كامل" — تظهر في منتصف الشاشة بدل نافذة المتصفح الافتراضية
   const [confirmPaidOpen, setConfirmPaidOpen] = useState(false)
@@ -212,6 +244,9 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
     padding: '6px 8px', fontSize: 11, color: S.white,
     background: 'rgba(255,255,255,0.02)', border: `1px solid ${S.border}`, whiteSpace: 'nowrap',
   }
+  // ✅ عرض عمودي ID/الاسم أصغر على الموبايل لكي يسيبوا مساحة أكبر لباقي الأعمدة القابلة للتمرير
+  const rowIdColW = isMobile ? 46 : ID_COL_W
+  const rowNameColW = isMobile ? 120 : NAME_COL_W
   // ✅ خلفية صلبة (Opaque) للعمودين المثبّتين، تتغيّر عند تحديد الصف
   const stickyBg = selected ? SELECTED_ROW_BG : S.navy3
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -222,12 +257,12 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
       onClick={onSelect}
       style={{ cursor: onSelect ? 'pointer' : undefined, background: selected ? SELECTED_ROW_BG_TRANSLUCENT : undefined }}
     >
-      <td style={{ ...thStyle, color: S.muted, textAlign: 'center', position: 'sticky', right: 0, zIndex: 2, width: ID_COL_W, minWidth: ID_COL_W, background: stickyBg }}>{emp?.employee_number || '—'}</td>
-      <td style={{ ...thStyle, cursor: 'pointer', position: 'sticky', right: ID_COL_W, zIndex: 2, width: NAME_COL_W, minWidth: NAME_COL_W, background: stickyBg }} onClick={e => { e.stopPropagation(); onOpenPayslip(record) }} title="اضغط لعرض تقرير الراتب التفصيلي">
-        <div style={{ fontWeight: 700, color: S.gold, fontSize: 12, textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+      <td style={{ ...thStyle, color: S.muted, textAlign: 'center', position: 'sticky', right: 0, zIndex: 2, width: rowIdColW, minWidth: rowIdColW, background: stickyBg }}>{emp?.employee_number || '—'}</td>
+      <td style={{ ...thStyle, cursor: 'pointer', position: 'sticky', right: rowIdColW, zIndex: 2, width: rowNameColW, minWidth: rowNameColW, background: stickyBg }} onClick={e => { e.stopPropagation(); onOpenPayslip(record) }} title="اضغط لعرض تقرير الراتب التفصيلي">
+        <div style={{ fontWeight: 700, color: S.gold, fontSize: isMobile ? 11 : 12, textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
           {emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}
         </div>
-        <div style={{ fontSize: 10, color: S.muted }}>{emp?.department}</div>
+        <div style={{ fontSize: isMobile ? 9 : 10, color: S.muted }}>{emp?.department}</div>
         {record.notes && record.notes.startsWith('⏸') && (
           <div style={{ fontSize: 9, color: S.red, marginTop: 2, fontWeight: 700, whiteSpace: 'normal' }}>{record.notes}</div>
         )}
@@ -336,7 +371,7 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   )
 }
 
-function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number): string {
+function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null): string {
   const c = calcRecord(record)
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const row = (label: string, value: string, bold = false) => `
@@ -418,6 +453,19 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
       </tr>
     </table>
 
+    ${attStats ? `
+    <table class="summary" style="margin-top:10px">
+      <tr><td class="lbl" colspan="4" style="background:#FAF7ED;font-weight:800;text-align:center">🕒 ملخص البصمة / Attendance Summary</td></tr>
+      <tr>
+        <td class="lbl">أيام البصمة / Days Checked In</td><td class="val">${attStats.checkinDays}</td>
+        <td class="lbl">أعلى يوم حضور / Best Day</td><td class="val">${attStats.maxDay ? `${attStats.maxDay.date} (${fmtDuration(attStats.maxDay.minutes)})` : '—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">أقل يوم حضور / Lowest Day</td><td class="val">${attStats.minDay ? `${attStats.minDay.date} (${fmtDuration(attStats.minDay.minutes)})` : '—'}</td>
+        <td class="lbl"></td><td class="val"></td>
+      </tr>
+    </table>` : ''}
+
     <div class="signatures">
       <div>توقيع الموظف / Employee Signature: ____________________</div>
       <div>توقيع الإدارة / Approved by: ____________________</div>
@@ -473,9 +521,28 @@ export default function PayrollPage() {
   const [newMonth,      setNewMonth]      = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() })
   const [search,        setSearch]        = useState('')
   const [payslipRecord, setPayslipRecord] = useState<PayrollRecord | null>(null)
+  // ✅ إحصائيات البصمة (أيام البصمة، أعلى/أقل يوم حضور) لتقرير الراتب المفتوح حالياً
+  const [payslipAttStats, setPayslipAttStats] = useState<AttendanceStats | null>(null)
+  const [loadingPayslipAtt, setLoadingPayslipAtt] = useState(false)
+
+  useEffect(() => {
+    if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); return }
+    let cancelled = false
+    setLoadingPayslipAtt(true)
+    const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
+    sb.from('attendance').select('date,check_in_time,check_out_time')
+      .eq('employee_id', payslipRecord.employee_id)
+      .gte('date', monthStart).lte('date', monthEnd)
+      .then(({ data }) => {
+        if (cancelled) return
+        setPayslipAttStats(computeAttendanceStats(data || []))
+        setLoadingPayslipAtt(false)
+      })
+    return () => { cancelled = true }
+  }, [payslipRecord?.employee_id, selectedMonth?.id])
   // ✅ الموظف المحدد حالياً في الجدول (لتمييزه بلون مختلف)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
-  // ✅ ارتفاع صف الهيدر الأول الحقيقي (بيتقاس فعلياً من DOM، مش رقم ثابت مخمّن) — عشان صف الهيدر الثاني
+  // ✅ ارتفاع صف الهيدر الأول الحقيقي (بيتقاس فعلياً من DOM، ليس رقم ثابت مخمّن) — لكي صف الهيدر الثاني
   // يتثبّت تحته بالظبط بدون أي تراكب، مهما اختلف حجم الخط أو التفاف النص
   const headerRow1Ref = useRef<HTMLTableRowElement>(null)
   const [headerRow1H, setHeaderRow1H] = useState(31)
@@ -528,14 +595,14 @@ export default function PayrollPage() {
       setEmployees(emps)
     }
 
-    // ✅ حساب بداية ونهاية الشهر أولاً عشان نقدر نستخدمهم في الفلترة
+    // ✅ حساب بداية ونهاية الشهر أولاً لكي نقدر نستخدمهم في الفلترة
     const monthStart = `${month.year}-${String(month.month).padStart(2,'0')}-01`
-    // ✅ لازم نستخدم Date.UTC هنا بدل new Date() العادي — عشان الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي
+    // ✅ لازم نستخدم Date.UTC هنا بدل new Date() العادي — لكي الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي
     // (لو اتحسب بالتوقيت المحلي وبعدين اتحول لـ UTC، ممكن يقتطع آخر يوم في الشهر ويفوّت بيانات حضور/تأخير حقيقية)
     const monthEnd   = new Date(Date.UTC(month.year, month.month, 0)).toISOString().split('T')[0]
 
-    // ✅ فلتر موظفي الفرع المختار + استبعاد أي موظف كان متوقف بالكامل قبل بداية الشهر ده
-    // (لو اتوقف جوه الشهر نفسه، بيفضل ظاهر عشان راتبه المتناسب لحد يوم التوقف)
+    // ✅ فلتر موظفي الفرع المختار + استبعاد أي موظف كان متوقف بالكامل قبل بداية هذا الشهر
+    // (لو اتوقف داخل الشهر نفسه، بيفضل ظاهر لكي راتبه المتناسب لحد يوم التوقف)
     const filteredEmps = emps.filter(e => {
       if (branch && e.branch_id !== branch.id) return false
       if (e.deactivated_at && e.deactivated_at < monthStart) return false
@@ -600,7 +667,7 @@ export default function PayrollPage() {
     const existingIds = existing.map((r: any) => r.employee_id)
     const missing     = filteredEmps.filter(e => !existingIds.includes(e.id)).map(e => emptyRecord(month.id, e))
 
-    // دمج المخالفات والغياب — دائماً بتحسب من الجداول مش من DB
+    // دمج المخالفات والغياب — دائماً بتحسب من الجداول ليس من DB
     const allRecords = [...existing, ...missing].map((r: any) => {
       const emp = filteredEmps.find(e => e.id === r.employee_id)
       // ✅ تناسب الراتب حسب تاريخ إيقاف الموظف (لو موجود) ومقارنته بشهر الجرد الحالي
@@ -738,19 +805,41 @@ export default function PayrollPage() {
     <title>Payslip - ${emp?.name || ''} - ${monthName} ${selectedMonth.year}</title>
     <style>${PAYSLIP_PRINT_STYLE}</style>
     </head><body>
-    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year)}
+    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats)}
     <script>window.onload=function(){window.print()}<\/script>
     </body></html>`)
     win.document.close()
   }
 
-  function printAllPayslips() {
+  async function printAllPayslips() {
     if (!selectedMonth) return
     const monthName = MONTHS[selectedMonth.month - 1]
     const win = window.open('', '_blank')
     if (!win) return
+
+    // ✅ نجيب بصمة كل الموظفين مرة واحدة (Pagination-safe) بدل ما نستعلم لكل موظف لوحده
+    const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
+    const PAGE_SIZE = 1000
+    let attRows: { employee_id: string; date: string; check_in_time: string | null; check_out_time: string | null }[] = []
+    let page = 0
+    while (true) {
+      const { data } = await sb.from('attendance')
+        .select('employee_id,date,check_in_time,check_out_time')
+        .gte('date', monthStart).lte('date', monthEnd)
+        .order('id').range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+      if (!data || data.length === 0) break
+      attRows = attRows.concat(data)
+      if (data.length < PAGE_SIZE) break
+      page++
+    }
+    const attByEmp: Record<string, typeof attRows> = {}
+    for (const a of attRows) {
+      if (!attByEmp[a.employee_id]) attByEmp[a.employee_id] = []
+      attByEmp[a.employee_id].push(a)
+    }
+
     const allHTML = visibleRecords.filter(r => empMap[r.employee_id]).map(r =>
-      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year)
+      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []))
     ).join('')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Payslips - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>
@@ -772,7 +861,7 @@ export default function PayrollPage() {
 
   const visibleRecords = useMemo(() => {
     if (isAdmin) return filteredRecords
-    // مدير قسم — يشوف رواتب موظفين قسمه بس مش راتبه هو
+    // مدير قسم — يشوف رواتب موظفين قسمه بس ليس راتبه هو
     const managerRoles = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager']
     if (managerRoles.includes(currentUser?.role || '')) return filteredRecords.filter(r => r.employee_id !== currentUser?.id)
     // موظف عادي — يشوف راتبه بس
@@ -831,10 +920,13 @@ export default function PayrollPage() {
   const thGroupStyle = (color: string): React.CSSProperties => ({ ...thStyle, background: solidOver(color), fontSize: 9 })
   // ✅ نسخة من thStyle لصف الهيدر الثاني — نفس الشكل بالظبط، بس تثبيتها الرأسي يبدأ من تحت الصف الأول (بالارتفاع المقاس فعلياً)
   const thStyleRow2: React.CSSProperties = { ...thStyle, top: headerRow1H }
-  // ✅ رؤوس الأعمدة المثبّتة أفقياً أيضاً (ID / Name) — zIndex أعلى عشان تفضل فوق باقي الرؤوس والصفوف وقت التمرير الأفقي
-  const stickyIdHeaderStyle: React.CSSProperties = { ...thStyleRow2, position: 'sticky', right: 0, zIndex: 20, width: ID_COL_W, minWidth: ID_COL_W }
-  const stickyNameHeaderStyle: React.CSSProperties = { ...thStyleRow2, position: 'sticky', right: ID_COL_W, zIndex: 20, width: NAME_COL_W, minWidth: NAME_COL_W }
-  const stickyGroupHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: 0, zIndex: 20, width: ID_COL_W + NAME_COL_W, minWidth: ID_COL_W + NAME_COL_W }
+  // ✅ رؤوس الأعمدة المثبّتة أفقياً أيضاً (ID / Name) — zIndex أعلى لكي تفضل فوق باقي الرؤوس والصفوف وقت التمرير الأفقي
+  // ✅ نفس منطق تصغير عرض العمودين على الموبايل المستخدم في PayrollRow، لكي الهيدر يطابق الصفوف بالظبط
+  const headerIdColW = isMobile ? 46 : ID_COL_W
+  const headerNameColW = isMobile ? 120 : NAME_COL_W
+  const stickyIdHeaderStyle: React.CSSProperties = { ...thStyleRow2, position: 'sticky', right: 0, zIndex: 20, width: headerIdColW, minWidth: headerIdColW }
+  const stickyNameHeaderStyle: React.CSSProperties = { ...thStyleRow2, position: 'sticky', right: headerIdColW, zIndex: 20, width: headerNameColW, minWidth: headerNameColW }
+  const stickyGroupHeaderStyle: React.CSSProperties = { ...thStyle, position: 'sticky', right: 0, zIndex: 20, width: headerIdColW + headerNameColW, minWidth: headerIdColW + headerNameColW }
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   // حماية الصفحة — أي شخص يحاول الوصول يشوف راتبه فقط
@@ -866,34 +958,51 @@ export default function PayrollPage() {
       `}</style>
 
       {/* HEADER */}
-      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: isMobile ? '10px 14px' : '0 24px', display: 'flex', alignItems: 'center', height: isMobile ? 'auto' : 60, gap: isMobile ? 8 : 16, flexWrap: 'wrap' }}>
-        <h1 style={{ fontSize: isMobile ? 15 : 18, fontWeight: 900, color: S.gold }}>💰 Payroll Management</h1>
-        {selectedMonth && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, marginLeft: isMobile ? 0 : 'auto', flexWrap: 'wrap', width: isMobile ? '100%' : undefined }}>
-            <span style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>
+      <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: isMobile ? '12px 14px' : '0 24px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', height: isMobile ? 'auto' : 60, gap: isMobile ? 12 : 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: 10 }}>
+          <h1 style={{ fontSize: isMobile ? 15 : 18, fontWeight: 900, color: S.gold, margin: 0 }}>💰 Payroll Management</h1>
+          {isMobile && selectedMonth && (
+            <span style={{ fontSize: 11, color: S.white, fontWeight: 700, whiteSpace: 'nowrap' }}>
               {MONTHS[selectedMonth.month - 1]} {selectedMonth.year}
-              {selectedBranch && <span style={{ color: S.gold, marginRight: 8 }}> — {selectedBranch.name}</span>}
             </span>
-            <span style={{ background: selectedMonth.status === 'finalized' ? S.greenB : S.amberB, color: selectedMonth.status === 'finalized' ? S.green : S.amber, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>
+          )}
+        </div>
+        {selectedMonth && (
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 10, marginLeft: isMobile ? 0 : 'auto', width: isMobile ? '100%' : undefined }}>
+            {/* الشهر + حالة Draft/Finalized — على الموبايل الشهر ظاهر أصلاً فوق جنب العنوان، فهنا بنعرض البادچ بس */}
+            {!isMobile && (
+              <span style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>
+                {MONTHS[selectedMonth.month - 1]} {selectedMonth.year}
+                {selectedBranch && <span style={{ color: S.gold, marginRight: 8 }}> — {selectedBranch.name}</span>}
+              </span>
+            )}
+            <span style={{ background: selectedMonth.status === 'finalized' ? S.greenB : S.amberB, color: selectedMonth.status === 'finalized' ? S.green : S.amber, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700, alignSelf: isMobile ? 'flex-start' : undefined }}>
               {selectedMonth.status === 'finalized' ? '✅ Finalized' : '📝 Draft'}
             </span>
-            <input style={{ ...inp, width: isMobile ? '100%' : 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
-            <button
-              onClick={() => loadMonthRecords(selectedMonth, selectedBranch)}
-              title="إعادة سحب البيانات من جداول الحضور/المخالفات/الغياب من جديد (مفيد بعد أي تعديل في صفحة الحضور)"
-              style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}
-            >🔄 Refresh</button>
-            <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>🖨️ Print Sheet</button>
-            <button onClick={printAllPayslips} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>📄 Print All Payslips</button>
-            {isAdmin && selectedMonth.status !== 'finalized' && (
-              <>
-                <button onClick={saveAll} disabled={saving} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>
-                  {saving ? '⏳...' : saved ? '✅ Saved!' : '💾 Save'}
-                </button>
-                <button onClick={finalizeMonth} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 1 : undefined }}>🔒 Finalize</button>
-              </>
+            {isMobile && selectedBranch && (
+              <span style={{ fontSize: 12, color: S.gold }}>{selectedBranch.name}</span>
             )}
-            <button onClick={() => { setSelectedMonth(null); setSelectedBranch(null) }} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', flex: isMobile ? 1 : undefined }}>← Back</button>
+            <input style={{ ...inp, width: isMobile ? '100%' : 180, fontSize: 12 }} placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} />
+
+            {/* ✅ الأزرار: Grid منظّم بعمودين على الموبايل بدل flex-wrap العشوائي، صف واحد على الديسكتوب */}
+            <div style={{ display: isMobile ? 'grid' : 'flex', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : undefined, gap: isMobile ? 8 : 10 }}>
+              <button
+                onClick={() => loadMonthRecords(selectedMonth, selectedBranch)}
+                title="إعادة سحب البيانات من جداول الحضور/المخالفات/الغياب من جديد (مفيد بعد أي تعديل في صفحة الحضور)"
+                style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}
+              >🔄 Refresh</button>
+              <button onClick={printPayroll} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Sheet</button>
+              <button onClick={printAllPayslips} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📄 Print All Payslips</button>
+              {isAdmin && selectedMonth.status !== 'finalized' && (
+                <>
+                  <button onClick={saveAll} disabled={saving} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    {saving ? '⏳...' : saved ? '✅ Saved!' : '💾 Save'}
+                  </button>
+                  <button onClick={finalizeMonth} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Finalize</button>
+                </>
+              )}
+              <button onClick={() => { setSelectedMonth(null); setSelectedBranch(null) }} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', gridColumn: isMobile ? '1 / -1' : undefined }}>← Back</button>
+            </div>
           </div>
         )}
       </div>
@@ -1122,10 +1231,11 @@ export default function PayrollPage() {
                         onChange={updated => setRecords(prev => prev.map(p => p.employee_id === updated.employee_id ? updated : p))}
                         selected={r.employee_id === selectedEmployeeId}
                         onSelect={() => setSelectedEmployeeId(prev => prev === r.employee_id ? null : r.employee_id)}
+                        isMobile={isMobile}
                       />
                     ))}
                     <tr style={{ background: 'rgba(201,168,76,0.15)', fontWeight: 800 }}>
-                      <td colSpan={2} style={{ padding: '10px 8px', border: `1px solid ${S.border}`, color: S.gold, fontSize: 13, textAlign: 'center', position: 'sticky', right: 0, zIndex: 5, width: ID_COL_W + NAME_COL_W, minWidth: ID_COL_W + NAME_COL_W, background: TOTAL_ROW_BG }}>TOTAL</td>
+                      <td colSpan={2} style={{ padding: '10px 8px', border: `1px solid ${S.border}`, color: S.gold, fontSize: 13, textAlign: 'center', position: 'sticky', right: 0, zIndex: 5, width: headerIdColW + headerNameColW, minWidth: headerIdColW + headerNameColW, background: TOTAL_ROW_BG }}>TOTAL</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.basicSalary)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.insurance)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12, color: S.muted }}>—</td>
@@ -1229,6 +1339,22 @@ export default function PayrollPage() {
                     <span>مدفوع: {fmt2(payslipRecord.amount_paid)}</span>
                     <span>الرصيد: {fmt2((payslipRecord.amount_due || c.amountDue) - payslipRecord.amount_paid)}</span>
                   </div>
+                </div>
+
+                {/* ✅ ملخص البصمة — أيام البصمة، أعلى وأقل يوم حضور */}
+                <div style={{ marginTop: 18, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 12, padding: '14px 18px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: S.blue, marginBottom: 10 }}>🕒 ملخص البصمة</div>
+                  {loadingPayslipAtt ? (
+                    <div style={{ fontSize: 12, color: S.muted }}>⏳ جاري التحميل...</div>
+                  ) : payslipAttStats && payslipAttStats.checkinDays > 0 ? (
+                    <>
+                      <div style={rowStyle}><span style={{ color: S.muted }}>أيام البصمة</span><span>{payslipAttStats.checkinDays} يوم</span></div>
+                      <div style={rowStyle}><span style={{ color: S.muted }}>أعلى يوم حضور</span><span>{payslipAttStats.maxDay ? `${payslipAttStats.maxDay.date} (${fmtDuration(payslipAttStats.maxDay.minutes)})` : '—'}</span></div>
+                      <div style={{ ...rowStyle, borderBottom: 'none' }}><span style={{ color: S.muted }}>أقل يوم حضور</span><span>{payslipAttStats.minDay ? `${payslipAttStats.minDay.date} (${fmtDuration(payslipAttStats.minDay.minutes)})` : '—'}</span></div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: S.muted }}>لا توجد بصمة مسجّلة لهذا الموظف في هذا الشهر.</div>
+                  )}
                 </div>
               </div>
 

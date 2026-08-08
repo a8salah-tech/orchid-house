@@ -88,7 +88,7 @@ function MyAttendanceCard() {
   const [locError,  setLocError]  = useState('')
   const [history,   setHistory]   = useState<AttendanceRecord[]>([])
   const [clock,     setClock]     = useState(new Date())
-  const [hasShiftToday, setHasShiftToday] = useState(true) // افتراضي true لحد ما نتأكد، عشان مانوقفش الزرار بالغلط وقت التحميل
+  const [hasShiftToday, setHasShiftToday] = useState(true) // افتراضي true لحد ما نتأكد، لكي مانوقفش الزرار بالغلط وقت التحميل
   const [justCheckedIn, setJustCheckedIn] = useState(false) // فترة تأخير قصيرة بعد نجاح Check In لمنع ضغطة متتالية سريعة على نفس مكان الزر
 
   useEffect(() => {
@@ -181,7 +181,7 @@ function MyAttendanceCard() {
         setChecking(false); return
       }
 
-      // ✅ Fix v2: منع تسجيل دخول جديد لو لسه فيه شيفت مفتوح (لم يسجل خروج منه)
+      // ✅ Fix v2: منع تسجيل دخول جديد لو بعد فيه شيفت مفتوح (لم يسجل خروج منه)
       const { data: stillOpen } = await sb.from('attendance')
         .select('id, date')
         .eq('employee_id', employee.id)
@@ -224,7 +224,7 @@ function MyAttendanceCard() {
           const crossesMidnight = (eh * 60 + (em||0)) <= (sh * 60)
           if (crossesMidnight) {
             const endToday = new Date(); endToday.setHours(eh, em || 0, 0, 0)
-            // لو لسه قبل وقت انتهاء شيفت أمس (يعني نحن في الجزء الممتد لما بعد منتصف الليل)، استخدم شيفت أمس بدل اليوم
+            // لو بعد قبل وقت انتهاء شيفت أمس (يعني نحن في الجزء الممتد لما بعد منتصف الليل)، استخدم شيفت أمس بدل اليوم
             if (now_time.getTime() < endToday.getTime() && !schToday) {
               schData = schYesterday
             }
@@ -242,7 +242,7 @@ function MyAttendanceCard() {
           shiftStart.setHours(h, m, 0, 0)
         }
       }
-      // لو مفيش شيفت، نستخدم 9 صباحاً كـ default
+      // لو لا توجد شيفت، نستخدم 9 صباحاً كـ default
       if (!shiftStart) { shiftStart = new Date(); shiftStart.setHours(9, 0, 0, 0) }
       const diffMins = Math.floor((now_time.getTime() - shiftStart.getTime()) / 60000)
       // grace period 10 دقيقة — لو أتأخر أكتر من 10 دقائق يحتسب متأخر
@@ -492,7 +492,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [reportMonth,  setReportMonth]  = useState(new Date().toISOString().slice(0, 7))
   const [reportData,   setReportData]   = useState<any[]>([])
   const [loadingReport, setLoadingReport] = useState(false)
-  // ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل (لتصحيح سجلات قديمة زي شهر يوليو)
+  // ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل (لتصحيح سجلات قديمة مثل شهر يوليو)
   const [recalcMonth, setRecalcMonth] = useState(new Date().toISOString().slice(0, 7))
   const [recalculating, setRecalculating] = useState(false)
   const [recalcProgress, setRecalcProgress] = useState<{ done: number; total: number } | null>(null)
@@ -513,7 +513,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [confirmingAbsence, setConfirmingAbsence] = useState(false)
   const [hasRunDetection, setHasRunDetection] = useState(false)
 
-  // ✅ جديد: كشف الموبايل عشان نظبط تنسيق الشبكات والأزرار
+  // ✅ جديد: كشف الموبايل لكي نظبط تنسيق الشبكات والأزرار
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 860)
@@ -556,7 +556,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (!reportEmp) return
     setLoadingReport(true)
     const startDate = `${reportMonth}-01`
-    // ✅ Date.UTC بدل new Date() العادي — عشان الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي (نفس باج monthEnd في صفحة الرواتب)
+    // ✅ Date.UTC بدل new Date() العادي — لكي الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي (نفس باج monthEnd في صفحة الرواتب)
     const [ry, rm] = reportMonth.split('-').map(Number)
     const endStr = new Date(Date.UTC(ry, rm, 1)).toISOString().split('T')[0]
 
@@ -601,14 +601,14 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
   // إحصائيات الفروع
   const isAdminView = ['admin','branch_manager'].includes(empInfo?.role || '')
-  // ✅ جديد: الأدمن بس (مش مدير فرع) يقدر يحذف/يصحح سجلات الحضور
+  // ✅ جديد: الأدمن بس (ليس مدير فرع) يقدر يحذف/يصحح سجلات الحضور
   const isAdmin = empInfo?.role === 'admin'
 
   // ✅ جديد: تعديل وقت الدخول/الخروج مباشرة (بدل المسح بس)
   const [editingCell, setEditingCell] = useState<{ recordId: string; field: 'check_in_time' | 'check_out_time' } | null>(null)
   const [editValue, setEditValue] = useState('')
 
-  // تحويل وقت ISO لصيغة datetime-local (بتوقيت ماليزيا UTC+8، زي باقي النظام)
+  // تحويل وقت ISO لصيغة datetime-local (بتوقيت ماليزيا UTC+8، مثل باقي النظام)
   function toDatetimeLocal(iso?: string) {
     if (!iso) return ''
     const d = new Date(iso)
@@ -622,7 +622,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   }
 
   // ✅ يحسب دقايق التأخير وحالة الحضور (late/present) بمقارنة وقت الدخول الفعلي بموعد بداية الشيفت المجدول لنفس اليوم،
-  // بنفس منطق تسجيل الدخول الذاتي بالظبط (grace period 10 دقايق). بنستخدمها هنا عشان أي تصحيح يدوي أو إضافة يدوية
+  // بنفس منطق تسجيل الدخول الذاتي بالظبط (grace period 10 دقايق). بنستخدمها هنا لكي أي تصحيح يدوي أو إضافة يدوية
   // لوقت الدخول تُعيد حساب التأخير صح، بدل ما تفضل قيمة late_minutes قديمة أو صفر رغم إن الوقت الفعلي متأخر
   async function computeLateInfo(employeeId: string, dateStr: string, checkInIso: string): Promise<{ status: string; late_minutes: number }> {
     const { data: sch } = await sb.from('shift_schedules')
@@ -637,10 +637,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (startStr) {
       const [h, m] = startStr.split(':').map(Number)
       // ✅ نفس منطق تحويل التوقيت المحلي (ماليزيا UTC+8) المستخدم في باقي الصفحة — الحساب يفضل صح
-      // بغض النظر عن التايم زون بتاع جهاز الأدمن اللي بيعدّل السجل
+      // بغض النظر عن التايم زون الخاص بـ جهاز الأدمن الذي بيعدّل السجل
       shiftStartMs = Date.UTC(y, mo - 1, d, h, m, 0) - 8 * 60 * 60 * 1000
     } else {
-      // مفيش شيفت مجدول — نفس الافتراضي المستخدم في تسجيل الدخول الذاتي (9 صباحاً)
+      // لا توجد شيفت مجدول — نفس الافتراضي المستخدم في تسجيل الدخول الذاتي (9 صباحاً)
       shiftStartMs = Date.UTC(y, mo - 1, d, 9, 0, 0) - 8 * 60 * 60 * 1000
     }
 
@@ -649,20 +649,20 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     return { status, late_minutes: status === 'late' ? diffMins : 0 }
   }
 
-  // ✅ إعادة حساب دقايق التأخير لكل موظفين الشركة في شهر كامل بأثر رجعي — لتصحيح سجلات قديمة (زي يوليو) كانت
+  // ✅ إعادة حساب دقايق التأخير لكل موظفين الشركة في شهر كامل بأثر رجعي — لتصحيح سجلات قديمة (مثل يوليو) كانت
   // اتسجّلت أو اتعدّلت يدوياً قبل ما نضيف الحساب التلقائي، وكانت late_minutes فيها 0 أو غلط رغم إن الموظف اتأخر فعلاً
   async function recalcMonthLateMinutes() {
-    if (!confirm(`⚠️ هل أنت متأكد من إعادة حساب دقايق التأخير لكل الموظفين في شهر ${recalcMonth}؟\n\nهيتم تحديث كل سجل حضور فيه وقت دخول مسجّل بمقارنته بموعد الشيفت المجدول.`)) return
+    if (!confirm(`⚠️ هل أنت متأكد من إعادة حساب دقايق التأخير لكل الموظفين في شهر ${recalcMonth}؟\n\nسيتم تحديث كل سجل حضور فيه وقت دخول مسجّل بمقارنته بموعد الشيفت المجدول.`)) return
     setRecalculating(true)
     setRecalcProgress(null)
     try {
       const startDate = `${recalcMonth}-01`
-      // ✅ Date.UTC بدل new Date() العادي — نفس تصحيح باج التوقيت المحلي اللي عملناه في صفحة الرواتب و loadReport
+      // ✅ Date.UTC بدل new Date() العادي — نفس تصحيح باج التوقيت المحلي الذي عملناه في صفحة الرواتب و loadReport
       const [ry, rm] = recalcMonth.split('-').map(Number)
       const endDate = new Date(Date.UTC(ry, rm, 1)).toISOString().slice(0, 10)
 
       // ✅ Supabase بيحدّ أي select بـ 1000 صف كحد أقصى افتراضياً — لازم نسحب على دفعات (Pagination)
-      // عشان نضمن إننا هنجيب كل السجلات فعلاً، مش أول 1000 بس (خطر جداً مع أكتر من 200 موظف × 31 يوم)
+      // لكي نضمن إننا سنحضر كل السجلات فعلاً، ليس أول 1000 بس (خطر جداً مع أكتر من 200 موظف × 31 يوم)
       const PAGE_SIZE = 1000
       let monthRecords: { id: string; employee_id: string; date: string; check_in_time: string | null }[] = []
       let page = 0
@@ -681,7 +681,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         page++
       }
 
-      if (monthRecords.length === 0) { alert(`مفيش سجلات حضور فيها وقت دخول في شهر ${recalcMonth}.`); return }
+      if (monthRecords.length === 0) { alert(`لا توجد سجلات حضور فيها وقت دخول في شهر ${recalcMonth}.`); return }
 
       setRecalcProgress({ done: 0, total: monthRecords.length })
       let updated = 0
@@ -693,7 +693,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         setRecalcProgress({ done: i + 1, total: monthRecords.length })
       }
 
-      alert(`✅ تم تحديث ${updated} من أصل ${monthRecords.length} سجل حضور لشهر ${recalcMonth}.\nراجع صفحة الرواتب للشهر ده تاني عشان الخصومات تتحدث معاها.`)
+      alert(`✅ تم تحديث ${updated} من أصل ${monthRecords.length} سجل حضور لشهر ${recalcMonth}.\nراجع صفحة الرواتب للشهر هذا تاني لكي الخصومات تتحدث معاها.`)
       if (tab === 'report' && reportEmp) loadReport()
       fetchData()
     } finally {
@@ -705,7 +705,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   // ✅ كشف الغياب التلقائي: بيقارن كل يوم كان فيه شيفت مجدول للموظف (shift_schedules, status='confirmed')
   // بسجلات الحضور الفعلية (attendance مع check_in_time)، وبيستبعد أي يوم اتسجل غياب له بالفعل في جدول absences
   // ✅ فحص صحة الحضور: بيحسب لكل موظف عدد أيام الشيفت المجدولة، عدد أيام الحضور الفعلي، وآخر يوم سجّل فيه دخول،
-  // وبيقسّمهم لـ3 مجموعات عشان نفرّق بين "مشكلة تقنية في التطبيق" و"موظف سايب الشغل فعلاً" و"نمط طبيعي"
+  // وبيقسّمهم لـ3 مجموعات لكي نفرّق بين "مشكلة تقنية في التطبيق" و"موظف سايب الشغل فعلاً" و"نمط طبيعي"
   async function runAttendanceHealthCheck() {
     setCheckingHealth(true)
     setHasRunHealth(false)
@@ -762,7 +762,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
       const scheduledByEmp: Record<string, string[]> = {}
       for (const s of schedules) {
-        if (!s.shift_id && !s.custom_start) continue // يوم إجازة، مش شيفت فعلي
+        if (!s.shift_id && !s.custom_start) continue // يوم إجازة، ليس شيفت فعلي
         const d = String(s.date).slice(0, 10)
         if (!scheduledByEmp[s.employee_id]) scheduledByEmp[s.employee_id] = []
         scheduledByEmp[s.employee_id].push(d)
@@ -774,7 +774,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         const attended = attendedByEmp[employeeId] || new Set<string>()
         const attendedDays = scheduledDates.filter(d => attended.has(d)).length
         const missingDays = scheduledDates.length - attendedDays
-        if (missingDays <= 5) continue // فرق بسيط جداً — مش محتاج مراجعة
+        if (missingDays <= 5) continue // فرق بسيط جداً — ليس يحتاج إلى مراجعة
         const lastCheckin = attended.size > 0 ? Array.from(attended).sort().slice(-1)[0] : null
         const emp = empMap[employeeId]
         rows.push({
@@ -809,12 +809,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       const startDate = `${absenceMonth}-01`
       const [ay, am] = absenceMonth.split('-').map(Number)
       const monthEnd = new Date(Date.UTC(ay, am, 1)).toISOString().slice(0, 10)
-      // ✅ لازم نستبعد أي يوم لسه ماجاش (مستقبلي)، وإلا أي شيفت مجدول قدّام هيظهر "غايب" غلط
-      // لمجرد إن اليوم ده أصلاً لسه ماحصلش، مش لأن حد غايب فعلاً
+      // ✅ لازم نستبعد أي يوم بعد ماجاش (مستقبلي)، وإلا أي شيفت مجدول قدّام هيظهر "غايب" غلط
+      // لمجرد إن اليوم هذا أصلاً بعد ماحصلش، ليس لأن حد غايب فعلاً
       const todayStr = new Date().toISOString().slice(0, 10)
       const endDate = monthEnd < todayStr ? monthEnd : todayStr
 
-      // ✅ سحب على دفعات (Pagination) — نفس درس الـ1000 صف اللي اتعلمناه قبل كده
+      // ✅ سحب على دفعات (Pagination) — نفس درس الـ1000 صف الذي اتعلمناه قبل كذلك
       async function fetchAllPaged<T>(build: (from: number, to: number) => any): Promise<T[]> {
         const PAGE_SIZE = 1000
         let all: T[] = []
@@ -855,7 +855,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
       const attendedSet = new Set(attendanceRows.map(a => `${a.employee_id}|${String(a.date).slice(0, 10)}`))
       const absentAlreadySet = new Set(existingAbsences.map(a => `${a.employee_id}|${String(a.date).slice(0, 10)}`))
-      // ✅ لازم نجيب كل الموظفين (مش بس الأكتيف زي state الرئيسية) عشان الأسماء تبان صح،
+      // ✅ لازم نجيب كل الموظفين (ليس بس الأكتيف مثل state الرئيسية) لكي الأسماء تبان صح،
       // وعشان نقدر نميّز موظف غير أكتيف بدل ما يظهر "—" غامض
       const { data: allEmpsData } = await sb.from('employees').select('id,name,name_en,employee_number,is_active')
       const empMap: Record<string, { name: string; name_en?: string; employee_number: string; is_active: boolean }> = {}
@@ -863,8 +863,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
       const missing: typeof missingRows = []
       for (const s of schedules) {
-        // ✅ صف بدون shift_id وبدون custom_start = يوم إجازة/بدون شيفت فعلي (مش التزام حضور حقيقي)،
-        // نفس المنطق اللي شاشة "جدول الموظف" بتستخدمه لتمييز الإجازة — نستبعده هنا عشان مايتحسبش غياب
+        // ✅ صف بدون shift_id وبدون custom_start = يوم إجازة/بدون شيفت فعلي (ليس التزام حضور حقيقي)،
+        // نفس المنطق الذي شاشة "جدول الموظف" بتستخدمه لتمييز الإجازة — نستبعده هنا لكي مايتحسبش غياب
         if (!s.shift_id && !s.custom_start) continue
         const dateStr = String(s.date).slice(0, 10)
         const key = `${s.employee_id}|${dateStr}`
@@ -882,8 +882,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       }
       missing.sort((a, b) => a.date.localeCompare(b.date) || a.empName.localeCompare(b.empName))
       setMissingRows(missing)
-      // ✅ مفيش تحديد تلقائي — الأدمن لازم يراجع ويحدد يدوياً، خصوصاً إن الأعداد ممكن تطلع كبيرة جداً
-      // لو فيه فجوة في استخدام تسجيل الدخول (مش كل "مفيش check-in" معناه غياب فعلي)
+      // ✅ لا توجد تحديد تلقائي — الأدمن لازم يراجع ويحدد يدوياً، خصوصاً إن الأعداد ممكن تطلع كبيرة جداً
+      // لو فيه فجوة في استخدام تسجيل الدخول (ليس كل "لا توجد check-in" معناه غياب فعلي)
       setSelectedMissing(new Set())
       setHasRunDetection(true)
     } catch (err: any) {
@@ -901,11 +901,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     })
   }
 
-  // ✅ يحفظ الحالات المحددة فعلياً كسجلات غياب في جدول absences (status='active' عشان صفحة الرواتب تحسبها)
+  // ✅ يحفظ الحالات المحددة فعلياً كسجلات غياب في جدول absences (status='active' لكي صفحة الرواتب تحسبها)
   async function confirmSelectedAbsences() {
     const rows = missingRows.filter(m => selectedMissing.has(`${m.employee_id}|${m.date}`))
-    if (rows.length === 0) { alert('مفيش حالات محددة.'); return }
-    if (!confirm(`⚠️ هل أنت متأكد من تسجيل ${rows.length} يوم غياب؟ هيتم خصمهم في صفحة الرواتب.`)) return
+    if (rows.length === 0) { alert('لا توجد حالات محددة.'); return }
+    if (!confirm(`⚠️ هل أنت متأكد من تسجيل ${rows.length} يوم غياب؟ سيتم خصمهم في صفحة الرواتب.`)) return
     setConfirmingAbsence(true)
     try {
       const payload = rows.map(r => ({
@@ -942,7 +942,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     const localDate = new Date(editValue + ':00')
     const utcIso = new Date(localDate.getTime() - 8 * 60 * 60 * 1000).toISOString()
     const updatePayload: Record<string, any> = { [editingCell.field]: utcIso }
-    // ✅ لو بنعدّل وقت الدخول تحديداً، لازم نعيد حساب التأخير كمان — وإلا هيفضل الرقم القديم غلط حتى بعد التصحيح
+    // ✅ لو بنعدّل وقت الدخول تحديداً، لازم نعيد حساب التأخير كذلك — وإلا سيبقى الرقم القديم غلط حتى بعد التصحيح
     if (editingCell.field === 'check_in_time') {
       const rec = records.find(r => r.id === editingCell.recordId)
       if (rec) {
@@ -975,14 +975,14 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     fetchData()
   }
 
-  // ✅ جديد: إنشاء سجل حضور من الصفر لموظف غائب (مالوش أي سجل خالص لليوم ده) - للأدمن بس
+  // ✅ جديد: إنشاء سجل حضور من الصفر لموظف غائب (مالوش أي سجل على الإطلاق لليوم هذا) - للأدمن بس
   const [addingAttendanceFor, setAddingAttendanceFor] = useState<string | null>(null)
   const [addCheckIn, setAddCheckIn] = useState('')
   const [addCheckOut, setAddCheckOut] = useState('')
 
   function startAddingAttendance(empId: string) {
     setAddingAttendanceFor(empId)
-    // ✅ نبدّئ بوقت افتراضي معقول (بداية اليوم المختار الساعة 9 صباحًا) عشان يسهّل الإدخال، قابل للتعديل طبعًا
+    // ✅ نبدّئ بوقت افتراضي معقول (بداية اليوم المختار الساعة 9 صباحًا) لكي يسهّل الإدخال، قابل للتعديل طبعًا
     setAddCheckIn(`${date}T09:00`)
     setAddCheckOut('')
   }
@@ -1026,7 +1026,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const presentDays    = reportData.filter(r => r.check_in_time && r.status !== 'absent').length
   const absentDays     = reportData.filter(r => r.status === 'absent').length
   const lateDays       = reportData.filter(r => r.status === 'late').length
-  // ✅ إجمالي دقايق التأخير الفعلية على مدار الشهر كله (مش بس عدد الأيام المتأخرة)
+  // ✅ إجمالي دقايق التأخير الفعلية على مدار الشهر كله (ليس بس عدد الأيام المتأخرة)
   const totalLateMins  = reportData.reduce((s, r) => s + (r.late_minutes || 0), 0)
   const dailyRate      = reportEmployee?.salary ? reportEmployee.salary / 30 : 0
   const earnedSalary   = dailyRate * presentDays
@@ -1432,7 +1432,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🔍 كشف الغياب التلقائي</div>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 14, lineHeight: 1.7 }}>
               بيقارن كل يوم كان فيه شيفت مجدول للموظف بسجلات الحضور الفعلية، ويستبعد أي يوم اتسجّل غياب له بالفعل.
-              النتيجة قايمة مراجعة فقط — <b style={{ color: S.red }}>مفيش أي حالة متحددة تلقائياً</b>، اختار يدوياً بس اللي متأكد منه فعلاً قبل ما تأكّد.
+              النتيجة قايمة مراجعة فقط — <b style={{ color: S.red }}>لا توجد أي حالة متحددة تلقائياً</b>، اختار يدوياً بس الذي متأكد منه فعلاً قبل ما تأكّد.
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="month" style={{ ...inp2, width: 160 }} value={absenceMonth} onChange={e => setAbsenceMonth(e.target.value)} disabled={detectingAbsence} />
@@ -1453,15 +1453,15 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
             const inactiveCount = missingRows.length - missingRows.filter(m => m.isActive).length
             return missingRows.length === 0 ? (
               <div style={{ background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 14, padding: 24, textAlign: 'center', color: S.green, fontSize: 13, fontWeight: 700 }}>
-                ✅ مفيش أي غياب غير مسجّل لموظف أكتيف — كل الأيام اللي فيها شيفت مجدول إما اتسجّل فيها حضور أو غياب بالفعل.
-                {inactiveCount > 0 && <div style={{ marginTop: 8, color: S.muted, fontWeight: 400, fontSize: 11 }}>(فيه {inactiveCount} حالة لموظفين غير أكتيف متخفية — فعّل الفلتر تحت لو عايز تشوفهم)</div>}
+                ✅ لا توجد أي غياب غير مسجّل لموظف أكتيف — كل الأيام الذي فيها شيفت مجدول إما اتسجّل فيها حضور أو غياب بالفعل.
+                {inactiveCount > 0 && <div style={{ marginTop: 8, color: S.muted, fontWeight: 400, fontSize: 11 }}>(فيه {inactiveCount} حالة لموظفين غير أكتيف متخفية — فعّل الفلتر تحت لو يريد تشوفهم)</div>}
               </div>
             ) : (
               <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: `1px solid ${S.border}`, flexWrap: 'wrap', gap: 10 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ fontSize: 12, color: S.amber, fontWeight: 700 }}>
-                      ⚠️ {visibleRows.length} حالة محتملة — {selectedMissing.size} محددة دلوقتي
+                      ⚠️ {visibleRows.length} حالة محتملة — {selectedMissing.size} محددة الآن
                     </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: S.muted, cursor: 'pointer' }}>
                       <input type="checkbox" checked={hideInactiveEmps} onChange={e => setHideInactiveEmps(e.target.checked)} />
@@ -1481,7 +1481,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   >{confirmingAbsence ? '⏳ جاري التسجيل...' : `✅ تأكيد ${selectedMissing.size} غياب وتسجيلهم`}</button>
                 </div>
                 {visibleRows.length === 0 ? (
-                  <div style={{ padding: 24, textAlign: 'center', color: S.muted, fontSize: 12 }}>مفيش نتايج مطابقة للبحث.</div>
+                  <div style={{ padding: 24, textAlign: 'center', color: S.muted, fontSize: 12 }}>لا توجد نتايج مطابقة للبحث.</div>
                 ) : (
                 <div style={{ maxHeight: 480, overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1553,7 +1553,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
             const cutoffStr = cutoff.toISOString().slice(0, 10)
 
             const filtered = healthHideInactive ? healthRows.filter(r => r.is_active) : healthRows
-            // ✅ مش كفاية إن آخر تسجيل يكون قريب — لازم كمان نسبة الحضور تكون معقولة، وإلا موظف حضر يومين بس بالصدفة
+            // ✅ ليس كفاية إن آخر تسجيل يكون قريب — لازم كذلك نسبة الحضور تكون معقولة، وإلا موظف حضر يومين بس بالصدفة
             // آخرهم قريب من نهاية الفترة هيتصنّف غلط "نمط طبيعي" رغم إنه فعلياً غياب شبه كامل
             const MIN_ATTENDANCE_RATIO = 0.5
             const isRecent = (r: typeof healthRows[number]) => !!r.lastCheckin && r.lastCheckin >= cutoffStr

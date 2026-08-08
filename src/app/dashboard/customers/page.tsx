@@ -134,6 +134,17 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
   const sb = sbRef.current
   const [bookings, setBookings] = useState<any[]>([])
   const [customerOrders, setCustomerOrders] = useState<any[]>([])
+  // ✅ جديد: عربونات العميل - كل السجل (متاح/مستخدم) + فورم إضافة عربون جديد
+  const [deposits, setDeposits] = useState<any[]>([])
+  const [depAmount, setDepAmount] = useState('')
+  const [depMethod, setDepMethod] = useState<'cash' | 'visa' | 'online'>('cash')
+  const [depCardBank, setDepCardBank] = useState<'maybank' | 'bsn' | ''>('')
+  const [depSaving, setDepSaving] = useState(false)
+
+  const fetchDeposits = useCallback(() => {
+    sb.from('customer_deposits').select('*').eq('customer_id', customer.id).order('created_at', { ascending: false })
+      .then(({ data }) => setDeposits(data || []))
+  }, [sb, customer.id])
 
   useEffect(() => {
     sb.from('bookings').select('*').eq('customer_id', customer.id).order('booking_date', { ascending: false }).limit(10)
@@ -142,6 +153,7 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
     // (بما في ذلك العملاء اللي اتسجلوا من لعبة "مين هيدفع؟" واللي اترتبطوا بالكاشير وقت الدفع)
     sb.from('orders').select('id,total_amount,status,created_at,paid_at,tables(number,name)').eq('customer_id', customer.id).order('created_at', { ascending: false }).limit(10)
       .then(({ data }) => setCustomerOrders(data || []))
+    fetchDeposits()
   }, [customer.id])
 
   async function addPoints(pts: number) {
@@ -150,6 +162,8 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
   }
 
   const thS: React.CSSProperties = { padding: '8px 12px', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, textAlign: 'left' as const }
+  // ✅ جديد: نمط input محلي - مكنش معرّف في نطاق المكوّن ده أصلاً (بس في CustomerModal والمكوّن الرئيسي)
+  const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
   const tdS: React.CSSProperties = { padding: '8px 12px', fontSize: 12, color: S.white, borderBottom: `1px solid ${S.border}` }
 
   return (
@@ -164,11 +178,13 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
         </div>
 
         {/* Info Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
           {[
             { label: 'Total Visits', value: customer.total_visits, color: S.blue, icon: '🍽️' },
             { label: 'Total Spent', value: `MYR ${customer.total_spent.toFixed(2)}`, color: S.gold, icon: '💰' },
             { label: 'Loyalty Points', value: customer.loyalty_points, color: S.green, icon: '🎁' },
+            // ✅ جديد: رصيد العربون المتاح حاليًا (لسه متطبقش على أي فاتورة)
+            { label: 'Deposit Balance', value: `MYR ${deposits.filter(d => d.status === 'available').reduce((s, d) => s + (d.amount || 0), 0).toFixed(2)}`, color: S.teal, icon: '💵' },
           ].map((s, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 12, padding: '14px 16px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
               <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
@@ -205,6 +221,68 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ✅ جديد: تسجيل عربون جديد (Deposit) - بيظهر تلقائيًا في الكاشير لما يبحث برقم تليفون العميل ده */}
+        <div style={{ marginBottom: 16, background: S.card, borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 13, color: S.white, fontWeight: 700, marginBottom: 10 }}>💰 Take New Deposit</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <input type="number" style={{ ...inp, flex: 1 }} placeholder="Amount (MYR)" value={depAmount} onChange={e => setDepAmount(e.target.value)} />
+            <select style={{ ...inp, width: 130 }} value={depMethod} onChange={e => setDepMethod(e.target.value as any)}>
+              <option value="cash">💵 Cash</option>
+              <option value="visa">💳 Visa</option>
+              <option value="online">📱 Online</option>
+            </select>
+          </div>
+          {depMethod === 'visa' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              {[{ k: 'maybank', label: '🏦 Maybank' }, { k: 'bsn', label: '🏦 BSN' }].map(b => (
+                <button key={b.k} onClick={() => setDepCardBank(b.k as any)}
+                  style={{ padding: '8px', borderRadius: 8, border: `1px solid ${depCardBank === b.k ? S.gold : S.border}`, background: depCardBank === b.k ? S.gold3 : 'transparent', color: depCardBank === b.k ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: depCardBank === b.k ? 700 : 400 }}>
+                  {b.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            disabled={depSaving}
+            onClick={async () => {
+              if (!(parseFloat(depAmount) > 0)) { alert('من فضلك اكتب مبلغ صحيح'); return }
+              if (depMethod === 'visa' && !depCardBank) { alert('من فضلك حدد البنك (Maybank / BSN)'); return }
+              setDepSaving(true)
+              const { error } = await sb.from('customer_deposits').insert([{
+                customer_id: customer.id,
+                amount: parseFloat(depAmount),
+                status: 'available',
+                payment_method: depMethod,
+                card_bank: depMethod === 'visa' ? depCardBank : null,
+              }])
+              setDepSaving(false)
+              if (error) { alert('⚠️ Failed to save deposit: ' + error.message); return }
+              setDepAmount(''); setDepCardBank('')
+              fetchDeposits()
+            }}
+            style={{ width: '100%', padding: 9, borderRadius: 8, border: 'none', background: S.teal, color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: depSaving ? 0.6 : 1 }}>
+            {depSaving ? '⏳...' : '➕ Add Deposit'}
+          </button>
+
+          {/* سجل كل العربونات - متاح ومستخدم */}
+          {deposits.length > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${S.border}` }}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, fontWeight: 700 }}>Deposit History</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {deposits.map(d => (
+                  <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                    <span style={{ color: S.white }}>
+                      {d.status === 'available' ? '🟢' : d.status === 'used' ? '⚪' : '🔴'} {d.payment_method}{d.card_bank ? ` (${d.card_bank})` : ''}
+                      <span style={{ color: S.muted, fontSize: 10 }}> · {new Date(d.created_at).toLocaleDateString('en-GB')}</span>
+                    </span>
+                    <span style={{ color: d.status === 'available' ? S.teal : S.muted, fontWeight: 700 }}>MYR {(d.amount || 0).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Order History */}
@@ -275,6 +353,8 @@ export default function CustomersPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null)
+  // ✅ جديد: مجموعة IDs بتاعة العملاء اللي عندهم رصيد عربون متاح - لعرض شارة سريعة في القائمة الرئيسية
+  const [depositCustomerIds, setDepositCustomerIds] = useState<Set<string>>(new Set())
 
   const fetchCustomers = useCallback(async () => {
     const { data } = await sb.from('customers').select('*').order('created_at', { ascending: false })
@@ -282,7 +362,13 @@ export default function CustomersPage() {
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { fetchCustomers() }, [fetchCustomers])
+  // ✅ جديد: جلب كل العربونات المتاحة دفعة واحدة (استعلام واحد بدل واحد لكل عميل) عشان نعرف مين عنده رصيد
+  const fetchDepositBalances = useCallback(async () => {
+    const { data } = await sb.from('customer_deposits').select('customer_id').eq('status', 'available')
+    setDepositCustomerIds(new Set((data || []).map((d: any) => d.customer_id)))
+  }, [sb])
+
+  useEffect(() => { fetchCustomers(); fetchDepositBalances() }, [fetchCustomers, fetchDepositBalances])
 
   useEffect(() => {
     const ch = sb.channel('customers-rt')
@@ -384,6 +470,7 @@ export default function CustomersPage() {
                         <div>
                           <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{c.name}</div>
                           {c.total_visits >= 10 && <div style={{ fontSize: 10, color: S.gold }}>⭐ VIP</div>}
+                          {depositCustomerIds.has(c.id) && <div style={{ fontSize: 10, color: S.teal }}>💰 Has Deposit</div>}
                         </div>
                       </div>
                     </td>

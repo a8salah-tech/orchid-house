@@ -294,6 +294,9 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const [customers, setCustomers] = useState<any[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null)
+  // ✅ جديد: عربون العميل المتاح (لو مسجّل ودافع عربون قبل كده) - وحالة تطبيقه على الفاتورة الحالية
+  const [availableDeposits, setAvailableDeposits] = useState<{ id: string; amount: number }[]>([])
+  const [depositApplied, setDepositApplied] = useState(false)
   const [showCustomerDrop, setShowCustomerDrop] = useState(false)
 
   // ✅ تقسيم الفاتورة على أكتر من شخص
@@ -382,6 +385,15 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
       .then(({ data }) => { if (data) setSelectedCustomer(data) })
   }, [order.customer_id])
 
+  // ✅ جديد: لما نختار عميل، ندوّر له على أي عربون متاح (status = 'available') عشان نعرضه ونقدر نطبّقه
+  useEffect(() => {
+    setDepositApplied(false)
+    if (!selectedCustomer?.id) { setAvailableDeposits([]); return }
+    sb.from('customer_deposits').select('id, amount').eq('customer_id', selectedCustomer.id).eq('status', 'available')
+      .then(({ data }) => setAvailableDeposits(data || []))
+  }, [selectedCustomer?.id])
+  const totalAvailableDeposit = availableDeposits.reduce((s, d) => s + (d.amount || 0), 0)
+
   const filteredCustomers = customers.filter(c =>
     !customerSearch ||
     c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -402,7 +414,9 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const isPlatformCreditOrder = /grab|foodpanda/i.test(order.tables?.name || '')
   const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : afterDiscount * SERVICE_CHARGE_RATE
   const sst = discountType === 'free' ? 0 : afterDiscount * SST_RATE
-  const total = afterDiscount + serviceCharge + sst
+  // ✅ جديد: لو العميل طبّق عربون سابق، بيتخصم من الإجمالي النهائي المطلوب دفعه دلوقتي
+  const depositDeduction = depositApplied ? Math.min(totalAvailableDeposit, afterDiscount + serviceCharge + sst) : 0
+  const total = Math.max(0, afterDiscount + serviceCharge + sst - depositDeduction)
   // ✅ جديد: الباقي المطلوب إرجاعه للعميل لو دفع كاش أكتر من قيمة الفاتورة
   const cashReceivedNum = parseFloat(cashReceived) || 0
   const changeDue = Math.max(0, cashReceivedNum - total)
@@ -556,13 +570,23 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
       customer_id: selectedCustomer?.id || null,
       paid_by: employee?.id || null,
       paid_by_name: employee?.name || null,
-      // ✅ جديد: سبب الخصم/الفري بيتضاف لملاحظات الطلب - عشان يبقى واضح ليه اتعمل وقت مراجعة Closed/تقرير الشيفت
-      notes: (discountType === 'amount' || discountType === 'percent' || discountType === 'free') && discountReason.trim()
-        ? [order.notes, `${discountType === 'free' ? '🎁 Free reason' : '🏷️ Discount reason'}: ${discountReason.trim()}`].filter(Boolean).join(' | ')
-        : (order.notes || null),
+      // ✅ جديد: سبب الخصم/الفري + ملاحظة تطبيق العربون (لو حصل) بيتضافوا لملاحظات الطلب - عشان يبقى واضح
+      // وقت مراجعة Closed/تقرير الشيفت
+      notes: [
+        order.notes,
+        (discountType === 'amount' || discountType === 'percent' || discountType === 'free') && discountReason.trim()
+          ? `${discountType === 'free' ? '🎁 Free reason' : '🏷️ Discount reason'}: ${discountReason.trim()}`
+          : null,
+        depositApplied ? `💰 Deposit applied: MYR ${depositDeduction.toFixed(2)}` : null,
+      ].filter(Boolean).join(' | ') || null,
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
     // ✅ Fix حرج جدًا: Supabase مابيرميش استثناء تلقائي لما السيرفر يرفض الطلب - بنتأكد صراحة ونرمي خطأ فعلي
     if (mainPayError) throw new Error('Failed to mark order as paid: ' + mainPayError.message)
+    // ✅ جديد: لو العميل طبّق عربون على الفاتورة دي، نعلّمه "مستخدم" عشان مايتطبقش تاني على فاتورة تانية بالغلط
+    if (depositApplied && availableDeposits.length > 0) {
+      await sb.from('customer_deposits').update({ status: 'used', used_at: new Date().toISOString(), used_order_id: order.id })
+        .in('id', availableDeposits.map(d => d.id))
+    }
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
     if (selectedCustomer?.id) {
@@ -720,6 +744,11 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         : (order.notes || null),
     }).eq('table_id', order.table_id).in('status', ['confirmed', 'preparing', 'ready'])
     if (splitPayError) throw new Error('Failed to mark order as paid: ' + splitPayError.message)
+    // ✅ جديد: نفس تعليم العربون هنا كمان لو الدفع كان مقسّم
+    if (depositApplied && availableDeposits.length > 0) {
+      await sb.from('customer_deposits').update({ status: 'used', used_at: new Date().toISOString(), used_order_id: order.id })
+        .in('id', availableDeposits.map(d => d.id))
+    }
 
     // ✅ تحديث إحصائيات العميل لو مرتبط بالفاتورة
     if (selectedCustomer?.id) {
@@ -882,6 +911,18 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
           {selectedCustomer && (
             <div style={{ fontSize: 11, color: S.green, marginTop: 6 }}>
               ✅ Will earn {Math.floor(total / 100)} points after payment (MYR 100 = 1 point)
+            </div>
+          )}
+          {/* ✅ جديد: لو العميل ده دافع عربون قبل كده ولسه متاح، نوريه ونديه فرصة يطبّقه على الفاتورة دي */}
+          {selectedCustomer && totalAvailableDeposit > 0 && (
+            <div style={{ marginTop: 10, background: S.blueB, border: `1px solid ${S.blue}40`, borderRadius: 10, padding: '10px 14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: S.blue, fontWeight: 700 }}>💰 Available Deposit: MYR {totalAvailableDeposit.toFixed(2)}</span>
+                <button onClick={() => setDepositApplied(v => !v)}
+                  style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.blue}`, background: depositApplied ? S.blue : 'transparent', color: depositApplied ? '#fff' : S.blue, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  {depositApplied ? '✅ Applied' : 'Apply Deposit'}
+                </button>
+              </div>
             </div>
           )}
         </div>

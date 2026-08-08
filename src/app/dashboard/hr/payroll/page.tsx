@@ -79,7 +79,7 @@ type Branch = { id: string; name: string }
 type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
   role: string; department?: string; salary?: number; insurance?: number
-  work_insurance?: number; branch_id?: string; is_active?: boolean; deactivated_at?: string; branches?: { name: string } | any
+  work_insurance?: number; branch_id?: string; is_active?: boolean; deactivated_at?: string; join_date?: string; branches?: { name: string } | any
 }
 type PayrollRecord = {
   id?: string; created_at?: string; payroll_month_id: string; employee_id: string
@@ -122,32 +122,56 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
   }
 }
 
-// ✅ حساب الراتب بالتناسب حسب تاريخ إيقاف الموظف (deactivated_at) ومقارنته بالشهر الحالي
+// ✅ حساب الراتب بالتناسب حسب تاريخ تعيين الموظف (join_date) وتاريخ إيقافه (deactivated_at)، ومقارنتهما بالشهر الحالي
 // monthStart/monthEnd بصيغة 'YYYY-MM-DD' (مقارنة نصية تعمل صحيح لأن الصيغة موحّدة)
 function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: string): { basicSalary: number; daysWorked: number | null; note: string | null } {
-  // موظف نشط ولا توجد تاريخ إيقاف مسجل — راتب طبيعي بالكامل
-  if (emp.is_active !== false && !emp.deactivated_at) {
-    return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
+  // موظف موقوف بدون تاريخ إيقاف مسجل (حالة قديمة قبل إضافة هذه الميزة) — أأمن نوقف الراتب من الآن
+  if (emp.is_active === false && !emp.deactivated_at) {
+    return { basicSalary: 0, daysWorked: 0, note: '⏸ موظف موقوف عن العمل (بدون تاريخ إيقاف مسجل)' }
   }
+
+  const notesParts: string[] = []
+  let effectiveStart = monthStart
+  let effectiveEnd = monthEnd
+
+  // تاريخ التعيين — لو بعد نهاية الشهر، الموظف لم يبدأ العمل بعد هذا الشهر إطلاقاً
+  if (emp.join_date) {
+    if (emp.join_date > monthEnd) {
+      return { basicSalary: 0, daysWorked: 0, note: `⏸ لم يبدأ الموظف العمل بعد — تاريخ التعيين ${emp.join_date}` }
+    }
+    if (emp.join_date > monthStart) {
+      effectiveStart = emp.join_date
+      notesParts.push(`تم تعيين الموظف بتاريخ ${emp.join_date}`)
+    }
+  }
+
+  // تاريخ الإيقاف — لو قبل بداية الشهر، لا يوجد راتب مستحق هذا الشهر إطلاقاً
   if (emp.deactivated_at) {
     if (emp.deactivated_at < monthStart) {
-      // الشهر كامل بعد تاريخ الإيقاف — لا توجد راتب
       return { basicSalary: 0, daysWorked: 0, note: `⏸ موقوف عن العمل من ${emp.deactivated_at}` }
     }
-    if (emp.deactivated_at > monthEnd) {
-      // هذا الشهر كان قبل الإيقاف — كان نشط بالكامل، راتب طبيعي
-      return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
-    }
-    // شهر الإيقاف نفسه — تناسب حسب عدد الأيام الفعلية
-    const dayOfMonth = parseInt(emp.deactivated_at.split('-')[2], 10)
-    return {
-      basicSalary: emp.salary || 0,
-      daysWorked: dayOfMonth,
-      note: `⏸ تم إيقاف الموظف بتاريخ ${emp.deactivated_at} — تم حساب الراتب لـ ${dayOfMonth} يوم فقط من هذا الشهر`,
+    if (emp.deactivated_at <= monthEnd) {
+      effectiveEnd = emp.deactivated_at
+      notesParts.push(`تم إيقاف الموظف بتاريخ ${emp.deactivated_at}`)
     }
   }
-  // موقوف (is_active = false) بدون تاريخ إيقاف مسجل (حالة قديمة قبل إضافة هذه الميزة) — أأمن نوقف الراتب من الآن
-  return { basicSalary: 0, daysWorked: 0, note: '⏸ موظف موقوف عن العمل (بدون تاريخ إيقاف مسجل)' }
+
+  // لا تعيين ولا إيقاف أثّرا على حدود الشهر — موظف نشط طوال الشهر بالكامل، راتب طبيعي
+  if (effectiveStart === monthStart && effectiveEnd === monthEnd) {
+    return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
+  }
+
+  // ✅ عدد الأيام الفعلية بين تاريخ البداية الفعلي وتاريخ النهاية الفعلي (شاملاً الطرفين) — كلاهما داخل نفس الشهر التقويمي،
+  // فطرح رقمَي اليوم من التاريخين كافٍ وصحيح
+  const startDay = parseInt(effectiveStart.split('-')[2], 10)
+  const endDay = parseInt(effectiveEnd.split('-')[2], 10)
+  const daysCount = Math.max(0, endDay - startDay + 1)
+
+  return {
+    basicSalary: emp.salary || 0,
+    daysWorked: daysCount,
+    note: `⏸ ${notesParts.join(' — ')} — تم حساب الراتب لـ ${daysCount} يوم فقط من هذا الشهر`,
+  }
 }
 
 // ✅ بيحوّل لون شفاف (rgba) لنفس اللون لكن صلب (Opaque) بدمجه فوق خلفية أساسية —
@@ -559,13 +583,15 @@ export default function PayrollPage() {
       setPayslipAttStats(computeAttendanceStats(attRows))
 
       const attendedDates = new Set(attRows.filter(r => r.check_in_time).map(r => String(r.date).slice(0, 10)))
-      // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف (لو موقوف) — نفس منطق الحساب التلقائي في loadMonthRecords
+      // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
       const deactDate = empMap[payslipRecord.employee_id]?.deactivated_at
+      const joinDate = empMap[payslipRecord.employee_id]?.join_date
       const leaveDates: string[] = []
       const workDates: string[] = []
       for (const s of (schedRes.data || [])) {
         const d = String(s.date).slice(0, 10)
         if (deactDate && d > deactDate) continue
+        if (joinDate && d < joinDate) continue
         if (!s.shift_id && !s.custom_start) leaveDates.push(d)
         else workDates.push(d)
       }
@@ -601,7 +627,7 @@ export default function PayrollPage() {
     const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
       (() => {
-        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,branches(name)').order('name')
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
         // فلتر حسب الدور
         if (!isSuperAdmin && isBranchManager) q = q.eq('branch_id', currentUser?.branch_id || '')
         else if (!isSuperAdmin && !isBranchManager) q = q.eq('id', myId)
@@ -623,7 +649,7 @@ export default function PayrollPage() {
 
     let emps = employees
     if (emps.length === 0) {
-      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,branches(name)').order('name')
+      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
       if (!isSuperAdmin && isBranchManager) q2 = q2.eq('branch_id', currentUser?.branch_id || '')
       else if (!isSuperAdmin && !isBranchManager) q2 = q2.eq('id', myId)
       const { data } = await q2
@@ -731,15 +757,21 @@ export default function PayrollPage() {
     // ✅ خريطة تاريخ إيقاف كل موظف — لازم نستبعد أي يوم بعد تاريخ الإيقاف من حساب الغياب،
     // لأن الموظف الموقوف لم يعد له شيفت فعلي مستحق أصلاً بعد هذا التاريخ
     const deactivatedAtMap: Record<string, string> = {}
+    // ✅ خريطة تاريخ تعيين كل موظف — لازم نستبعد أي يوم قبل تاريخ التعيين من حساب الغياب،
+    // لأن الموظف لم يكن موظفاً أصلاً قبل هذا التاريخ
+    const joinDateMap: Record<string, string> = {}
     for (const e of filteredEmps) {
       if (e.deactivated_at) deactivatedAtMap[e.id] = e.deactivated_at
+      if (e.join_date) joinDateMap[e.id] = e.join_date
     }
     const scheduledByEmp: Record<string, Set<string>> = {}
     for (const s of scheduleRows) {
       if (!s.shift_id && !s.custom_start) continue // يوم إجازة رسمية — مستبعد من الحساب
       const d = String(s.date).slice(0, 10)
       const deactDate = deactivatedAtMap[s.employee_id]
+      const joinDate = joinDateMap[s.employee_id]
       if (deactDate && d > deactDate) continue // يوم بعد تاريخ إيقاف الموظف — مستبعد من الحساب
+      if (joinDate && d < joinDate) continue // يوم قبل تاريخ تعيين الموظف — مستبعد من الحساب
       if (!scheduledByEmp[s.employee_id]) scheduledByEmp[s.employee_id] = new Set()
       scheduledByEmp[s.employee_id].add(d)
     }
@@ -949,14 +981,16 @@ export default function PayrollPage() {
     }
     function buildScheduleInfo(employeeId: string) {
       const attendedDates = new Set((attByEmp[employeeId] || []).filter(a => a.check_in_time).map(a => String(a.date).slice(0, 10)))
-      // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف (لو موقوف) — نفس منطق الحساب التلقائي في loadMonthRecords
+      // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
       const deactDate = empMap[employeeId]?.deactivated_at
+      const joinDate = empMap[employeeId]?.join_date
       const leaveDates: string[] = []
       const workDates: string[] = []
       for (const s of schedRows) {
         if (s.employee_id !== employeeId) continue
         const d = String(s.date).slice(0, 10)
         if (deactDate && d > deactDate) continue
+        if (joinDate && d < joinDate) continue
         if (!s.shift_id && !s.custom_start) leaveDates.push(d)
         else workDates.push(d)
       }

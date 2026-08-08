@@ -971,13 +971,22 @@ export default function PayrollPage() {
   }, [records, search, empMap])
 
   const visibleRecords = useMemo(() => {
-    if (isAdmin) return filteredRecords
-    // مدير قسم — يشوف رواتب موظفين قسمه بس ليس راتبه هو
-    const managerRoles = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager']
-    if (managerRoles.includes(currentUser?.role || '')) return filteredRecords.filter(r => r.employee_id !== currentUser?.id)
-    // موظف عادي — يشوف راتبه بس
-    return filteredRecords.filter(r => r.employee_id === currentUser?.id)
-  }, [filteredRecords, isAdmin, currentUser?.id, currentUser?.role])
+    const base = (() => {
+      if (isAdmin) return filteredRecords
+      // مدير قسم — يشوف رواتب موظفين قسمه بس ليس راتبه هو
+      const managerRoles = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager']
+      if (managerRoles.includes(currentUser?.role || '')) return filteredRecords.filter(r => r.employee_id !== currentUser?.id)
+      // موظف عادي — يشوف راتبه بس
+      return filteredRecords.filter(r => r.employee_id === currentUser?.id)
+    })()
+    // ✅ ترتيب أبجدي (A→Z) حسب اسم الموظف — ينعكس تلقائياً على الجدول وكل شاشات الطباعة (Print Sheet وPrint All Payslips)
+    // لأنها كلها تعتمد على نفس القائمة، مع وضع أي موظف غير معروف الاسم في نهاية القائمة
+    return [...base].sort((a, b) => {
+      const nameA = (empMap[a.employee_id]?.name || '').toLocaleLowerCase()
+      const nameB = (empMap[b.employee_id]?.name || '').toLocaleLowerCase()
+      return nameA.localeCompare(nameB, 'en')
+    })
+  }, [filteredRecords, isAdmin, currentUser?.id, currentUser?.role, empMap])
 
   // ✅ إجماليات شاملة لكل عمود رقمي في الجدول — تُستخدم في صف TOTAL أسفل الجدول
   const totals = useMemo(() => visibleRecords.reduce((acc, r) => {

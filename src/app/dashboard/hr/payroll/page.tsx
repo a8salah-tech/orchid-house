@@ -371,7 +371,7 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   )
 }
 
-function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null): string {
+function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null, scheduleInfo?: { leaveDates: string[]; absentDates: string[] } | null): string {
   const c = calcRecord(record)
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const row = (label: string, value: string, bold = false) => `
@@ -420,7 +420,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
       <table class="section">
         <thead><tr><th colspan="2">📉 الاستقطاعات / Deductions</th></tr></thead>
         <tbody>
-          ${row('أيام غياب / Absence Days', `${record.absence_days} (${fmt(c.absenceDed)})`)}
+          ${row('غياب يدوي إضافي / Additional Manual Absence', `${record.absence_days} (${fmt(c.absenceDed)})`)}
           ${row('تأخير (ساعات) / Late Hours', `${record.late_hours} (${fmt(c.lateDed)})`)}
           ${row('خروج مبكر / Early Exit (h)', `${record.early_exit_hours} (${fmt(c.earlyDed)})`)}
           ${row('التأمينات / Insurance', fmt(record.insurance))}
@@ -464,6 +464,18 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
         <td class="lbl">أقل يوم حضور / Lowest Day</td><td class="val">${attStats.minDay ? `${attStats.minDay.date} (${fmtDuration(attStats.minDay.minutes)})` : '—'}</td>
         <td class="lbl"></td><td class="val"></td>
       </tr>
+    </table>` : ''}
+
+    ${scheduleInfo && (scheduleInfo.leaveDates.length > 0 || scheduleInfo.absentDates.length > 0) ? `
+    <table class="summary" style="margin-top:10px">
+      ${scheduleInfo.leaveDates.length > 0 ? `
+      <tr><td class="lbl" colspan="4" style="background:#FAF7ED;font-weight:800;text-align:center">🗓️ أيام الإجازة الرسمية / Official Leave Days (${scheduleInfo.leaveDates.length})</td></tr>
+      <tr><td class="val" colspan="4" style="text-align:right">${scheduleInfo.leaveDates.join('، ')}</td></tr>
+      ` : ''}
+      ${scheduleInfo.absentDates.length > 0 ? `
+      <tr><td class="lbl" colspan="4" style="background:#FDEAEA;font-weight:800;text-align:center;color:#DC2626">❌ أيام الغياب الفعلية (مخصومة) / Unauthorized Absence Days (${scheduleInfo.absentDates.length})</td></tr>
+      <tr><td class="val" colspan="4" style="text-align:right">${scheduleInfo.absentDates.join('، ')}</td></tr>
+      ` : ''}
     </table>` : ''}
 
     <div class="signatures">
@@ -524,20 +536,41 @@ export default function PayrollPage() {
   // ✅ إحصائيات البصمة (أيام البصمة، أعلى/أقل يوم حضور) لتقرير الراتب المفتوح حالياً
   const [payslipAttStats, setPayslipAttStats] = useState<AttendanceStats | null>(null)
   const [loadingPayslipAtt, setLoadingPayslipAtt] = useState(false)
+  // ✅ تفاصيل الإجازات الرسمية وأيام الغياب الفعلية (بتواريخها) لتقرير الراتب المفتوح حالياً
+  const [payslipScheduleInfo, setPayslipScheduleInfo] = useState<{ leaveDates: string[]; absentDates: string[] } | null>(null)
 
   useEffect(() => {
-    if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); return }
+    if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); setPayslipScheduleInfo(null); return }
     let cancelled = false
     setLoadingPayslipAtt(true)
     const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
-    sb.from('attendance').select('date,check_in_time,check_out_time')
-      .eq('employee_id', payslipRecord.employee_id)
-      .gte('date', monthStart).lte('date', monthEnd)
-      .then(({ data }) => {
-        if (cancelled) return
-        setPayslipAttStats(computeAttendanceStats(data || []))
-        setLoadingPayslipAtt(false)
-      })
+    Promise.all([
+      sb.from('attendance').select('date,check_in_time,check_out_time')
+        .eq('employee_id', payslipRecord.employee_id)
+        .gte('date', monthStart).lte('date', monthEnd),
+      // ✅ الشيفتات المجدولة فعلياً لهذا الموظف هذا الشهر — لكي نفصل أيام الإجازة الرسمية عن أيام الغياب الحقيقية
+      sb.from('shift_schedules').select('date,shift_id,custom_start')
+        .eq('employee_id', payslipRecord.employee_id)
+        .eq('status', 'confirmed')
+        .gte('date', monthStart).lte('date', monthEnd),
+    ]).then(([attRes, schedRes]) => {
+      if (cancelled) return
+      const attRows = attRes.data || []
+      setPayslipAttStats(computeAttendanceStats(attRows))
+
+      const attendedDates = new Set(attRows.filter(r => r.check_in_time).map(r => String(r.date).slice(0, 10)))
+      const leaveDates: string[] = []
+      const workDates: string[] = []
+      for (const s of (schedRes.data || [])) {
+        const d = String(s.date).slice(0, 10)
+        if (!s.shift_id && !s.custom_start) leaveDates.push(d)
+        else workDates.push(d)
+      }
+      const absentDates = workDates.filter(d => !attendedDates.has(d)).sort()
+      leaveDates.sort()
+      setPayslipScheduleInfo({ leaveDates, absentDates })
+      setLoadingPayslipAtt(false)
+    })
     return () => { cancelled = true }
   }, [payslipRecord?.employee_id, selectedMonth?.id])
   // ✅ الموظف المحدد حالياً في الجدول (لتمييزه بلون مختلف)
@@ -616,16 +649,16 @@ export default function PayrollPage() {
 
     const empIds = filteredEmps.map(e => e.id)
 
-    // ✅ جلب دقائق التأخير على دفعات (Pagination) — Supabase بيحدّ أي select بـ 1000 صف افتراضياً،
+    // ✅ جلب سجلات الحضور على دفعات (Pagination) — Supabase بيحدّ أي select بـ 1000 صف افتراضياً،
     // وممكن يتخطى الـ 1000 بسهولة مع أكتر من 200 موظف × 31 يوم، فكنا بنفوّت جزء كبير من البيانات من غير ما نلاحظ
-    async function fetchAllAttendanceLate(): Promise<{ employee_id: string; late_minutes: number }[]> {
+    async function fetchAllAttendanceRows(): Promise<{ employee_id: string; date: string; check_in_time: string | null; late_minutes: number }[]> {
       if (empIds.length === 0) return []
       const PAGE_SIZE = 1000
-      let all: { employee_id: string; late_minutes: number }[] = []
+      let all: { employee_id: string; date: string; check_in_time: string | null; late_minutes: number }[] = []
       let page = 0
       while (true) {
         const { data: batch } = await sb.from('attendance')
-          .select('employee_id,late_minutes')
+          .select('employee_id,date,check_in_time,late_minutes')
           .gte('date', monthStart).lte('date', monthEnd)
           .in('employee_id', empIds)
           .order('id')
@@ -638,14 +671,38 @@ export default function PayrollPage() {
       return all
     }
 
-    const [violRes, absRes, lateRows] = await Promise.all([
+    // ✅ الشيفتات المجدولة فعلياً لكل موظف هذا الشهر — لكي نحسب الغياب تلقائياً (شيفت مجدول ولم يُسجَّل له حضور)
+    // بنفس منطق أدوات "كشف الغياب" و"فحص صحة الحضور" في صفحة الحضور والانصراف، بدون أي تدخل يدوي
+    async function fetchAllShiftSchedules(): Promise<{ employee_id: string; date: string; shift_id: string | null; custom_start: string | null }[]> {
+      if (empIds.length === 0) return []
+      const PAGE_SIZE = 1000
+      let all: { employee_id: string; date: string; shift_id: string | null; custom_start: string | null }[] = []
+      let page = 0
+      while (true) {
+        const { data: batch } = await sb.from('shift_schedules')
+          .select('employee_id,date,shift_id,custom_start')
+          .eq('status', 'confirmed')
+          .gte('date', monthStart).lte('date', monthEnd)
+          .in('employee_id', empIds)
+          .order('id')
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+        if (!batch || batch.length === 0) break
+        all = all.concat(batch as any)
+        if (batch.length < PAGE_SIZE) break
+        page++
+      }
+      return all
+    }
+
+    const [violRes, absRes, attendanceRows, scheduleRows] = await Promise.all([
       empIds.length > 0
         ? sb.from('violations').select('employee_id,amount').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
       empIds.length > 0
         ? sb.from('absences').select('employee_id').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
-      fetchAllAttendanceLate(),
+      fetchAllAttendanceRows(),
+      fetchAllShiftSchedules(),
     ])
 
     // احسب خصم المخالفات والغياب لكل موظف
@@ -653,14 +710,41 @@ export default function PayrollPage() {
     for (const v of (violRes.data || [])) {
       violMap[v.employee_id] = (violMap[v.employee_id] || 0) + (v.amount || 0)
     }
-    const absMap: Record<string, number> = {}
+    const manualAbsMap: Record<string, number> = {}
     for (const a of (absRes.data || [])) {
-      absMap[a.employee_id] = (absMap[a.employee_id] || 0) + 1
+      manualAbsMap[a.employee_id] = (manualAbsMap[a.employee_id] || 0) + 1
     }
     // ✅ إجمالي دقائق التأخير لكل موظف خلال الشهر من جدول الحضور — محوّلة لساعات
     const lateMap: Record<string, number> = {}
-    for (const a of lateRows) {
+    for (const a of attendanceRows) {
       lateMap[a.employee_id] = (lateMap[a.employee_id] || 0) + (a.late_minutes || 0)
+    }
+
+    // ✅ الغياب التلقائي: شيفت مجدول (بعد استبعاد أيام الإجازة) ولم يُسجَّل له حضور فعلي —
+    // نفس منطق أدوات "كشف الغياب" و"فحص صحة الحضور" في صفحة الحضور، لكن هنا يُحتسب مباشرة بلا أي مراجعة يدوية
+    const attendedDateSet = new Set(
+      attendanceRows.filter(a => a.check_in_time).map(a => `${a.employee_id}|${String(a.date).slice(0, 10)}`)
+    )
+    const scheduledByEmp: Record<string, Set<string>> = {}
+    for (const s of scheduleRows) {
+      if (!s.shift_id && !s.custom_start) continue // يوم إجازة رسمية — مستبعد من الحساب
+      const d = String(s.date).slice(0, 10)
+      if (!scheduledByEmp[s.employee_id]) scheduledByEmp[s.employee_id] = new Set()
+      scheduledByEmp[s.employee_id].add(d)
+    }
+    const autoAbsMap: Record<string, number> = {}
+    for (const employeeId of Object.keys(scheduledByEmp)) {
+      let count = 0
+      for (const d of scheduledByEmp[employeeId]) {
+        if (!attendedDateSet.has(`${employeeId}|${d}`)) count++
+      }
+      autoAbsMap[employeeId] = count
+    }
+    // ✅ نأخذ الأكبر بين الغياب المُسجَّل يدوياً من قبل (مخالفات مثلاً) والغياب المُحتسَب تلقائياً من الجدول،
+    // لكي لا نفقد أي سجل غياب سابق غير مرتبط بشيفت مجدول
+    const absMap: Record<string, number> = {}
+    for (const id of new Set([...Object.keys(manualAbsMap), ...Object.keys(autoAbsMap)])) {
+      absMap[id] = Math.max(manualAbsMap[id] || 0, autoAbsMap[id] || 0)
     }
 
     const existing    = (data || []).filter((r: any) => filteredEmps.some(e => e.id === r.employee_id))
@@ -805,7 +889,7 @@ export default function PayrollPage() {
     <title>Payslip - ${emp?.name || ''} - ${monthName} ${selectedMonth.year}</title>
     <style>${PAYSLIP_PRINT_STYLE}</style>
     </head><body>
-    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats)}
+    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats, payslipScheduleInfo)}
     <script>window.onload=function(){window.print()}<\/script>
     </body></html>`)
     win.document.close()
@@ -838,8 +922,35 @@ export default function PayrollPage() {
       attByEmp[a.employee_id].push(a)
     }
 
+    // ✅ نجيب الشيفتات المجدولة لكل الموظفين مرة واحدة كذلك — لفصل أيام الإجازة عن أيام الغياب الفعلية في كل قسيمة
+    let schedRows: { employee_id: string; date: string; shift_id: string | null; custom_start: string | null }[] = []
+    page = 0
+    while (true) {
+      const { data } = await sb.from('shift_schedules')
+        .select('employee_id,date,shift_id,custom_start')
+        .eq('status', 'confirmed')
+        .gte('date', monthStart).lte('date', monthEnd)
+        .order('id').range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+      if (!data || data.length === 0) break
+      schedRows = schedRows.concat(data)
+      if (data.length < PAGE_SIZE) break
+      page++
+    }
+    function buildScheduleInfo(employeeId: string) {
+      const attendedDates = new Set((attByEmp[employeeId] || []).filter(a => a.check_in_time).map(a => String(a.date).slice(0, 10)))
+      const leaveDates: string[] = []
+      const workDates: string[] = []
+      for (const s of schedRows) {
+        if (s.employee_id !== employeeId) continue
+        const d = String(s.date).slice(0, 10)
+        if (!s.shift_id && !s.custom_start) leaveDates.push(d)
+        else workDates.push(d)
+      }
+      return { leaveDates: leaveDates.sort(), absentDates: workDates.filter(d => !attendedDates.has(d)).sort() }
+    }
+
     const allHTML = visibleRecords.filter(r => empMap[r.employee_id]).map(r =>
-      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []))
+      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []), buildScheduleInfo(r.employee_id))
     ).join('')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Payslips - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>
@@ -1318,7 +1429,13 @@ export default function PayrollPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 8 }}>📉 الاستقطاعات</div>
-                    <div style={rowStyle}><span style={{ color: S.muted }}>غياب ({payslipRecord.absence_days} يوم)</span><span>{fmt2(c.absenceDed)}</span></div>
+                    <div style={rowStyle}>
+                    <span style={{ color: S.muted }}>
+                      غياب يدوي إضافي ({payslipRecord.absence_days} يوم)
+                      <span style={{ display: 'block', fontSize: 9, color: S.muted, opacity: 0.7 }}>(منفصل عن "غياب بدون عذر" أدناه، المُحتسَب تلقائياً من نظام الحضور)</span>
+                    </span>
+                    <span>{fmt2(c.absenceDed)}</span>
+                  </div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>تأخير ({payslipRecord.late_hours} س)</span><span>{fmt2(c.lateDed)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>خروج مبكر ({payslipRecord.early_exit_hours} س)</span><span>{fmt2(c.earlyDed)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>التأمينات</span><span>{fmt2(payslipRecord.insurance)}</span></div>
@@ -1353,9 +1470,45 @@ export default function PayrollPage() {
                       <div style={{ ...rowStyle, borderBottom: 'none' }}><span style={{ color: S.muted }}>أقل يوم حضور</span><span>{payslipAttStats.minDay ? `${payslipAttStats.minDay.date} (${fmtDuration(payslipAttStats.minDay.minutes)})` : '—'}</span></div>
                     </>
                   ) : (
-                    <div style={{ fontSize: 12, color: S.muted }}>لا توجد بصمة مسجّلة لهذا الموظف في هذا الشهر.</div>
+                    <>
+                      <div style={{ fontSize: 12, color: S.muted }}>لا توجد بصمة مسجّلة لهذا الموظف في هذا الشهر.</div>
+                      {payslipRecord.deduction_2 === 0 && (
+                        <div style={{ marginTop: 10, background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 8, padding: '10px 12px', fontSize: 11, color: S.red, lineHeight: 1.8 }}>
+                          ⚠️ تحذير: لا توجد أي بصمة لهذا الموظف طوال الشهر، ولم يُسجَّل له أي خصم غياب حتى الآن.
+                          راجع أداة "🔍 Absence Detection" في صفحة الحضور والانصراف قبل اعتماد راتبه.
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
+
+                {/* ✅ تفاصيل الإجازات الرسمية وأيام الغياب الفعلية بتواريخها — شفافية كاملة لرقم "غياب بدون عذر" أعلاه */}
+                {payslipScheduleInfo && (payslipScheduleInfo.leaveDates.length > 0 || payslipScheduleInfo.absentDates.length > 0) && (
+                  <div style={{ marginTop: 14, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 12, padding: '14px 18px' }}>
+                    {payslipScheduleInfo.leaveDates.length > 0 && (
+                      <div style={{ marginBottom: payslipScheduleInfo.absentDates.length > 0 ? 14 : 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: S.teal, marginBottom: 8 }}>🗓️ أيام الإجازة الرسمية ({payslipScheduleInfo.leaveDates.length} يوم)</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {payslipScheduleInfo.leaveDates.map(d => (
+                            <span key={d} style={{ background: S.tealB, color: S.teal, borderRadius: 8, padding: '4px 10px', fontSize: 11 }}>{d}</span>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 10, color: S.muted, marginTop: 6 }}>هذه الأيام مستثناة من الحساب — لا تُعامَل كغياب ولا تُخصَم من الراتب.</div>
+                      </div>
+                    )}
+                    {payslipScheduleInfo.absentDates.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 8 }}>❌ أيام الغياب الفعلية — تُخصَم من الراتب ({payslipScheduleInfo.absentDates.length} يوم)</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {payslipScheduleInfo.absentDates.map(d => (
+                            <span key={d} style={{ background: S.redB, color: S.red, borderRadius: 8, padding: '4px 10px', fontSize: 11 }}>{d}</span>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 10, color: S.muted, marginTop: 6 }}>شيفت مجدول لهذا اليوم ولم يُسجَّل حضور فعلي — محتسَب ضمن "غياب بدون عذر" أعلاه.</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Footer */}

@@ -522,9 +522,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  const [daySchedules, setDaySchedules] = useState<{ employee_id: string; shift_id: string | null; custom_start: string | null }[]>([])
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [att, emps, brs] = await Promise.all([
+    const [att, emps, brs, sched] = await Promise.all([
       sb.from('attendance')
         .select('*, employees(id,name,name_en,employee_number,role,department,branch_id,salary,branches(name))')
         .eq('date', date)
@@ -543,10 +544,15 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         return q
       })(),
       sb.from('branches').select('id,name').eq('is_active', true),
+      // ✅ نجيب الشيفتات المجدولة لهذا اليوم بالذات — عشان "الغياب" في هذا العرض يُحتسب فقط للموظف
+      // الذي كان يلزمه الحضور فعلاً (له شيفت مجدول)، وليس لكل الموظفين بلا تمييز
+      sb.from('shift_schedules').select('employee_id,shift_id,custom_start').eq('date', date).eq('status', 'confirmed'),
     ])
     setRecords(att.data || [])
     setEmployees(emps.data || [])
     setBranches(brs.data || [])
+    // ✅ نستبعد صفوف الإجازة (بلا shift_id وبلا custom_start) — نفس المنطق المستخدم في أدوات كشف الغياب
+    setDaySchedules((sched.data || []).filter((s: any) => s.shift_id || s.custom_start))
     setLoading(false)
   }, [date, sb])
 
@@ -560,14 +566,48 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     const [ry, rm] = reportMonth.split('-').map(Number)
     const endStr = new Date(Date.UTC(ry, rm, 1)).toISOString().split('T')[0]
 
-    const { data } = await sb.from('attendance')
-      .select('*')
-      .eq('employee_id', reportEmp)
-      .gte('date', startDate)
-      .lt('date', endStr)
-      .order('date')
+    const [{ data }, { data: schedules }] = await Promise.all([
+      sb.from('attendance')
+        .select('*')
+        .eq('employee_id', reportEmp)
+        .gte('date', startDate)
+        .lt('date', endStr)
+        .order('date'),
+      // ✅ الشيفتات المجدولة فعلياً لهذا الموظف هذا الشهر — لكي نحدد أيام الغياب الحقيقية
+      // (يوم كان مطلوباً منه الحضور فيه ولم يسجّل دخولاً)، بدل الاعتماد على عمود status الفارغ
+      sb.from('shift_schedules')
+        .select('date,shift_id,custom_start')
+        .eq('employee_id', reportEmp)
+        .eq('status', 'confirmed')
+        .gte('date', startDate)
+        .lt('date', endStr),
+    ])
 
-    setReportData(data || [])
+    const realRows = data || []
+    const checkedInDates = new Set(realRows.filter(r => r.check_in_time).map(r => String(r.date).slice(0, 10)))
+    const realRowDates = new Set(realRows.map(r => String(r.date).slice(0, 10)))
+    // ✅ نستبعد أيام الإجازة (بلا shift_id وبلا custom_start) — نفس منطق أدوات كشف الغياب
+    const scheduledDates = (schedules || [])
+      .filter((s: any) => s.shift_id || s.custom_start)
+      .map((s: any) => String(s.date).slice(0, 10))
+
+    // ✅ أي يوم كان مجدولاً ولم يسجّل فيه الموظف حضوراً، نضيفه كصف غياب واضح في الجدول (لا يظهر تلقائياً
+    // لأنه لا يوجد له سجل حضور من الأساس، فليس مجرد رقم في بطاقة إحصائية بل صف مرئي يمكن مراجعته)
+    const absentRows = scheduledDates
+      .filter(d => !checkedInDates.has(d))
+      .map(d => ({
+        date: d,
+        check_in_time: null,
+        check_out_time: null,
+        late_minutes: 0,
+        status: 'absent',
+        _synthetic: !realRowDates.has(d),
+      }))
+
+    const merged = [...realRows, ...absentRows]
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+
+    setReportData(merged)
     setLoadingReport(false)
   }
 
@@ -596,7 +636,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
   const checkedIn  = filteredRecords.filter(r => r.check_in_time).length
   const checkedOut = filteredRecords.filter(r => r.check_out_time).length
-  const absent     = filteredEmps.length - checkedIn
+  // ✅ "الغياب" يُحتسب فقط للموظف الذي كان له شيفت مجدول فعلياً هذا اليوم (موجود في daySchedules)،
+  // وليس لكل الموظفين — الموظف الذي لم يكن مطلوباً منه الحضور أصلاً لا يُعدّ غائباً
+  const scheduledEmpIdsToday = new Set(daySchedules.map(s => s.employee_id))
+  const checkedInEmpIds = new Set(filteredRecords.filter(r => r.check_in_time).map(r => r.employee_id))
+  const absent = filteredEmps.filter(e => scheduledEmpIdsToday.has(e.id) && !checkedInEmpIds.has(e.id)).length
   const late       = filteredRecords.filter(r => r.status === 'late').length
 
   // إحصائيات الفروع
@@ -1395,7 +1439,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                     </thead>
                     <tbody>
                       {reportData.map(r => (
-                        <tr key={r.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                        <tr key={r.id || `absent-${r.date}`} style={{ borderBottom: `1px solid ${S.border}` }}>
                           <td style={{ padding: '10px 14px', fontSize: 12, color: S.white }}>{r.date}</td>
                           <td style={{ padding: '10px 14px', fontSize: 13, color: r.check_in_time ? S.green : S.muted }}>{formatTime(r.check_in_time)}</td>
                           <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>

@@ -559,10 +559,13 @@ export default function PayrollPage() {
       setPayslipAttStats(computeAttendanceStats(attRows))
 
       const attendedDates = new Set(attRows.filter(r => r.check_in_time).map(r => String(r.date).slice(0, 10)))
+      // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف (لو موقوف) — نفس منطق الحساب التلقائي في loadMonthRecords
+      const deactDate = empMap[payslipRecord.employee_id]?.deactivated_at
       const leaveDates: string[] = []
       const workDates: string[] = []
       for (const s of (schedRes.data || [])) {
         const d = String(s.date).slice(0, 10)
+        if (deactDate && d > deactDate) continue
         if (!s.shift_id && !s.custom_start) leaveDates.push(d)
         else workDates.push(d)
       }
@@ -725,10 +728,18 @@ export default function PayrollPage() {
     const attendedDateSet = new Set(
       attendanceRows.filter(a => a.check_in_time).map(a => `${a.employee_id}|${String(a.date).slice(0, 10)}`)
     )
+    // ✅ خريطة تاريخ إيقاف كل موظف — لازم نستبعد أي يوم بعد تاريخ الإيقاف من حساب الغياب،
+    // لأن الموظف الموقوف لم يعد له شيفت فعلي مستحق أصلاً بعد هذا التاريخ
+    const deactivatedAtMap: Record<string, string> = {}
+    for (const e of filteredEmps) {
+      if (e.deactivated_at) deactivatedAtMap[e.id] = e.deactivated_at
+    }
     const scheduledByEmp: Record<string, Set<string>> = {}
     for (const s of scheduleRows) {
       if (!s.shift_id && !s.custom_start) continue // يوم إجازة رسمية — مستبعد من الحساب
       const d = String(s.date).slice(0, 10)
+      const deactDate = deactivatedAtMap[s.employee_id]
+      if (deactDate && d > deactDate) continue // يوم بعد تاريخ إيقاف الموظف — مستبعد من الحساب
       if (!scheduledByEmp[s.employee_id]) scheduledByEmp[s.employee_id] = new Set()
       scheduledByEmp[s.employee_id].add(d)
     }
@@ -938,11 +949,14 @@ export default function PayrollPage() {
     }
     function buildScheduleInfo(employeeId: string) {
       const attendedDates = new Set((attByEmp[employeeId] || []).filter(a => a.check_in_time).map(a => String(a.date).slice(0, 10)))
+      // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف (لو موقوف) — نفس منطق الحساب التلقائي في loadMonthRecords
+      const deactDate = empMap[employeeId]?.deactivated_at
       const leaveDates: string[] = []
       const workDates: string[] = []
       for (const s of schedRows) {
         if (s.employee_id !== employeeId) continue
         const d = String(s.date).slice(0, 10)
+        if (deactDate && d > deactDate) continue
         if (!s.shift_id && !s.custom_start) leaveDates.push(d)
         else workDates.push(d)
       }

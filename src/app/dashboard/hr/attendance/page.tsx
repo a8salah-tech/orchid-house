@@ -564,7 +564,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     const startDate = `${reportMonth}-01`
     // ✅ Date.UTC بدل new Date() العادي — لكي الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي (نفس باج monthEnd في صفحة الرواتب)
     const [ry, rm] = reportMonth.split('-').map(Number)
-    const endStr = new Date(Date.UTC(ry, rm, 1)).toISOString().split('T')[0]
+    const monthEndStr = new Date(Date.UTC(ry, rm, 1)).toISOString().split('T')[0]
+    // ✅ لكي نستبعد أي يوم لم يأتِ بعد (مستقبلي) — نفس تصحيح الباج المطبَّق في Absence Detection وAttendance Health،
+    // وإلا أي شيفت مجدول مسبقاً لبقية الشهر سيُحتسب "غياباً" رغم أن اليوم لم يحدث أصلاً
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const endStr = monthEndStr < todayStr ? monthEndStr : todayStr
 
     const [{ data }, { data: schedules }] = await Promise.all([
       sb.from('attendance')
@@ -573,8 +577,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         .gte('date', startDate)
         .lt('date', endStr)
         .order('date'),
-      // ✅ الشيفتات المجدولة فعلياً لهذا الموظف هذا الشهر — لكي نحدد أيام الغياب الحقيقية
-      // (يوم كان مطلوباً منه الحضور فيه ولم يسجّل دخولاً)، بدل الاعتماد على عمود status الفارغ
+      // ✅ كل الشيفتات المجدولة فعلياً لهذا الموظف هذا الشهر (شغل أو إجازة معاً) — لكي نميّز يوم الإجازة
+      // عن يوم الغياب الحقيقي عن يوم الراحة (بلا أي شيفت مجدول أصلاً)
       sb.from('shift_schedules')
         .select('date,shift_id,custom_start')
         .eq('employee_id', reportEmp)
@@ -584,28 +588,36 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     ])
 
     const realRows = data || []
-    const checkedInDates = new Set(realRows.filter(r => r.check_in_time).map(r => String(r.date).slice(0, 10)))
-    const realRowDates = new Set(realRows.map(r => String(r.date).slice(0, 10)))
-    // ✅ نستبعد أيام الإجازة (بلا shift_id وبلا custom_start) — نفس منطق أدوات كشف الغياب
-    const scheduledDates = (schedules || [])
-      .filter((s: any) => s.shift_id || s.custom_start)
-      .map((s: any) => String(s.date).slice(0, 10))
+    const realRowByDate: Record<string, any> = {}
+    for (const r of realRows) realRowByDate[String(r.date).slice(0, 10)] = r
 
-    // ✅ أي يوم كان مجدولاً ولم يسجّل فيه الموظف حضوراً، نضيفه كصف غياب واضح في الجدول (لا يظهر تلقائياً
-    // لأنه لا يوجد له سجل حضور من الأساس، فليس مجرد رقم في بطاقة إحصائية بل صف مرئي يمكن مراجعته)
-    const absentRows = scheduledDates
-      .filter(d => !checkedInDates.has(d))
-      .map(d => ({
-        date: d,
-        check_in_time: null,
-        check_out_time: null,
-        late_minutes: 0,
-        status: 'absent',
-        _synthetic: !realRowDates.has(d),
-      }))
+    // ✅ خريطة نوع كل يوم مجدول: 'work' (شيفت فعلي) أو 'leave' (إجازة رسمية — بلا shift_id وبلا custom_start)
+    const scheduleTypeByDate: Record<string, 'work' | 'leave'> = {}
+    for (const s of (schedules || [])) {
+      const d = String(s.date).slice(0, 10)
+      scheduleTypeByDate[d] = (s.shift_id || s.custom_start) ? 'work' : 'leave'
+    }
 
-    const merged = [...realRows, ...absentRows]
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    // ✅ نبني صفاً لكل يوم تقويمي في الفترة المعروضة بالكامل — بلا أي فجوة، حتى لا يظهر الشهر "ناقصاً"
+    // ويلتبس الأمر بين يوم إجازة ويوم غياب ويوم راحة (بلا شيفت مجدول أصلاً)
+    const merged: any[] = []
+    for (let d = new Date(startDate + 'T00:00:00Z'); d.toISOString().slice(0, 10) < endStr; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dateStr = d.toISOString().slice(0, 10)
+      const realRow = realRowByDate[dateStr]
+      const schedType = scheduleTypeByDate[dateStr]
+
+      if (realRow && realRow.check_in_time) {
+        // يوم حضر فيه فعلياً — بياناته الحقيقية زي ما هي (حاضر أو متأخر)
+        merged.push(realRow)
+      } else if (schedType === 'leave') {
+        merged.push({ date: dateStr, check_in_time: null, check_out_time: null, late_minutes: 0, status: 'leave', _synthetic: true })
+      } else if (schedType === 'work') {
+        merged.push({ date: dateStr, check_in_time: null, check_out_time: null, late_minutes: 0, status: 'absent', _synthetic: true })
+      } else {
+        // لا يوجد أي شيفت مجدول لهذا اليوم إطلاقاً — يوم راحة أسبوعية، لا يُحتسب غياباً ولا إجازة
+        merged.push({ date: dateStr, check_in_time: null, check_out_time: null, late_minutes: 0, status: 'day_off', _synthetic: true })
+      }
+    }
 
     setReportData(merged)
     setLoadingReport(false)
@@ -1088,7 +1100,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <td>${r.check_out_distance != null ? r.check_out_distance + 'm' : '—'}</td>
       <td>${workHours(r)}</td>
       <td style="color:${r.late_minutes > 0 ? 'orange' : '#999'}">${r.late_minutes > 0 ? r.late_minutes + 'm' : '—'}</td>
-      <td style="color:${r.status === 'present' ? 'green' : r.status === 'late' ? 'orange' : 'red'}">${r.status || 'present'}</td>
+      <td style="color:${r.status === 'present' ? 'green' : r.status === 'late' ? 'orange' : r.status === 'leave' ? 'teal' : r.status === 'day_off' ? '#999' : 'red'}">${r.status === 'leave' ? 'إجازة' : r.status === 'day_off' ? 'يوم راحة' : r.status === 'absent' ? 'غياب' : (r.status || 'present')}</td>
     </tr>`).join('')
 
     win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
@@ -1439,7 +1451,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                     </thead>
                     <tbody>
                       {reportData.map(r => (
-                        <tr key={r.id || `absent-${r.date}`} style={{ borderBottom: `1px solid ${S.border}` }}>
+                        <tr key={r.id || `row-${r.date}`} style={{ borderBottom: `1px solid ${S.border}` }}>
                           <td style={{ padding: '10px 14px', fontSize: 12, color: S.white }}>{r.date}</td>
                           <td style={{ padding: '10px 14px', fontSize: 13, color: r.check_in_time ? S.green : S.muted }}>{formatTime(r.check_in_time)}</td>
                           <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>
@@ -1454,8 +1466,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                             {r.late_minutes > 0 ? `${r.late_minutes}m` : '—'}
                           </td>
                           <td style={{ padding: '10px 14px' }}>
-                            <span style={{ background: r.status === 'present' ? S.greenB : r.status === 'late' ? S.amberB : S.redB, color: r.status === 'present' ? S.green : r.status === 'late' ? S.amber : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
-                              {r.status || 'present'}
+                            <span style={{
+                              background: r.status === 'present' ? S.greenB : r.status === 'late' ? S.amberB : r.status === 'leave' ? S.tealB : r.status === 'day_off' ? 'rgba(255,255,255,0.06)' : S.redB,
+                              color: r.status === 'present' ? S.green : r.status === 'late' ? S.amber : r.status === 'leave' ? S.teal : r.status === 'day_off' ? S.muted : S.red,
+                              borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+                            }}>
+                              {r.status === 'leave' ? 'إجازة' : r.status === 'day_off' ? 'يوم راحة' : r.status === 'absent' ? 'غياب' : (r.status || 'present')}
                             </span>
                           </td>
                         </tr>

@@ -505,8 +505,34 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     isSalaryAdvance ? isAdmin : (isAdmin || isDeptManager)
   )
 
+  // ✅ دالة مشتركة لعكس أثر سلفة "completed" على الرواتب — تُستخدم عند تغيير الحالة بعيداً عن "completed"،
+  // وكذلك عند حذف الطلب نهائياً (الحالتان لهما نفس الأثر: المبلغ يجب ألا يبقى "عالقاً" في الرواتب)
+  async function reverseAdvanceFromPayroll() {
+    if (request.request_type !== 'salary_advance' || request.status !== 'completed' || !request.amount) return
+    const now = new Date()
+    const targetMonth = now.getMonth() + 1
+    const targetYear = now.getFullYear()
+    const { data: payrollMonth } = await supabase.from('payroll_months')
+      .select('id, status').eq('month', targetMonth).eq('year', targetYear).maybeSingle()
+    if (!payrollMonth) return
+    if (payrollMonth.status === 'finalized') {
+      alert('⚠️ تنبيه: شهر الرواتب المرتبط بهذا الطلب مُعتمَد (Finalized) بالفعل — لم يُطرح المبلغ تلقائياً. راجع حقل "سلفة" لهذا الموظف يدوياً.')
+      return
+    }
+    const { data: existingRecord } = await supabase.from('payroll_records')
+      .select('id, advance').eq('payroll_month_id', payrollMonth.id).eq('employee_id', request.employee_id).maybeSingle()
+    if (existingRecord) {
+      await supabase.from('payroll_records').update({
+        advance: Math.max(0, (existingRecord.advance || 0) - request.amount),
+      }).eq('id', existingRecord.id)
+    }
+  }
+
   async function deleteRequest() {
     if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return
+    // ✅ لو الطلب كان "completed" (أي أن مبلغ السلفة أُضيف بالفعل للرواتب)، لازم نعكس الأثر قبل الحذف النهائي —
+    // وإلا يبقى المبلغ عالقاً في الرواتب للأبد رغم اختفاء الطلب نفسه من السجل
+    await reverseAdvanceFromPayroll()
     await supabase.from('employee_requests').delete().eq('id', request.id)
     onDelete()
   }
@@ -621,25 +647,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     // ✅ عكس أثر السلفة: لو الطلب كان "completed" من قبل (أي أن مبلغه أُضيف بالفعل للرواتب)
     // وتم الآن تغيير حالته لأي حالة أخرى (رفض، إلغاء، تصحيح خطأ إداري)، لازم نطرح المبلغ من الرواتب
     // مرة أخرى — وإلا يبقى المبلغ "عالقاً" في الرواتب رغم أن الطلب لم يعد معتمداً
-    if (newStatus !== 'completed' && request.status === 'completed' && request.request_type === 'salary_advance' && request.amount) {
-      const now = new Date()
-      const targetMonth = now.getMonth() + 1
-      const targetYear = now.getFullYear()
-      const { data: payrollMonth } = await supabase.from('payroll_months')
-        .select('id, status').eq('month', targetMonth).eq('year', targetYear).maybeSingle()
-      if (payrollMonth) {
-        if (payrollMonth.status === 'finalized') {
-          alert('⚠️ تنبيه: تم تغيير حالة الطلب، لكن شهر الرواتب المرتبط به مُعتمَد (Finalized) بالفعل — لم يُطرح المبلغ تلقائياً. راجع حقل "سلفة" لهذا الموظف يدوياً.')
-        } else {
-          const { data: existingRecord } = await supabase.from('payroll_records')
-            .select('id, advance').eq('payroll_month_id', payrollMonth.id).eq('employee_id', request.employee_id).maybeSingle()
-          if (existingRecord) {
-            await supabase.from('payroll_records').update({
-              advance: Math.max(0, (existingRecord.advance || 0) - request.amount),
-            }).eq('id', existingRecord.id)
-          }
-        }
-      }
+    if (newStatus !== 'completed') {
+      await reverseAdvanceFromPayroll()
     }
 
     setUpdating(false)

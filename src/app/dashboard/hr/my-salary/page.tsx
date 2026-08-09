@@ -91,13 +91,16 @@ export default function MySalaryPage() {
     if (!selectedMonth || !myId) { setMyRecord(null); return }
     setLoadingRecord(true)
 
-    const monthStart = `${selectedMonth.year}-${String(selectedMonth.month).padStart(2,'0')}-01`
-    const monthEnd   = new Date(selectedMonth.year, selectedMonth.month, 0).toISOString().split('T')[0]
+    const monthStart = `${selectedMonth.year}-${String(selectedMonth.month).padStart(2, '0')}-01`
+    // ✅ Date.UTC بدل new Date() العادي — لكي الحساب لا يتأثر بتوقيت متصفح المستخدم المحلي (نفس باج monthEnd في صفحة الرواتب)
+    const monthEnd = new Date(Date.UTC(selectedMonth.year, selectedMonth.month, 0)).toISOString().split('T')[0]
 
     Promise.all([
       sb.from('payroll_records').select('*').eq('payroll_month_id', selectedMonth.id).eq('employee_id', myId).maybeSingle(),
       sb.from('attendance').select('check_in_time,date').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
-      sb.from('shift_schedules').select('date,shifts(start_time)').eq('employee_id', myId).gte('date', monthStart).lte('date', monthEnd),
+      // ✅ لازم نجلب custom_start أيضاً — أغلب الموظفين عندهم شيفتات بأوقات مخصصة (بلا shift_id مرتبط بجدول shifts)،
+      // وكان الكود يتجاهلها تماماً فيحسب تأخيرهم صفراً دائماً
+      sb.from('shift_schedules').select('date,shift_id,custom_start,shifts(start_time)').eq('employee_id', myId).eq('status','confirmed').gte('date', monthStart).lte('date', monthEnd),
       sb.from('violations').select('amount').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
     ]).then(([recRes, attRes, schRes, violRes]) => {
       const record = recRes.data
@@ -106,10 +109,10 @@ export default function MySalaryPage() {
       const attData = attRes.data || []
       const schData = schRes.data || []
 
-      // map الشيفتات حسب التاريخ
+      // map الشيفتات حسب التاريخ — الوقت المخصص (custom_start) له الأولوية، ثم وقت الشيفت المسمّى من جدول shifts
       const schMap: Record<string, string> = {}
       for (const s of schData) {
-        const startTime = (s.shifts as any)?.start_time
+        const startTime = s.custom_start || (s.shifts as any)?.start_time
         if (startTime) schMap[String(s.date).slice(0,10)] = startTime
       }
 

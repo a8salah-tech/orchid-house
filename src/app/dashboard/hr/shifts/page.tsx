@@ -639,19 +639,29 @@ export default function ShiftsPage() {
       }
       const {data: empData} = await empQuery
       setEmployees(empData||[])
-// جيب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50
+// جيب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50، ومع Pagination داخل كل جزء
+// (50 موظف × 31 يوم ممكن يتخطى حد الـ1000 صف الافتراضي في Supabase بسهولة، فكنا بنفقد جزءاً من البيانات بصمت)
       const empIds = (empData||[]).map((e:any) => e.id)
       let allSchData: any[] = []
       const chunkSize = 50
+      const PAGE_SIZE = 1000
       for (let i = 0; i < Math.max(1, Math.ceil(empIds.length / chunkSize)); i++) {
         const chunk = empIds.slice(i * chunkSize, (i + 1) * chunkSize)
-        let q = supabase.from('shift_schedules')
-          .select('*, shifts(name,color,start_time,end_time), custom_start, custom_end')
-          .gte('date', monthStart)
-          .lte('date', monthEnd)
-        if (chunk.length > 0) q = q.in('employee_id', chunk)
-        const { data: chunkData } = await q
-        allSchData = [...allSchData, ...(chunkData || [])]
+        let page = 0
+        while (true) {
+          let q = supabase.from('shift_schedules')
+            .select('*, shifts(name,color,start_time,end_time), custom_start, custom_end')
+            .gte('date', monthStart)
+            .lte('date', monthEnd)
+            .order('id')
+            .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+          if (chunk.length > 0) q = q.in('employee_id', chunk)
+          const { data: pageData } = await q
+          if (!pageData || pageData.length === 0) break
+          allSchData = allSchData.concat(pageData)
+          if (pageData.length < PAGE_SIZE) break
+          page++
+        }
         if (chunk.length === 0) break
       }
       const schData = allSchData

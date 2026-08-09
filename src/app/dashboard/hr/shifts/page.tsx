@@ -146,6 +146,10 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
           map[dateStr] = { type: 'custom', customStart: s.custom_start.slice(0,5), customEnd: s.custom_end.slice(0,5) }
         } else if (s.shift_id) {
           map[dateStr] = { type: 'shift', shiftId: s.shift_id }
+        } else {
+          // ✅ صف إجازة رسمية محفوظ مسبقاً (بلا shift_id وبلا custom_start) — لازم يظهر كإجازة عند إعادة فتح الجدول،
+          // مش يختفي بصمت وكأن اليوم غير محدد
+          map[dateStr] = { type: 'leave' }
         }
       })
       setCalendarMap(map)
@@ -235,6 +239,24 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
       for (let i = 0; i < rows.length; i += 50) {
         const { error } = await supabase.from('shift_schedules').insert(rows.slice(i, i + 50))
         if (error) { console.error('Shift insert error:', error); alert('خطأ في الحفظ: ' + error.message); setSaving(false); return }
+      }
+    }
+    // ✅ أيام الإجازة الرسمية كانت تُحسب هنا لكن لا تُحفظ في قاعدة البيانات خالص — كانت تظهر فقط كرقم في نص إشعاري،
+    // وهذا هو السبب في تضارب الظهور بين الموظفين (بعضهم عنده صفوف إجازة محفوظة من مصدر آخر، وبعضهم لا)
+    // نحفظها الآن كصف فعلي فارغ (بلا shift_id وبلا custom_start) — نفس القاعدة المعتمدة في باقي النظام لتمييز يوم الإجازة
+    if (leaveDays.length > 0) {
+      setProgress(`إضافة ${leaveDays.length} يوم إجازة...`)
+      const leaveRows = leaveDays.map(([date]) => ({
+        employee_id: empId,
+        shift_id: null,
+        date,
+        status: 'confirmed',
+        custom_start: null,
+        custom_end: null,
+      }))
+      for (let i = 0; i < leaveRows.length; i += 50) {
+        const { error } = await supabase.from('shift_schedules').insert(leaveRows.slice(i, i + 50))
+        if (error) { console.error('Leave insert error:', error); alert('خطأ في حفظ أيام الإجازة: ' + error.message); setSaving(false); return }
       }
     }
     // إشعار اختياري — لو فشل مش هيوقف الحفظ
@@ -755,6 +777,8 @@ export default function ShiftsPage() {
     ${monthDays.map(d=>{
       const s=getShift(emp.id,d.date)
       if (!s) return '<td style="color:#ddd;font-size:10px">✗</td>'
+      // ✅ صف إجازة رسمية (بلا shift_id وبلا custom_start) يجب ألا يظهر بنفس علامة الصح الخاصة بالشيفت الحقيقي
+      if (!s.shift_id && !s.custom_start) return '<td style="background:#14B8A620;color:#14B8A6;font-weight:bold;font-size:11px">إجازة</td>'
       const color = s.shifts?.color||'#C9A84C'
       return '<td style="background:'+color+'20;color:'+color+';font-weight:bold;font-size:11px">✓</td>'
     }).join('')}</tr>`).join('')}
@@ -924,13 +948,23 @@ export default function ShiftsPage() {
                               {monthDays.map(d=>{
                                 const sch = getShift(emp.id, d.date)
                                 const isToday = d.date===todayStr()
+                                // ✅ لازم نفرّق بين شيفت عمل حقيقي (له shift_id أو custom_start) وبين صف إجازة رسمية
+                                // فاضٍ (بلا الاثنين) — الإجازة يجب ألا تظهر بنفس علامة الصح الخضراء الخاصة بالشيفت
+                                const isRealShift = !!(sch && (sch.shift_id || sch.custom_start))
+                                const isLeaveRow = !!(sch && !sch.shift_id && !sch.custom_start)
                                 return (
                                   <td key={d.day} style={{padding:'2px',textAlign:'center',background:isToday?'rgba(201,168,76,0.04)':'transparent'}}>
-                                    {sch?(
+                                    {isRealShift?(
                                       <div
                                         title={sch.custom_start ? `${sch.custom_start.slice(0,5)}—${sch.custom_end?.slice(0,5)}` : `${sch.shifts?.name||''} ${sch.shifts?.start_time?.slice(0,5)||''}—${sch.shifts?.end_time?.slice(0,5)||''}`}
                                         style={{background:sch.custom_start?S.purpleB:(sch.shifts?.color||S.green)+'25',border:`1px solid ${sch.custom_start?S.purple:(sch.shifts?.color||S.green)+'60'}`,borderRadius:4,padding:'3px 2px',fontSize:11,fontWeight:800,color:sch.custom_start?S.purple:(sch.shifts?.color||S.green),lineHeight:1,textAlign:'center'}}>
                                         ✓
+                                      </div>
+                                    ): isLeaveRow ? (
+                                      <div
+                                        title="إجازة رسمية"
+                                        style={{background:S.tealB,border:`1px solid ${S.teal}60`,borderRadius:4,padding:'3px 2px',fontSize:11,fontWeight:800,color:S.teal,lineHeight:1,textAlign:'center'}}>
+                                        🏖️
                                       </div>
                                     ):(
                                       <span style={{color:'rgba(255,255,255,0.1)',fontSize:10}}>—</span>

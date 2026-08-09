@@ -32,7 +32,7 @@ const NAME_COL_W = 190
 const LATE_HOUR_PENALTY = 20
 // ✅ لون خلفية الصف عند تحديده (يجب أن يكون صلباً/Opaque في الأعمدة المثبّتة حتى لا يظهر تداخل مع الأعمدة الأخرى أثناء التمرير الأفقي)
 const SELECTED_ROW_BG = '#152E59'
-// ✅ خلفية صلبة (Opaque) لخلية "TOTAL" المثبّتة أفقياً في آخر صف بالجدول (نفس لون rgba(201,168,76,0.15) بس بدون شفافية)
+// ✅ خلفية صلبة (Opaque) لخلية "TOTAL" المثبّتة أفقياً في آخر صف بالجدول (نفس لون rgba(201,168,76,0.15) فقط بدون شفافية)
 const TOTAL_ROW_BG = '#222E41'
 const SELECTED_ROW_BG_TRANSLUCENT = 'rgba(59,130,246,0.14)'
 
@@ -213,7 +213,7 @@ function Cell({ value, onChange, readOnly = false, extra, minWidth = 80 }: { val
 
   useEffect(() => {
     const parsedCurrent = parseFloat(text.replace(',', '.'))
-    // نحدّث النص المحلي بس لو القيمة الجاية من خارج (record) اتغيّرت فعلاً عن الذي المستخدم كاتبه
+    // نحدّث النص المحلي فقط لو القيمة الجاية من خارج (record) اتغيّرت فعلاً عن الذي المستخدم كاتبه
     if (Number.isNaN(parsedCurrent) || parsedCurrent !== value) {
       setText(String(value ?? 0))
     }
@@ -659,7 +659,7 @@ export default function PayrollPage() {
 
     // ✅ حساب بداية ونهاية الشهر أولاً لكي نقدر نستخدمهم في الفلترة
     const monthStart = `${month.year}-${String(month.month).padStart(2,'0')}-01`
-    // ✅ لازم نستخدم Date.UTC هنا بدل new Date() العادي — لكي الحساب ميتأثرش بتوقيت متصفح الأدمن المحلي
+    // ✅ لازم نستخدم Date.UTC هنا بدل new Date() العادي — لكي الحساب لا يتأثر بتوقيت متصفح الأدمن المحلي
     // (لو اتحسب بالتوقيت المحلي وبعدين اتحول لـ UTC، ممكن يقتطع آخر يوم في الشهر ويفوّت بيانات حضور/تأخير حقيقية)
     const monthEnd   = new Date(Date.UTC(month.year, month.month, 0)).toISOString().split('T')[0]
 
@@ -808,8 +808,14 @@ export default function PayrollPage() {
       return {
         ...r,
         basic_salary: baseSalary,
-        days_worked: salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : r.days_worked,
-        notes: salaryInfo.note || r.notes,
+        // ✅ نفس تصحيح باج "القيمة القديمة العالقة" اللي حصل في notes بالظبط — لما الموظف يرجع لحالة طبيعية
+        // (شهر كامل بلا تعيين/إيقاف في منتصفه)، يجب حساب أيام العمل من working_days الشهر الكامل،
+        // وليس الإبقاء على days_worked القديمة المخزَّنة من وقت ما كان محسوباً خطأً (مثلاً صفر بسبب تاريخ تعيين خاطئ سابقاً)
+        days_worked: salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : (r.working_days || 30),
+        // ✅ يجب استبدال الملاحظة بالكامل بالقيمة المحسوبة حديثاً دائماً، وليس الإبقاء على القيمة القديمة المخزَّنة
+        // عند عدم وجود ملاحظة جديدة — وإلا تبقى رسالة "⏸ لم يبدأ العمل بعد" أو "⏸ موقوف" ظاهرة إلى الأبد
+        // حتى بعد تصحيح تاريخ التعيين أو تاريخ الإيقاف، لأن الشرط لم يعد يتحقق فتفشل إعادة الحساب في مسح الرسالة القديمة
+        notes: salaryInfo.note,
         late_hours: lateHrs,
         deduction_1: violAmount,
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toFixed(2)} MYR)` : 'Violations',
@@ -1021,10 +1027,10 @@ export default function PayrollPage() {
   const visibleRecords = useMemo(() => {
     const base = (() => {
       if (isAdmin) return filteredRecords
-      // مدير قسم — يشوف رواتب موظفين قسمه بس ليس راتبه هو
+      // مدير قسم — يشوف رواتب موظفين قسمه فقط ليس راتبه هو
       const managerRoles = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager']
       if (managerRoles.includes(currentUser?.role || '')) return filteredRecords.filter(r => r.employee_id !== currentUser?.id)
-      // موظف عادي — يشوف راتبه بس
+      // موظف عادي — يشوف راتبه فقط
       return filteredRecords.filter(r => r.employee_id === currentUser?.id)
     })()
     // ✅ ترتيب أبجدي (A→Z) حسب اسم الموظف — ينعكس تلقائياً على الجدول وكل شاشات الطباعة (Print Sheet وPrint All Payslips)
@@ -1086,7 +1092,7 @@ export default function PayrollPage() {
     position: 'sticky', top: 0, zIndex: 10,
   }
   const thGroupStyle = (color: string): React.CSSProperties => ({ ...thStyle, background: solidOver(color), fontSize: 9 })
-  // ✅ نسخة من thStyle لصف الهيدر الثاني — نفس الشكل بالظبط، بس تثبيتها الرأسي يبدأ من تحت الصف الأول (بالارتفاع المقاس فعلياً)
+  // ✅ نسخة من thStyle لصف الهيدر الثاني — نفس الشكل بالظبط، فقط تثبيتها الرأسي يبدأ من تحت الصف الأول (بالارتفاع المقاس فعلياً)
   const thStyleRow2: React.CSSProperties = { ...thStyle, top: headerRow1H }
   // ✅ رؤوس الأعمدة المثبّتة أفقياً أيضاً (ID / Name) — zIndex أعلى لكي تفضل فوق باقي الرؤوس والصفوف وقت التمرير الأفقي
   // ✅ نفس منطق تصغير عرض العمودين على الموبايل المستخدم في PayrollRow، لكي الهيدر يطابق الصفوف بالظبط
@@ -1137,7 +1143,7 @@ export default function PayrollPage() {
         </div>
         {selectedMonth && (
           <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 10 : 10, marginLeft: isMobile ? 0 : 'auto', width: isMobile ? '100%' : undefined }}>
-            {/* الشهر + حالة Draft/Finalized — على الموبايل الشهر ظاهر أصلاً فوق جنب العنوان، فهنا بنعرض البادچ بس */}
+            {/* الشهر + حالة Draft/Finalized — على الموبايل الشهر ظاهر أصلاً فوق جنب العنوان، فهنا بنعرض البادچ فقط */}
             {!isMobile && (
               <span style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>
                 {MONTHS[selectedMonth.month - 1]} {selectedMonth.year}
@@ -1464,6 +1470,14 @@ export default function PayrollPage() {
                   <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{monthName} {selectedMonth.year} · {emp?.employee_number || '—'} · {emp?.department}</div>
                   {payslipRecord.notes && payslipRecord.notes.startsWith('⏸') && (
                     <div style={{ marginTop: 6, display: 'inline-block', background: S.redB, color: S.red, borderRadius: 10, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{payslipRecord.notes}</div>
+                  )}
+                  {/* ✅ تناقض خطير: النظام يقول "لم يبدأ العمل بعد" (بسبب تاريخ تعيين مستقبلي) لكن الموظف يبصم فعلياً هذا الشهر —
+                      يعني تاريخ التعيين المُدخَل في بيانات الموظف غالباً خطأ ويحتاج تصحيحاً يدوياً فورياً */}
+                  {payslipRecord.notes && payslipRecord.notes.includes('لم يبدأ الموظف العمل بعد') && payslipAttStats && payslipAttStats.checkinDays > 0 && (
+                    <div style={{ marginTop: 8, background: S.redB, border: `1px solid ${S.red}`, borderRadius: 8, padding: '10px 12px', fontSize: 11, color: S.red, lineHeight: 1.8, maxWidth: 480 }}>
+                      ⚠️ تناقض في البيانات: النظام يقول إن الموظف لم يبدأ العمل بعد، لكنه بصم فعلياً {payslipAttStats.checkinDays} يوم هذا الشهر.
+                      على الأرجح تاريخ التعيين ({emp?.join_date}) مُدخَل خطأً في بيانات الموظف — راجعه وصحّحه قبل اعتماد راتبه.
+                    </div>
                   )}
                 </div>
                 <button onClick={() => setPayslipRecord(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>

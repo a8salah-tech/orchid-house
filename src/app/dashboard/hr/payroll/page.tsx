@@ -844,8 +844,11 @@ export default function PayrollPage() {
     setRecords(allRecords)
 
     // Auto-save violations and absences deductions
+    // ✅ أضفنا شرط r.notes (يشمل تحذيرات "لا يوجد شيفت"، "راتب صفر تلقائي"، وحالات التعيين/الإيقاف) — وإلا هذه الحالات
+    // كانت تُحسب فقط على شاشة الأدمن ولا تُحفظ أبداً في قاعدة البيانات (لأنها لا تملك غياباً/تأخيراً/مخالفات محتسَبة أصلاً)،
+    // فتبقى صفحة "راتبي" الخاصة بالموظف تعرض القيمة القديمة المخزَّنة إلى أن يضغط الأدمن "حفظ" يدوياً
     const toAutoSave = allRecords
-      .filter((r: any) => violMap[r.employee_id] > 0 || absMap[r.employee_id] > 0 || lateMap[r.employee_id] > 0)
+      .filter((r: any) => violMap[r.employee_id] > 0 || absMap[r.employee_id] > 0 || lateMap[r.employee_id] > 0 || r.notes)
       .map((r: any) => {
         const calc = calcRecord(r)
         const { employees: _emp, ...cleanRecord } = r as any

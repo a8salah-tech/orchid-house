@@ -287,7 +287,7 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
           {emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}
         </div>
         <div style={{ fontSize: isMobile ? 9 : 10, color: S.muted }}>{emp?.department}</div>
-        {record.notes && record.notes.startsWith('⏸') && (
+        {record.notes && (record.notes.startsWith('⏸') || record.notes.startsWith('⚠️')) && (
           <div style={{ fontSize: 9, color: S.red, marginTop: 2, fontWeight: 700, whiteSpace: 'normal' }}>{record.notes}</div>
         )}
       </td>
@@ -406,7 +406,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
       <div class="brand">🌸 Orchid House</div>
       <div class="title">Payslip — قسيمة راتب</div>
       <div class="period">${monthName} ${year}</div>
-      ${record.notes && record.notes.startsWith('⏸') ? `<div style="margin-top:6px;color:#c62828;font-weight:800;font-size:11px">${record.notes}</div>` : ''}
+      ${record.notes && (record.notes.startsWith('⏸') || record.notes.startsWith('⚠️')) ? `<div style="margin-top:6px;color:#c62828;font-weight:800;font-size:11px">${record.notes}</div>` : ''}
     </div>
     <table class="emp-info">
       <tr>
@@ -794,11 +794,28 @@ export default function PayrollPage() {
     const existingIds = existing.map((r: any) => r.employee_id)
     const missing     = filteredEmps.filter(e => !existingIds.includes(e.id)).map(e => emptyRecord(month.id, e))
 
+    // ✅ مجموعة الموظفين اللي عندهم شيفت واحد على الأقل مسجَّل هذا الشهر (شغل أو إجازة، لا يهم النوع) —
+    // نستخدمها لتحذير الأدمن لو موظف عادي (بلا حالة تعيين/إيقاف خاصة) بيُحتسَب له راتب كامل رغم عدم وجود
+    // أي شيفت مسجَّل له من الأساس، لأن هذا مؤشر قوي على نسيان جدولته أو عدم تفعيله فعلياً هذا الشهر
+    const employeesWithAnySchedule = new Set(scheduleRows.map(s => s.employee_id))
+    // ✅ مجموعة الموظفين اللي بصموا (سجّلوا حضوراً فعلياً) مرة واحدة على الأقل هذا الشهر
+    const employeesWithAnyAttendance = new Set(attendanceRows.filter(a => a.check_in_time).map(a => a.employee_id))
+
     // دمج المخالفات والغياب — دائماً بتحسب من الجداول ليس من DB
     const allRecords = [...existing, ...missing].map((r: any) => {
       const emp = filteredEmps.find(e => e.id === r.employee_id)
       // ✅ تناسب الراتب حسب تاريخ إيقاف الموظف (لو موجود) ومقارنته بشهر الجرد الحالي
       const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }
+      // ✅ الحالة القصوى: مفيش شيفت مسجَّل خالص ومفيش بصمة خالص هذا الشهر — لا يوجد أي أساس لدفع أي راتب على الإطلاق،
+      // فنحتسب أيام العمل صفراً تلقائياً (بعكس أي حالة فيها غياب جزئي أو بصمة متقطعة، اللي بتفضل تحتاج مراجعة يدوية)
+      const hasNoScheduleAtAll = !!emp && !employeesWithAnySchedule.has(emp.id)
+      const hasNoAttendanceAtAll = !!emp && !employeesWithAnyAttendance.has(emp.id)
+      const isCompletelyUnaccountedFor = hasNoScheduleAtAll && hasNoAttendanceAtAll
+      const noScheduleWarning = isCompletelyUnaccountedFor
+        ? '⚠️ لا يوجد أي شيفت مسجَّل لهذا الموظف هذا الشهر، ولم يُسجَّل له أي حضور — لذلك احتُسِب راتبه صفراً تلقائياً. يُرجى مراجعة حالته (هل استقال دون تسجيل ذلك؟ أم لم تُجدوَل شيفتاته؟) قبل اعتماد راتب هذا الشهر'
+        : (!salaryInfo.note && emp && hasNoScheduleAtAll)
+        ? '⚠️ لا يوجد أي شيفت مسجَّل لهذا الموظف هذا الشهر، ورغم ذلك يُحتسَب له راتب كامل — راجع جدول الشيفتات قبل اعتماد الراتب'
+        : salaryInfo.note
       const baseSalary = salaryInfo.basicSalary
       const dailyRate = baseSalary / 30
       const violAmount = violMap[r.employee_id] || 0
@@ -811,11 +828,12 @@ export default function PayrollPage() {
         // ✅ نفس تصحيح باج "القيمة القديمة العالقة" اللي حصل في notes بالظبط — لما الموظف يرجع لحالة طبيعية
         // (شهر كامل بلا تعيين/إيقاف في منتصفه)، يجب حساب أيام العمل من working_days الشهر الكامل،
         // وليس الإبقاء على days_worked القديمة المخزَّنة من وقت ما كان محسوباً خطأً (مثلاً صفر بسبب تاريخ تعيين خاطئ سابقاً)
-        days_worked: salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : (r.working_days || 30),
+        // — إلا في حالة "مفيش شيفت ومفيش بصمة خالص" فأيام العمل صفر مباشرة
+        days_worked: isCompletelyUnaccountedFor ? 0 : (salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : (r.working_days || 30)),
         // ✅ يجب استبدال الملاحظة بالكامل بالقيمة المحسوبة حديثاً دائماً، وليس الإبقاء على القيمة القديمة المخزَّنة
         // عند عدم وجود ملاحظة جديدة — وإلا تبقى رسالة "⏸ لم يبدأ العمل بعد" أو "⏸ موقوف" ظاهرة إلى الأبد
         // حتى بعد تصحيح تاريخ التعيين أو تاريخ الإيقاف، لأن الشرط لم يعد يتحقق فتفشل إعادة الحساب في مسح الرسالة القديمة
-        notes: salaryInfo.note,
+        notes: noScheduleWarning,
         late_hours: lateHrs,
         deduction_1: violAmount,
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toFixed(2)} MYR)` : 'Violations',
@@ -1468,7 +1486,7 @@ export default function PayrollPage() {
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>📋 تقرير الراتب — {emp?.name} {emp?.name_en}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{monthName} {selectedMonth.year} · {emp?.employee_number || '—'} · {emp?.department}</div>
-                  {payslipRecord.notes && payslipRecord.notes.startsWith('⏸') && (
+                  {payslipRecord.notes && (payslipRecord.notes.startsWith('⏸') || payslipRecord.notes.startsWith('⚠️')) && (
                     <div style={{ marginTop: 6, display: 'inline-block', background: S.redB, color: S.red, borderRadius: 10, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{payslipRecord.notes}</div>
                   )}
                   {/* ✅ تناقض خطير: النظام يقول "لم يبدأ العمل بعد" (بسبب تاريخ تعيين مستقبلي) لكن الموظف يبصم فعلياً هذا الشهر —

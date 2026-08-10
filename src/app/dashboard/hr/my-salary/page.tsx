@@ -97,39 +97,19 @@ export default function MySalaryPage() {
 
     Promise.all([
       sb.from('payroll_records').select('*').eq('payroll_month_id', selectedMonth.id).eq('employee_id', myId).maybeSingle(),
-      sb.from('attendance').select('check_in_time,date').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
-      // ✅ لازم نجلب custom_start أيضاً — أغلب الموظفين عندهم شيفتات بأوقات مخصصة (بلا shift_id مرتبط بجدول shifts)،
-      // وكان الكود يتجاهلها تماماً فيحسب تأخيرهم صفراً دائماً
-      sb.from('shift_schedules').select('date,shift_id,custom_start,shifts(start_time)').eq('employee_id', myId).eq('status','confirmed').gte('date', monthStart).lte('date', monthEnd),
+      // ✅ نجلب late_minutes الجاهزة والمخزَّنة مباشرة بدل إعادة حسابها من الصفر هنا — نفس القيمة بالضبط اللي صفحة
+      // الرواتب الإدارية بتعتمد عليها، عشان الرقمين يتطابقا دائماً ولا يختلفا حسب مصدر الحساب (كانا يختلفان قبل هذا الإصلاح)
+      sb.from('attendance').select('check_in_time,date,late_minutes').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
       sb.from('violations').select('amount').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
-    ]).then(([recRes, attRes, schRes, violRes]) => {
+    ]).then(([recRes, attRes, violRes]) => {
       const record = recRes.data
       // احسب المخالفات النشطة فقط
       const activeViolationsTotal = (violRes.data || []).reduce((s: number, v: any) => s + (v.amount || 0), 0)
       const attData = attRes.data || []
-      const schData = schRes.data || []
 
-      // map الشيفتات حسب التاريخ — الوقت المخصص (custom_start) له الأولوية، ثم وقت الشيفت المسمّى من جدول shifts
-      const schMap: Record<string, string> = {}
-      for (const s of schData) {
-        const startTime = s.custom_start || (s.shifts as any)?.start_time
-        if (startTime) schMap[String(s.date).slice(0,10)] = startTime
-      }
-
-      // احسب إجمالي التأخير بالدقائق — نفس طريقة my-schedule
-      let totalLateMinutes = 0
-      for (const att of attData) {
-        const dateStr = String(att.date).slice(0,10)
-        const shiftStart = schMap[dateStr]
-        if (!shiftStart) continue
-        const checkIn = new Date(att.check_in_time)
-        const [sh, sm] = shiftStart.split(':').map(Number)
-        // وقت الشيفت بنفس يوم الحضور
-        const scheduled = new Date(`${dateStr}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00`)
-        const gracePeriod = 10 * 60 * 1000 // 10 دقائق
-        const diffMs = checkIn.getTime() - (scheduled.getTime() + gracePeriod)
-        if (diffMs > 0) totalLateMinutes += Math.floor(diffMs / 60000)
-      }
+      // ✅ إجمالي التأخير = مجموع late_minutes المخزَّنة فعلياً في جدول الحضور (نفس مصدر الحقيقة الوحيد المستخدم
+      // في صفحة الرواتب الإدارية وفي أداة "إعادة حساب التأخير") — وليس إعادة حساب مستقل هنا قد يعطي نتيجة مختلفة
+      const totalLateMinutes = attData.reduce((s: number, a: any) => s + (a.late_minutes || 0), 0)
       const lateHours = parseFloat((totalLateMinutes / 60).toFixed(2))
 
       if (record) {

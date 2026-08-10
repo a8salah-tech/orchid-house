@@ -13,6 +13,8 @@ const supabase = createBrowserClient(
 interface Employee {
   id: string; name: string; name_en?: string
   role: string; department?: string; branch_id?: string; is_active: boolean
+  // ✅ جديد: رقم الموظف - نفس المشكلة اللي كانت مع email_account، كان ناقصاً تماماً من هنا
+  employee_number?: string
   // ✅ جديد: إيميل حساب تسجيل الدخول - كان ناقص تمامًا من هنا، فأي صفحة تحاول تعرضه كانت تلاقيه undefined دايمًا
   email_account?: string
 }
@@ -63,9 +65,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data: empData } = await supabase
         .from('employees')
-        // ✅ Fix: أضفنا email_account هنا - ده كان السبب الجذري إن الإيميل ميظهرش في أي مكان في النظام
-        // كله (مش بس صفحة الداشبورد)، لأن الـcontext المشترك (useAuth) أصلاً مكانش بيجيبه من الأساس
-        .select('id, name, name_en, role, department, branch_id, is_active, email_account')
+        // ✅ Fix: أضفنا employee_number و email_account هنا - السبب الجذري إن رقم الموظف والإيميل
+        // مبيظهروش في أي مكان في النظام كله (مش بس صفحة الداشبورد)، لأن الـcontext المشترك (useAuth)
+        // أصلاً مكانش بيجيبهم من الأساس
+        .select('id, name, name_en, role, department, branch_id, is_active, employee_number, email_account')
         .eq('auth_user_id', user.id)
         .single()
 

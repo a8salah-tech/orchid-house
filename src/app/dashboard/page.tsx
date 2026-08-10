@@ -122,7 +122,7 @@ function EmployeeDashboard({ employee }: { employee: any }) {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 900, color: S.gold, marginBottom: 4 }}>{greeting}، {employee?.name}!</h1>
           <div style={{ fontSize: 14, color: S.muted }}>{isAr ? roleLabel.label : roleLabel.label_en}{employee?.department ? ` · ${employee.department}` : ''}</div>
-          {/* ✅ رقم الموظف والقسم: إطار واضح، خط أبيض، ومتجاوب مع الموبايل (flexWrap) */}
+          {/* ✅ رقم الموظف، القسم، وإيميل النظام: إطار واضح، خط أبيض، ومتجاوب مع الموبايل (flexWrap) */}
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
             {employee?.employee_number && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: S.white, background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 12px', whiteSpace: 'nowrap' }}>
@@ -134,10 +134,19 @@ function EmployeeDashboard({ employee }: { employee: any }) {
                 🏷️ {employee.department}
               </span>
             )}
+            {employee?.email_account && (
+              <span
+                title={isAr ? 'هذا إيميل النظام الخاص بك (لتسجيل الدخول)، وليس بريدك الشخصي' : "This is your system login email, not your personal email"}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: S.white, background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 12px', whiteSpace: 'nowrap' }}
+              >
+                ✉️ {employee.email_account}
+                <span style={{ fontSize: 10, fontWeight: 700, color: S.gold, background: S.gold3, border: `1px solid ${S.gold}40`, borderRadius: 5, padding: '1px 6px', marginRight: 2 }}>
+                  {isAr ? 'إيميل النظام' : 'System Email'}
+                </span>
+              </span>
+            )}
           </div>
-          {/* ✅ جديد: عرض الإيميل تحت الاسم */}
-          {employee?.email_account && <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>✉️ {employee.email_account}</div>}
-          <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: S.muted, marginTop: 6 }}>
             {new Date().toLocaleDateString(isAr ? 'ar-SA' : 'en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>
         </div>

@@ -40,12 +40,25 @@ function fmtTime(timeStr: string | null | undefined, isAr: boolean) {
 
 function calcLateMins(checkIn: string | null, shiftStart: string | null, checkInDate: string): number {
   if (!checkIn || !shiftStart) return 0
-  const ci = new Date(checkIn)
+  const ci = new Date(checkIn).getTime()
   const [h, m] = shiftStart.split(':').map(Number)
-  const expected = new Date(checkInDate + 'T00:00:00')
-  expected.setHours(h, m, 0, 0)
-  const diff = Math.floor((ci.getTime() - expected.getTime()) / 60000)
+  const [y, mo, d] = checkInDate.split('-').map(Number)
+  // ✅ Date.UTC مع إزاحة -8 ساعات (ماليزيا UTC+8) بدل new Date().setHours() المحلي — لكي الحساب
+  // لا يتأثر بتوقيت جهاز الموظف نفسه، نفس التصحيح المطبَّق في باقي أماكن النظام
+  const expected = Date.UTC(y, mo - 1, d, h, m, 0) - 8 * 60 * 60 * 1000
+  const diff = Math.floor((ci - expected) / 60000)
   return diff > 10 ? diff : 0
+}
+
+// ✅ يكتشف الشيفتات ذات المدة غير المنطقية (خطأ إدخال محتمل عند الجدولة، مثل 00:00–23:00 = 23 ساعة تقريباً)
+// حتى لا نعرض رقم "تأخير" خيالي (زي 700+ دقيقة) وكأنه تأخير حقيقي، بينما هو فعلياً خطأ في بيانات الشيفت نفسه
+function isSuspiciousShiftDuration(start: string | null, end: string | null): boolean {
+  if (!start || !end) return false
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  let durationMin = (eh * 60 + em) - (sh * 60 + sm)
+  if (durationMin <= 0) durationMin += 24 * 60 // شيفت عابر لمنتصف الليل
+  return durationMin > 16 * 60 // أكثر من 16 ساعة متواصلة يُعتبر مشكوكاً فيه ويستحق المراجعة
 }
 
 export default function MySchedulePage() {
@@ -123,6 +136,10 @@ export default function MySchedulePage() {
     return attendance.reduce((total, att) => {
       const sch = schedules.find(s => String(s.date).slice(0,10) === String(att.date).slice(0,10))
       const shiftStart = sch?.custom_start || sch?.shifts?.start_time
+      const shiftEnd = sch?.custom_end || sch?.shifts?.end_time
+      // ✅ نستبعد الأيام اللي مدة شيفتها مشكوك فيها (خطأ جدولة محتمل) من إجمالي التأخير — عشان رقم غريب
+      // في يوم واحد ميضخّمش إجمالي الشهر كله بشكل مضلِّل
+      if (isSuspiciousShiftDuration(shiftStart, shiftEnd)) return total
       const late = calcLateMins(att.check_in_time, shiftStart, String(att.date).slice(0,10))
       return total + late
     }, 0)
@@ -164,6 +181,15 @@ export default function MySchedulePage() {
                 ? `${todayShift.shifts.name} · ${todayShift.shifts.start_time?.slice(0,5)} — ${todayShift.shifts.end_time?.slice(0,5)}`
                 : isAr ? '🏖️ إجازة' : '🏖️ Day Off'}
             </div>
+            {/* ✅ تحذير فوري لو دوام اليوم نفسه مدته غير منطقية — عشان الموظف يعرف يبلّغ مديره قبل ما يبصم */}
+            {isSuspiciousShiftDuration(
+              todayShift.custom_start || todayShift.shifts?.start_time,
+              todayShift.custom_end || todayShift.shifts?.end_time
+            ) && (
+              <div style={{ fontSize: 11, color: S.amber, fontWeight: 700, marginTop: 4 }}>
+                ⚠️ {isAr ? 'مدة هذا الشيفت غير منطقية — أبلغ مديرك' : 'This shift duration looks incorrect — please notify your manager'}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -213,7 +239,10 @@ export default function MySchedulePage() {
 
             // حساب التأخير
             const shiftStartStr = sch?.custom_start || sch?.shifts?.start_time
-            const lateMins = att ? calcLateMins(att.check_in_time, shiftStartStr, d.date) : 0
+            const shiftEndStr = sch?.custom_end || sch?.shifts?.end_time
+            // ✅ لو مدة الشيفت غير منطقية (خطأ جدولة محتمل)، لا نحسب "تأخير" له خالص — نعرض تحذيراً واضحاً بدلاً منه
+            const suspiciousShift = hasShift && isSuspiciousShiftDuration(shiftStartStr, shiftEndStr)
+            const lateMins = (att && !suspiciousShift) ? calcLateMins(att.check_in_time, shiftStartStr, d.date) : 0
             const isLate = lateMins > 0
 
             if (!sch && !att) return (
@@ -261,6 +290,12 @@ export default function MySchedulePage() {
                         {isLate && (
                           <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}>
                             ⏰ {isAr ? `متأخر ${lateMins} دقيقة` : `Late ${lateMins} min`}
+                          </div>
+                        )}
+                        {suspiciousShift && (
+                          <div style={{ fontSize: 11, color: S.amber, fontWeight: 700, background: S.amberB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}
+                            title={isAr ? 'مدة هذا الشيفت غير منطقية — يُرجى مراجعة الجدولة مع مديرك' : 'This shift duration looks incorrect — please ask your manager to review the schedule'}>
+                            ⚠️ {isAr ? 'خطأ محتمل في جدولة هذا الشيفت — لن يُحتسب تأخير' : 'Possible shift scheduling error — no late time calculated'}
                           </div>
                         )}
                         {getDayViolations(d.date).map((v, vi) => (

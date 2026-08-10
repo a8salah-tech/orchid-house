@@ -71,6 +71,8 @@ export default function MySalaryPage() {
   const [months, setMonths] = useState<PayrollMonth[]>([])
   const [selectedMonth, setSelectedMonth] = useState<PayrollMonth | null>(null)
   const [myRecord, setMyRecord] = useState<PayrollRecord | null>(null)
+  // ✅ عدد أيام الحضور الفعلي الحقيقي المستخرج من جدول البصمة مباشرة — منفصل عن days_worked
+  const [realPresentDays, setRealPresentDays] = useState(0)
   const [myEmp, setMyEmp] = useState<Employee | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingRecord, setLoadingRecord] = useState(false)
@@ -112,6 +114,10 @@ export default function MySalaryPage() {
       const totalLateMinutes = attData.reduce((s: number, a: any) => s + (a.late_minutes || 0), 0)
       const lateHours = parseFloat((totalLateMinutes / 60).toFixed(2))
 
+      // ✅ عدد أيام الحضور الفعلي الحقيقي (أيام مختلفة سُجِّل فيها دخول بالبصمة) — مختلف تماماً عن days_worked
+      // المخزَّن في السجل (وهو رقم مرتبط بمناسبة الراتب/التناسب الشهري، وليس عدّاً حقيقياً لأيام الحضور)
+      const realPresentDaysCount = new Set(attData.map((a: any) => String(a.date).slice(0, 10))).size
+
       if (record) {
         setMyRecord({ 
           ...record, 
@@ -119,8 +125,10 @@ export default function MySalaryPage() {
           deduction_1: activeViolationsTotal,
           deduction_1_label: activeViolationsTotal > 0 ? `مخالفات (${activeViolationsTotal.toFixed(2)} MYR)` : 'Violations',
         })
+        setRealPresentDays(realPresentDaysCount)
       } else {
         setMyRecord(null)
+        setRealPresentDays(0)
       }
       setLoadingRecord(false)
     })
@@ -229,8 +237,8 @@ export default function MySalaryPage() {
                 // ("غياب بدون عذر (X يوم)")، فنستخرج العدد منه هنا لعرض القيمة الصحيحة الفعلية للموظف
                 const autoAbsentDays = parseInt((myRecord.deduction_2_label || '').match(/\d+/)?.[0] || '0', 10)
                 return [
-                { label: 'أيام العمل', value: myRecord.working_days, color: S.blue },
-                { label: 'أيام الحضور', value: myRecord.days_worked, color: S.green },
+                { label: 'أيام العمل المستحقة', value: myRecord.working_days, color: S.blue },
+                { label: 'أيام الحضور الفعلي', value: realPresentDays, color: S.green },
                 { label: 'أيام الغياب', value: autoAbsentDays, color: autoAbsentDays > 0 ? S.red : S.muted },
                 { label: 'تأخير (ساعة) 20 MYR', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
                 { label: 'أوفر تايم', value: (myRecord.overtime_days || 0) + (myRecord.overtime_hours ? myRecord.overtime_hours / 8 : 0), color: S.purple },

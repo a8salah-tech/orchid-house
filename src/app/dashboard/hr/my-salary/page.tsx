@@ -223,14 +223,20 @@ export default function MySalaryPage() {
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '14px 16px' }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: S.muted, marginBottom: 12 }}>📊 ملخص العمل</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              {[
+              {(() => {
+                // ✅ myRecord.absence_days حقل يدوي منفصل تماماً (نادراً ما يُملأ)، وليس الغياب الحقيقي المُحتسَب تلقائياً
+                // من مقارنة الشيفتات المجدولة بالحضور الفعلي — ذلك الرقم الحقيقي مخزَّن داخل deduction_2_label كنص
+                // ("غياب بدون عذر (X يوم)")، فنستخرج العدد منه هنا لعرض القيمة الصحيحة الفعلية للموظف
+                const autoAbsentDays = parseInt((myRecord.deduction_2_label || '').match(/\d+/)?.[0] || '0', 10)
+                return [
                 { label: 'أيام العمل', value: myRecord.working_days, color: S.blue },
                 { label: 'أيام الحضور', value: myRecord.days_worked, color: S.green },
-                { label: 'أيام الغياب', value: myRecord.absence_days, color: myRecord.absence_days > 0 ? S.red : S.muted },
+                { label: 'أيام الغياب', value: autoAbsentDays, color: autoAbsentDays > 0 ? S.red : S.muted },
                 { label: 'تأخير (ساعة) 20 MYR', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
                 { label: 'أوفر تايم', value: (myRecord.overtime_days || 0) + (myRecord.overtime_hours ? myRecord.overtime_hours / 8 : 0), color: S.purple },
                 { label: 'رصيد سلفة', value: myRecord.advance_balance || 0, color: S.amber },
-              ].map((item, i) => (
+              ]
+              })().map((item, i) => (
                 <div key={i} style={{ background: S.card, borderRadius: 10, padding: '10px', textAlign: 'center' }}>
                   <div style={{ fontSize: 16, fontWeight: 800, color: item.color }}>{typeof item.value === 'number' ? item.value.toFixed(item.value % 1 !== 0 ? 1 : 0) : item.value}</div>
                   <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{item.label}</div>

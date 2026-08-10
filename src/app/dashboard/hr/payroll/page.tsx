@@ -662,6 +662,10 @@ export default function PayrollPage() {
     // ✅ لازم نستخدم Date.UTC هنا بدل new Date() العادي — لكي الحساب لا يتأثر بتوقيت متصفح الأدمن المحلي
     // (لو اتحسب بالتوقيت المحلي وبعدين اتحول لـ UTC، ممكن يقتطع آخر يوم في الشهر ويفوّت بيانات حضور/تأخير حقيقية)
     const monthEnd   = new Date(Date.UTC(month.year, month.month, 0)).toISOString().split('T')[0]
+    // ✅ لحساب الغياب فقط: يجب ألا نتجاوز يوم اليوم الحالي مهما كانت نهاية الشهر التقويمية — وإلا أي شيفت مجدول
+    // مسبقاً لبقية شهر لم ينتهِ بعد (أو حتى شهر مستقبلي بالكامل) سيُحتسَب "غياباً بدون عذر" رغم أن هذه الأيام لم تأتِ بعد
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const absenceCalcEnd = monthEnd < todayStr ? monthEnd : todayStr
 
     // ✅ فلتر موظفي الفرع المختار + استبعاد أي موظف كان متوقف بالكامل قبل بداية هذا الشهر
     // (لو اتوقف داخل الشهر نفسه، بيفضل ظاهر لكي راتبه المتناسب لحد يوم التوقف)
@@ -711,7 +715,7 @@ export default function PayrollPage() {
         const { data: batch } = await sb.from('shift_schedules')
           .select('employee_id,date,shift_id,custom_start')
           .eq('status', 'confirmed')
-          .gte('date', monthStart).lte('date', monthEnd)
+          .gte('date', monthStart).lte('date', absenceCalcEnd)
           .in('employee_id', empIds)
           .order('id')
           .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
@@ -843,17 +847,16 @@ export default function PayrollPage() {
     })
     setRecords(allRecords)
 
-    // Auto-save violations and absences deductions
-    // ✅ أضفنا شرط r.notes (يشمل تحذيرات "لا يوجد شيفت"، "راتب صفر تلقائي"، وحالات التعيين/الإيقاف) — وإلا هذه الحالات
-    // كانت تُحسب فقط على شاشة الأدمن ولا تُحفظ أبداً في قاعدة البيانات (لأنها لا تملك غياباً/تأخيراً/مخالفات محتسَبة أصلاً)،
-    // فتبقى صفحة "راتبي" الخاصة بالموظف تعرض القيمة القديمة المخزَّنة إلى أن يضغط الأدمن "حفظ" يدوياً
-    const toAutoSave = allRecords
-      .filter((r: any) => violMap[r.employee_id] > 0 || absMap[r.employee_id] > 0 || lateMap[r.employee_id] > 0 || r.notes)
-      .map((r: any) => {
-        const calc = calcRecord(r)
-        const { employees: _emp, ...cleanRecord } = r as any
-        return { ...cleanRecord, amount_due: calc.amountDue, updated_at: new Date().toISOString() }
-      })
+    // ✅ الحفظ التلقائي كان مقصوراً على الموظفين اللي عندهم غياب/تأخير/مخالفات/ملاحظة محسوبة > 0 —
+    // لكن ده معناه إن أي تصحيح يخلّي القيمة ترجع صفر (بعد إصلاح باج مثلاً) ما كانش بيتحفظ أبداً،
+    // فالقيمة القديمة الغلط تفضل عالقة في قاعدة البيانات، وصفحة "راتبي" الخاصة بالموظف تستمر في عرضها.
+    // الحل الجذري: نحفظ كل السجلات دائماً بلا شرط، عشان أي تصحيح (حالياً أو مستقبلاً) ينعكس فوراً من غير ما نعتمد
+    // على تخمين "هل القيمة تستاهل الحفظ" في كل مرة نضيف فيها حساباً جديداً
+    const toAutoSave = allRecords.map((r: any) => {
+      const calc = calcRecord(r)
+      const { employees: _emp, ...cleanRecord } = r as any
+      return { ...cleanRecord, amount_due: calc.amountDue, updated_at: new Date().toISOString() }
+    })
     if (toAutoSave.length > 0) {
       await sb.from('payroll_records').upsert(toAutoSave, { onConflict: 'payroll_month_id,employee_id' })
     }

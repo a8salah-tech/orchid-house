@@ -142,7 +142,9 @@ async function handleAutoCheckout(req: NextRequest) {
           amount: penaltyAmount,
           reason: `خصم مقترح (قيد المراجعة): نسيان تسجيل الخروج بتاريخ ${dateStr} — تم تسجيل الخروج تلقائياً، ويُقترَح خصم ${PENALTY_HOURS} ساعة. راجع السجل قبل الاعتماد فقد يكون الموظف كان يعمل أوفر تايم فعلياً\nProposed deduction (pending review): forgot to check out on ${dateStr} — checkout was recorded automatically, ${PENALTY_HOURS} hours deduction suggested. Please review before approving, the employee may have genuinely worked overtime`,
           date: dateStr,
-          status: 'pending',
+          // ✅ 'submitted' هي حالة "بانتظار الاعتماد" المستخدمة فعلياً في صفحة إدارة المخالفات الحالية
+          // (وليس 'pending' كما كتبنا سابقاً بالخطأ — تلك القيمة غير معروفة للصفحة ولن تظهر فيها إطلاقاً)
+          status: 'submitted',
           submitted_at: new Date().toISOString(),
         }])
       }

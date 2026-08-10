@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
@@ -89,6 +90,8 @@ function MyAttendanceCard() {
   const [history,   setHistory]   = useState<AttendanceRecord[]>([])
   const [clock,     setClock]     = useState(new Date())
   const [hasShiftToday, setHasShiftToday] = useState(true) // افتراضي true لحد ما نتأكد، لكي مانوقفش الزرار بالغلط وقت التحميل
+  // ✅ نافذة تأكيد "خروج سريع جداً" — تظهر في منتصف الشاشة بدل نافذة المتصفح الافتراضية (confirm)
+  const [shortShiftModal, setShortShiftModal] = useState<{ minutes: number; openRecordId: string; lat: number; lng: number; dist: number } | null>(null)
   const [justCheckedIn, setJustCheckedIn] = useState(false) // فترة تأخير قصيرة بعد نجاح Check In لمنع ضغطة متتالية سريعة على نفس مكان الزر
 
   useEffect(() => {
@@ -308,37 +311,63 @@ function MyAttendanceCard() {
 
       // ✅ حماية من إساءة الاستخدام: تسجيل دخول ثم خروج فوري بعد ثوانٍ/دقائق قليلة (بدون عمل فعلي)،
       // ثم الادّعاء لاحقاً بوجود عطل تقني. لا نمنع الخروج نهائياً (قد تكون حالة طارئة حقيقية)،
-      // لكن نطلب تأكيداً صريحاً ونسجّل ملاحظة واضحة على السجل تلفت نظر الإدارة للمراجعة
+      // لكن نعرض نافذة تحذير واضحة في منتصف الشاشة (بدل نافذة المتصفح) ونطلب تأكيداً صريحاً
       const MIN_SHIFT_MINUTES = 60
       const minutesSinceCheckIn = openRecord.check_in_time
         ? Math.floor((Date.now() - new Date(openRecord.check_in_time).getTime()) / 60000)
         : null
-      let shortShiftNote: string | null = null
       if (minutesSinceCheckIn !== null && minutesSinceCheckIn < MIN_SHIFT_MINUTES) {
-        const confirmed = window.confirm(
-          `⚠️ لقد سجّلت دخولك منذ ${minutesSinceCheckIn} دقيقة فقط. تسجيل الخروج الآن سيُسجَّل ويُرفَع للإدارة للمراجعة.\n\nهل أنت متأكد من المتابعة؟\n\n` +
-          `You checked in only ${minutesSinceCheckIn} minute(s) ago. This checkout will be flagged and reviewed by management.\n\nAre you sure you want to continue?`
-        )
-        if (!confirmed) { setChecking(false); return }
-        shortShiftNote = `⚠️ خروج سريع جداً (${minutesSinceCheckIn} دقيقة فقط بعد الدخول) — يحتاج مراجعة الإدارة / Very short shift (only ${minutesSinceCheckIn} min after check-in) — needs management review`
+        // نوقف هنا وننتظر تأكيد الموظف من النافذة المنبثقة — التنفيذ الفعلي في finalizeCheckOut()
+        setShortShiftModal({ minutes: minutesSinceCheckIn, openRecordId: openRecord.id, lat, lng, dist })
+        setChecking(false)
+        return
       }
 
-      const { error } = await sb.from('attendance')
-        .update({
-          check_out_time:     new Date().toISOString(),
-          check_out_lat:      lat,
-          check_out_lng:      lng,
-          check_out_distance: Math.round(dist),
-          updated_at:         new Date().toISOString(),
-          ...(shortShiftNote ? { notes: shortShiftNote } : {}),
-        })
-        .eq('id', openRecord.id)
-
-      if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
-      setDistance(Math.round(dist))
-      await fetchData()
+      await finalizeCheckOut(openRecord.id, lat, lng, dist, null)
     } catch (e: any) { setLocError('Location error: ' + e.message) }
     setChecking(false)
+  }
+
+  // ✅ التنفيذ الفعلي لتسجيل الخروج — منفصل عن checkOut() لأنه يُستدعى إما مباشرة (خروج طبيعي)
+  // أو بعد تأكيد الموظف من نافذة "خروج سريع جداً" المنبثقة
+  async function finalizeCheckOut(openRecordId: string, lat: number, lng: number, dist: number, shortShiftNote: string | null) {
+    const { error } = await sb.from('attendance')
+      .update({
+        check_out_time:     new Date().toISOString(),
+        check_out_lat:      lat,
+        check_out_lng:      lng,
+        check_out_distance: Math.round(dist),
+        updated_at:         new Date().toISOString(),
+        ...(shortShiftNote ? { notes: shortShiftNote } : {}),
+      })
+      .eq('id', openRecordId)
+
+    if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
+    setDistance(Math.round(dist))
+    await fetchData()
+    setChecking(false)
+  }
+
+  // ✅ يُستدعى عند تأكيد الموظف صراحةً من نافذة "خروج سريع جداً" — يسجّل الخروج، ويرفع مخالفة
+  // "بانتظار الاعتماد" (submitted) للمراجعة، بنفس منطق ومصطلحات صفحة إدارة المخالفات الحالية
+  async function confirmShortShiftCheckOut() {
+    if (!shortShiftModal || !employee?.id) return
+    setChecking(true)
+    const { minutes, openRecordId, lat, lng, dist } = shortShiftModal
+    const note = `⚠️ خروج سريع جداً (${minutes} دقيقة فقط بعد الدخول) — يحتاج مراجعة الإدارة / Very short shift (only ${minutes} min after check-in) — needs management review`
+    await finalizeCheckOut(openRecordId, lat, lng, dist, note)
+    // ✅ رفع مخالفة مقترحة بحالة "submitted" (بانتظار الاعتماد) — لا تُخصم تلقائياً من الراتب
+    // إلا بعد موافقة أدمن أو مدير فرع صريحة من صفحة إدارة المخالفات، نفس مبدأ الأمان المتّبع
+    // في كل أدوات الخصم التلقائي الأخرى في هذا النظام
+    await sb.from('violations').insert([{
+      employee_id: employee.id,
+      amount: 100,
+      reason: `مؤشر تلاعب محتمل بنظام الحضور: تسجيل خروج بعد ${minutes} دقيقة فقط من الدخول — خصم مقترح 100 MYR، بانتظار مراجعة الإدارة\nPotential attendance system abuse: checked out only ${minutes} minute(s) after checking in — proposed 100 MYR deduction, pending management review`,
+      date: new Date().toISOString().slice(0, 10),
+      status: 'submitted',
+      submitted_at: new Date().toISOString(),
+    }])
+    setShortShiftModal(null)
   }
 
   const isInRange = distance !== null && myBranch?.radius_meters ? distance <= myBranch.radius_meters : null
@@ -346,6 +375,7 @@ function MyAttendanceCard() {
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
 
   return (
+    <>
     <div style={{ maxWidth: 500, margin: '0 auto' }}>
       {/* Clock */}
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: '24px', marginBottom: 16, textAlign: 'center' }}>
@@ -487,6 +517,46 @@ function MyAttendanceCard() {
         </div>
       )}
     </div>
+
+    {/* ✅ نافذة تأكيد "خروج سريع جداً" — في منتصف الشاشة، بالعربي والإنجليزي معاً */}
+    {shortShiftModal && typeof document !== 'undefined' && createPortal(
+      <div
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}
+        onClick={() => { setShortShiftModal(null); setChecking(false) }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ background: S.navy2, border: `2px solid ${S.red}`, borderRadius: 16, padding: 24, maxWidth: 440, width: '100%', textAlign: 'center', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
+        >
+          <div style={{ fontSize: 36, marginBottom: 10 }}>⚠️</div>
+          <div style={{ fontSize: 16, fontWeight: 900, color: S.red, marginBottom: 12 }}>
+            تنبيه: مؤشر تلاعب محتمل بنظام الحضور
+          </div>
+          <div style={{ fontSize: 13, color: S.white, lineHeight: 1.9, marginBottom: 14 }}>
+            سجّلت دخولك منذ <b style={{ color: S.amber }}>{shortShiftModal.minutes} دقيقة</b> فقط. تسجيل الدخول والخروج خلال فترة قصيرة جداً بدون عمل فعلي يُعتبر مؤشر تلاعب بنظام الحضور. في حال تأكيد التلاعب من الإدارة، <b style={{ color: S.red }}>سيتم خصم 100 رينجت ماليزي (MYR 100) من راتبك</b>.
+          </div>
+          <div style={{ borderTop: `1px solid ${S.border}`, margin: '14px 0' }} />
+          <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.8, marginBottom: 16, fontStyle: 'italic' }}>
+            Warning: Potential attendance system abuse detected.<br />
+            You checked in only <b style={{ color: S.amber }}>{shortShiftModal.minutes} minute(s)</b> ago. Checking in and out within such a short period without actual work is considered a sign of tampering with the attendance system. If confirmed by management, <b style={{ color: S.red }}>MYR 100 will be deducted from your salary</b>.
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              onClick={confirmShortShiftCheckOut}
+              disabled={checking}
+              style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: checking ? 'default' : 'pointer', fontWeight: 800, fontFamily: 'inherit', fontSize: 13, opacity: checking ? 0.6 : 1 }}
+            >{checking ? '⏳...' : 'تأكيد الخروج / Confirm Checkout'}</button>
+            <button
+              onClick={() => { setShortShiftModal(null); setChecking(false) }}
+              disabled={checking}
+              style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: checking ? 'default' : 'pointer', fontWeight: 700, fontFamily: 'inherit', fontSize: 13 }}
+            >إلغاء / Cancel</button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+    </>
   )
 }
 

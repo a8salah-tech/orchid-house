@@ -450,20 +450,21 @@ function MyAttendanceCard() {
         </div>
 
         {/* Action Buttons */}
-        {!hasShiftToday ? (
-          <div style={{ background: S.redB, borderRadius: 14, padding: '16px', border: `2px solid ${S.red}`, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
-            <div style={{ fontSize: 15, color: S.red, fontWeight: 800, marginBottom: 6 }}>
-              لا يوجد لديك شيفت مجدول اليوم — راجع مدير القسم فوراً (هام جداً)
+        {!hasShiftToday && (
+          <div style={{ background: S.amberB, borderRadius: 14, padding: '14px 16px', border: `2px solid ${S.amber}`, textAlign: 'center', marginBottom: 14 }}>
+            <div style={{ fontSize: 24, marginBottom: 6 }}>⚠️</div>
+            <div style={{ fontSize: 14, color: S.amber, fontWeight: 800, marginBottom: 6 }}>
+              لا يوجد لديك شيفت مجدول اليوم — راجع مدير القسم (هام)
             </div>
-            <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
-              لا يمكنك تسجيل الدخول أو الخروج بدون شيفت مجدول. يرجى التواصل مع مدير قسمك فوراً لإنشاء شيفت لك أو لتحديد موعد إجازتك
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>
+              يمكنك تسجيل الدخول والخروج بشكل طبيعي، لكن هذا اليوم لن يُحتسب ضمن ساعات عملك المجدولة إلى أن يُنشئ لك مديرك شيفتاً. يرجى التواصل معه في أقرب وقت
             </div>
-            <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic', borderTop: `1px solid ${S.border}`, paddingTop: 8, marginTop: 8 }}>
-              You have no shift scheduled today — this is important, please contact your department manager immediately.<br/>You cannot check in or out without a scheduled shift.
+            <div style={{ fontSize: 10, color: S.muted, fontStyle: 'italic', borderTop: `1px solid ${S.border}`, paddingTop: 6, marginTop: 6 }}>
+              You have no shift scheduled today — this is important, please contact your department manager.<br/>You can still check in/out normally, but today will not count toward your scheduled hours until a shift is created for you.
             </div>
           </div>
-        ) : !today?.check_in_time ? (
+        )}
+        {!today?.check_in_time ? (
           <button onClick={checkIn} disabled={checking}
             style={{ width: '100%', padding: '16px', borderRadius: 14, border: 'none', background: `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: checking ? 'not-allowed' : 'pointer', fontSize: 16, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: checking ? 0.7 : 1, boxShadow: '0 4px 20px rgba(34,197,94,0.3)' }}>
             {checking ? '⏳ Getting location...' : '✅ Check In'}

@@ -115,13 +115,26 @@ function EmployeeDashboard({ employee }: { employee: any }) {
       <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
       {/* Greeting */}
-      <div style={{ background: `linear-gradient(135deg,${S.navy2},${S.navy3})`, borderRadius: 20, border: `1px solid ${S.border}`, padding: '28px 32px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 20, animation: 'fadeUp .4s ease' }}>
+      <div style={{ background: `linear-gradient(135deg,${S.navy2},${S.navy3})`, borderRadius: 20, border: `1px solid ${S.border}`, padding: '28px 32px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', animation: 'fadeUp .4s ease' }}>
         <div style={{ width: 64, height: 64, borderRadius: '50%', background: `linear-gradient(135deg,${S.gold},${S.gold2})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, flexShrink: 0 }}>
           {roleLabel.icon}
         </div>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 900, color: S.gold, marginBottom: 4 }}>{greeting}، {employee?.name}!</h1>
           <div style={{ fontSize: 14, color: S.muted }}>{isAr ? roleLabel.label : roleLabel.label_en}{employee?.department ? ` · ${employee.department}` : ''}</div>
+          {/* ✅ رقم الموظف والقسم: إطار واضح، خط أبيض، ومتجاوب مع الموبايل (flexWrap) */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+            {employee?.employee_number && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: S.white, background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 12px', whiteSpace: 'nowrap' }}>
+                🪪 {isAr ? 'رقم الموظف' : 'Employee ID'}: {employee.employee_number}
+              </span>
+            )}
+            {employee?.department && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: S.white, background: 'rgba(255,255,255,0.06)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 12px', whiteSpace: 'nowrap' }}>
+                🏷️ {employee.department}
+              </span>
+            )}
+          </div>
           {/* ✅ جديد: عرض الإيميل تحت الاسم */}
           {employee?.email_account && <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>✉️ {employee.email_account}</div>}
           <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>

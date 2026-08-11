@@ -110,7 +110,9 @@ function MyAttendanceCard() {
       sb.from('attendance').select('*').eq('employee_id', employee.id)
         .not('check_in_time', 'is', null).is('check_out_time', null)
         .order('date', { ascending: false }).limit(1).maybeSingle(),
-      sb.from('attendance').select('*').eq('employee_id', employee.id).eq('date', today_date).maybeSingle(),
+      // ✅ ممكن يكون فيه أكتر من صف لنفس اليوم دلوقتي (شيفت ليلي + شيفت جديد لنفس اليوم)، فلازم .order()+.limit(1)
+      // قبل .maybeSingle() — وإلا الاستعلام يطلع خطأ فوري بمجرد ما يوجد أكتر من صف واحد لنفس التاريخ
+      sb.from('attendance').select('*').eq('employee_id', employee.id).eq('date', today_date).order('check_in_time', { ascending: false }).limit(1).maybeSingle(),
       sb.from('attendance').select('*').eq('employee_id', employee.id).order('date', { ascending: false }).limit(14),
       sb.from('shift_schedules').select('id, shifts(start_time,end_time), custom_start, custom_end').eq('employee_id', employee.id).eq('date', today_date).maybeSingle(),
       sb.from('shift_schedules').select('id, shifts(start_time,end_time), custom_start, custom_end').eq('employee_id', employee.id).eq('date', yesterday_date).maybeSingle(),
@@ -274,17 +276,50 @@ function MyAttendanceCard() {
       // لو استخدمنا شيفت الأمس، صف الحضور يُسجَّل بتاريخ الأمس (نفس منطق تسجيل الشيفتات الليلية في الجدول)
       const attendance_date = (schData === schYesterday) ? yesterday_date : today_date
 
-      const { error } = await sb.from('attendance').upsert({
-        employee_id: employee.id,
-        date: attendance_date,
-        check_in_time: now,
-        check_in_lat: lat,
-        check_in_lng: lng,
-        check_in_distance: Math.round(dist),
-        status,
-        late_minutes: late_minutes || 0,
-        branch_id: myBranch.id,
-      }, { onConflict: 'employee_id,date' })
+      // ✅ نتحقق هل يوجد صف حضور مكتمل بالفعل (دخول وخروج) لنفس التاريخ — لو موجود، لازم نضيف صفاً جديداً
+      // منفصلاً (شيفت ثانٍ لنفس اليوم التقويمي، شائع مع الشيفتات الليلية)، وليس نُحدِّث الصف المكتمل القديم،
+      // وإلا يتحدَّث وقت الدخول فقط ويبقى وقت الخروج القديم كما هو (فيصبح دخول الساعة 6 المغرب مثلاً
+      // مقروناً بخروج الساعة 5 الصبح قبله في نفس الصف، وهذا فساد فعلي للبيانات)
+      const { data: existingRow } = await sb.from('attendance')
+        .select('id, check_in_time, check_out_time')
+        .eq('employee_id', employee.id)
+        .eq('date', attendance_date)
+        // ✅ نفس الحماية — ممكن يكون فيه أكتر من صف لنفس اليوم دلوقتي، فنختار الأحدث بدل خطأ maybeSingle()
+        .order('check_in_time', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      let error
+      if (existingRow && existingRow.check_in_time && existingRow.check_out_time) {
+        // الصف الموجود مكتمل بالفعل (شيفت سابق انتهى) — أضف صفاً جديداً منفصلاً لشيفت اليوم الثاني
+        const res = await sb.from('attendance').insert({
+          employee_id: employee.id,
+          date: attendance_date,
+          check_in_time: now,
+          check_in_lat: lat,
+          check_in_lng: lng,
+          check_in_distance: Math.round(dist),
+          status,
+          late_minutes: late_minutes || 0,
+          branch_id: myBranch.id,
+        })
+        error = res.error
+      } else {
+        // لا يوجد صف بعد، أو يوجد صف مفتوح لنفس هذا الشيفت تحديداً — حدّثه بدل إضافة صف جديد
+        const res = await sb.from('attendance').upsert({
+          id: existingRow?.id,
+          employee_id: employee.id,
+          date: attendance_date,
+          check_in_time: now,
+          check_in_lat: lat,
+          check_in_lng: lng,
+          check_in_distance: Math.round(dist),
+          status,
+          late_minutes: late_minutes || 0,
+          branch_id: myBranch.id,
+        }, existingRow ? { onConflict: 'id' } : undefined)
+        error = res.error
+      }
 
       if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
       setDistance(Math.round(dist))

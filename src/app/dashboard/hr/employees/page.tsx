@@ -848,15 +848,45 @@ async function activateRegistration(reg: Registration) {
   }
 
   async function toggleActive(emp: Employee) {
-    await supabase.from('employees').update({ is_active: !emp.is_active }).eq('id', emp.id)
+    const willDeactivate = emp.is_active
+    // ✅ لازم نسجّل تاريخ الإيقاف الفعلي (deactivated_at) عند الإيقاف — صفحة الرواتب تعتمد عليه لحساب
+    // الراتب متناسباً بشكل صحيح (وإلا يُحتسَب الراتب صفراً بالكامل بدل التناسب مع أيام العمل الفعلية).
+    // وعند إعادة التفعيل، لازم نمسحه (null) لكي لا يفضل عالقاً من فترة إيقاف سابقة
+    await supabase.from('employees').update({
+      is_active: !emp.is_active,
+      deactivated_at: willDeactivate ? new Date().toISOString().slice(0, 10) : null,
+    }).eq('id', emp.id)
     fetchAll()
   }
 
   async function deleteEmployee(emp: Employee) {
+    // ✅ حماية حرجة: أي موظف له سجل راتب واحد على الأقل (اشتغل واتصرفله راتب فعلي) يُمنع حذفه نهائياً،
+    // ويُوجَّه لاستخدام "إيقاف" بدلاً من ذلك — الحذف النهائي كان بيفشل بسبب قيد foreign key مع جدول
+    // payroll_records، والحل الخطير (نمسح سجلات الرواتب قبل الحذف) كان سيفقد سجلات مالية حقيقية للأبد
+    const { count: payrollCount, error: payrollCheckErr } = await supabase
+      .from('payroll_records')
+      .select('id', { count: 'exact', head: true })
+      .eq('employee_id', emp.id)
+    if (payrollCheckErr) { alert('حصل خطأ أثناء التحقق من سجلات الراتب: ' + payrollCheckErr.message); return }
+    if ((payrollCount || 0) > 0) {
+      alert(
+        `⚠️ لا يمكن حذف "${emp.name}" نهائياً — له ${payrollCount} سجل راتب محفوظ في النظام (سجلات مالية حقيقية لا يجوز فقدانها).\n\n` +
+        `استخدم زرار "⏸️ إيقاف" بدلاً من الحذف — هذا يوقف حساب راتبه القادم مع الحفاظ الكامل على سجله التاريخي.`
+      )
+      return
+    }
+
     if (!confirm(`هل أنت متأكد من حذف الموظف "${emp.name}" نهائياً؟\nلا يمكن التراجع عن هذا الإجراء.`)) return
     await supabase.from('employee_requests').delete().eq('employee_id', emp.id)
     await supabase.from('shift_schedules').delete().eq('employee_id', emp.id)
     await supabase.from('shift_requests').delete().eq('employee_id', emp.id)
+    // ✅ باقي الجداول المرتبطة الآمن حذفها لأنه أصلاً مفيش لها سجلات راتب (تحقّقنا فوق) — إجازات، تقييمات،
+    // مخالفات، حضور، وسجل زيادات راتب قد تكون موجودة لموظف اتضاف بالغلط بدون ما يوصل لدورة راتب فعلية
+    await supabase.from('absences').delete().eq('employee_id', emp.id)
+    await supabase.from('employee_evaluations').delete().eq('employee_id', emp.id)
+    await supabase.from('violations').delete().eq('employee_id', emp.id)
+    await supabase.from('attendance').delete().eq('employee_id', emp.id)
+    await supabase.from('salary_increases').delete().eq('employee_id', emp.id)
     const { error } = await supabase.from('employees').delete().eq('id', emp.id)
     if (error) { alert('حدث خطأ أثناء الحذف: ' + error.message); return }
     fetchAll()

@@ -319,13 +319,131 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
 }
 
 // ══ Employee Detail Modal ══
-function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onChangePassword }: {
-  employee: Employee; onClose: () => void; onEdit: () => void; onCreateAccount: () => void; onChangePassword: () => void
+// ══ Modal زيادة الراتب — أدمن فقط ══
+function SalaryIncreaseModal({ employee, adminId, onClose, onSaved }: {
+  employee: Employee; adminId: string | undefined; onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10))
+  const [amount, setAmount] = useState('')
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [lastIncrease, setLastIncrease] = useState<{ effective_date: string; amount: number; salary_after: number } | null>(null)
+  const [loadingLast, setLoadingLast] = useState(true)
+
+  useEffect(() => {
+    supabase.from('salary_increases')
+      .select('effective_date, amount, salary_after')
+      .eq('employee_id', employee.id)
+      .order('effective_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => { setLastIncrease(data); setLoadingLast(false) })
+  }, [employee.id])
+
+  const amountNum = parseFloat(amount) || 0
+  const newSalary = (employee.salary || 0) + amountNum
+
+  async function handleSave() {
+    if (!amountNum || amountNum <= 0) { alert('من فضلك أدخل مبلغاً صحيحاً أكبر من صفر'); return }
+    if (!effectiveDate) { alert('من فضلك أدخل تاريخ الزيادة'); return }
+    if (!confirm(`تأكيد: زيادة راتب ${employee.name} بمبلغ ${amountNum} MYR بتاريخ ${effectiveDate}؟\n\nالراتب الحالي: ${(employee.salary || 0).toLocaleString()} MYR\nالراتب الجديد: ${newSalary.toLocaleString()} MYR`)) return
+
+    setSaving(true)
+    // ✅ نسجّل الزيادة في سجل تاريخي منفصل (salary_increases) قبل تحديث الراتب نفسه — لكي يبقى لدينا
+    // سجل تدقيق كامل بكل زيادة حدثت (متى، بكم، من اعتمدها)، وليس فقط الرقم النهائي الحالي
+    const { error: insError } = await supabase.from('salary_increases').insert([{
+      employee_id: employee.id,
+      amount: amountNum,
+      effective_date: effectiveDate,
+      salary_before: employee.salary || 0,
+      salary_after: newSalary,
+      created_by: adminId || null,
+      notes: notes || null,
+    }])
+    if (insError) { alert('خطأ في تسجيل الزيادة: ' + insError.message); setSaving(false); return }
+
+    const { error: updError } = await supabase.from('employees').update({ salary: newSalary }).eq('id', employee.id)
+    if (updError) { alert('خطأ في تحديث الراتب: ' + updError.message); setSaving(false); return }
+
+    setSaving(false)
+    onSaved()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.gold}40`, width: '100%', maxWidth: 440, padding: 26 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>💰 زيادة راتب — {employee.name}</div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* آخر زيادة سابقة */}
+        <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>📊 آخر زيادة سابقة</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>
+            {loadingLast ? '⏳ جاري التحميل...' : lastIncrease
+              ? `+${lastIncrease.amount.toLocaleString()} MYR بتاريخ ${lastIncrease.effective_date} (الراتب أصبح ${lastIncrease.salary_after.toLocaleString()} MYR)`
+              : 'لا توجد أي زيادة مسجَّلة من قبل لهذا الموظف'}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: 14, marginBottom: 18 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الراتب الحالي (MYR)</label>
+            <div style={{ ...inp, background: S.card, color: S.muted }}>{(employee.salary || 0).toLocaleString()}</div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>تاريخ الزيادة *</label>
+            <input style={inp} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>مبلغ الزيادة (MYR) *</label>
+            <input style={inp} type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>ملاحظات (اختياري)</label>
+            <input style={inp} type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="سبب الزيادة مثلاً" />
+          </div>
+          {amountNum > 0 && (
+            <div style={{ background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: S.muted }}>الراتب الجديد بعد الزيادة</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: S.green }}>{newSalary.toLocaleString()} MYR</div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: saving ? 'default' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: saving ? 0.6 : 1 }}>
+            {saving ? '⏳ جاري الحفظ...' : '✅ حفظ الزيادة'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccount, onChangePassword, onIncreaseSalary }: {
+  employee: Employee; isAdmin: boolean; onClose: () => void; onEdit: () => void; onCreateAccount: () => void; onChangePassword: () => void; onIncreaseSalary: () => void
 }) {
   const role = ROLES[employee.role] || ROLES.employee
   const yearsInService = employee.join_date ? Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 0
   const monthsInService = employee.join_date ? Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (30.44 * 24 * 60 * 60 * 1000)) : 0
   const [photoModal, setPhotoModal] = useState<string | null>(null)
+  // ✅ آخر زيادة راتب مسجَّلة لهذا الموظف — تظهر واضحة تحت الراتب مباشرة
+  const [lastIncrease, setLastIncrease] = useState<{ effective_date: string; amount: number } | null | undefined>(undefined)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.from('salary_increases')
+      .select('effective_date, amount')
+      .eq('employee_id', employee.id)
+      .order('effective_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setLastIncrease(data))
+  }, [employee.id])
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
@@ -361,6 +479,23 @@ function EmployeeDetailModal({ employee, onClose, onEdit, onCreateAccount, onCha
             </div>
           ))}
         </div>
+
+        {/* ✅ آخر زيادة راتب — واضحة لأي أدمن يفتح ملف الموظف */}
+        {isAdmin && (
+          <div style={{ background: 'rgba(201,168,76,0.08)', border: `1px solid ${S.gold}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 11, color: S.gold, marginBottom: 3 }}>📊 آخر زيادة راتب</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>
+                {lastIncrease === undefined ? '⏳ جاري التحميل...' : lastIncrease
+                  ? `+${lastIncrease.amount.toLocaleString()} MYR بتاريخ ${lastIncrease.effective_date}`
+                  : 'لا توجد أي زيادة مسجَّلة من قبل'}
+              </div>
+            </div>
+            <button onClick={onIncreaseSalary} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              💰 زيادة راتب
+            </button>
+          </div>
+        )}
 
         {/* ③ البريد الشخصي vs بريد النظام */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
@@ -552,6 +687,7 @@ export default function EmployeesPage() {
   const [detailEmp, setDetailEmp] = useState<Employee | null>(null)
   const [createAccountEmp, setCreateAccountEmp] = useState<Employee | null>(null)
   const [changePassEmp, setChangePassEmp] = useState<Employee | null>(null)
+  const [increaseSalaryEmp, setIncreaseSalaryEmp] = useState<Employee | null>(null)
   const [photoModal, setPhotoModal] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filterRole, setFilterRole] = useState('all')
@@ -1169,9 +1305,10 @@ async function activateRegistration(reg: Registration) {
 
       {/* Modals */}
       {(showAdd || editEmp) && <EmployeeModal employee={editEmp} branches={branches} onClose={() => { setShowAdd(false); setEditEmp(null) }} onSaved={() => { setShowAdd(false); setEditEmp(null); fetchAll() }} />}
-      {detailEmp && <EmployeeDetailModal employee={detailEmp} onClose={() => setDetailEmp(null)} onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }} onCreateAccount={() => { setCreateAccountEmp(detailEmp); setDetailEmp(null) }} onChangePassword={() => { setChangePassEmp(detailEmp); setDetailEmp(null) }} />}
+      {detailEmp && <EmployeeDetailModal employee={detailEmp} isAdmin={isAdmin} onClose={() => setDetailEmp(null)} onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }} onCreateAccount={() => { setCreateAccountEmp(detailEmp); setDetailEmp(null) }} onChangePassword={() => { setChangePassEmp(detailEmp); setDetailEmp(null) }} onIncreaseSalary={() => { setIncreaseSalaryEmp(detailEmp); setDetailEmp(null) }} />}
       {createAccountEmp && <CreateAccountModal employee={createAccountEmp} onClose={() => setCreateAccountEmp(null)} onSaved={() => { setCreateAccountEmp(null); fetchAll() }} />}
       {changePassEmp && <ChangePasswordModal employee={changePassEmp} onClose={() => setChangePassEmp(null)} onSaved={() => { setChangePassEmp(null); fetchAll() }} />}
+      {increaseSalaryEmp && <SalaryIncreaseModal employee={increaseSalaryEmp} adminId={currentUser?.id} onClose={() => setIncreaseSalaryEmp(null)} onSaved={() => { setIncreaseSalaryEmp(null); fetchAll() }} />}
 
       {/* Reject Modal */}
       {rejectModal && (

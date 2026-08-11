@@ -50,6 +50,52 @@ function getGrade(t: number, ar: boolean) {
   return {label:ar?'ضعيف':'Poor',color:'#EF4444'}
 }
 
+// ✅ قايمة اختيار موظف قابلة للبحث الحي بالاسم (عربي/إنجليزي) أو رقم الموظف — بديل لـ<select> العادية
+// اللي كانت بتخلي البحث ببرمجيات المتصفح الافتراضية بس (بتطابق أول حروف النص الظاهر فقط، مش رقم الموظف)
+function EmployeeSearchSelect({ employees, value, onChange, workingEmployeeIds, isAr, placeholder }: {
+  employees: any[]; value: string; onChange: (id: string) => void; workingEmployeeIds: Set<string>; isAr: boolean; placeholder?: string
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const selected = employees.find(e => e.id === value)
+  const q = query.trim().toLowerCase()
+  const filtered = !q ? employees : employees.filter(e =>
+    e.name?.toLowerCase().includes(q) ||
+    (e.name_en || '').toLowerCase().includes(q) ||
+    (e.employee_number || '').toLowerCase().includes(q)
+  )
+  const displayLabel = (e: any) => `${e.name} ${e.name_en || ''}${e.employee_number ? ` (#${e.employee_number})` : ''}`
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        style={{ ...inp, cursor: 'text', background: S.navy3 }}
+        placeholder={placeholder || (isAr ? '🔍 ابحث بالاسم أو رقم الموظف...' : '🔍 Search by name or employee number...')}
+        value={open ? query : (selected ? displayLabel(selected) : '')}
+        onChange={e => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => { setQuery(''); setOpen(true) }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', insetInlineStart: 0, insetInlineEnd: 0, zIndex: 50, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, marginTop: 4, maxHeight: 240, overflowY: 'auto', boxShadow: '0 8px 30px rgba(0,0,0,0.5)' }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 14, fontSize: 12, color: S.muted, textAlign: 'center' }}>{isAr ? 'لا توجد نتائج' : 'No results'}</div>
+          ) : filtered.map(e => (
+            <div key={e.id}
+              onMouseDown={() => { onChange(e.id); setOpen(false); setQuery('') }}
+              style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 13, color: S.white, borderBottom: `1px solid ${S.border}` }}
+              onMouseEnter={ev => { (ev.currentTarget as HTMLElement).style.background = S.card }}
+              onMouseLeave={ev => { (ev.currentTarget as HTMLElement).style.background = 'transparent' }}
+            >
+              {workingEmployeeIds.has(e.id) ? '🟢 ' : '⚪ '}{displayLabel(e)}{e.department || e.role ? ` — ${e.department || e.role}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ViolationsPage() {
   const sb = createClient()
   const { employee, permissions } = useAuth()
@@ -83,6 +129,8 @@ export default function ViolationsPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'violations'|'evaluations'|'absences'|'dept_violations'>('violations')
   const [evalEmps, setEvalEmps] = useState<any[]>([])
+  // ✅ بحث بالاسم أو رقم الموظف داخل قايمة التقييمات
+  const [evalSearch, setEvalSearch] = useState('')
   const [evals, setEvals] = useState<any[]>([])
   const [evalMonth, setEvalMonth] = useState(new Date().getMonth()+1)
   const [evalYear, setEvalYear] = useState(new Date().getFullYear())
@@ -184,7 +232,7 @@ export default function ViolationsPage() {
 
   async function fetchEvaluations() {
     setEvalLoading(true)
-    let q = sb.from('employees').select('id,name,name_en,department').eq('is_active',true).order('name')
+    let q = sb.from('employees').select('id,name,name_en,department,employee_number').eq('is_active',true).order('name')
     if(!isAdmin){
       if(isBranchManager) q=q.eq('branch_id',employee?.branch_id||'')
       else if(role==='kitchen_manager') q=q.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
@@ -571,14 +619,28 @@ export default function ViolationsPage() {
             </select>
             <span style={{fontSize:12,color:S.muted}}>⏰ {isAr?'الاعتماد حتى يوم 20':'Approve until day 20'}</span>
             <span style={{fontSize:12,color:S.green,background:S.greenB,borderRadius:20,padding:'3px 10px'}}>✅ {evals.filter(e=>e.status==='approved').length} {isAr?'معتمد':'Approved'}</span>
+            {/* ✅ بحث بالاسم أو رقم الموظف */}
+            <input
+              style={{ ...inp, width: 220 }}
+              placeholder={isAr ? '🔍 ابحث بالاسم أو رقم الموظف...' : '🔍 Search by name or employee number...'}
+              value={evalSearch}
+              onChange={e => setEvalSearch(e.target.value)}
+            />
           </div>
           {evalLoading ? <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳</div>
-          : evalEmps.length===0 ? (
+          : (() => {
+            const q = evalSearch.trim().toLowerCase()
+            const visibleEmps = !q ? evalEmps : evalEmps.filter((e: any) =>
+              e.name?.toLowerCase().includes(q) ||
+              (e.name_en || '').toLowerCase().includes(q) ||
+              (e.employee_number || '').toLowerCase().includes(q)
+            )
+            return visibleEmps.length===0 ? (
             <div style={{textAlign:'center',padding:60,background:S.navy2,borderRadius:16,border:`1px solid ${S.border}`}}>
               <div style={{fontSize:40,marginBottom:12}}>👥</div>
-              <div style={{color:S.muted}}>{isAr?'لا يوجد موظفون':'No employees'}</div>
+              <div style={{color:S.muted}}>{isAr?(q ? 'لا توجد نتائج مطابقة' : 'لا يوجد موظفون'):(q ? 'No matching results' : 'No employees')}</div>
             </div>
-          ) : evalEmps.map(emp => {
+          ) : visibleEmps.map((emp: any) => {
             const ex = evals.find(e => e.employee_id === emp.id)
             const sc = evalScores[emp.id] || {}
             const total = calcTotal(sc)
@@ -695,7 +757,8 @@ export default function ViolationsPage() {
                 )}
               </div>
             )
-          })}
+          })
+          })()}
         </div>
       )}
 
@@ -811,10 +874,13 @@ export default function ViolationsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'الموظف *' : 'Employee *'}</label>
-                <select style={{ ...inp, cursor: 'pointer', background: S.navy3 }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
-                  <option value="">{isAr ? '-- اختر الموظف --' : '-- Select Employee --'}</option>
-                  {employees.map(e => <option key={e.id} value={e.id}>{workingEmployeeIds.has(e.id) ? '🟢 ' : '⚪ '}{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''} — {e.department || e.role}</option>)}
-                </select>
+                <EmployeeSearchSelect
+                  employees={employees}
+                  value={form.employee_id}
+                  onChange={id => setForm(p => ({ ...p, employee_id: id }))}
+                  workingEmployeeIds={workingEmployeeIds}
+                  isAr={isAr}
+                />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>

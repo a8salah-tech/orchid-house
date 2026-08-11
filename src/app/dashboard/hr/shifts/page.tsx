@@ -1,7 +1,7 @@
 'use client'
 
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
@@ -148,7 +148,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
           map[dateStr] = { type: 'shift', shiftId: s.shift_id }
         } else {
           // ✅ صف إجازة رسمية محفوظ مسبقاً (بلا shift_id وبلا custom_start) — لازم يظهر كإجازة عند إعادة فتح الجدول،
-          // مش يختفي بصمت وكأن اليوم غير محدد
+          // ليس يختفي بصمت وكأن اليوم غير محدد
           map[dateStr] = { type: 'leave' }
         }
       })
@@ -168,6 +168,26 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
       else next.add(dateStr)
       return next
     })
+  }
+
+  // ✅ Ref لتأجيل تنفيذ الضغطة المفردة (toggleDate) لحد ما نتأكد إنها مش جزء من ضغطة مزدوجة —
+  // بدون ده، أي ضغطة مزدوجة (لفتح نافذة تعديل يوم واحد) كانت بتُطلق ضغطتين مفردتين أولاً (سلوك المتصفح
+  // الطبيعي: click ثم click ثم dblclick)، وكل ضغطة مفردة بتحرّك "التحديد الجماعي" في الخلفية، فيحصل
+  // تداخل فعلي بين تحديد اليوم المقصود وأيام تانية كانت متحددة من قبل، ويبان الأمر وكأن الإجازة "دمجت"
+  // مع يوم تاني
+  const dayClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function handleDaySingleClick(dateStr: string) {
+    if (dayClickTimer.current) clearTimeout(dayClickTimer.current)
+    dayClickTimer.current = setTimeout(() => {
+      toggleDate(dateStr)
+      dayClickTimer.current = null
+    }, 250)
+  }
+
+  function handleDayDoubleClick(dateStr: string) {
+    if (dayClickTimer.current) { clearTimeout(dayClickTimer.current); dayClickTimer.current = null }
+    setEditDay(dateStr)
   }
 
   function applyBulk() {
@@ -241,7 +261,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         if (error) { console.error('Shift insert error:', error); alert('خطأ في الحفظ: ' + error.message); setSaving(false); return }
       }
     }
-    // ✅ أيام الإجازة الرسمية كانت تُحسب هنا لكن لا تُحفظ في قاعدة البيانات خالص — كانت تظهر فقط كرقم في نص إشعاري،
+    // ✅ أيام الإجازة الرسمية كانت تُحسب هنا لكن لا تُحفظ في قاعدة البيانات على الإطلاق — كانت تظهر فقط كرقم في نص إشعاري،
     // وهذا هو السبب في تضارب الظهور بين الموظفين (بعضهم عنده صفوف إجازة محفوظة من مصدر آخر، وبعضهم لا)
     // نحفظها الآن كصف فعلي فارغ (بلا shift_id وبلا custom_start) — نفس القاعدة المعتمدة في باقي النظام لتمييز يوم الإجازة
     if (leaveDays.length > 0) {
@@ -259,7 +279,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         if (error) { console.error('Leave insert error:', error); alert('خطأ في حفظ أيام الإجازة: ' + error.message); setSaving(false); return }
       }
     }
-    // إشعار اختياري — لو فشل مش هيوقف الحفظ
+    // إشعار اختياري — لو فشل ليس سيوقف الحفظ
     try {
       await supabase.from('employee_requests').insert([{
         employee_id: empId, request_type: 'shift_assigned',
@@ -433,8 +453,8 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
 
               return (
                 <div key={d.date}
-                  onClick={() => toggleDate(d.date)}
-                  onDoubleClick={() => setEditDay(d.date)}
+                  onClick={() => handleDaySingleClick(d.date)}
+                  onDoubleClick={() => handleDayDoubleClick(d.date)}
                   title="اضغط للتحديد — اضغط مرتين للتعديل المباشر"
                   style={{ background: bg, border, borderRadius: 8, padding: '4px 2px', cursor: 'pointer', textAlign: 'center', minHeight: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'all .1s' }}>
                   <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}</div>
@@ -614,7 +634,7 @@ export default function ShiftsPage() {
 
     setLoading(true)
 
-    // جيب كل حاجة بشكل متسلسل مش parallel
+    // نجلب كل شيء بشكل متسلسل ليس parallel
     async function load() {
       const {data: shData} = await supabase.from('shifts').select('*').eq('is_active',true).order('start_time')
       setShifts(shData||[])
@@ -639,7 +659,7 @@ export default function ShiftsPage() {
       }
       const {data: empData} = await empQuery
       setEmployees(empData||[])
-// جيب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50، ومع Pagination داخل كل جزء
+// نجلب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50، ومع Pagination داخل كل جزء
 // (50 موظف × 31 يوم ممكن يتخطى حد الـ1000 صف الافتراضي في Supabase بسهولة، فكنا بنفقد جزءاً من البيانات بصمت)
       const empIds = (empData||[]).map((e:any) => e.id)
       let allSchData: any[] = []
@@ -684,7 +704,7 @@ export default function ShiftsPage() {
         .order('created_at',{ascending:false}).limit(20)
       setMyRequests(myR||[])
 
-      // جيب الحضور الفعلي لليوم
+      // نجلب الحضور الفعلي لليوم
       const today = todayStr()
       const empIds2 = (empData||[]).map((e:any) => e.id)
       if (empIds2.length > 0) {
@@ -735,7 +755,7 @@ export default function ShiftsPage() {
     return arToEn[dept] || dept
   }
 
-  // يعملون الآن = الموظفون اللي سجلوا حضور ولم يسجلوا انصراف بعد
+  // يعملون الآن = الموظفون الذي سجلوا حضور ولم يسجلوا انصراف بعد
   const workingNow = attendanceToday
 
   // الفروع من الموظفين المحملين
@@ -998,7 +1018,7 @@ export default function ShiftsPage() {
       {/* ══ يعملون الآن ══ */}
       {activeTab==='working_now'&&(
         <div>
-          {/* لو مفيش فروع، اعرض الكل */}
+          {/* لو لا يوجد فروع، اعرض الكل */}
           {workingNow.length===0&&(
             <div style={{textAlign:'center',padding:60,color:S.muted}}>
               <div style={{fontSize:48,marginBottom:12}}>🔴</div>

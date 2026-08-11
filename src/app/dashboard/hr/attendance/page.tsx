@@ -177,7 +177,7 @@ function MyAttendanceCard() {
       const lng  = pos.coords.longitude
       const dist = myBranch.latitude && myBranch.longitude
         ? getDistance(lat, lng, myBranch.latitude, myBranch.longitude) : 0
-      const radius = myBranch.radius_meters || 150
+      const radius = myBranch.radius_meters || 50
 
       if (dist > radius) {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check in.`)
@@ -286,7 +286,7 @@ function MyAttendanceCard() {
       const dist = myBranch?.latitude && myBranch?.longitude
         ? getDistance(lat, lng, myBranch.latitude, myBranch.longitude) : 0
 
-      const radius = myBranch?.radius_meters || 150
+      const radius = myBranch?.radius_meters || 50
       if (dist > radius) {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check out.`)
         setChecking(false); return

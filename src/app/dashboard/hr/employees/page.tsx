@@ -874,14 +874,13 @@ async function activateRegistration(reg: Registration) {
   const filtered = useMemo(() => {
     let list = employees.filter(e => {
       const q = search.trim().toLowerCase()
+      // ✅ حصرنا البحث في الاسم (عربي/إنجليزي) ورقم الموظف فقط — كان بيدوّر كمان في رقم الهاتف ورابط
+      // صورة الهوية، وده كان بيسبب نتائج غلط (مثلاً البحث برقم "35" كان بيطابق أي رقم هاتف فيه "35"
+      // في أي مكان منه، مش رقم الموظف الفعلي، فتطلع نتائج لموظفين مالهمش علاقة بالبحث خالص)
       const matchSearch = !q ||
         e.name?.toLowerCase().includes(q) ||
         (e.name_en || '').toLowerCase().includes(q) ||
-        (e.employee_number || '').toLowerCase().includes(q) ||
-        (e.phone || '').replace(/\s|-/g,'').includes(q.replace(/\s|-/g,'')) ||
-        (e.department || '').toLowerCase().includes(q) ||
-        (e.role || '').toLowerCase().includes(q) ||
-        (e.national_id_url || '').includes(q)
+        (e.employee_number || '').toLowerCase().includes(q)
       const matchRole   = filterRole === 'all'   || e.role === filterRole
       const matchDept   = filterDept === 'all'   || e.department === filterDept
       const matchBranch = filterBranch === 'all' || e.branch_id === filterBranch

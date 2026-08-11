@@ -116,13 +116,29 @@ function MyAttendanceCard() {
       sb.from('shift_schedules').select('id, shifts(start_time,end_time), custom_start, custom_end').eq('employee_id', employee.id).eq('date', yesterday_date).maybeSingle(),
     ])
     setBranches(brs.data || [])
+
+    // ✅ لو صف اليوم مكتمل (دخول وخروج) لكن يوجد شيفت جديد لليوم نفسه يبدأ بعد وقت هذا الخروج (شيفت مسائي/ليلي
+    // بعد ما الموظف خلّص تكملة شيفت الليلة اللي قبلها صبح النهاردة)، لازم نعتبره "لسه ما سجّلش دخول" لشيفته
+    // الجديد — وإلا الصفحة تقفل بـ"Attendance Complete" وتمنعه يسجّل دخول لشيفت لسه ما بدأش خالص
+    let effectiveTodayRecord = openAtt.data || todayAtt.data
+    if (!openAtt.data && todayAtt.data?.check_in_time && todayAtt.data?.check_out_time && schToday.data) {
+      const startStr = schToday.data.custom_start || (schToday.data as any).shifts?.start_time
+      if (startStr) {
+        const [sh, sm] = startStr.split(':').map(Number)
+        const shiftStartToday = new Date(); shiftStartToday.setHours(sh, sm || 0, 0, 0)
+        const checkoutTime = new Date(todayAtt.data.check_out_time)
+        if (shiftStartToday.getTime() > checkoutTime.getTime()) {
+          effectiveTodayRecord = null
+        }
+      }
+    }
     // لو يوجد شيفت مفتوح (من اليوم أو من يوم سابق)، اعرضه كالحالة الحالية. غير ذلك اعرض صف اليوم (سواء فاضي أو مكتمل)
-    setToday(openAtt.data || todayAtt.data)
+    setToday(effectiveTodayRecord)
     setHistory(hist.data || [])
 
     // فحص وجود شيفت مجدول فعليًا (اليوم، أو شيفت أمس الممتد لما بعد منتصف الليل ولا يزال في وقته)
     let shiftExists = !!schToday.data
-    if (!shiftExists && schYesterday.data) {
+    if (schYesterday.data) {
       const endStr = schYesterday.data.custom_end || (schYesterday.data as any).shifts?.end_time
       const startStr = schYesterday.data.custom_start || (schYesterday.data as any).shifts?.start_time
       if (endStr && startStr) {
@@ -132,6 +148,7 @@ function MyAttendanceCard() {
         if (crossesMidnight) {
           const now = new Date()
           const endToday = new Date(); endToday.setHours(eh, em || 0, 0, 0)
+          // ✅ نفس تصحيح الاعتماد على الوقت الفعلي بس، بغض النظر عن وجود شيفت اليوم من عدمه
           if (now.getTime() < endToday.getTime()) shiftExists = true
         }
       }
@@ -177,7 +194,7 @@ function MyAttendanceCard() {
       const lng  = pos.coords.longitude
       const dist = myBranch.latitude && myBranch.longitude
         ? getDistance(lat, lng, myBranch.latitude, myBranch.longitude) : 0
-      const radius = myBranch.radius_meters || 50
+      const radius = myBranch.radius_meters || 150
 
       if (dist > radius) {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check in.`)
@@ -227,8 +244,11 @@ function MyAttendanceCard() {
           const crossesMidnight = (eh * 60 + (em||0)) <= (sh * 60)
           if (crossesMidnight) {
             const endToday = new Date(); endToday.setHours(eh, em || 0, 0, 0)
-            // لو بعد قبل وقت انتهاء شيفت أمس (يعني نحن في الجزء الممتد لما بعد منتصف الليل)، استخدم شيفت أمس بدل اليوم
-            if (now_time.getTime() < endToday.getTime() && !schToday) {
+            // ✅ الاعتماد على الوقت الفعلي فقط (هل لا زلنا داخل نطاق شيفت أمس الممتد لما بعد منتصف الليل)،
+            // وليس على وجود/عدم وجود شيفت مجدول لليوم — الجدولة الشهرية المسبقة تجعل "شيفت اليوم" موجوداً
+            // دائماً تقريباً، فكان شرط "!schToday" يمنع استخدام شيفت أمس أبداً، ويُحتسب أي دخول بعد منتصف
+            // الليل خطأً كأنه بداية شيفت اليوم الجديد (الذي لم يبدأ فعلياً بعد)، ويُسجَّل بتاريخ خاطئ
+            if (now_time.getTime() < endToday.getTime()) {
               schData = schYesterday
             }
           }
@@ -286,7 +306,7 @@ function MyAttendanceCard() {
       const dist = myBranch?.latitude && myBranch?.longitude
         ? getDistance(lat, lng, myBranch.latitude, myBranch.longitude) : 0
 
-      const radius = myBranch?.radius_meters || 50
+      const radius = myBranch?.radius_meters || 150
       if (dist > radius) {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check out.`)
         setChecking(false); return

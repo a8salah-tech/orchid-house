@@ -307,9 +307,9 @@ export default function ViolationsPage() {
     const {data:absData}=await q
     if(absData&&absData.length>0){
       const allIds=[...new Set(absData.map((a:any)=>a.employee_id).concat(absData.map((a:any)=>a.created_by)).filter(Boolean))]
-      const {data:empNames}=await sb.from('employees').select('id,name,name_en,department').in('id',allIds as string[])
+      const {data:empNames}=await sb.from('employees').select('id,name,name_en,department,employee_number').in('id',allIds as string[])
       const empMap=Object.fromEntries((empNames||[]).map(e=>[e.id,e]))
-      setAbsences(absData.map((a:any)=>({...a,empName:empMap[a.employee_id]?.name||'—',empNameEn:empMap[a.employee_id]?.name_en||'',empDept:empMap[a.employee_id]?.department||'',creatorName:empMap[a.created_by]?.name||'—'})))
+      setAbsences(absData.map((a:any)=>({...a,empName:empMap[a.employee_id]?.name||'—',empNameEn:empMap[a.employee_id]?.name_en||'',empDept:empMap[a.employee_id]?.department||'',empNumber:empMap[a.employee_id]?.employee_number||'',creatorName:empMap[a.created_by]?.name||'—'})))
     } else setAbsences([])
     setAbsLoading(false)
   }
@@ -664,7 +664,10 @@ export default function ViolationsPage() {
                 <div style={{display:'flex',alignItems:'center',gap:12,marginBottom: isApprovedAndRestricted ? 0 : 16,paddingBottom: isApprovedAndRestricted ? 0 : 14,borderBottom: isApprovedAndRestricted ? 'none' : `1px solid ${S.border}`}}>
                   <div style={{width:42,height:42,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:800,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:14,fontWeight:700,color:S.white}}>{emp.name} {emp.name_en||''}</div>
+                    <div style={{fontSize:14,fontWeight:700,color:S.white}}>
+                      {emp.name} {emp.name_en||''}
+                      {emp.employee_number && <span style={{fontSize:12,fontWeight:600,color:S.gold,marginRight:8}}>#{emp.employee_number}</span>}
+                    </div>
                     <div style={{fontSize:12,color:S.muted}}>{emp.department}</div>
                   </div>
                   {!isApprovedAndRestricted && (
@@ -810,7 +813,7 @@ export default function ViolationsPage() {
                   <div style={{display:'flex',gap:14,alignItems:'center',flex:1}}>
                     <div style={{width:44,height:44,borderRadius:'50%',background:'rgba(139,92,246,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🚫</div>
                     <div>
-                      <div style={{fontSize:14,fontWeight:700,color:S.white,marginBottom:2}}>{a.empName} {a.empNameEn} — {a.empDept}</div>
+                      <div style={{fontSize:14,fontWeight:700,color:S.white,marginBottom:2}}>{a.empName} {a.empNameEn}{a.empNumber ? ` (#${a.empNumber})` : ''} — {a.empDept}</div>
                       {a.notes&&<div style={{fontSize:12,color:S.muted,marginBottom:4}}>{a.notes}</div>}
                       <div style={{fontSize:11,color:S.muted}}>📅 {a.date} · {isAr?'بواسطة':'by'}: {a.creatorName}</div>
                     </div>

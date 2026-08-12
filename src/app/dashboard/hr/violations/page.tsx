@@ -131,6 +131,8 @@ export default function ViolationsPage() {
   const [evalEmps, setEvalEmps] = useState<any[]>([])
   // ✅ بحث بالاسم أو رقم الموظف داخل قايمة التقييمات
   const [evalSearch, setEvalSearch] = useState('')
+  // ✅ فلتر القسم لتاب التقييمات — كان غير موجود خالص، مهم جداً مع أكتر من 200 موظف موزّعين على أقسام كتيرة
+  const [evalDeptFilter, setEvalDeptFilter] = useState('')
   const [evals, setEvals] = useState<any[]>([])
   const [evalMonth, setEvalMonth] = useState(new Date().getMonth()+1)
   const [evalYear, setEvalYear] = useState(new Date().getFullYear())
@@ -626,19 +628,28 @@ export default function ViolationsPage() {
               value={evalSearch}
               onChange={e => setEvalSearch(e.target.value)}
             />
+            {/* ✅ فلتر القسم — مهم جداً مع أكتر من 200 موظف على أقسام مختلفة. فلتر الفرع موجود بالفعل
+                فوق (الشريط المشترك بين كل التابات)، وشغّال هنا أيضاً تلقائياً */}
+            <select style={{ ...inp, width: 'auto', cursor: 'pointer', background: S.navy2 }} value={evalDeptFilter} onChange={e => setEvalDeptFilter(e.target.value)}>
+              <option value="">{isAr ? '🏷️ كل الأقسام' : '🏷️ All Departments'}</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
           </div>
           {evalLoading ? <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳</div>
           : (() => {
             const q = evalSearch.trim().toLowerCase()
-            const visibleEmps = !q ? evalEmps : evalEmps.filter((e: any) =>
-              e.name?.toLowerCase().includes(q) ||
-              (e.name_en || '').toLowerCase().includes(q) ||
-              (e.employee_number || '').toLowerCase().includes(q)
-            )
+            const visibleEmps = evalEmps.filter((e: any) => {
+              const matchSearch = !q ||
+                e.name?.toLowerCase().includes(q) ||
+                (e.name_en || '').toLowerCase().includes(q) ||
+                (e.employee_number || '').toLowerCase().includes(q)
+              const matchDept = !evalDeptFilter || e.department === evalDeptFilter
+              return matchSearch && matchDept
+            })
             return visibleEmps.length===0 ? (
             <div style={{textAlign:'center',padding:60,background:S.navy2,borderRadius:16,border:`1px solid ${S.border}`}}>
               <div style={{fontSize:40,marginBottom:12}}>👥</div>
-              <div style={{color:S.muted}}>{isAr?(q ? 'لا توجد نتائج مطابقة' : 'لا يوجد موظفون'):(q ? 'No matching results' : 'No employees')}</div>
+              <div style={{color:S.muted}}>{isAr?(q || evalDeptFilter ? 'لا توجد نتائج مطابقة' : 'لا يوجد موظفون'):(q || evalDeptFilter ? 'No matching results' : 'No employees')}</div>
             </div>
           ) : visibleEmps.map((emp: any) => {
             const ex = evals.find(e => e.employee_id === emp.id)

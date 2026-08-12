@@ -10,22 +10,22 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// ══ Orchid House Brand Colors ══
+// ══ Orchid House Brand Colors — Light Theme ══
 const C = {
-  bg:        '#0A0F1A',   // خلفية داكنة تبرز الأزرق
-  bg2:       '#0F1825',   // كارت
-  bg3:       '#141F30',   // header
-  blue1:     '#3B9FE5',   // أزرق فاتح (primary)
-  blue2:     '#1A6BB5',   // أزرق داكن
-  blue3:     '#2280CC',   // أزرق وسط
-  silver:    '#B8C5D6',   // فضي فاتح
-  silver2:   '#8A9BB5',   // فضي داكن
-  white:     '#FFFFFF',
-  white2:    '#E8EDF5',
-  border:    'rgba(59,159,229,0.15)',
-  border2:   'rgba(59,159,229,0.3)',
-  glow:      'rgba(59,159,229,0.2)',
-  glow2:     'rgba(59,159,229,0.4)',
+  bg:        '#FFFFFF',   // white background
+  bg2:       '#FFFFFF',   // card
+  bg3:       '#FFFFFF',   // header
+  blue1:     '#00FFFF',   // cyan (primary)
+  blue2:     '#00A8A8',   // darker cyan (keeps white text readable on top of it)
+  blue3:     '#0891B2',   // mid cyan (secondary accent)
+  silver:    '#4B4358',   // dark secondary text
+  silver2:   '#8A7F97',   // muted text
+  white:     '#2A2233',   // primary dark text (on white background)
+  white2:    '#3D3348',
+  border:    'rgba(0,180,180,0.25)',
+  border2:   'rgba(0,180,180,0.45)',
+  glow:      'rgba(0,200,200,0.15)',
+  glow2:     'rgba(0,200,200,0.35)',
 }
 
 type Category = {
@@ -36,8 +36,10 @@ type Category = {
 type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[] }
 type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; price: number } | null }
 type Phase     = 'welcome' | 'rewards' | 'menu' | 'cart' | 'done'
+// ✅ New: dish review — star rating (1-5) with an optional written comment and optional reviewer name
+type Review    = { id: string; menu_item_id: string; stars: number; review_text: string | null; reviewer_name: string | null; created_at: string }
 
-// ✅ هل القسم ده متاح دلوقتي حسب اليوم والوقت المحددين له (لو مفيش قيود، يبقى متاح دايمًا)
+// ✅ Is this category currently available based on its configured day/time (no restrictions = always available)
 function isCategoryAvailableNow(cat: Category): boolean {
   if (!cat.available_days && !cat.available_from && !cat.available_to) return true
   const now = new Date()
@@ -75,44 +77,67 @@ export default function CustomerMenuPage() {
   const [submitting, setSubmitting] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
-  // ✅ جديد: نظام Orchid Rewards - العميل يدخل رقم موبايله بس (بدون باسورد)، ولو مسجّل قبل كده يشوف نقاطه،
-  // ولو عميل جديد يتسجّل تلقائيًا ويكسب 50 نقطة ترحيبية
+  // ✅ New: Orchid Rewards system - customer enters just their mobile number (no password); if already registered they see their points,
+  // if new, they are registered automatically and earn 50 welcome points
   const [rewardsPhone, setRewardsPhone] = useState('')
   const [rewardsName, setRewardsName] = useState('')
   const [rewardsSubmitting, setRewardsSubmitting] = useState(false)
   const [rewardsError, setRewardsError] = useState('')
   const [rewardsResult, setRewardsResult] = useState<{ customerId: string; name: string; points: number; isNew: boolean } | null>(null)
   const [identifiedCustomerId, setIdentifiedCustomerId] = useState<string | null>(null)
-  // ✅ جديد: هل العميل جاي عشان "ينضم" أو بس "يستعلم عن نقاطه" - بيغيّر النص المعروض بس، نفس آلية البحث
+  // ✅ New: whether the customer is here to "join" or just to "check their points" - only changes the displayed text, same lookup mechanism
   const [rewardsIntent, setRewardsIntent] = useState<'join' | 'check'>('join')
-  // ✅ الحد المطلوب للحصول على خصم - رقم واحد هنا عشان لو اتغيّر يوم نعدّله من مكان واحد بس
+  // ✅ Points threshold required to unlock a discount - a single constant so it only needs to change in one place
   const DISCOUNT_POINTS_TARGET = 1000
-  // ✅ جديد: عناصر الطلب الكاملة (كل الجولات مجمّعة) من قاعدة البيانات - بدل الاعتماد على السلة المحلية اللي بتتصفّر مع كل طلب جديد
+  // ✅ New: full accumulated order items (all rounds combined) from the database - instead of relying on the local cart, which resets with each new order
   const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null }[]>([])
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
 
-  // ✅ لعبة "مين هيدفع الحساب؟" - للتسلية بس، مفيش أي ربط بالكاشير أو الدفع الفعلي
+  // ✅ New: dish rating system — stars and written comment for each item
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [newReviewStars, setNewReviewStars] = useState(0)
+  const [newReviewText, setNewReviewText] = useState('')
+  const [reviewerName, setReviewerName] = useState('')
+  const [reviewSubmitting, setReviewSubmitting] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [reviewSubmitted, setReviewSubmitted] = useState(false)
+
+  // ✅ New: floating "+1" animation when adding an item to the cart — the latest trend seen in food apps worldwide
+  const [flyingPlusOnes, setFlyingPlusOnes] = useState<{ id: number; x: number; y: number }[]>([])
+  function triggerFlyPlusOne(e: { clientX: number; clientY: number }) {
+    const id = Date.now() + Math.random()
+    setFlyingPlusOnes(p => [...p, { id, x: e.clientX, y: e.clientY }])
+    setTimeout(() => setFlyingPlusOnes(p => p.filter(f => f.id !== id)), 900)
+  }
+  // ✅ New: short visual pulse on the add button itself when tapped
+  const [pulseKey, setPulseKey] = useState<string | null>(null)
+  function bumpPulse(key: string) {
+    setPulseKey(key)
+    setTimeout(() => setPulseKey(k => (k === key ? null : k)), 400)
+  }
+
+  // ✅ "Who's Paying the Bill?" game - just for fun, no connection to the cashier or actual payment
   const [showPayGame, setShowPayGame] = useState(false)
   const [gamePhone, setGamePhone] = useState('')
   const [gameNames, setGameNames] = useState<string[]>(['', ''])
   const [gameSpinning, setGameSpinning] = useState(false)
   const [wheelRotation, setWheelRotation] = useState(0)
   const [gameWinner, setGameWinner] = useState<string | null>(null)
-  // ✅ Fix (جذري): قفل متزامن (مش state) يمنع تنفيذ confirmOrder أكتر من مرة في نفس اللحظة.
-  // الـ state (submitting) تحديثها غير متزامن (React batching)، فلو العميل ضغط الزرار أكتر من مرة بسرعة
-  // (شائع جدًا مع شبكة بطيئة)، بيتنفذ confirmOrder() مرتين متوازيتين فعليًا قبل ما الزرار يتعطل في الواجهة،
-  // فيحصل تضارب: تنفيذ بينجح والتاني بيتعارض ويفشل، بينما التنفيذ التاني لسه شغال فيفضل الزرار عالق "Placing order...".
+  // ✅ Fix (critical): synchronous lock (not state) preventing confirmOrder from running more than once at the same instant.
+  // The (submitting) state update is asynchronous (React batching), so if the customer taps the button more than once quickly
+  // (very common on a slow network), confirmOrder() would actually run twice in parallel before the button gets disabled in the UI,
+  // causing a conflict: one run succeeds while the other clashes and fails, while the second run is still in progress and the button stays stuck on "Placing order...".
   const isSubmittingRef = useRef(false)
-  // ✅ نحدّث "الآن" كل دقيقة عشان الأقسام المرتبطة بوقت تظهر/تختفي تلقائيًا بدون ما العميل يعمل تحديث للصفحة
+  // ✅ We update "now" every minute so time-restricted categories automatically appear/disappear without the customer needing to refresh the page
   const [, forceTick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => forceTick(t => t + 1), 60 * 1000)
     return () => clearInterval(id)
   }, [])
 
-  // ✅ جديد: جلب كل أصناف طلب معيّن (كل الجولات) من قاعدة البيانات، عشان نعرضها كاملة مهما كان عدد مرات الطلب
+  // ✅ New: fetch all items of a given order (all rounds) from the database, so they display in full no matter how many rounds the customer ordered
   async function fetchLiveOrderItems(orderId: string) {
     const { data } = await sb.from('order_items')
       .select('id, quantity, unit_price, size_name, status, menu_items(name, name_en)')
@@ -129,23 +154,26 @@ export default function CustomerMenuPage() {
       const { data: tbl } = await sb.from('tables').select('*').eq('id', tableId).single()
       if (!tbl) { setNotFound(true); setLoading(false); return }
       setTable(tbl)
-      const [cats, itms] = await Promise.all([
+      const [cats, itms, revs] = await Promise.all([
         sb.from('menu_categories').select('id,name,name_en,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items') .select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)') .eq('is_available', true) .eq('is_active', true) 
+        sb.from('menu_items') .select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
+        // ✅ New: fetch all of the restaurant's reviews in one call (stars + comment) to compute the average and show comments for each item
+        sb.from('menu_item_reviews').select('id,menu_item_id,stars,review_text,reviewer_name,created_at').order('created_at', { ascending: false })
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
-      // ✅ لو الطاولة عندها طلب نشط بالفعل (لسه ما اتقفلش من الكاشير)، نعرض شاشة "تم التأكيد" مباشرة
-      // بدل المنيو من الصفر - يفضل الطلب ظاهر للعميل طول ما الطاولة مفتوحة، حتى لو قفل الصفحة وفتحها تاني
+      setReviews(revs.data || [])
+      // ✅ If the table already has an active order (not yet closed at the cashier), show the "Confirmed" screen directly
+      // instead of the menu from scratch - the order stays visible to the customer as long as the table is open, even if they close and reopen the page
       const { data: existingOrders } = await sb.from('orders')
         .select('id').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
         .order('created_at', { ascending: false }).limit(1)
       const existing = existingOrders?.[0]
 
-      // ✅ Fix حسب طلب المستخدم: شلنا المتابعة التلقائية للتحويل وقت تحميل الصفحة بالكامل - الطاولة دلوقتي
-      // تفضى دايمًا لأي حد يفتح الصفحة من جديد بعد التحويل (حتى لو العميل القديم نفسه قفل الصفحة وفتحها تاني).
-      // المتابعة للطلب المحوّل بقت مقصورة بس على "طلب المزيد" لو العميل لسه فاتح نفس التاب من غير ما يقفلها
-      // (شوف checkAndFollowRedirect) - ده بيحل مشكلة تكرار الطلب من غير ما يأثر على عميل جديد قاعد بعده
+      // ✅ Fix per user request: removed automatically following a redirect on full page load - the table is now
+      // always free for anyone opening the page again after a redirect (even if the same old customer closes and reopens the page).
+      // Following a redirected order is now limited to "Order More" only, if the customer still has the same tab open without closing it
+      // (see checkAndFollowRedirect) - this fixes the duplicate-order issue without affecting a new customer seated afterward
 
       if (existing) {
         setConfirmedOrderId(existing.id)
@@ -158,7 +186,7 @@ export default function CustomerMenuPage() {
     if (tableId) load()
   }, [tableId, sb])
 
-// ✅ الأقسام المتاحة حاليًا فقط (القسم المرتبط بوقت محدد يختفي تلقائيًا برّه نطاقه)
+// ✅ Currently available categories only (a time-restricted category automatically disappears outside its window)
 const visibleCategories = categories.filter(isCategoryAvailableNow)
 const visibleCategoryIds = new Set(visibleCategories.map(c => c.id))
 
@@ -185,6 +213,15 @@ const filteredItems = items
     if (activeCat !== 'all' && !visibleCategoryIds.has(activeCat)) setActiveCat('all')
   }, [activeCat, visibleCategoryIds])
 
+  // ✅ New: reset the "add your rating" form every time the customer opens a different item
+  useEffect(() => {
+    setNewReviewStars(0)
+    setNewReviewText('')
+    setReviewerName('')
+    setReviewError('')
+    setReviewSubmitted(false)
+  }, [selectedItem?.id])
+
   function addToCart(item: MenuItem, size?: { id: string; name: string; name_en: string; price: number } | null) {
     setCart(p => {
       const ex = p.find(c => c.item.id === item.id && (size ? c.selectedSize?.id === size.id : !c.selectedSize))
@@ -203,6 +240,41 @@ const filteredItems = items
   }
 
   function getQty(itemId: string, sizeId?: string) { return cart.filter(c => c.item.id === itemId && (sizeId ? c.selectedSize?.id === sizeId : !c.selectedSize)).reduce((s, c) => s + c.quantity, 0) }
+
+  // ✅ New: compute the average stars and rating count for a given item from the preloaded reviews list
+  function getItemRating(itemId: string): { avg: number; count: number } {
+    const itemReviews = reviews.filter(r => r.menu_item_id === itemId)
+    if (itemReviews.length === 0) return { avg: 0, count: 0 }
+    const avg = itemReviews.reduce((s, r) => s + r.stars, 0) / itemReviews.length
+    return { avg, count: itemReviews.length }
+  }
+
+  // ✅ New: submit a rating (stars + optional written comment) for a given item and add it immediately to the displayed reviews list
+  async function submitReview() {
+    if (!selectedItem || newReviewStars < 1) { setReviewError('Please select a star rating first'); return }
+    setReviewSubmitting(true)
+    setReviewError('')
+    const { data, error } = await sb.from('menu_item_reviews').insert([{
+      menu_item_id: selectedItem.id,
+      stars: newReviewStars,
+      review_text: newReviewText.trim() || null,
+      reviewer_name: reviewerName.trim() || null,
+    }]).select('id,menu_item_id,stars,review_text,reviewer_name,created_at').single()
+    if (error || !data) {
+      // ✅ log the real Supabase error to the console so the exact cause can be diagnosed (RLS, missing table, missing extension, etc.)
+      console.error('menu_item_reviews insert failed:', error?.message, error?.code, error?.details, error?.hint)
+      setReviewError('An error occurred while submitting the review, please try again')
+      setReviewSubmitting(false)
+      return
+    }
+    setReviews(p => [data, ...p])
+    setNewReviewStars(0)
+    setNewReviewText('')
+    setReviewerName('')
+    setReviewSubmitting(false)
+    setReviewSubmitted(true)
+    setTimeout(() => setReviewSubmitted(false), 2500)
+  }
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
   const cartTotal = cart.reduce((s, c) => {
     const unitPrice = c.selectedSize
@@ -213,7 +285,7 @@ const filteredItems = items
     return s + unitPrice * c.quantity
   }, 0)
 
-  // ✅ لعبة "مين هيدفع الحساب؟" - عجلة دوارة حقيقية
+  // ✅ "Who's Paying the Bill?" game - real spinning wheel
   function updateGamePeopleCount(n: number) {
     const count = Math.max(2, n)
     setGameNames(prev => {
@@ -224,8 +296,8 @@ const filteredItems = items
     })
   }
 
-  // ✅ نحفظ بيانات أول شخص (المنظم) في قاعدة عملاء المطعم، لو دخل رقم موبايله
-  // ✅ جديد: Orchid Rewards - بحث بالهاتف بس (بدون باسورد)، لو موجود يعرض نقاطه، لو جديد يسجّله ويدّيه 50 نقطة ترحيبية
+  // ✅ Save the first person's (organizer's) details in the restaurant customer table, if they entered their mobile number
+  // ✅ New: Orchid Rewards - phone-only lookup (no password); if found, shows their points; if new, registers them and gives 50 welcome points
   async function handleRewardsSubmit() {
     const phone = rewardsPhone.trim()
     if (!phone || phone.length < 8) { setRewardsError('Please enter a valid phone number'); return }
@@ -235,11 +307,11 @@ const filteredItems = items
       const { data: existing, error: findErr } = await sb.from('customers').select('id,name,loyalty_points').eq('phone', phone).maybeSingle()
       if (findErr) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
       if (existing) {
-        // ✅ عميل موجود بالفعل - نعرضله نقاطه الحالية
+        // ✅ Existing customer - show their current points
         setRewardsResult({ customerId: existing.id, name: existing.name, points: existing.loyalty_points || 0, isNew: false })
         setIdentifiedCustomerId(existing.id)
       } else {
-        // ✅ عميل جديد - نسجّله بـ50 نقطة ترحيبية
+        // ✅ New customer - register them with 50 welcome points
         const name = rewardsName.trim() || 'Guest'
         const { data: created, error: insertErr } = await sb.from('customers').insert([{ name, phone, loyalty_points: 50, notes: '🌸 Joined via Menu Welcome Screen' }]).select('id,name,loyalty_points').single()
         if (insertErr || !created) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
@@ -256,13 +328,13 @@ const filteredItems = items
     const firstName = gameNames[0]?.trim()
     const phone = gamePhone.trim()
     if (!firstName || !phone) return
-    // ✅ تسجيل تشخيصي بصمت في قاعدة البيانات (مفيش أي تأثير على تجربة العميل) عشان نلاقي سبب مشكلة عدم ربط الأوردر
+    // ✅ Silent diagnostic logging in the database (no effect on the customer experience) to help find the cause of any order-linking issue
     async function log(step: string, success: boolean, error_message: string | null, customerId?: string | null) {
       try {
         await sb.from('game_link_debug_log').insert([{
           confirmed_order_id: confirmedOrderId, customer_id: customerId || null, phone, step, success, error_message,
         }])
-      } catch { /* تجاهل - التسجيل نفسه لازم مايعطلش اللعبة */ }
+      } catch { /* ignore - this logging must never break the game itself */ }
     }
     try {
       const { data: existing, error: findErr } = await sb.from('customers').select('id').eq('phone', phone).maybeSingle()
@@ -295,12 +367,12 @@ const filteredItems = items
     const winnerIdx = Math.floor(Math.random() * n)
     const segAngle = 360 / n
     const centerAngle = winnerIdx * segAngle + segAngle / 2
-    const extraSpins = 6 + Math.floor(Math.random() * 3) // 6-8 لفة كاملة
-    // نضيف جزء عشوائي بسيط جوه حدود الشريحة عشان مايوقفش بالظبط في نص كل مرة (إحساس واقعي أكتر)
+    const extraSpins = 6 + Math.floor(Math.random() * 3) // 6-8 full spins
+    // add a small random offset within the segment bounds so it never stops at exactly the same spot every time (feels more realistic)
     const jitter = (Math.random() - 0.5) * (segAngle * 0.6)
     const target = wheelRotation + extraSpins * 360 + ((360 - centerAngle - wheelRotation % 360 + 360) % 360) + jitter
     setWheelRotation(target)
-    // مدة الأنيميشن 4.2 ثانية (متطابقة مع CSS transition تحت)
+    // animation duration is 4.2 seconds (matches the CSS transition below)
     setTimeout(() => {
       setGameWinner(validNames[winnerIdx])
       setGameSpinning(false)
@@ -314,8 +386,8 @@ const filteredItems = items
     setWheelRotation(0)
   }
 
-  // ✅ مشاركة نتيجة اللعبة - بيولّد صورة فيها لوجو أوركيد واسم الفائز، وبيفتح شاشة المشاركة الأصلية للموبايل
-  // (بتغطي واتساب، انستجرام، وأي تطبيق تاني مثبت) - على الديسكتوب بيرجع لروابط واتساب/فيسبوك/إكس مباشرة
+  // ✅ Share the game result - generates an image with the Orchid logo and the winner's name, and opens the native mobile share sheet
+  // (covers WhatsApp, Instagram, and any other installed app) - on desktop it falls back to direct WhatsApp/Facebook/X links
   async function shareGameResult() {
     if (!gameWinner) return
     const shareText = `🎲 We played "Who's Paying the Bill?" at Orchid House and ${gameWinner} is paying! 💸🌸`
@@ -338,7 +410,7 @@ const filteredItems = items
         ctx.fillStyle = C.blue1
         ctx.font = 'bold 34px Arial'
         ctx.fillText("🎲 Who's Paying the Bill?", 400, 340)
-        ctx.fillStyle = '#FFFFFF'
+        ctx.fillStyle = C.white
         ctx.font = 'bold 64px Arial'
         ctx.fillText(gameWinner, 400, 460)
         ctx.font = '30px Arial'
@@ -360,14 +432,14 @@ const filteredItems = items
           await nav.share({ text: shareText })
           return
         }
-        // ✅ Desktop fallback: نزّل الصورة تلقائيًا عشان يقدر يرفعها هو بنفسه لأي منصة
+        // ✅ Desktop fallback: automatically download the image so the user can upload it themselves to any platform
         const link = document.createElement('a')
         link.href = URL.createObjectURL(blob)
         link.download = 'orchid-who-pays.png'
         link.click()
       }
     } catch {
-      // تجاهل أي خطأ في توليد الصورة، المستخدم لسه يقدر يستخدم روابط المشاركة تحت
+      // ignore any error generating the image, the user can still use the share links below
     }
   }
   function shareToWhatsApp() {
@@ -382,8 +454,8 @@ const filteredItems = items
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank')
   }
 
-  // ✅ جديد: دالة موحّدة تتحقق من "هل الطاولة اتحوّلت لمكان تاني؟" وتحدّث الشاشة فورًا لو أيوه - من غير
-  // ما العميل يحتاج يعمل Refresh يدوي. بنستخدمها هنا (لما يضغط "طلب المزيد") وكمان جوه تأكيد الطلب نفسه
+  // ✅ New: unified function that checks "has the table been redirected elsewhere?" and updates the screen immediately if so - without
+  // the customer needing a manual refresh. Used here (when tapping "Order More") and also inside the order confirmation itself
   async function checkAndFollowRedirect() {
     if (!table) return
     const { data: freshTableRow } = await sb.from('tables').select('*').eq('id', table.id).single()
@@ -396,19 +468,19 @@ const filteredItems = items
 
   async function confirmOrder() {
     if (!table || cart.length === 0) return
-    // ✅ Fix (جذري): فحص فوري متزامن — لو فيه تنفيذ شغال already، نوقف على طول من غير أي تأخير
+    // ✅ Fix (critical): immediate synchronous check — if a run is already in progress, stop right away with no delay
     if (isSubmittingRef.current) return
     isSubmittingRef.current = true
     setSubmitting(true)
     const catMap = Object.fromEntries(categories.map(c => [c.id, c.destination]))
 
-    // ✅ Fix حرج جدًا: شلنا فحص التحويل من هنا بالكامل - كان بيتنفذ لأي عميل يأكد طلب (حتى لو عميل جديد
-    // تمامًا فاتح المنيو فاضي)، فكان بيحوّل طلب العميل الجديد بالغلط لطلب العميل القديم لو الطاولة كانت
-    // اتحوّلت مؤخرًا. المتابعة الصحيحة للعميل القديم بقت مقصورة على "طلب المزيد" (checkAndFollowRedirect)
-    // اللي بيحدّث حالة الطاولة (table) قبل ما يوصل لشاشة التأكيد أصلًا - فمفيش داعي لفحص تاني هنا يتعارض
+    // ✅ Critical fix: removed the redirect check from here entirely - it used to run for any customer confirming an order (even a completely
+    // new customer opening an empty menu), so it would wrongly redirect the new customer's order to the old customer's order if the table had
+    // been redirected recently. Correctly following the old customer is now limited to "Order More" (checkAndFollowRedirect)
+    // which updates the table state before ever reaching the confirmation screen - so no second conflicting check is needed here
     const effectiveTableId = table.id
 
-    // تحقق لو في طلب موجود للطاولة
+    // check whether an order already exists for the table
     const { data: existingOrders } = await sb.from('orders')
       .select('id,total_amount')
       .eq('table_id', effectiveTableId)
@@ -420,29 +492,29 @@ const filteredItems = items
     let orderId: string
 
     if (existingOrder) {
-      // أضف على الطلب الموجود وحدّث الإجمالي
+      // add to the existing order and update the total
       orderId = existingOrder.id
       await sb.from('orders').update({
         total_amount: (existingOrder.total_amount || 0) + cartTotal
       }).eq('id', orderId)
     } else {
-      // أنشئ طلب جديد
+      // create a new order
       const { data: order, error } = await sb.from('orders').insert([{
         table_id: effectiveTableId, status: 'confirmed',
         total_amount: cartTotal, confirmed_at: new Date().toISOString(),
-        // ✅ جديد: نربط العميل المسجّل في نظام Orchid Rewards (لو دخل رقم موبايله في شاشة الترحيب) بالطلب مباشرة
+        // ✅ New: link the customer registered in the Orchid Rewards system (if they entered their mobile number on the welcome screen) directly to the order
         customer_id: identifiedCustomerId || null,
       }]).select('id').single()
       if (error || !order) { isSubmittingRef.current = false; setSubmitting(false); alert('Error, please try again'); return }
       orderId = order.id
     }
 
-    // ✅ Fix حرج جدًا: بمجرد ما طلب فعلي (جديد أو إضافة) يتسجل على الطاولة دي مباشرة، نمسح أي إشارة تحويل
-    // قديمة عليها فورًا - عشان لو عميل جديد (مختلف تمامًا عن العميل القديم المنقول) طلب هنا وبعدين ضغط
-    // "طلب المزيد"، ميتبعش غلط لطاولة تانية اتحوّل ليها طلب قديم زمان. الطاولة بقى ليها نشاط خاص بيها الآن
+    // ✅ Critical fix: as soon as an actual order (new or additional) is recorded for this table, clear any old redirect flag on it
+    // immediately - so that if a genuinely different new customer orders here and then taps
+    // "Order More", they will not wrongly follow an old redirect to another table. The table now has its own activity again
     await sb.from('tables').update({ redirected_to_table_id: null, redirected_at: null }).eq('id', effectiveTableId)
 
-    // ✅ Fix: حساب السعر الفعلي الصحيح المطبق وقت الطلب (الحجم المختار أو الخصم)، بدل سعر الصنف الأساسي دايمًا
+    // ✅ Fix: compute the correct actual price applied at order time (selected size or discount), instead of always using the base item price
     function actualUnitPrice(c: CartItem) {
       if (c.selectedSize) return c.selectedSize.price
       if (c.item.discount_percent && c.item.discount_percent > 0) return c.item.price * (1 - c.item.discount_percent / 100)
@@ -458,12 +530,12 @@ const filteredItems = items
       status: 'pending',
     }))
 
-    // ✅ Fix: لازم نتأكد إن الأصناف اتسجلت فعليًا قبل ما نعرض "تم تأكيد الطلب" للعميل.
-    // قبل كده كان الكود بيكمل من غير أي تحقق، فلو فشل الإدخال (انقطاع نت لحظي، timeout...)
-    // كان الطلب بيتسجل بإجمالي صحيح لكن بدون أصناف خالص، والعميل برضو يشوف "تم التأكيد".
+    // ✅ Fix: we must confirm the items were actually recorded before showing "Order Confirmed" to the customer.
+    // previously the code continued with no check at all, so if the insert failed (a momentary network drop, timeout...)
+    // the order would be recorded with the correct total but with no items at all, and the customer would still see "Order Confirmed".
     let itemsError = (await sb.from('order_items').insert(itemsPayload)).error
     let attemptCount = 1
-    // ✅ 3 محاولات بدل اتنين، مع فاصل بسيط بينهم (نص ثانية) عشان يدي فرصة للشبكة تتعافى لو الانقطاع لحظي
+    // ✅ 3 attempts instead of two, with a short delay between them (half a second) to give the network a chance to recover from a momentary drop
     while (itemsError && attemptCount < 3) {
       console.error(`order_items insert failed (attempt ${attemptCount}):`, itemsError.message, itemsError.code, itemsError.details, itemsPayload)
       await new Promise(res => setTimeout(res, 500))
@@ -472,7 +544,7 @@ const filteredItems = items
     }
     if (itemsError) {
       console.error(`order_items insert failed (attempt ${attemptCount}):`, itemsError.message, itemsError.code, itemsError.details, itemsPayload)
-      // ✅ نسجل الخطأ الحقيقي في قاعدة البيانات عشان نقدر نشخّصه بعدين (الـ console.error محبوس جوه موبايل العميل ومش وصلنا)
+      // ✅ log the real error to the database so it can be diagnosed later (console.error is trapped inside the customer's phone and never reaches us)
       try {
         await sb.from('order_submission_errors').insert([{
           table_id: effectiveTableId,
@@ -487,25 +559,25 @@ const filteredItems = items
       }
     }
     if (itemsError) {
-      // ✅ Fix: التراجع عن تعديل/إنشاء الطلب عشان مانسيبش طلب بإجمالي غلط بدون أصناف
+      // ✅ Fix: roll back the order update/creation so we don't leave an order with the wrong total and no items
       let rollbackError
       if (existingOrder) {
         rollbackError = (await sb.from('orders').update({ total_amount: existingOrder.total_amount || 0 }).eq('id', orderId)).error
       } else {
-        // ✅ Fix: استخدام update لحالة 'cancelled' بدل delete — لأن العميل (anon) غالبًا ملوش صلاحية DELETE في RLS،
-        // وكان الـ delete بيفشل بصمت (بدون تحقق من النتيجة) فيسيب الطلب الفاضي موجود بالظبط زي المشكلة الأصلية
+        // ✅ Fix: use update to status 'cancelled' instead of delete — because the (anon) customer usually has no DELETE permission under RLS,
+        // and delete used to fail silently (without checking the result), leaving the empty order in place exactly like the original problem
         rollbackError = (await sb.from('orders').update({ status: 'cancelled' }).eq('id', orderId)).error
       }
       if (rollbackError) console.error('order rollback failed:', rollbackError.message, rollbackError.code)
       isSubmittingRef.current = false
       setSubmitting(false)
-      alert('⚠️ حصل خطأ أثناء إرسال الطلب، يرجى المحاولة مرة أخرى أو طلب المساعدة من النادل.\n⚠️ Something went wrong sending your order. Please try again or call the waiter.')
+      alert('⚠️ Something went wrong sending your order. Please try again or call the waiter.')
       return
     }
 
-    // ✅ Fix حرج جدًا: كان بيحدّث حالة الطاولة القديمة (table.id) لـ"مشغولة" بالطلب الجديد، حتى لو الطلب
-    // فعليًا اتسجل على الطاولة الصحيحة بعد التحويل (effectiveTableId) - وده كان بالظبط سبب ظهور الطاولة
-    // القديمة "مشغولة تاني" بطلب منفصل بعد ما كانت اتفضّت من التحويل
+    // ✅ Critical fix: used to set the old table's (table.id) status to "occupied" for the new order, even if the order
+    // was actually recorded on the correct table after the redirect (effectiveTableId) - this was exactly why the old table
+    // appeared "occupied again" with a separate order after it had been cleared by the redirect
     await sb.from('tables').update({
       status: 'occupied',
       occupied_since: new Date().toISOString(),
@@ -514,13 +586,13 @@ const filteredItems = items
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
     setConfirmedOrderId(orderId)
-    // ✅ Fix حرج: السلة كانت مبتتصفرش خالص بعد إتمام الطلب، فلو العميل طلب تاني بعد كده،
-    // كان بيتبعت محتوى السلة القديم كله تاني مع الجديد، فتتكرر أصناف الجولة الأولى فعليًا في قاعدة البيانات
+    // ✅ Critical fix: the cart used to never fully reset after completing an order, so if the customer ordered again afterward,
+    // the entire old cart contents would be resent again along with the new one, actually duplicating the first round's items in the database
     setCart([])
-    // ✅ جديد: نجيب كل أصناف الطلب المتراكمة (كل الجولات) من قاعدة البيانات، عشان شاشة التأكيد تعرض الطلب كاملاً
-    // مش بس الجولة الحالية اللي طلبها العميل دلوقتي - كده ملحقاش تختفي أصناف الجولة الأولى من شاشته
+    // ✅ New: fetch all accumulated order items (all rounds) from the database, so the confirmation screen shows the complete order
+    // not just the current round the customer just ordered - this way the first round's items never disappear from their screen
     await fetchLiveOrderItems(orderId)
-    // ✅ تسجيل IP وuser-agent وموديل الجهاز (لو متاح - أندرويد+Chrome بس) للأوردر ده - في الخلفية
+    // ✅ log IP, user-agent, and device model (if available - Android+Chrome only) for this order - in the background
     ;(async () => {
       let deviceModel: string | null = null
       try {
@@ -529,12 +601,12 @@ const filteredItems = items
           const info = await uaData.getHighEntropyValues(['model'])
           deviceModel = info.model || null
         }
-      } catch { /* آيفون أو متصفح تاني مبيدعمش الميزة دي - نتجاهل ونكمل عادي */ }
+      } catch { /* iPhone or another browser that doesn't support this feature - ignore and continue normally */ }
       fetch('/api/log-order-meta', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order_id: orderId, user_agent: navigator.userAgent, device_model: deviceModel }),
-      }).catch(() => { /* تجاهل أي خطأ هنا عمدًا */ })
+      }).catch(() => { /* intentionally ignore any error here */ })
     })()
     setPhase('done')
     isSubmittingRef.current = false
@@ -542,14 +614,18 @@ const filteredItems = items
   }
 
   const globalStyles = `
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
     *{box-sizing:border-box;margin:0;padding:0}
     ::-webkit-scrollbar{display:none}
     body{background:${C.bg};color:${C.white};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    .ar-text{font-family:'Tajawal','Segoe UI',sans-serif}
     @keyframes fadeUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
     @keyframes chefBounce{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-16px) rotate(6deg)}}
     @keyframes blueGlow{0%,100%{box-shadow:0 0 20px ${C.glow}}50%{box-shadow:0 0 40px ${C.glow2}}}
     @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
     @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+    @keyframes flyPlusOne{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-140px) scale(1)}}
+    @keyframes addBounce{0%{transform:scale(1)}35%{transform:scale(1.28)}60%{transform:scale(.92)}100%{transform:scale(1)}}
     .item-card{transition:transform .15s,box-shadow .15s}
     .item-card:active{transform:scale(.97)}
   `
@@ -562,7 +638,7 @@ const filteredItems = items
         <div style={{ width:80, height:80, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', animation:'spin 2s linear infinite', boxShadow:`0 0 30px ${C.glow2}` }}>
           <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         </div>
-        <div style={{ color:C.blue1, fontSize:16, fontWeight:700 }}>Loading menu...</div>
+        <div style={{ color:C.blue2, fontSize:16, fontWeight:700 }}>Loading menu...</div>
       </div>
     </div>
   )
@@ -582,27 +658,27 @@ const filteredItems = items
       <div style={{ maxWidth:400, width:'100%', textAlign:'center', animation:'fadeUp .6s ease' }}>
         <div style={{ fontSize:90, display:'inline-block', animation:'chefBounce 2s ease-in-out infinite', marginBottom:24, filter:`drop-shadow(0 8px 20px ${C.glow2})` }}>👨‍🍳</div>
         <div style={{ background:C.bg2, borderRadius:28, border:`1px solid ${C.border2}`, padding:'36px 24px', boxShadow:`0 0 40px ${C.glow}` }}>
-          <div style={{ color:C.blue1, fontSize:11, fontWeight:700, letterSpacing:4, textTransform:'uppercase', marginBottom:10 }}>✨ Order Confirmed</div>
+          <div style={{ color:C.blue2, fontSize:11, fontWeight:700, letterSpacing:4, textTransform:'uppercase', marginBottom:10 }}>✨ Order Confirmed</div>
           <h2 style={{ color:C.white, fontSize:22, fontWeight:900, marginBottom:10 }}>Your order is being prepared!</h2>
           <p style={{ color:C.silver2, fontSize:13, marginBottom:28, lineHeight:1.7 }}>Our kitchen team is working on your delicious meal. Sit back and relax! 🍽️</p>
-          <div style={{ background:`linear-gradient(135deg,rgba(59,159,229,.12),rgba(26,107,181,.12))`, border:`1px solid ${C.border2}`, borderRadius:20, padding:'24px 20px', marginBottom:24, animation:'blueGlow 2s ease infinite' }}>
+          <div style={{ background:`linear-gradient(135deg,rgba(0,200,200,.15),rgba(0,150,150,.15))`, border:`1px solid ${C.border2}`, borderRadius:20, padding:'24px 20px', marginBottom:24, animation:'blueGlow 2s ease infinite' }}>
             <div style={{ color:C.silver2, fontSize:10, letterSpacing:3, marginBottom:8 }}>YOUR ORDER NUMBER</div>
             <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.silver})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontSize:52, fontWeight:900, letterSpacing:8 }}>#{orderNumber}</div>
-            <div style={{ color:C.silver2, fontSize:12, marginTop:8 }}>{table?.name || `Table ${table?.number}`}</div>
+            <div className="ar-text" style={{ color:C.silver2, fontSize:12, marginTop:8 }}>{table?.name || `Table ${table?.number}`}</div>
           </div>
           <div style={{ background:`rgba(255,255,255,.03)`, borderRadius:16, padding:16 }}>
             <div style={{ color:C.silver2, fontSize:10, marginBottom:12, letterSpacing:2 }}>ORDER SUMMARY</div>
             {liveOrderItems.map(c => (
               <div key={c.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:`1px solid ${C.border}`, fontSize:13 }}>
                 <span style={{ color:C.white2 }}>{c.name}{c.size_name ? ` (${c.size_name})` : ''} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
-                <span style={{ color:C.blue1, fontWeight:700 }}>MYR {(c.unit_price * c.quantity).toFixed(2)}</span>
+                <span style={{ color:C.blue2, fontWeight:700 }}>MYR {(c.unit_price * c.quantity).toFixed(2)}</span>
               </div>
             ))}
           </div>
           <p style={{ color:C.silver2, fontSize:12, marginTop:20 }}>A team member will serve you shortly 🙏</p>
         </div>
 
-        {/* ✅ جديد: زر واضح للرجوع للمنيو وطلب المزيد - ضروري بعد ما خلينا الطلب يفضل ظاهر عند فتح الصفحة تاني */}
+        {/* ✅ New: clear button to go back to the menu and order more - needed since we keep the order visible when the page is reopened */}
         <button onClick={async () => { await checkAndFollowRedirect(); setPhase('menu') }}
           style={{ width:'100%', marginTop:16, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:16, padding:'14px', color:C.white, fontWeight:800, fontSize:14, cursor:'pointer', boxShadow:`0 6px 20px ${C.glow2}` }}>
           ➕ Order More Items
@@ -634,9 +710,9 @@ const filteredItems = items
                     <div style={{ fontSize:90, textAlign:'center', animation:'chefBounce 1.4s ease-in-out infinite' }}>🎉</div>
                   </div>
                   <div style={{ fontSize:13, color:C.silver2, marginBottom:6 }}>And the bill goes to...</div>
-                  <div style={{ fontSize:26, fontWeight:900, color:C.blue1, marginBottom:20 }}>{gameWinner}! 💸</div>
+                  <div style={{ fontSize:26, fontWeight:900, color:C.blue2, marginBottom:20 }}>{gameWinner}! 💸</div>
 
-                  {/* مشاركة النتيجة */}
+                  {/* Share the result */}
                   <div style={{ fontSize:11, color:C.silver2, marginBottom:10 }}>📤 Share the result</div>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
                     <button onClick={shareToWhatsApp} style={{ padding:'10px', borderRadius:12, border:'1px solid rgba(37,211,102,.4)', background:'rgba(37,211,102,.12)', color:'#25D366', fontWeight:700, fontSize:12, cursor:'pointer' }}>💬 WhatsApp</button>
@@ -653,11 +729,11 @@ const filteredItems = items
               ) : (
                 <>
                   {gameNames.filter(n => n.trim()).length >= 2 && (
-                    /* ── العجلة الدوارة ── */
+                    /* ── Spinning wheel ── */
                     <div style={{ position:'relative', width:240, height:240, margin:'0 auto 20px' }}>
-                      {/* المؤشر الثابت فوق */}
+                      {/* Fixed pointer on top */}
                       <div style={{ position:'absolute', top:-6, left:'50%', transform:'translateX(-50%)', width:0, height:0, borderLeft:'12px solid transparent', borderRight:'12px solid transparent', borderTop:`22px solid ${C.blue1}`, zIndex:10, filter:`drop-shadow(0 2px 6px ${C.glow2})` }} />
-                      {/* العجلة نفسها */}
+                      {/* The wheel itself */}
                       <div style={{
                         width:'100%', height:'100%', borderRadius:'50%',
                         border:`4px solid ${C.blue1}`,
@@ -685,7 +761,7 @@ const filteredItems = items
                           )
                         })}
                       </div>
-                      {/* مركز العجلة */}
+                      {/* Wheel center */}
                       <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:36, height:36, borderRadius:'50%', background:C.bg2, border:`3px solid ${C.blue1}`, zIndex:5 }} />
                     </div>
                   )}
@@ -694,7 +770,7 @@ const filteredItems = items
                     <span style={{ fontSize:12, color:C.silver2 }}>Number of People</span>
                     <button onClick={() => updateGamePeopleCount(gameNames.length - 1)} disabled={gameNames.length <= 2 || gameSpinning}
                       style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.border2}`, background:'transparent', color:C.white, cursor:gameNames.length <= 2 ? 'not-allowed':'pointer', fontSize:15, opacity:gameNames.length <= 2 ? 0.4:1 }}>−</button>
-                    <span style={{ fontSize:14, fontWeight:800, color:C.blue1, minWidth:18, textAlign:'center' }}>{gameNames.length}</span>
+                    <span style={{ fontSize:14, fontWeight:800, color:C.blue2, minWidth:18, textAlign:'center' }}>{gameNames.length}</span>
                     <button onClick={() => updateGamePeopleCount(gameNames.length + 1)} disabled={gameSpinning}
                       style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.border2}`, background:'transparent', color:C.white, cursor:'pointer', fontSize:15 }}>+</button>
                   </div>
@@ -798,37 +874,52 @@ const filteredItems = items
   const ItemSheet = selectedItem && (
     <div style={{ position:'fixed', inset:0, zIndex:200 }} onClick={() => setSelectedItem(null)}>
       <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} />
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:C.bg2, borderRadius:'28px 28px 0 0', maxWidth:520, margin:'0 auto', overflow:'hidden', border:`1px solid ${C.border2}`, borderBottom:'none', animation:'slideUp .3s cubic-bezier(.34,1.56,.64,1)' }}
+      <div style={{ position:'absolute', bottom:0, left:0, right:0, background:C.bg2, borderRadius:'28px 28px 0 0', maxWidth:520, margin:'0 auto', overflow:'hidden', border:`1px solid ${C.border2}`, borderBottom:'none', animation:'slideUp .3s cubic-bezier(.34,1.56,.64,1)', maxHeight:'88dvh', display:'flex', flexDirection:'column' }}
         onClick={e => e.stopPropagation()}>
+        <div style={{ overflowY:'auto' }}>
         {selectedItem.image_url && (
-          <div style={{ width:'100%', height:220, overflow:'hidden', position:'relative' }}>
+          <div style={{ width:'100%', height:260, overflow:'hidden', position:'relative' }}>
             <img src={selectedItem.image_url} alt={selectedItem.name_en} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
             <div style={{ position:'absolute', inset:0, background:`linear-gradient(to top,${C.bg2},transparent)` }} />
           </div>
         )}
         <div style={{ padding:'24px 24px 40px' }}>
-          <div style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{selectedItem.name_en || selectedItem.name}</div>
-          <div style={{ fontSize:13, color:C.blue1, marginBottom:12, fontWeight:600 }}>{selectedItem.name}</div>
+          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{selectedItem.name_en || selectedItem.name}</div>
+          <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{selectedItem.name}</div>
+
+          {/* ✅ New: average item rating above the sheet */}
+          {(() => {
+            const { avg, count } = getItemRating(selectedItem.id)
+            return count > 0 ? (
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
+                <span style={{ fontSize:14, color:'#B8860B', fontWeight:800 }}>{'⭐'.repeat(Math.round(avg))}{'☆'.repeat(5 - Math.round(avg))}</span>
+                <span style={{ fontSize:12, color:C.silver2, fontWeight:700 }}>{avg.toFixed(1)} · {count} ratings</span>
+              </div>
+            ) : (
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>🆕 No ratings yet — be the first to rate this dish</div>
+            )
+          })()}
+
           {(selectedItem.description_en || selectedItem.description) && (
             <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{selectedItem.description_en || selectedItem.description}</div>
           )}
           {/* Sizes */}
           {selectedItem.sizes && selectedItem.sizes.filter((s: any) => s.is_active).length > 0 && (
             <div style={{ marginBottom:16 }}>
-              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>اختر الحجم:</div>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>Select size:</div>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                 {selectedItem.sizes.filter((s: any) => s.is_active).map((size: any) => (
                   <button key={size.id} onClick={() => setSelectedSize(selectedSize?.id === size.id ? null : size)}
-                    style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(59,159,229,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
+                    style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(0,200,200,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
                     {size.name_en || size.name} — MYR {size.price.toFixed(2)}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:28 }}>
             <div>
-              <div style={{ fontSize:26, fontWeight:900, color:C.blue1 }}>
+              <div style={{ fontSize:26, fontWeight:900, color:C.blue2 }}>
                 MYR {selectedSize ? selectedSize.price.toFixed(2) : selectedItem.price.toFixed(2)}
               </div>
               {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{selectedSize.name_en || selectedSize.name}</div>}
@@ -840,13 +931,64 @@ const filteredItems = items
                   <span style={{ color:C.white, fontWeight:900, fontSize:20, minWidth:24, textAlign:'center' }}>{getQty(selectedItem.id, selectedSize?.id)}</span>
                 </>
               )}
-              <button onClick={() => {
+              <button onClick={e => {
                 const activeSizes = selectedItem.sizes?.filter((s: any) => s.is_active) || []
-                if (activeSizes.length > 0 && !selectedSize) { alert('يرجى اختيار الحجم أولاً'); return }
+                if (activeSizes.length > 0 && !selectedSize) { alert('Please select a size first'); return }
                 addToCart(selectedItem, selectedSize)
-              }} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:24, fontWeight:700, cursor:'pointer', boxShadow:`0 4px 16px ${C.glow2}` }}>+</button>
+                triggerFlyPlusOne(e)
+                bumpPulse(`sheet_${selectedItem.id}`)
+              }} style={{ width:44, height:44, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:24, fontWeight:700, cursor:'pointer', boxShadow:`0 4px 16px ${C.glow2}`, animation: pulseKey === `sheet_${selectedItem.id}` ? 'addBounce .4s ease' : undefined }}>+</button>
             </div>
           </div>
+
+          {/* ✅ New: ratings section — star rating with written comment */}
+          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20 }}>
+            <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:14 }}>⭐ Ratings</div>
+
+            {/* New rating submission form */}
+            <div style={{ background:'#FAFEFE', border:`1px dashed ${C.border2}`, borderRadius:16, padding:'16px 14px', marginBottom:18 }}>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>Rate this dish:</div>
+              <div style={{ display:'flex', gap:6, marginBottom:12 }}>
+                {[1,2,3,4,5].map(n => (
+                  <button key={n} onClick={() => setNewReviewStars(n)}
+                    style={{ background:'none', border:'none', cursor:'pointer', fontSize:26, padding:0, lineHeight:1, filter: n <= newReviewStars ? 'none' : 'grayscale(1) opacity(.4)' }}>
+                    ⭐
+                  </button>
+                ))}
+              </div>
+              <textarea value={newReviewText} onChange={e => setNewReviewText(e.target.value)}
+                placeholder="Share your thoughts on this dish (optional)..."
+                rows={2}
+                style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px', fontSize:13, color:C.white, outline:'none', resize:'none', fontFamily:'inherit', marginBottom:8 }} />
+              <input value={reviewerName} onChange={e => setReviewerName(e.target.value)}
+                placeholder="Your name (optional)"
+                style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'9px 12px', fontSize:13, color:C.white, outline:'none', marginBottom:10 }} />
+              {reviewError && <div style={{ color:'#EF4444', fontSize:11.5, marginBottom:8 }}>{reviewError}</div>}
+              {reviewSubmitted && <div style={{ color:'#16A34A', fontSize:11.5, marginBottom:8, fontWeight:700 }}>✅ Thank you, your review was submitted successfully</div>}
+              <button onClick={submitReview} disabled={reviewSubmitting}
+                style={{ width:'100%', background: reviewSubmitting ? C.border2 : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:12, padding:'11px', color:C.white, fontWeight:800, fontSize:13, cursor: reviewSubmitting ? 'not-allowed' : 'pointer' }}>
+                {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
+              </button>
+            </div>
+
+            {/* List of written reviews */}
+            {reviews.filter(r => r.menu_item_id === selectedItem.id).length === 0 ? (
+              <div style={{ fontSize:12.5, color:C.silver2, textAlign:'center', padding:'10px 0' }}>No comments yet</div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {reviews.filter(r => r.menu_item_id === selectedItem.id).map(r => (
+                  <div key={r.id} style={{ border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                      <span style={{ fontSize:12.5, fontWeight:800, color:C.white }}>{r.reviewer_name || 'Guest'}</span>
+                      <span style={{ fontSize:12, color:'#B8860B' }}>{'⭐'.repeat(r.stars)}</span>
+                    </div>
+                    {r.review_text && <div style={{ fontSize:12.5, color:C.silver2, lineHeight:1.6 }}>{r.review_text}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         </div>
       </div>
     </div>
@@ -857,17 +999,17 @@ const filteredItems = items
     <div style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px', position:'relative', overflow:'hidden' }}>
       <style>{globalStyles}</style>
       <div style={{ maxWidth:420, width:'100%', textAlign:'center', animation:'fadeUp .6s ease', position:'relative', zIndex:1 }}>
-        {/* الشعار */}
+        {/* Logo */}
         <div style={{ width:90, height:90, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', boxShadow:`0 0 40px ${C.glow2}`, border:`1px solid ${C.border2}` }}>
           <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         </div>
-        <div style={{ color:C.blue1, fontSize:12, fontWeight:800, letterSpacing:4, marginBottom:4 }}>ORCHID RESTAURANT</div>
+        <div style={{ color:C.blue2, fontSize:12, fontWeight:800, letterSpacing:4, marginBottom:4 }}>ORCHID RESTAURANT</div>
 
         <h1 style={{ fontSize:32, fontWeight:900, margin:'18px 0 6px', color:C.white }}>Welcome to Orchid</h1>
         <div style={{ width:60, height:1, background:C.border2, margin:'0 auto 10px' }} />
         <p style={{ color:C.silver2, fontSize:14, marginBottom:26 }}>Great food. Unforgettable moments.</p>
 
-        {/* مميزات الاشتراك */}
+        {/* Membership perks */}
         <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:20, padding:'20px 16px', marginBottom:22 }}>
           <div style={{ display:'flex', justifyContent:'space-around', marginBottom:16 }}>
             {[['⭐','Earn Points','with every visit'],['🎁','Exclusive Offers','just for members'],['🏷️','Birthday Rewards','and more surprises']].map(([icon,title,sub]) => (
@@ -882,7 +1024,7 @@ const filteredItems = items
             <div style={{ width:34, height:34, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, flexShrink:0 }}>🎁</div>
             <div style={{ fontSize:12, color:C.silver }}>
               Join Orchid Rewards and enjoy exclusive benefits.<br />
-              <span style={{ color:C.blue1, fontWeight:800 }}>Register today and get 50 welcome points!</span>
+              <span style={{ color:C.blue2, fontWeight:800 }}>Register today and get 50 welcome points!</span>
             </div>
           </div>
         </div>
@@ -893,7 +1035,7 @@ const filteredItems = items
           <div style={{ flex:1, height:1, background:C.border }} />
         </div>
 
-        {/* زر الانضمام للرواردز */}
+        {/* Join Rewards button */}
         <button onClick={() => { setPhase('rewards'); setRewardsIntent('join'); setRewardsResult(null); setRewardsError('') }}
           style={{ width:'100%', background:`linear-gradient(135deg, ${C.blue1}, ${C.blue2})`, border:'none', borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:10, boxShadow:`0 6px 20px ${C.glow2}` }}>
           <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
@@ -906,7 +1048,7 @@ const filteredItems = items
           <span style={{ fontSize:20, color:C.white }}>›</span>
         </button>
 
-        {/* ✅ جديد: زر استعلام عن النقاط بس - بين زر الانضمام وزر المتابعة كضيف */}
+        {/* ✅ New: check-points-only button - between the join button and the continue-as-guest button */}
         <button onClick={() => { setPhase('rewards'); setRewardsIntent('check'); setRewardsResult(null); setRewardsError('') }}
           style={{ width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:10 }}>
           <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
@@ -919,7 +1061,7 @@ const filteredItems = items
           <span style={{ fontSize:20, color:C.silver2 }}>›</span>
         </button>
 
-        {/* زر المتابعة كضيف */}
+        {/* Continue as guest button */}
         <button onClick={() => setPhase('menu')}
           style={{ width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:14 }}>
           <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
@@ -940,7 +1082,7 @@ const filteredItems = items
     </div>
   )
 
-  // ══ Rewards - إدخال رقم الموبايل ══
+  // ══ Rewards - enter mobile number ══
   if (phase === 'rewards') return (
     <div style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px' }}>
       <style>{globalStyles}</style>
@@ -959,7 +1101,7 @@ const filteredItems = items
               onChange={e => setRewardsPhone(e.target.value.replace(/[^\d+]/g, ''))}
               style={{ width:'100%', boxSizing:'border-box', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:14, padding:'14px 16px', color:C.white, fontSize:15, outline:'none', marginBottom:12, textAlign:'center' }} />
 
-            {/* ✅ اسم اختياري - بيتاخد بس لو العميل جديد فعلاً (هيتجاهل لو كان موجود بالفعل) */}
+            {/* ✅ Optional name - only used if the customer is actually new (ignored if they already exist) */}
             <input type="text" placeholder="Your name (for new members)" value={rewardsName}
               onChange={e => setRewardsName(e.target.value)}
               style={{ width:'100%', boxSizing:'border-box', background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, padding:'14px 16px', color:C.white, fontSize:14, outline:'none', marginBottom:16, textAlign:'center' }} />
@@ -982,10 +1124,10 @@ const filteredItems = items
             </p>
             <div style={{ background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:18, padding:'22px', marginBottom:24 }}>
               <div style={{ fontSize:11, color:C.silver2, letterSpacing:2, marginBottom:6 }}>YOUR POINTS BALANCE</div>
-              <div style={{ fontSize:40, fontWeight:900, color:C.blue1 }}>{rewardsResult.points}</div>
-              {rewardsResult.isNew && <div style={{ fontSize:12, color:C.blue1, marginTop:6, fontWeight:700 }}>🎁 +50 welcome points added!</div>}
+              <div style={{ fontSize:40, fontWeight:900, color:C.blue2 }}>{rewardsResult.points}</div>
+              {rewardsResult.isNew && <div style={{ fontSize:12, color:C.blue2, marginTop:6, fontWeight:700 }}>🎁 +50 welcome points added!</div>}
 
-              {/* ✅ جديد: شريط تقدم واضح نحو 1000 نقطة عشان يستحق خصم */}
+              {/* ✅ New: clear progress bar toward 1000 points to unlock a discount */}
               <div style={{ marginTop:20, textAlign:'left' }}>
                 {rewardsResult.points >= DISCOUNT_POINTS_TARGET ? (
                   <div style={{ background:'rgba(34,197,94,.12)', border:'1px solid rgba(34,197,94,.4)', borderRadius:12, padding:'10px 14px', fontSize:12.5, color:'#4ADE80', fontWeight:700, textAlign:'center' }}>
@@ -995,13 +1137,13 @@ const filteredItems = items
                   <>
                     <div style={{ display:'flex', justifyContent:'space-between', fontSize:11.5, color:C.silver2, marginBottom:6 }}>
                       <span>Progress to discount</span>
-                      <span style={{ color:C.blue1, fontWeight:800 }}>{rewardsResult.points} / {DISCOUNT_POINTS_TARGET}</span>
+                      <span style={{ color:C.blue2, fontWeight:800 }}>{rewardsResult.points} / {DISCOUNT_POINTS_TARGET}</span>
                     </div>
                     <div style={{ width:'100%', height:8, background:'rgba(255,255,255,.08)', borderRadius:20, overflow:'hidden' }}>
                       <div style={{ width:`${Math.min(100, (rewardsResult.points / DISCOUNT_POINTS_TARGET) * 100)}%`, height:'100%', background:`linear-gradient(90deg, ${C.blue2}, ${C.blue1})`, borderRadius:20, transition:'width .6s ease' }} />
                     </div>
                     <div style={{ fontSize:11.5, color:C.silver2, marginTop:8, textAlign:'center' }}>
-                      Earn <span style={{ color:C.blue1, fontWeight:800 }}>{DISCOUNT_POINTS_TARGET - rewardsResult.points}</span> more points to unlock a special discount! 🎁
+                      Earn <span style={{ color:C.blue2, fontWeight:800 }}>{DISCOUNT_POINTS_TARGET - rewardsResult.points}</span> more points to unlock a special discount! 🎁
                     </div>
                   </>
                 )}
@@ -1022,23 +1164,23 @@ const filteredItems = items
     <div style={{ minHeight:'100dvh', background:C.bg, color:C.white }}>
       <style>{globalStyles}</style>
       <div style={{ background:C.bg3, padding:'16px 20px', display:'flex', alignItems:'center', gap:12, borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>
-        <button onClick={() => setPhase('menu')} style={{ background:`rgba(59,159,229,.1)`, border:`1px solid ${C.border}`, color:C.blue1, width:38, height:38, borderRadius:'50%', cursor:'pointer', fontSize:18 }}>←</button>
+        <button onClick={() => setPhase('menu')} style={{ background:`rgba(0,200,200,.1)`, border:`1px solid ${C.border}`, color:C.blue2, width:38, height:38, borderRadius:'50%', cursor:'pointer', fontSize:18 }}>←</button>
         <h1 style={{ color:C.white, fontSize:17, fontWeight:900, margin:0 }}>🛒 Your Order</h1>
-        <div style={{ marginLeft:'auto', color:C.blue1, fontWeight:600, fontSize:13 }}>{table?.name || `Table ${table?.number}`}</div>
+        <div className="ar-text" style={{ marginLeft:'auto', color:C.blue2, fontWeight:600, fontSize:13 }}>{table?.name || `Table ${table?.number}`}</div>
       </div>
       <div style={{ padding:20, maxWidth:520, margin:'0 auto' }}>
         {cart.map((c, idx) => {
           const unitPrice = c.selectedSize ? c.selectedSize.price : c.item.price
           return (
           <div key={`${c.item.id}_${c.selectedSize?.id || 'no-size'}_${idx}`} style={{ background:C.bg2, borderRadius:20, padding:16, marginBottom:12, border:`1px solid ${C.border}`, position:'relative' }}>
-            {/* زر إلغاء الطلب */}
+            {/* Remove item button */}
             <button onClick={() => setCart(p => p.filter((_, i) => i !== idx))}
               style={{ position:'absolute', top:10, left:10, width:28, height:28, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.2)', color:'#ef4444', fontSize:16, cursor:'pointer', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
             <div style={{ display:'flex', gap:12, alignItems:'center' }}>
               {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0, border:`1px solid ${C.border}` }} />}
               <div style={{ flex:1 }}>
                 <div style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{c.item.name_en || c.item.name}</div>
-                {c.selectedSize && <div style={{ fontSize:11, color:C.blue1, marginBottom:2, fontWeight:600 }}>{c.selectedSize.name_en || c.selectedSize.name}</div>}
+                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{c.selectedSize.name_en || c.selectedSize.name}</div>}
                 <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>MYR {unitPrice.toFixed(2)} each</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1046,7 +1188,7 @@ const filteredItems = items
                     <span style={{ color:C.white, fontWeight:900, fontSize:16 }}>{c.quantity}</span>
                     <button onClick={() => addToCart(c.item, c.selectedSize || null)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:20, cursor:'pointer', fontWeight:700 }}>+</button>
                   </div>
-                  <span style={{ color:C.blue1, fontWeight:900, fontSize:16 }}>MYR {(unitPrice * c.quantity).toFixed(2)}</span>
+                  <span style={{ color:C.blue2, fontWeight:900, fontSize:16 }}>MYR {(unitPrice * c.quantity).toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -1078,12 +1220,12 @@ const filteredItems = items
               <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
             </div>
             <div>
-              <div style={{ fontSize:16, fontWeight:900, color:C.white, lineHeight:1 }}>ORCHID <span style={{ color:C.blue1 }}>HOUSE</span></div>
-              <div style={{ display:'inline-block', marginTop:5, padding:'3px 10px', borderRadius:8, border:`1.5px solid ${C.blue1}`, background:'rgba(59,159,229,.1)', fontSize:12, fontWeight:800, color:C.blue1 }}>{table?.name || `Table ${table?.number}`}</div>
+              <div style={{ fontSize:16, fontWeight:900, color:C.white, lineHeight:1 }}>ORCHID <span style={{ color:C.blue2 }}>HOUSE</span></div>
+              <div className="ar-text" style={{ display:'inline-block', marginTop:5, padding:'3px 10px', borderRadius:8, border:`1.5px solid ${C.blue1}`, background:'rgba(0,200,200,.1)', fontSize:12, fontWeight:800, color:C.blue2 }}>{table?.name || `Table ${table?.number}`}</div>
             </div>
           </div>
           <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
-            style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(59,159,229,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 16px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s' }}>
+            style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(0,200,200,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 16px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s' }}>
             {waiterCalled ? '✅ On the way!' : '🔔 Call Waiter'}
           </button>
         </div>
@@ -1114,121 +1256,141 @@ const filteredItems = items
         </div>
       </div>
 
-      {/* ── Items List ── */}
-      <div style={{ padding:'14px 14px 100px', display:'flex', flexDirection:'column', gap:36, maxWidth:560, margin:'0 auto' }}>
+      {/* ── Items Grid ── */}
+      <div style={{ padding:'18px 14px 100px', display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:16, maxWidth:560, margin:'0 auto' }}>
         {filteredItems.length === 0 ? (
-          <div style={{ textAlign:'center', padding:60, color:C.silver2 }}>
+          <div style={{ gridColumn:'1 / -1', textAlign:'center', padding:60, color:C.silver2 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
             <div>No items found</div>
           </div>
         ) : filteredItems.map(item => {
           const qty = getQty(item.id)
           const hasDiscount = !!(item.discount_percent && item.discount_percent > 0)
+          const hasSizes = !!(item.sizes && item.sizes.filter((s: any) => s.is_active).length > 0)
           return (
             <div key={item.id} className="item-card"
               style={{
-                background: hasDiscount ? 'linear-gradient(135deg, rgba(239,68,68,.08), rgba(220,38,38,.04))' : C.bg2,
-                borderRadius:20, overflow:'visible',
-                border: hasDiscount ? '1.5px solid #ef4444' : `1px solid ${qty > 0 ? C.blue1 : C.border}`,
-                cursor:'pointer', position:'relative', display:'flex', alignItems:'center', minHeight:140,
-                boxShadow: hasDiscount ? '0 8px 28px rgba(239,68,68,.25)' : (qty > 0 ? `0 8px 28px ${C.glow}` : `0 4px 16px rgba(0,0,0,.3)`),
+                background:C.bg2, borderRadius:18, overflow:'hidden',
+                border: `2px dashed ${qty > 0 ? C.blue1 : C.border2}`,
+                cursor:'pointer', position:'relative', display:'flex', flexDirection:'column',
+                boxShadow: qty > 0 ? `0 8px 22px ${C.glow}` : '0 3px 12px rgba(0,180,180,.07)',
                 transition:'all .2s'
               }}
               onClick={() => { setSelectedItem(item); setSelectedSize(null) }}>
 
-              {/* ── Discount ribbon (only visible if item has an active discount) ── */}
-              {hasDiscount && (
-                <div style={{ position:'absolute', top:-12, left:140, background:'linear-gradient(135deg,#ef4444,#dc2626)', color:'#fff', fontSize:10, fontWeight:900, padding:'3px 10px', borderRadius:10, boxShadow:'0 4px 10px rgba(239,68,68,.4)', zIndex:12, display:'flex', alignItems:'center', gap:3 }}>
-                  🔥 OFFER -{item.discount_percent}%
-                </div>
-              )}
-
-              {/* Content (right side) */}
-              <div style={{ flex:1, minWidth:0, marginLeft:156, padding:'14px 16px 14px 0', textAlign:'left', position:'relative', zIndex:1 }}>
-                <div style={{ fontSize:14, fontWeight:800, color:C.white, marginBottom:3, lineHeight:1.3 }}>{item.name_en || item.name}</div>
-                <div style={{ fontSize:11, color:C.blue1, marginBottom:6, fontWeight:600 }}>{item.name}</div>
-                {item.description_en && (
-                  <div style={{ fontSize:10, color:C.silver2, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
-                )}
-                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                  {item.sizes && item.sizes.filter((s: any) => s.is_active).length > 0 ? (
-                    // ✅ أحجام متعددة — كل حجم في بطاقة مستقلة واضحة
-                    <div style={{ display:'flex', flexDirection:'column', gap:6, width:'100%' }}>
-                      {item.sizes.filter((s: any) => s.is_active).map((size: any) => {
-                        const sizeQty = getQty(item.id, size.id)
-                        return (
-                          <div key={size.id}
-                            onClick={e => e.stopPropagation()}
-                            style={{
-                              display:'flex', alignItems:'center', justifyContent:'space-between',
-                              background: sizeQty > 0 ? `rgba(59,159,229,0.1)` : 'rgba(255,255,255,0.04)',
-                              border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
-                              borderRadius:12, padding:'6px 10px', gap:8,
-                            }}>
-                            <span style={{ fontSize:11, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0 }}>{size.name_en || size.name}</span>
-                            <span style={{ fontSize:11, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toFixed(2)}</span>
-                            {sizeQty > 0 ? (
-                              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                                <button onClick={() => removeFromCart(item.id, size.id)} style={{ width:22, height:22, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.2)', color:'#ef4444', fontSize:15, cursor:'pointer', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
-                                <span style={{ color:C.white, fontWeight:900, fontSize:13, minWidth:16, textAlign:'center' }}>{sizeQty}</span>
-                                <button onClick={() => addToCart(item, size)} style={{ width:22, height:22, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:15, cursor:'pointer', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
-                              </div>
-                            ) : (
-                              <button onClick={() => addToCart(item, size)} style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:10, padding:'4px 10px', cursor:'pointer', fontSize:11, fontWeight:800, color:'#fff', whiteSpace:'nowrap' }}>+ Add</button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    // صنف بدون أحجام — العرض العادي
-                    <>
-                      {item.discount_percent && item.discount_percent > 0 ? (
-                        <>
-                          <div style={{ background:'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius:20, padding:'4px 10px', fontSize:12, fontWeight:900, color:'#fff', display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
-                            <span>MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}</span>
-                            <span style={{ fontSize:9, background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 4px' }}>-{item.discount_percent}%</span>
-                          </div>
-                          <div style={{ fontSize:9, color:'#aaa', textDecoration:'line-through', whiteSpace:'nowrap' }}>MYR {item.price.toFixed(2)}</div>
-                        </>
-                      ) : (
-                        <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:20, padding:'5px 10px', fontSize:12, fontWeight:900, color:C.white, boxShadow:`0 2px 8px ${C.glow}` }}>
-                          MYR {item.price.toFixed(2)}
-                        </div>
-                      )}
-                      <div onClick={e => { e.stopPropagation(); addToCart(item) }}
-                        style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : `rgba(59,159,229,.1)`, border: qty > 0 ? 'none' : `1px solid ${C.border}`, borderRadius:20, padding:'6px 12px', cursor:'pointer', fontSize:12, fontWeight:800, color: qty > 0 ? C.white : C.blue1, display:'flex', alignItems:'center', gap:4, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : 'none' }}>
-                        <span style={{ fontSize:15 }}>+</span>
-                        <span>{qty > 0 ? qty : 'Add'}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* ── Tall Image (left side, bleeds outside card) ── */}
-              <div style={{ position:'absolute', top:-14, bottom:-14, left:-14, width:150, borderRadius:20, overflow:'hidden', border: qty > 0 ? `3px solid ${C.blue1}` : `2px solid ${C.border2}`, boxShadow: qty > 0 ? `0 0 20px ${C.glow2}` : `0 6px 20px rgba(0,0,0,.5)`, background:C.bg3, zIndex:10, flexShrink:0 }}>
+              {/* ── Image ── */}
+              <div style={{ position:'relative', width:'100%', height:190, background:'#EAFDFD', flexShrink:0 }}>
                 {item.image_url
                   ? <img src={item.image_url} alt={item.name_en} loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                  : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32 }}>🍽️</div>
+                  : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:34 }}>🍽️</div>
                 }
+
+                {/* Discount badge */}
+                {hasDiscount && (
+                  <div style={{ position:'absolute', top:8, left:8, background:'linear-gradient(135deg,#ef4444,#dc2626)', color:'#fff', fontSize:9, fontWeight:900, padding:'3px 8px', borderRadius:8, boxShadow:'0 3px 8px rgba(239,68,68,.4)' }}>
+                    🔥 -{item.discount_percent}%
+                  </div>
+                )}
+
+                {/* Added quantity badge */}
+                {qty > 0 && (
+                  <div style={{ position:'absolute', bottom:8, right:8, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:23, height:23, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:900, boxShadow:`0 2px 8px ${C.glow2}` }}>{qty}</div>
+                )}
+
+                {/* Name plate overlapping the bottom of the image */}
+                <div style={{ position:'absolute', left:8, right:8, bottom:-12, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:9, padding:'6px 9px', boxShadow:`0 4px 10px ${C.glow2}` }}>
+                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{item.name_en || item.name}</div>
+                </div>
               </div>
 
-              {/* qty badge */}
-              {qty > 0 && (
-                <div style={{ position:'absolute', top:-10, right:-6, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:26, height:26, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:900, zIndex:11, boxShadow:`0 2px 8px ${C.glow2}` }}>{qty}</div>
-              )}
+              {/* ── Content ── */}
+              <div style={{ flex:1, padding:'18px 11px 11px', display:'flex', flexDirection:'column', gap:6 }}>
+                <div className="ar-text" style={{ fontSize:10, color:C.blue2, fontWeight:600 }}>{item.name}</div>
+
+                {/* ✅ New: average item rating badge (stars + review count) */}
+                {(() => {
+                  const { avg, count } = getItemRating(item.id)
+                  return count > 0 ? (
+                    <div style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, color:'#B8860B', fontWeight:700 }}>
+                      <span>⭐ {avg.toFixed(1)}</span>
+                      <span style={{ color:C.silver2, fontWeight:600 }}>({count})</span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:9.5, color:C.silver2 }}>🆕 Be the first to rate</div>
+                  )
+                })()}
+
+                {item.description_en && (
+                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
+                )}
+
+                {hasSizes ? (
+                  // ✅ Multiple sizes — each size in its own clear row
+                  <div style={{ display:'flex', flexDirection:'column', gap:5, marginTop:2 }}>
+                    {item.sizes!.filter((s: any) => s.is_active).map((size: any) => {
+                      const sizeQty = getQty(item.id, size.id)
+                      const key = `${item.id}_${size.id}`
+                      return (
+                        <div key={size.id}
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            display:'flex', alignItems:'center', justifyContent:'space-between',
+                            background: sizeQty > 0 ? `rgba(0,180,180,0.08)` : '#F4FDFD',
+                            border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
+                            borderRadius:10, padding:'5px 8px', gap:6,
+                          }}>
+                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{size.name_en || size.name}</span>
+                          <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toFixed(2)}</span>
+                          {sizeQty > 0 ? (
+                            <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+                              <button onClick={() => removeFromCart(item.id, size.id)} style={{ width:19, height:19, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:12, cursor:'pointer', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
+                              <span style={{ color:C.white, fontWeight:900, fontSize:10.5, minWidth:12, textAlign:'center' }}>{sizeQty}</span>
+                              <button onClick={e => { addToCart(item, size); triggerFlyPlusOne(e); bumpPulse(key) }} style={{ width:19, height:19, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:12, cursor:'pointer', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center', animation: pulseKey === key ? 'addBounce .4s ease' : undefined }}>+</button>
+                            </div>
+                          ) : (
+                            <button onClick={e => { addToCart(item, size); triggerFlyPlusOne(e); bumpPulse(key) }} style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:8, padding:'3px 7px', cursor:'pointer', fontSize:9.5, fontWeight:800, color:C.white, whiteSpace:'nowrap', animation: pulseKey === key ? 'addBounce .4s ease' : undefined }}>+</button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  // item without sizes — price and add button at the bottom of the card
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6, marginTop:'auto', paddingTop:6 }}>
+                    {item.discount_percent && item.discount_percent > 0 ? (
+                      <div style={{ display:'flex', flexDirection:'column' }}>
+                        <span style={{ fontSize:12, fontWeight:900, color:'#dc2626' }}>MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}</span>
+                        <span style={{ fontSize:9, color:C.silver2, textDecoration:'line-through' }}>MYR {item.price.toFixed(2)}</span>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize:13, fontWeight:900, color:C.blue2 }}>MYR {item.price.toFixed(2)}</span>
+                    )}
+                    <div onClick={e => { e.stopPropagation(); addToCart(item); triggerFlyPlusOne(e); bumpPulse(item.id) }}
+                      style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : '#FFFFFF', border: qty > 0 ? 'none' : `2px solid ${C.blue1}`, borderRadius:20, padding:'5px 11px', cursor:'pointer', fontSize:11, fontWeight:800, color: qty > 0 ? C.white : C.blue2, display:'flex', alignItems:'center', gap:3, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : `0 2px 6px rgba(0,180,180,.15)`, animation: pulseKey === item.id ? 'addBounce .4s ease' : undefined }}>
+                      <span style={{ fontSize:13 }}>+</span>
+                      <span>{qty > 0 ? qty : 'Add'}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
       </div>
+
+      {/* ✅ New: floating "+1" animation layer when adding to cart */}
+      {flyingPlusOnes.map(f => (
+        <div key={f.id} style={{ position:'fixed', left:f.x, top:f.y, zIndex:300, pointerEvents:'none', fontSize:22, fontWeight:900, color:C.blue2, textShadow:'0 2px 6px rgba(0,0,0,.15)', animation:'flyPlusOne .9s ease-out forwards' }}>
+          +1 ✨
+        </div>
+      ))}
 
       {/* Item Sheet */}
       {ItemSheet}
 
       {/* ── Cart Bar ── */}
       {cartCount > 0 && (
-        <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(10,15,26,.96)`, borderTop:`1px solid ${C.border}`, zIndex:100, backdropFilter:'blur(8px)' }}>
+        <div style={{ position:'fixed', bottom:0, left:0, right:0, padding:'12px 16px 20px', background:`rgba(255,255,255,.97)`, borderTop:`1px solid ${C.border2}`, zIndex:100, backdropFilter:'blur(8px)', boxShadow:'0 -8px 24px rgba(0,180,180,0.1)' }}>
           <div style={{ maxWidth:520, margin:'0 auto' }}>
             <button onClick={() => setPhase('cart')}
               style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'15px 20px', cursor:'pointer', fontWeight:900, fontSize:15, color:C.white, display:'flex', justifyContent:'center', alignItems:'center', boxShadow:`0 8px 28px ${C.glow2}` }}>

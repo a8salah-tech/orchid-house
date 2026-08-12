@@ -634,6 +634,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [tab,          setTab]          = useState<'day' | 'report' | 'absence' | 'health'>('day')
   const [reportEmp,    setReportEmp]    = useState('')
   const [reportMonth,  setReportMonth]  = useState(new Date().toISOString().slice(0, 7))
+  // ✅ فلتر الفرع والقسم لتاب "Employee Report" — بدل استخدام optgroup داخل select
+  // (كانت عناوين المجموعات تظهر بألوان المتصفح الافتراضية: أبيض على أبيض)
+  const [reportBranchFilter, setReportBranchFilter] = useState('')
+  const [reportDeptFilter, setReportDeptFilter] = useState('')
+  // ✅ بحث بالاسم أو رقم الموظف في تاب Employee Report
+  const [reportEmpSearch, setReportEmpSearch] = useState('')
   const [reportData,   setReportData]   = useState<any[]>([])
   const [loadingReport, setLoadingReport] = useState(false)
   // ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل (لتصحيح سجلات قديمة مثل شهر يوليو)
@@ -1540,21 +1546,57 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         <div>
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 14 }}>📊 Monthly Attendance Report</div>
+            {/* ✅ فلترة الفرع والقسم — للأدمن فقط (isAdmin). مدير القسم/الفرع أصلاً بيوصله بس موظفين
+                قسمه/فرعه من السيرفر (نفس منطق fetchData)، فمش محتاج فلتر إضافي — عرضه له بيكون بلا فايدة
+                (خيارات هتديله نتيجة فاضية) وممكن يلبّس. بدل التجميع بـ optgroup اللي كان بيظهر بألوان
+                غير واضحة (أبيض على أبيض) في بعض المتصفحات */}
+            {isAdmin && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>🏪 Branch</label>
+                  <select style={inp2} value={reportBranchFilter} onChange={e => { setReportBranchFilter(e.target.value); setReportEmp('') }}>
+                    <option value="">All Branches</option>
+                    {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>🏷️ Department</label>
+                  <select style={inp2} value={reportDeptFilter} onChange={e => { setReportDeptFilter(e.target.value); setReportEmp('') }}>
+                    <option value="">All Departments</option>
+                    {[...new Set(employees.map(e => e.department).filter(Boolean))].sort().map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+            {/* ✅ بحث بالاسم أو رقم الموظف — بيفلتر قايمة "Employee" تحت لحظياً، فوق فلاتر الفرع/القسم */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>🔍 Search by name or employee number</label>
+              <input
+                style={inp2}
+                placeholder="Search..."
+                value={reportEmpSearch}
+                onChange={e => { setReportEmpSearch(e.target.value); setReportEmp('') }}
+              />
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 12, alignItems: 'end' }}>
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Employee</label>
                 <select style={inp2} value={reportEmp} onChange={e => setReportEmp(e.target.value)}>
                   <option value="">Select Employee...</option>
-                  {branches.map(b => (
-                    <optgroup key={b.id} label={`🏪 ${b.name}`}>
-                      {employees.filter(e => e.branch_id === b.id).map(e => (
-                        <option key={e.id} value={e.id}>{e.name} {e.name_en || ''} — {e.employee_number || e.role}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                  {employees.filter(e => !e.branch_id).map(e => (
-                    <option key={e.id} value={e.id}>{e.name} {e.name_en || ''}</option>
-                  ))}
+                  {employees
+                    .filter(e => (!reportBranchFilter || e.branch_id === reportBranchFilter) && (!reportDeptFilter || e.department === reportDeptFilter))
+                    .filter(e => {
+                      const q = reportEmpSearch.trim().toLowerCase()
+                      if (!q) return true
+                      return e.name?.toLowerCase().includes(q) ||
+                        (e.name_en || '').toLowerCase().includes(q) ||
+                        (e.employee_number || '').toLowerCase().includes(q)
+                    })
+                    .map(e => (
+                      <option key={e.id} value={e.id}>{e.name} {e.name_en || ''} — {e.employee_number || e.role}{!reportBranchFilter ? ` (${branches.find(b => b.id === e.branch_id)?.name || '—'})` : ''}</option>
+                    ))}
                 </select>
               </div>
               <div>

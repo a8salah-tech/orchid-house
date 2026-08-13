@@ -498,9 +498,9 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   const [showReject, setShowReject] = useState(false)
   // ✅ الموظف لا يقدر يعتمد/يرفض طلبه الخاص (لأي نوع طلب)
   const isOwnRequest = currentUser?.id === request.employee_id
-  // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط - زي ما هي بالظبط، من غير أي تغيير
+  // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط - مثل ما هي بالظبط، من غير أي تغيير
   const isSalaryAdvance = request.request_type === 'salary_advance'
-  // ✅ تسلسل بسيط: مدير القسم (أو الأدمن) هو المعتمد الوحيد لكل طلبات الموظفين - المشرف ملوش اعتماد خالص
+  // ✅ تسلسل بسيط: مدير القسم (أو الأدمن) هو المعتمد الوحيد لكل طلبات الموظفين - المشرف ليس له اعتماد على الإطلاق
   const canTakeAction = !isOwnRequest && (
     isSalaryAdvance ? isAdmin : (isAdmin || isDeptManager)
   )
@@ -554,8 +554,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     // ✅ تطبيق تصحيح الحضور تلقائياً عند الموافقة
     if (newStatus === 'approved' && request.request_type === 'attendance_correction' && request.start_date) {
       const desc = request.description || ''
-      const checkinMatch  = desc.match(/وقت الدخول الصح:\s*(\d{2}:\d{2})/)
-      const checkoutMatch = desc.match(/وقت الخروج الصح:\s*(\d{2}:\d{2})/)
+      const checkinMatch  = desc.match(/وقت الدخول الصحيح:\s*(\d{2}:\d{2})/)
+      const checkoutMatch = desc.match(/وقت الخروج الصحيح:\s*(\d{2}:\d{2})/)
       const updateData: any = {}
       // ✅ Fix: لازم نحدد إزاحة توقيت ماليزيا (+08:00) صراحة، وإلا الوقت المحلي بيتخزن كأنه UTC مباشرة
       // (مثال: 10:06 صباحًا ماليزيا كانت بتتخزن 10:06 UTC بدل التحويل الصحيح لـ 02:06 UTC — فرق 8 ساعات)
@@ -575,10 +575,10 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       // ✅ التصحيح اليدوي المعتمد من المدير يُعتبر حضورًا سليمًا (يلغي حالة "متأخر" القديمة)
       if (checkinMatch?.[1]) { updateData.status = 'present'; updateData.late_minutes = 0 }
       if (Object.keys(updateData).length > 2) {
-        // ✅ Fix حرج جدًا: كان بيستخدم .update() بس، واللي بيشتغل بس لو فيه سجل حضور موجود بالفعل لنفس اليوم.
-        // لكن "تصحيح حضور" غالبًا معناه إن الموظف نسي يسجل خالص (مفيش سجل من الأساس)، فالتحديث كان يفشل بصمت
-        // من غير أي خطأ ظاهر، والموافقة تتسجل بس التصحيح الفعلي ميحصلش في أي مكان. الحل: نتحقق الأول هل
-        // السجل موجود، ولو مش موجود ننشئ سجل حضور جديد بدل ما نحاول نحدّث حاجة مش موجودة أصلاً.
+        // ✅ Fix حرج جدًا: كان يستخدم .update() فقط، وهذا يعمل فقط إذا كان يوجد سجل حضور بالفعل لنفس اليوم.
+        // لكن "تصحيح حضور" غالباً يعني أن الموظف نسي التسجيل من الأساس (لا يوجد سجل إطلاقاً)، فكان التحديث يفشل بصمت
+        // من غير أي خطأ ظاهر، والموافقة تتسجل فقط التصحيح الفعلي ميحصلش في أي مكان. الحل: نتحقق الأول هل
+        // السجل موجود، ولو ليس موجود ننشئ سجل حضور جديد بدل ما نحاول نحدّث شيء ليس موجودة أصلاً.
         const { data: existingAttendance } = await supabase.from('attendance')
           .select('id').eq('employee_id', request.employee_id).eq('date', request.start_date).maybeSingle()
         if (existingAttendance?.id) {
@@ -772,8 +772,8 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {[
                 { label: 'تاريخ الحضور', value: request.start_date || '—' },
-                { label: 'وقت الدخول الصح', value: request.description?.match(/وقت الدخول الصح:\s*([^\n]+)/)?.[1] || '—' },
-                { label: 'وقت الخروج الصح', value: request.description?.match(/وقت الخروج الصح:\s*([^\n]+)/)?.[1] || '—' },
+                { label: 'وقت الدخول الصحيح', value: request.description?.match(/وقت الدخول الصحيح:\s*([^\n]+)/)?.[1] || '—' },
+                { label: 'وقت الخروج الصحيح', value: request.description?.match(/وقت الخروج الصحيح:\s*([^\n]+)/)?.[1] || '—' },
               ].map((r, i) => (
                 <div key={i} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '8px 12px' }}>
                   <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{r.label}</div>
@@ -854,7 +854,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
               )}
             </div>
           ) : (
-            // ✅ صاحب الطلب نفسه، أو طلب سلفة راتب لمستخدم غير admin — لا تظهر أزرار الاعتماد خالص
+            // ✅ صاحب الطلب نفسه، أو طلب سلفة راتب لمستخدم غير admin — لا تظهر أزرار الاعتماد على الإطلاق
             <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, textAlign: 'center' }}>
               <div style={{ fontSize: 13, color: S.amber, fontWeight: 700 }}>
                 {isOwnRequest ? '⏳ طلبك قيد المراجعة من الإدارة' : '🔒 هذا الطلب يحتاج اعتماد مدير النظام فقط'}
@@ -892,7 +892,7 @@ export default function EmployeeRequestsPage() {
   const isAdmin = permissions?.all === true
   const isBranchManager = currentUser?.role === 'branch_manager'
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
-  // ✅ جديد: تعريف المشرف - كان مفقود تمامًا، وده سبب عدم رؤيته لطلبات فريقه خالص من الأساس
+  // ✅ جديد: تعريف المشرف - كان مفقود تمامًا، وده سبب عدم رؤيته لطلبات فريقه على الإطلاق من الأساس
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
   const isManager = isAdmin
   const isEmployee = !isAdmin && !isBranchManager && !isDeptManager && !isSupervisor
@@ -1037,12 +1037,12 @@ export default function EmployeeRequestsPage() {
     if (isAdmin) {
       // admin يشوف كل شيء
     } else if (isBranchManager) {
-      // مدير الفرع يشوف كل طلبات موظفي فرعه (بما فيه هو)
+      // مدير الفرع يشوف كل طلبات موظفي فرعه (بما في ذلك نفسه)
       const { data: branchEmployees } = await supabase.from('employees').select('id').eq('branch_id', myBranchId)
       const ids = (branchEmployees || []).map(e => e.id)
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else if (isDeptManager) {
-      // مدير القسم يشوف طلبات موظفي قسمه في فرعه فقط (بما فيه هو) - هو المعتمد الوحيد لكل طلبات الموظفين
+      // مدير القسم يشوف طلبات موظفي قسمه في فرعه فقط (بما في ذلك نفسه) - هو المعتمد الوحيد لكل طلبات الموظفين
       // نجيب كل موظفي الفرع، ونفلتر بالقسم بعد توحيد الاسم (عربي/إنجليزي) لتجنب اختلاف الصيغة
       const { data: branchEmployees } = await supabase.from('employees').select('id, department').eq('branch_id', myBranchId)
       const myDeptNormalized = normalizeDept(myDept)
@@ -1051,7 +1051,7 @@ export default function EmployeeRequestsPage() {
         .map(e => e.id)
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else {
-      // ✅ الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط - المشرف مش له اعتماد، مدير القسم بس
+      // ✅ الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط - المشرف ليس له اعتماد، مدير القسم فقط
       reqQuery = reqQuery.eq('employee_id', myId)
     }
 
@@ -1119,7 +1119,7 @@ export default function EmployeeRequestsPage() {
   <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
   {isAdmin && (
     <>
-      {/* ✅ جديد: اختيار شهر محدد قبل الطباعة - فاضي معناه كل الشهور مع بعض زي القديم */}
+      {/* ✅ جديد: اختيار شهر محدد قبل الطباعة - فاضي معناه كل الشهور مع بعض مثل القديم */}
       <input type="month" value={printAdvancesMonth} onChange={e => setPrintAdvancesMonth(e.target.value)}
         title="اختر شهرًا لطباعته فقط (اتركه فاضيًا لكل الشهور)"
         style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />

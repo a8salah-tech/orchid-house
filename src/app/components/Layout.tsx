@@ -79,6 +79,8 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'طلبات الفروع', label_en: 'Branch Requests', icon: '📦', path: '/dashboard/branch-requests', permission: 'branch_requests' },
     { label: 'طلبات المستودع الداخلي', label_en: 'Internal Warehouse Requests', icon: '🏭', path: '/dashboard/internal-warehouse-requests', permission: 'internal_warehouse_requests' },
     { label: 'سجل الهدر',   label_en: 'Waste Log',       icon: '🗑️', path: '/dashboard/waste',           permission: 'waste' },
+    // ✅ جديد: رابط صفحة الصيانة - ظاهر لكل الموظفين (كل فرع يشوف صيانة فرعه بس داخل الصفحة نفسها)
+    { label: 'الصيانة', label_en: 'Maintenance', icon: '🔧', path: '/dashboard/maintenance', permission: 'all_employees' },
 ]},
   { group: 'العمليات', items: [
     { label: 'المطبخ',   label_en: 'Kitchen',  icon: '👨‍🍳', path: '/dashboard/kitchen',  permission: 'kitchen' },

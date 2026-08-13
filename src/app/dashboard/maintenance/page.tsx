@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { useAuth } from '../components/AuthProvider'
+import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,9 +24,6 @@ const S = {
 function employeeBranchId(e: any): string {
   return e?.branch_id || ''
 }
-
-// ⚠️ لو عندك دالة صلاحيات إدارة مركزية، استبدل هذا الشرط بيها. حاليًا: الأدمن بس يشوف كل الفروع
-const ADMIN_ROLES = ['admin', 'general_manager', 'super_admin']
 
 function fullEmployeeName(e: { name?: string; name_en?: string } | null | undefined): string {
   if (!e) return ''
@@ -151,8 +148,8 @@ function NewMaintenanceModal({ branches, currentEmployee, isAdmin, onClose, onSa
 }
 
 // ══ Modal: تفاصيل طلب الصيانة ══
-function DetailModal({ req, currentEmployee, onClose, onUpdate }: {
-  req: MaintenanceRequest; currentEmployee: any; onClose: () => void; onUpdate: () => void
+function DetailModal({ req, currentEmployee, isAdmin, onClose, onUpdate }: {
+  req: MaintenanceRequest; currentEmployee: any; isAdmin: boolean; onClose: () => void; onUpdate: () => void
 }) {
   const sb = createClient()
   const [assignedTo, setAssignedTo] = useState(req.assigned_to || '')
@@ -206,12 +203,33 @@ function DetailModal({ req, currentEmployee, onClose, onUpdate }: {
     onUpdate()
   }
 
+  // ✅ جديد: حذف الطلب - للأدمن فقط (isAdmin يتحقق منه هنا داخل الدالة نفسها كحماية إضافية،
+  // مش بس إخفاء الزر من الواجهة، عشان محدش يقدر يستدعي الدالة من غير صلاحية فعلية)
+  async function deleteRequest() {
+    if (!isAdmin) return
+    if (!confirm(`تأكيد حذف طلب الصيانة "${req.item_name}" نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.`)) return
+    setSaving(true)
+    const { error } = await sb.from('maintenance_requests').delete().eq('id', req.id)
+    setSaving(false)
+    if (error) { alert('خطأ: ' + error.message); return }
+    onUpdate()
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 480, padding: 24, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
           <h2 style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>🔧 {req.item_name}</h2>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {/* ✅ جديد: زر حذف الطلب - يظهر للأدمن فقط */}
+            {isAdmin && (
+              <button onClick={deleteRequest} disabled={saving} title="حذف الطلب"
+                style={{ background: 'transparent', border: 'none', color: S.red, fontSize: 16, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                🗑️
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          </div>
         </div>
 
         <div style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, background: status.bg, color: status.color, fontSize: 12, fontWeight: 700, marginBottom: 14 }}>
@@ -315,9 +333,10 @@ function MaintenanceCard({ req, onOpen }: { req: MaintenanceRequest; onOpen: () 
 // ══ Main Page ══
 export default function MaintenancePage() {
   const sb = createClient()
-  const { employee } = useAuth() as any
-  const role = employee?.role || ''
-  const isAdmin = ADMIN_ROLES.includes(role)
+  const { employee, permissions } = useAuth() as any
+  // ✅ Fix: استخدام نظام الصلاحيات الحقيقي (permissions.all) بدل تخمين أسماء الأدوار،
+  // بنفس الطريقة المستخدمة في Layout.tsx (isAdmin = permissions?.all === true)
+  const isAdmin = permissions?.all === true
   const myBranchId = employeeBranchId(employee)
 
   const [branches, setBranches] = useState<Branch[]>([])
@@ -422,7 +441,7 @@ export default function MaintenancePage() {
           onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); fetchAll() }} />
       )}
       {openReq && (
-        <DetailModal req={openReq} currentEmployee={employee}
+        <DetailModal req={openReq} currentEmployee={employee} isAdmin={isAdmin}
           onClose={() => setOpenReq(null)} onUpdate={() => { fetchAll(); setOpenReq(null) }} />
       )}
     </div>

@@ -1874,6 +1874,12 @@ export default function CashierPage() {
   const [expSaved, setExpSaved] = useState(false)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
+  // ✅ جديد: مودال اختيار اسم الكاشير الحقيقي وقت بدء الشيفت - مهم لما يكون فيه حساب دخول مشترك بين أكتر من كاشير
+  // (بدل ما الاسم ياخده تلقائي من الحساب اللي داخل بيه، اللي هيبقى نفسه لأي حد داخل بنفس الحساب المشترك)
+  const [showStartShiftModal, setShowStartShiftModal] = useState(false)
+  const [startShiftCashierList, setStartShiftCashierList] = useState<{ id: string; name: string }[]>([])
+  const [startShiftSelectedName, setStartShiftSelectedName] = useState('')
+  const [startShiftCustomName, setStartShiftCustomName] = useState('')
   const [soundEnabled, setSoundEnabled] = useState(false)
   // ✅ جديد: بيانات تاب "Closed" - كل العمليات المقفولة (مدفوعة/ملغية) لليوم الحالي بتوقيت ماليزيا + جلسات الشيفتات (الكاشير، بداية/نهاية الشيفت)
   // المطعم شغال 24 ساعة، فبيانات هذا التاب تتصفّر يوميًا تلقائيًا لأنها تجيب بيانات "اليوم الحالي" فقط
@@ -2460,13 +2466,16 @@ export default function CashierPage() {
             </button>
           )}
           {!shiftStarted ? (
-            <button onClick={() => {
-              const now = new Date()
-              setShiftStarted(true); setShiftStart(now)
-              localStorage.setItem('cashier_shift_active','true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift)
-              // ✅ جديد: تسجيل الجلسة في قاعدة البيانات عشان أي حد تاني يشوف مين ماسك الشيفت ده
-              sb.from('cashier_shift_sessions').insert([{ branch_id: employee?.branch_id || null, shift, cashier_name: employee?.name || 'غير معروف' }])
-                .then(() => fetchActiveShiftCashier())
+            <button onClick={async () => {
+              // ✅ جديد: بدل ما ناخد الاسم تلقائي من الحساب (مهم لو الحساب مشترك بين أكتر من كاشير)، نفتح
+              // مودال يطلب اختيار/كتابة الاسم الحقيقي الأول
+              const { data } = await sb.from('employees').select('id,name')
+                .in('role', ['cashier', 'assistant_cashier']).eq('is_active', true)
+                .eq('branch_id', employee?.branch_id || '').order('name')
+              setStartShiftCashierList(data || [])
+              setStartShiftSelectedName('')
+              setStartShiftCustomName('')
+              setShowStartShiftModal(true)
             }} style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>▶ Start Shift</button>
           ) : (
             <>
@@ -3180,6 +3189,47 @@ export default function CashierPage() {
               disabled={expSaving}
               style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: expSaved ? S.green : S.red, color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: expSaving ? 0.6 : 1 }}>
               {expSaving ? '⏳ Saving...' : expSaved ? '✅ Saved!' : '💾 Save Expense'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: مودال اختيار اسم الكاشير الحقيقي وقت بدء الشيفت - عشان يشتغل صح حتى لو الحساب مشترك */}
+      {showStartShiftModal && (
+        <div onClick={() => setShowStartShiftModal(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 380, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>▶ Start Shift</h2>
+              <button onClick={() => setShowStartShiftModal(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>Who is starting this shift now?</div>
+
+            {startShiftCashierList.length > 0 && (
+              <select style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }}
+                value={startShiftSelectedName} onChange={e => { setStartShiftSelectedName(e.target.value); setStartShiftCustomName('') }}>
+                <option value="">-- Select from list --</option>
+                {startShiftCashierList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
+            )}
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{startShiftCashierList.length > 0 ? 'Or type a name not in the list:' : 'Type your name:'}</div>
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 16, boxSizing: 'border-box' }}
+              placeholder="Name" value={startShiftCustomName} onChange={e => { setStartShiftCustomName(e.target.value); setStartShiftSelectedName('') }} />
+
+            <button
+              onClick={async () => {
+                const finalName = (startShiftSelectedName || startShiftCustomName).trim()
+                if (!finalName) { alert('Please select or type a name'); return }
+                const now = new Date()
+                setShiftStarted(true); setShiftStart(now)
+                localStorage.setItem('cashier_shift_active', 'true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift)
+                // ✅ الاسم الحقيقي اللي اتحدد يدويًا هو اللي بيتسجل، مش اسم الحساب اللي داخل بيه
+                await sb.from('cashier_shift_sessions').insert([{ branch_id: employee?.branch_id || null, shift, cashier_name: finalName }])
+                fetchActiveShiftCashier()
+                setShowStartShiftModal(false)
+              }}
+              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+              ▶ Start Shift
             </button>
           </div>
         </div>

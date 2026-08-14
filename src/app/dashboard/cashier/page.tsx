@@ -660,8 +660,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   }
   // ✅ زرار "Confirm Payment" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ الدفع على طول
   function pay() {
-    // ✅ Fix: فتحنا الدفع للدور المحدود (مشرف/مدير الصالة) كمان - عشان يقدروا يفضّوا الطاولة لو الكاشير مشغول
-    if (!(isCashierRole || isLimitedTableRole)) { alert('🔒 Payment requires cashier access'); return }
+    // ✅ Fix: رجّعناها تقتصر على الكاشير بس - المشرف المحدود (isLimitedTableRole) اتشال من صلاحية الدفع
+    if (!isCashierRole) { alert('🔒 Payment requires cashier access'); return }
     if (method === 'visa' && !cardBank) { alert('من فضلك حدد البنك (Maybank / BSN)'); return }
     // ✅ جديد: سبب الخصم/الفري إلزامي عشان يبقى واضح ليه اتعمل
     if ((discountType === 'amount' || discountType === 'percent' || discountType === 'free') && !discountReason.trim()) {
@@ -674,8 +674,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   // ✅ إنهاء الفاتورة بعد ما كل شخص دفع نصيبه بطريقته
   // ✅ زرار "Finalize Split Bill" بيفتح مودال تأكيد في نص الشاشة بدل ما ينفذ على طول
   function paySplit() {
-    // ✅ Fix: فتحنا الدفع للدور المحدود (مشرف/مدير الصالة) كمان
-    if (!(isCashierRole || isLimitedTableRole)) { alert('🔒 Payment requires cashier access'); return }
+    // ✅ Fix: نفس التقييد - الكاشير بس
+    if (!isCashierRole) { alert('🔒 Payment requires cashier access'); return }
     if (!allSplitPeoplePaid) return
     // ✅ جديد: سبب الخصم/الفري إلزامي هنا كمان (splitMode بيتقفل تلقائيًا لو discountType === 'free'، فبيهمنا amount/percent بس هنا)
     if ((discountType === 'amount' || discountType === 'percent') && !discountReason.trim()) {
@@ -1231,8 +1231,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
-          {/* ✅ Fix: الدفع بقى متاح للدور المحدود (مشرف/مدير الصالة) كمان - عشان يقدروا يفضّوا الطاولة لو الكاشير مشغول */}
-          {!(isCashierRole || isLimitedTableRole) ? (
+          {/* ✅ Fix: الدفع رجع يقتصر على الكاشير بس - شيلنا استثناء الدور المحدود (مشرف/مدير الصالة) */}
+          {!isCashierRole ? (
             <div style={{ flex: 1, padding: '12px', borderRadius: 12, background: S.card, color: S.muted, textAlign: 'center', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
               🔒 Payment requires cashier access
             </div>
@@ -2118,14 +2118,12 @@ export default function CashierPage() {
     const dayStart = `${targetDate}T00:00:00+08:00`
     const dayEnd = `${targetDate}T23:59:59.999+08:00`
 
-    // ✅ Fix حرج: شيفت بدأ قبل نص الليل ولسه شغال (أو اتقفل بعده) كان بيتسجّل بـ session_date بتاريخ الأمس،
-    // فمكنش يظهر أبدًا تحت "النهاردة" حتى لو طلباته الأخيرة اتدفعت فعليًا النهاردة. دلوقتي بنجيب أي جلسة:
-    // تاريخها بيطابق اليوم المطلوب، أو اتقفلت النهاردة، أو لسه شغالة فعليًا (ended_at فاضي) - لو بنعرض "النهاردة"
-    const isViewingToday = targetDate === new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    // ✅ Fix حرج: اليوم المحاسبي "بتاعنا" بيتحدد بيوم بداية الشيفت بس، مش بتاريخ منتصف الليل التقويمي.
+    // يعني شيفت 3 اللي بيبدأ 7 مساءً ويكمل لحد 5 الفجر تاني يوم - كل بياناته (حتى الجزء اللي بعد نص الليل)
+    // بتتحسب على "يوم بدايته" بس، ومش المفروض تظهر تاني في تقرير اليوم التالي خالص. عشان كده الجلب بقى
+    // بسيط: session_date = اليوم المطلوب بالظبط، من غير أي توسيع لليوم اللي بعده
     let sq = sb.from('cashier_shift_sessions').select('id,shift,cashier_name,started_at,ended_at,branch_id')
-      .or(isViewingToday
-        ? `session_date.eq.${targetDate},and(ended_at.gte.${dayStart},ended_at.lte.${dayEnd}),ended_at.is.null`
-        : `session_date.eq.${targetDate},and(ended_at.gte.${dayStart},ended_at.lte.${dayEnd})`)
+      .eq('session_date', targetDate)
       .order('started_at', { ascending: true })
     if (!isAdmin && employee?.branch_id) sq = sq.eq('branch_id', employee.branch_id)
     if (isAdmin && adminBranchFilter) sq = sq.eq('branch_id', adminBranchFilter)
@@ -2734,11 +2732,9 @@ export default function CashierPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                     {/* ✅ جديد: بطاقة إجمالي اليوم كله (كل الشيفتات مع بعض) - كاش/فيزا (مقسّمة على البنك لو فيه خصم)/أونلاين/خصومات/إجمالي */}
                     {(() => {
-                      // ✅ نحسب حدود اليوم المطلوب هنا كمان، عشان نحصر "Whole Day Total" في اليوم ده بالظبط
-                      // (closedOrders بقى بيغطي نطاق أوسع من كده عشان الشيفتات العابرة لمنتصف الليل)
-                      const dStart = `${closedDate}T00:00:00+08:00`
-                      const dEnd = `${closedDate}T23:59:59.999+08:00`
-                      const dayPaid = closedOrders.filter(o => o.status === 'paid' && o.paid_at && o.paid_at >= dStart && o.paid_at <= dEnd)
+                      // ✅ Fix: مفيش داعي لقصّ إضافي هنا - closedOrders بقى بالفعل محصور صح على مستوى الجلسات
+                      // (كل جلسة/شيفت بتاعة "يوم بدايته" بس، حتى لو استمرت بعد نص الليل)، فبنجمع كل حاجة موجودة
+                      const dayPaid = closedOrders.filter(o => o.status === 'paid')
                       // ✅ Fix حرج: بدل ما نحسب من payment_method المسجّل على الفاتورة مباشرة (اللي بيبقى "split"
                       // للفواتير المقسّمة ومش بيتحسب في أي عمود)، بنفكّك كل فاتورة لدفعاتها الحقيقية (getPaymentBreakdown)
                       // ونجمعها حسب الطريقة الفعلية لكل دفعة - كده الفواتير المقسّمة بتتحسب صح في Cash/Visa/Online/Credit

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
+import { useLang } from '../../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,7 +41,7 @@ type PayrollRecord = {
   amount_due: number; amount_paid: number
   work_insurance: number; notes?: string
 }
-type Employee = { id: string; name: string; name_en?: string; employee_number?: string; role: string; department?: string; salary?: number; branches?: any }
+type Employee = { id: string; name: string; name_en?: string; employee_number?: string; role: string; department?: string; salary?: number; branch_id?: string; branches?: any }
 
 function calcRecord(r: PayrollRecord) {
   const dailyRate   = r.basic_salary / (r.working_days || 30)
@@ -62,10 +63,12 @@ function calcRecord(r: PayrollRecord) {
 
 
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
+const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 export default function MySalaryPage() {
   const sb = createClient()
   const { employee: currentUser } = useAuth()
+  const { isAr } = useLang()
   const myId = currentUser?.id || ''
 
   const [months, setMonths] = useState<PayrollMonth[]>([])
@@ -76,12 +79,15 @@ export default function MySalaryPage() {
   const [myEmp, setMyEmp] = useState<Employee | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingRecord, setLoadingRecord] = useState(false)
+  // ✅ دور الموظف في استلام الراتب نقداً — يُحسَب من التزامه بالحضور والانصراف + تقييم أدائه، مقارنة
+  // بباقي موظفي نفس الفرع لنفس الشهر. لا يظهر إلا بعد اعتماد الشهر نهائياً (finalized)
+  const [pickupInfo, setPickupInfo] = useState<{ rank: number; total: number } | null>(null)
 
   useEffect(() => {
     if (!myId) return
     Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
-      sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,branches(name)').eq('id', myId).single(),
+      sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,branch_id,branches(name)').eq('id', myId).single(),
     ]).then(([mo, emp]) => {
       setMonths(mo.data || [])
       setMyEmp(emp.data)
@@ -134,57 +140,103 @@ export default function MySalaryPage() {
     })
   }, [selectedMonth, myId])
 
+  // ✅ حساب دور استلام الراتب: نرتّب كل موظفي نفس الفرع لنفس الشهر حسب (التزام الحضور + تقييم الأداء)،
+  // ونحدد ترتيب الموظف الحالي بينهم — يظهر فقط بعد اعتماد الشهر نهائياً (finalized)، لأن الترتيب النهائي
+  // يعتمد على أرقام حضور/تأخير/غياب مكتملة، مش على شهر لسه قيد المراجعة وممكن يتغيّر
+  useEffect(() => {
+    if (!selectedMonth || !myEmp?.branch_id) { setPickupInfo(null); return }
+    let cancelled = false
+    ;(async () => {
+      const { data: branchEmps } = await sb.from('employees').select('id').eq('branch_id', myEmp!.branch_id).eq('is_active', true)
+      const empIds = (branchEmps || []).map((e: any) => e.id)
+      if (empIds.length === 0) { if (!cancelled) setPickupInfo(null); return }
+
+      const [{ data: records }, { data: evalsData }] = await Promise.all([
+        sb.from('payroll_records').select('employee_id, late_hours, absence_days, deduction_2')
+          .eq('payroll_month_id', selectedMonth.id)
+          .in('employee_id', empIds),
+        // ✅ نجيب كل التقييمات المعتمدة (approved) لموظفي الفرع، ونستخدم الأحدث لكل موظف فقط
+        sb.from('employee_evaluations').select('employee_id, total_score, month, year')
+          .in('employee_id', empIds)
+          .eq('status', 'approved')
+          .order('year', { ascending: false })
+          .order('month', { ascending: false }),
+      ])
+      if (cancelled) return
+
+      const latestEvalByEmp: Record<string, number> = {}
+      for (const ev of (evalsData || [])) {
+        if (!(ev.employee_id in latestEvalByEmp)) latestEvalByEmp[ev.employee_id] = ev.total_score
+      }
+
+      const scored = (records || []).map((r: any) => {
+        // ✅ درجة الالتزام بالحضور من 100 — تُخصَم حسب ساعات التأخير وأيام الغياب المسجَّلة فعلياً هذا الشهر
+        // بالفعل (من نفس أرقام صفحة الرواتب)، مش حساب منفصل جديد
+        const attendanceScore = Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.absence_days || 0) * 15 - ((r.deduction_2 || 0) > 0 ? 10 : 0))
+        // ✅ درجة محايدة (70) لأي موظف لسه معندوش تقييم معتمد، عشان مايتظلمش بترتيب متأخر بسبب نقص بيانات فقط
+        const evalScore = latestEvalByEmp[r.employee_id] ?? 70
+        const combined = attendanceScore * 0.5 + evalScore * 0.5
+        return { employee_id: r.employee_id, combined }
+      })
+      scored.sort((a, b) => b.combined - a.combined)
+
+      const myIndex = scored.findIndex(s => s.employee_id === myId)
+      setPickupInfo(myIndex === -1 ? null : { rank: myIndex + 1, total: scored.length })
+    })()
+    return () => { cancelled = true }
+  }, [selectedMonth?.id, myEmp?.branch_id, myId])
+
   const c = myRecord ? calcRecord(myRecord) : null
   const netSalary = c?.netSalary || myEmp?.salary || 0
   const grossSalary = c?.totalEarnings || netSalary
 
   const earnings = myRecord ? [
-    { label: 'الراتب الأساسي', value: myRecord.basic_salary || 0, color: S.green },
-    { label: myRecord.allowance_1_label || 'بدل 1', value: myRecord.allowance_1 || 0, color: S.green },
-    { label: myRecord.allowance_2_label || 'بدل 2', value: myRecord.allowance_2 || 0, color: S.green },
-    { label: myRecord.allowance_3_label || 'بدل 3', value: myRecord.allowance_3 || 0, color: S.green },
-    { label: 'أوفر تايم', value: c?.overtimePay || 0, color: S.green },
+    { label: isAr ? 'الراتب الأساسي' : 'Basic Salary', value: myRecord.basic_salary || 0, color: S.green },
+    { label: myRecord.allowance_1_label || (isAr ? 'بدل 1' : 'Allowance 1'), value: myRecord.allowance_1 || 0, color: S.green },
+    { label: myRecord.allowance_2_label || (isAr ? 'بدل 2' : 'Allowance 2'), value: myRecord.allowance_2 || 0, color: S.green },
+    { label: myRecord.allowance_3_label || (isAr ? 'بدل 3' : 'Allowance 3'), value: myRecord.allowance_3 || 0, color: S.green },
+    { label: isAr ? 'أوفر تايم' : 'Overtime', value: c?.overtimePay || 0, color: S.green },
   ].filter(e => e.value > 0) : []
 
   const deductions = myRecord ? [
-    { label: 'خصم الغياب', value: myRecord.absence_days > 0 ? (c?.absenceDed || 0) : 0, color: S.red },
-    { label: 'خصم التأخير', value: myRecord.late_hours > 0 ? (c?.lateDed || 0) : 0, color: S.red },
-    { label: 'سلفة', value: myRecord.advance || 0, color: S.amber },
-    { label: myRecord.deduction_1_label || 'خصم 1', value: myRecord.deduction_1 || 0, color: S.red },
-    { label: myRecord.deduction_2_label || 'خصم 2', value: myRecord.deduction_2 || 0, color: S.red },
-    { label: myRecord.deduction_3_label || 'خصم 3', value: myRecord.deduction_3 || 0, color: S.red },
-    { label: 'ضريبة', value: myRecord.tax || 0, color: S.red },
-    { label: 'تأمين', value: myRecord.insurance || 0, color: S.red },
+    { label: isAr ? 'خصم الغياب' : 'Absence Deduction', value: myRecord.absence_days > 0 ? (c?.absenceDed || 0) : 0, color: S.red },
+    { label: isAr ? 'خصم التأخير' : 'Lateness Deduction', value: myRecord.late_hours > 0 ? (c?.lateDed || 0) : 0, color: S.red },
+    { label: isAr ? 'سلفة' : 'Advance', value: myRecord.advance || 0, color: S.amber },
+    { label: myRecord.deduction_1_label || (isAr ? 'خصم 1' : 'Deduction 1'), value: myRecord.deduction_1 || 0, color: S.red },
+    { label: myRecord.deduction_2_label || (isAr ? 'خصم 2' : 'Deduction 2'), value: myRecord.deduction_2 || 0, color: S.red },
+    { label: myRecord.deduction_3_label || (isAr ? 'خصم 3' : 'Deduction 3'), value: myRecord.deduction_3 || 0, color: S.red },
+    { label: isAr ? 'ضريبة' : 'Tax', value: myRecord.tax || 0, color: S.red },
+    { label: isAr ? 'تأمين' : 'Insurance', value: myRecord.insurance || 0, color: S.red },
   ].filter(d => d.value > 0) : []
 
   const totalDeductions = deductions.reduce((s, d) => s + d.value, 0)
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', fontFamily: 'Tajawal, sans-serif' }}>
-      <div style={{ textAlign: 'center', color: S.muted }}>⏳ جاري التحميل...</div>
+      <div style={{ textAlign: 'center', color: S.muted }}>⏳ {isAr ? 'جاري التحميل...' : 'Loading...'}</div>
     </div>
   )
 
   return (
-    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white, maxWidth: 560, margin: '0 auto', padding: '0 4px' }}>
+    <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white, maxWidth: 560, margin: '0 auto', padding: '0 4px' }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');`}</style>
 
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, color: S.white, marginBottom: 4 }}>💰 راتبي</h1>
-        <p style={{ fontSize: 13, color: S.muted }}>تفاصيل راتبك الشهري</p>
+        <h1 style={{ fontSize: 20, fontWeight: 800, color: S.white, marginBottom: 4 }}>💰 {isAr ? 'راتبي' : 'My Salary'}</h1>
+        <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'تفاصيل راتبك الشهري' : 'Your monthly salary details'}</p>
       </div>
 
       {/* Month selector */}
       <div style={{ marginBottom: 20 }}>
         <select
-          style={{ width: '100%', background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '12px 14px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: 'rtl' }}
+          style={{ width: '100%', background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '12px 14px', fontSize: 14, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr' }}
           value={selectedMonth?.id || ''}
           onChange={e => setSelectedMonth(months.find(m => m.id === e.target.value) || null)}
         >
-          <option value="">-- اختر الشهر --</option>
+          <option value="">{isAr ? '-- اختر الشهر --' : '-- Select Month --'}</option>
           {months.map(m => (
-            <option key={m.id} value={m.id}>{MONTHS_AR[m.month - 1]} {m.year}</option>
+            <option key={m.id} value={m.id}>{(isAr ? MONTHS_AR : MONTHS_EN)[m.month - 1]} {m.year}</option>
           ))}
         </select>
       </div>
@@ -192,14 +244,14 @@ export default function MySalaryPage() {
       {!selectedMonth ? (
         <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}` }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
-          <div style={{ color: S.muted, fontSize: 14 }}>اختر الشهر لعرض راتبك</div>
+          <div style={{ color: S.muted, fontSize: 14 }}>{isAr ? 'اختر الشهر لعرض راتبك' : 'Select a month to view your salary'}</div>
         </div>
       ) : loadingRecord ? (
-        <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
+        <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ {isAr ? 'جاري التحميل...' : 'Loading...'}</div>
       ) : !myRecord ? (
         <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}` }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-          <div style={{ color: S.muted, fontSize: 14 }}>لم يتم إصدار كشف راتب لهذا الشهر بعد</div>
+          <div style={{ color: S.muted, fontSize: 14 }}>{isAr ? 'لم يتم إصدار كشف راتب لهذا الشهر بعد' : 'No payslip has been issued for this month yet'}</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -217,19 +269,39 @@ export default function MySalaryPage() {
               </div>
             </div>
             <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
-              <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>صافي الراتب — {MONTHS_AR[(selectedMonth.month || 1) - 1]} {selectedMonth.year}</div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{isAr ? 'صافي الراتب' : 'Net Salary'} — {(isAr ? MONTHS_AR : MONTHS_EN)[(selectedMonth.month || 1) - 1]} {selectedMonth.year}</div>
               <div style={{ fontSize: 38, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
               <div style={{ marginTop: 10 }}>
                 <span style={{ background: selectedMonth.status === 'finalized' ? S.greenB : S.amberB, color: selectedMonth.status === 'finalized' ? S.green : S.amber, borderRadius: 20, padding: '4px 14px', fontSize: 12, fontWeight: 700 }}>
-                  {selectedMonth.status === 'finalized' ? '✅ معتمد' : selectedMonth.status === 'paid' ? '💳 مدفوع' : '📝 قيد المراجعة'}
+                  {selectedMonth.status === 'finalized' ? (isAr ? '✅ معتمد' : '✅ Finalized') : selectedMonth.status === 'paid' ? (isAr ? '💳 مدفوع' : '💳 Paid') : (isAr ? '📝 قيد المراجعة' : '📝 Under Review')}
                 </span>
               </div>
             </div>
           </div>
 
+          {/* ✅ دور استلام الراتب نقداً — لا نعرض العدد الإجمالي للموظفين أبداً، الرقم فقط */}
+          {pickupInfo && (
+            <div style={{ background: S.tealB, border: `1px solid ${S.teal}50`, borderRadius: 16, padding: '18px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 8 }}>🎟️ {isAr ? 'دورك في استلام الراتب نقداً' : 'Your turn to collect your cash salary'}</div>
+              <div style={{ fontSize: 32, fontWeight: 900, color: S.teal }}>#{pickupInfo.rank}</div>
+              <div style={{ fontSize: 12, color: S.white, marginTop: 8 }}>
+                {isAr ? (
+                  <>⏱️ الوقت المتوقع: تقريباً بعد <b style={{ color: S.teal }}>{(pickupInfo.rank - 1) * 5}</b> دقيقة من بداية الصرف</>
+                ) : (
+                  <>⏱️ Estimated time: about <b style={{ color: S.teal }}>{(pickupInfo.rank - 1) * 5}</b> minutes after payout starts</>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: S.muted, marginTop: 10, lineHeight: 1.8, borderTop: `1px solid ${S.border}`, paddingTop: 8 }}>
+                {isAr
+                  ? <>⏳ مدة كل دور تقريباً <b>5 دقائق</b>. الترتيب يعتمد على التزامك بالحضور والانصراف وتقييم أدائك هذا الشهر — كل ما كان التزامك أعلى، كان دورك أقرب.</>
+                  : <>⏳ Each turn takes about <b>5 minutes</b>. Your order depends on your attendance commitment and performance evaluation this month — the better your commitment, the earlier your turn.</>}
+              </div>
+            </div>
+          )}
+
           {/* Work Summary */}
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '14px 16px' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: S.muted, marginBottom: 12 }}>📊 ملخص العمل</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.muted, marginBottom: 12 }}>📊 {isAr ? 'ملخص العمل' : 'Work Summary'}</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               {(() => {
                 // ✅ myRecord.absence_days حقل يدوي منفصل تماماً (نادراً ما يُملأ)، وليس الغياب الحقيقي المُحتسَب تلقائياً
@@ -237,12 +309,12 @@ export default function MySalaryPage() {
                 // ("غياب بدون عذر (X يوم)")، فنستخرج العدد منه هنا لعرض القيمة الصحيحة الفعلية للموظف
                 const autoAbsentDays = parseInt((myRecord.deduction_2_label || '').match(/\d+/)?.[0] || '0', 10)
                 return [
-                { label: 'أيام العمل المستحقة', value: myRecord.working_days, color: S.blue },
-                { label: 'أيام الحضور الفعلي', value: realPresentDays, color: S.green },
-                { label: 'أيام الغياب', value: autoAbsentDays, color: autoAbsentDays > 0 ? S.red : S.muted },
-                { label: 'تأخير (ساعة) 20 MYR', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
-                { label: 'أوفر تايم', value: (myRecord.overtime_days || 0) + (myRecord.overtime_hours ? myRecord.overtime_hours / 8 : 0), color: S.purple },
-                { label: 'رصيد سلفة', value: myRecord.advance_balance || 0, color: S.amber },
+                { label: isAr ? 'أيام العمل المستحقة' : 'Entitled Work Days', value: myRecord.working_days, color: S.blue },
+                { label: isAr ? 'أيام الحضور الفعلي' : 'Actual Days Present', value: realPresentDays, color: S.green },
+                { label: isAr ? 'أيام الغياب' : 'Absence Days', value: autoAbsentDays, color: autoAbsentDays > 0 ? S.red : S.muted },
+                { label: isAr ? 'تأخير (ساعة) 20 MYR' : 'Lateness (hr) 20 MYR', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
+                { label: isAr ? 'أوفر تايم' : 'Overtime', value: (myRecord.overtime_days || 0) + (myRecord.overtime_hours ? myRecord.overtime_hours / 8 : 0), color: S.purple },
+                { label: isAr ? 'رصيد سلفة' : 'Advance Balance', value: myRecord.advance_balance || 0, color: S.amber },
               ]
               })().map((item, i) => (
                 <div key={i} style={{ background: S.card, borderRadius: 10, padding: '10px', textAlign: 'center' }}>
@@ -256,7 +328,7 @@ export default function MySalaryPage() {
           {/* Earnings */}
           {earnings.length > 0 && (
             <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.green }}>➕ الإضافات</div>
+              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.green }}>➕ {isAr ? 'الإضافات' : 'Earnings'}</div>
               {earnings.map((e, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < earnings.length - 1 ? `1px solid ${S.border}` : 'none' }}>
                   <span style={{ fontSize: 13, color: S.white }}>{e.label}</span>
@@ -264,7 +336,7 @@ export default function MySalaryPage() {
                 </div>
               ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(34,197,94,0.06)' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>إجمالي الإضافات</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{isAr ? 'إجمالي الإضافات' : 'Total Earnings'}</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: S.green }}>MYR {grossSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
@@ -273,7 +345,7 @@ export default function MySalaryPage() {
           {/* Deductions */}
           {deductions.length > 0 && (
             <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.red }}>➖ الخصومات</div>
+              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.red }}>➖ {isAr ? 'الخصومات' : 'Deductions'}</div>
               {deductions.map((d, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < deductions.length - 1 ? `1px solid ${S.border}` : 'none' }}>
                   <span style={{ fontSize: 13, color: S.white }}>{d.label}</span>
@@ -281,7 +353,7 @@ export default function MySalaryPage() {
                 </div>
               ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(239,68,68,0.06)' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>إجمالي الخصومات</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{isAr ? 'إجمالي الخصومات' : 'Total Deductions'}</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: S.red }}>- MYR {totalDeductions.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
@@ -290,9 +362,9 @@ export default function MySalaryPage() {
           {/* Net Summary */}
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.gold}30`, overflow: 'hidden' }}>
             {[
-              { label: 'الراتب الأساسي', value: myRecord.basic_salary || 0, color: S.white },
-              { label: 'إجمالي الإضافات', value: grossSalary, color: S.green },
-              { label: 'إجمالي الخصومات', value: totalDeductions, color: S.red, prefix: '-' },
+              { label: isAr ? 'الراتب الأساسي' : 'Basic Salary', value: myRecord.basic_salary || 0, color: S.white },
+              { label: isAr ? 'إجمالي الإضافات' : 'Total Earnings', value: grossSalary, color: S.green },
+              { label: isAr ? 'إجمالي الخصومات' : 'Total Deductions', value: totalDeductions, color: S.red, prefix: '-' },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${S.border}` }}>
                 <span style={{ fontSize: 13, color: S.muted }}>{row.label}</span>
@@ -300,7 +372,7 @@ export default function MySalaryPage() {
               </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', background: S.gold3 }}>
-              <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>💰 صافي الراتب</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>💰 {isAr ? 'صافي الراتب' : 'Net Salary'}</span>
               <span style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
             </div>
           </div>

@@ -85,8 +85,13 @@ export default function QuotationPage() {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, item, selectedSize: size } : r))
     setSizePickerFor(null)
   }
+  // ✅ Fix: كان بيرجع لـ 1 فورًا بمجرد مسح الحقل (parseInt('') || 1 بيدّي 1)، فيمنع كتابة رقم جديد.
+  // دلوقتي بنسمح بالقيمة صفر مؤقتًا أثناء الكتابة (يظهر الحقل فاضي)، ونمنع أقل من 1 بس لما تسيب الحقل (onBlur)
   function setRowQty(idx: number, qty: number) {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, qty: Math.max(1, qty) } : r))
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, qty } : r))
+  }
+  function clampRowQty(idx: number) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, qty: Math.max(1, r.qty || 1) } : r))
   }
 
   function addNote() { setNotes(prev => [...prev, '']) }
@@ -306,7 +311,9 @@ export default function QuotationPage() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 11, color: S.muted }}>Qty:</span>
-                      <input type="number" min={1} value={row.qty} onChange={e => setRowQty(i, parseInt(e.target.value) || 1)}
+                      <input type="number" min={1} value={row.qty === 0 ? '' : row.qty}
+                        onChange={e => setRowQty(i, e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                        onBlur={() => clampRowQty(i)}
                         style={{ ...inp, width: 60 }} />
                     </div>
                     <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginLeft: 'auto' }}>MYR {lineTotal(row).toFixed(2)}</span>
@@ -365,7 +372,9 @@ export default function QuotationPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 11, color: S.muted }}>Qty:</span>
-                  <input type="number" min={1} value={row.qty} onChange={e => setRowQty(i, parseInt(e.target.value) || 1)}
+                  <input type="number" min={1} value={row.qty === 0 ? '' : row.qty}
+                    onChange={e => setRowQty(i, e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                    onBlur={() => clampRowQty(i)}
                     style={{ ...inp, width: 60 }} />
                 </div>
                 <span style={{ fontSize: 12, color: S.muted }}>MYR {(row.selectedSize?.price ?? row.item.price).toFixed(2)} each</span>

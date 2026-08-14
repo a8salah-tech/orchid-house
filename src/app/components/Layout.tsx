@@ -73,7 +73,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'المستودعات',   label_en: 'Warehouses',      icon: '🏭', path: '/dashboard/warehouse',       permission: 'warehouse' },
     { label: 'إعدادات المستودع', label_en: 'Warehouse Settings', icon: '🔧', path: '/dashboard/warehouse/fix-units', permission: 'warehouse' },
     { label: 'تقارير الجرد', label_en: 'Inventory Reports', icon: '📋', path: '/dashboard/inventory-reports', permission: 'inventory_reports' },
-    { label: 'حركة صنف',     label_en: 'Item Movement',   icon: '📜', path: '/dashboard/item-movement',  permission: 'item_movement' },
+    { label: 'حركة صنف',     label_en: 'Item Movement',   icon: '📜', path: '/dashboard/item-movement',   permission: 'admin_only' },
     { label: 'المشتريات',    label_en: 'Purchases',       icon: '🛒', path: '/dashboard/purchases',       permission: 'purchases' },
     { label: 'مشتريات السوق', label_en: 'Market Purchases', icon: '🛍️', path: '/dashboard/market-purchases', permission: 'market_purchases' },
     { label: 'طلبات الفروع', label_en: 'Branch Requests', icon: '📦', path: '/dashboard/branch-requests', permission: 'branch_requests' },

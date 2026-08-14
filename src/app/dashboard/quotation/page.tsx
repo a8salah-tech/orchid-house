@@ -119,6 +119,37 @@ export default function QuotationPage() {
   const [savedQuotes, setSavedQuotes] = useState<any[]>([])
   const [savingQuote, setSavingQuote] = useState(false)
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null)
+  // ✅ جديد: وضع تعديل عرض محفوظ - لو له قيمة، الحفظ بيحدّث نفس العرض بدل إنشاء عرض جديد
+  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null)
+
+  // ✅ جديد: تحميل عرض محفوظ في النموذج للتعديل - كل الأصناف بتتحمّل كـ"بند مفتوح" قابل للتعديل الحر
+  // (لأن الجدول الحالي بيحفظ اسم/سعر/كمية الصنف بس، مش رابط مباشر بصنف المنيو الأصلي)
+  function loadForEdit(q: any) {
+    setEditingQuoteId(q.id)
+    setBranchId(q.branch_id || '')
+    setQuoteTo(q.quote_to || '')
+    setQuoteDate(q.quote_date)
+    setIncludeServiceCharge(q.include_service_charge)
+    setNotes(q.notes && q.notes.length > 0 ? q.notes : [''])
+    const loadedRows: QuoteRow[] = (q.items || [])
+      .slice()
+      .sort((a: any, b: any) => a.sort_order - b.sort_order)
+      .map((it: any) => ({ item: null, qty: it.qty, isOpen: true, openName: it.item_name, openPrice: Number(it.unit_price), openNotes: it.notes || '' }))
+    setRows(loadedRows.length > 0 ? loadedRows : [{ item: null, qty: 1 }])
+    setExpandedQuoteId(null)
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // ✅ جديد: الخروج من وضع التعديل وإرجاع النموذج لحالة "عرض جديد" فاضية
+  function cancelEdit() {
+    setEditingQuoteId(null)
+    setBranchId(employee?.branch_id || '')
+    setQuoteTo('')
+    setQuoteDate(new Date().toISOString().split('T')[0])
+    setRows([{ item: null, qty: 1 }])
+    setNotes([''])
+    setIncludeServiceCharge(true)
+  }
 
   async function fetchSavedQuotations() {
     let q = sb.from('price_quotations').select('*, branches(name), items:price_quotation_items(*)').order('quote_number', { ascending: true })
@@ -128,22 +159,35 @@ export default function QuotationPage() {
   }
   useEffect(() => { if (employee) fetchSavedQuotations() }, [employee?.id, isAdmin])
 
+  // ✅ Fix: الدالة دلوقتي بتدعم وضعين - إنشاء عرض جديد (زي قبل كده)، أو تحديث عرض محفوظ لو editingQuoteId متسجّل
   async function saveQuotation() {
     if (!branchId) { alert('Please select a branch'); return }
     const validRows = rows.filter(r => r.isOpen ? (r.openName || '').trim() : r.item)
     if (validRows.length === 0) { alert('Please add at least one item'); return }
     setSavingQuote(true)
-    const { data: q, error } = await sb.from('price_quotations').insert([{
+    const payload = {
       branch_id: branchId, quote_to: quoteTo || null, quote_date: quoteDate,
       include_service_charge: includeServiceCharge,
       subtotal, service_charge: serviceCharge, sst, grand_total: grandTotal,
       notes: notes.filter(n => n.trim()),
-      created_by: employee?.id || null,
-      created_by_name: [employee?.name, (employee as any)?.name_en].filter(Boolean).join(' '),
-    }]).select().single()
-    if (error || !q) { setSavingQuote(false); alert('Error: ' + (error?.message || 'could not save')); return }
+    }
+    let quotationId = editingQuoteId
+    if (editingQuoteId) {
+      const { error } = await sb.from('price_quotations').update(payload).eq('id', editingQuoteId)
+      if (error) { setSavingQuote(false); alert('Error: ' + error.message); return }
+      // ✅ أبسط وأضمن طريقة لمزامنة الأصناف بعد التعديل: نمسح القديمة كلها وندرج القائمة الجديدة كاملة
+      await sb.from('price_quotation_items').delete().eq('quotation_id', editingQuoteId)
+    } else {
+      const { data: q, error } = await sb.from('price_quotations').insert([{
+        ...payload,
+        created_by: employee?.id || null,
+        created_by_name: [employee?.name, (employee as any)?.name_en].filter(Boolean).join(' '),
+      }]).select().single()
+      if (error || !q) { setSavingQuote(false); alert('Error: ' + (error?.message || 'could not save')); return }
+      quotationId = q.id
+    }
     const itemRows = validRows.map((r, i) => ({
-      quotation_id: q.id,
+      quotation_id: quotationId,
       item_type: r.isOpen ? 'open' : 'menu',
       item_name: r.isOpen ? (r.openName || '').trim() : `${r.item!.name_en}${r.selectedSize ? ' (' + (r.selectedSize.name_en || r.selectedSize.name) + ')' : ''}`,
       unit_price: r.isOpen ? (r.openPrice || 0) : (r.selectedSize?.price ?? r.item!.price),
@@ -154,7 +198,8 @@ export default function QuotationPage() {
     const { error: itemsErr } = await sb.from('price_quotation_items').insert(itemRows)
     setSavingQuote(false)
     if (itemsErr) { alert('Error saving items: ' + itemsErr.message); return }
-    alert('✅ Quotation saved successfully')
+    alert(editingQuoteId ? '✅ Quotation updated successfully' : '✅ Quotation saved successfully')
+    setEditingQuoteId(null)
     fetchSavedQuotations()
   }
 
@@ -218,6 +263,95 @@ export default function QuotationPage() {
         <div class="meta">
           <div><strong>Quote To:</strong> ${quoteTo || '—'}</div>
           <div><strong>Date:</strong> ${quoteDate}</div>
+        </div>
+        <table>
+          <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div class="totals">
+          ${totalsHtml}
+        </div>
+        ${notesHtml ? `<div class="notes"><h3>Notes</h3><ul>${notesHtml}</ul></div>` : ''}
+        <div class="footer">
+          <p class="welcome">Thank you for considering Orchid House for your special occasion.</p>
+          <p class="welcome">We look forward to welcoming you and creating an unforgettable dining experience.</p>
+          <hr />
+          <div class="branches">
+            <div><strong>Orchid House</strong><br/>02, Lorong Raja Uda 1</div>
+            <div><strong>Orchid KLCC</strong><br/>4, Lorong Yap Kwan Seng</div>
+          </div>
+          <div class="contact">
+            📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
+          </div>
+        </div>
+        <script>window.onload = () => window.print()</script>
+      </body></html>
+    `)
+    win.document.close()
+  }
+
+  // ✅ جديد: طباعة مباشرة لعرض محفوظ من القائمة تحت - بدون الحاجة لتحميله في النموذج الأول
+  // (دالة مستقلة تمامًا عن حالة النموذج الحالي، بتاخد بياناتها من العرض المحفوظ نفسه)
+  function printSavedQuotation(q: any) {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const savedBranchName = q.branches?.name || 'Orchid House'
+    const rowsHtml = (q.items || []).slice().sort((a: any, b: any) => a.sort_order - b.sort_order).map((it: any, i: number) => `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${it.item_name}${it.notes ? '<br/><span style="color:#888;font-size:11px">' + it.notes + '</span>' : ''}</td>
+        <td style="text-align:center">${it.qty}</td>
+        <td style="text-align:right">MYR ${Number(it.unit_price).toFixed(2)}</td>
+        <td style="text-align:right">MYR ${Number(it.line_total).toFixed(2)}</td>
+      </tr>`).join('')
+    const notesHtml = (q.notes || []).filter((n: string) => n.trim()).map((n: string) => `<li>${n}</li>`).join('')
+    const totalsHtml = `
+      <div><span>Subtotal</span><span>MYR ${Number(q.subtotal).toFixed(2)}</span></div>
+      ${q.include_service_charge ? `<div><span>Service Charge (10%)</span><span>MYR ${Number(q.service_charge).toFixed(2)}</span></div>` : ''}
+      <div><span>SST (6%)</span><span>MYR ${Number(q.sst).toFixed(2)}</span></div>
+      <div class="grand"><span>Grand Total</span><span>MYR ${Number(q.grand_total).toFixed(2)}</span></div>`
+    win.document.write(`
+      <html><head><title>Price Quotation #${q.quote_number}</title>
+      <style>
+        body { font-family: Arial, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; }
+        .header { display:flex; align-items:center; gap:16px; border-bottom: 2px solid #C9A84C; padding-bottom:16px; margin-bottom:20px; }
+        .header img { width:64px; height:64px; border-radius:50%; object-fit:cover; }
+        h1 { font-size:20px; margin:0; color:#1a1a1a; }
+        .sub { font-size:12px; color:#666; margin-top:2px; }
+        .company-info { font-size:10px; color:#888; margin-top:6px; line-height:1.5; }
+        .meta { display:flex; justify-content:space-between; font-size:13px; margin-bottom:20px; }
+        table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:20px; }
+        th, td { border:1px solid #ccc; padding:8px 10px; }
+        th { background:#f5f0e0; text-align:left; }
+        .totals { width:280px; margin-left:auto; font-size:13px; }
+        .totals div { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #eee; }
+        .totals .grand { font-weight:bold; font-size:15px; border-top:2px solid #C9A84C; border-bottom:none; padding-top:10px; }
+        .notes { margin-top:24px; font-size:12px; }
+        .notes h3 { font-size:13px; margin-bottom:6px; }
+        .footer { margin-top:32px; text-align:center; }
+        .footer .welcome { font-size:13px; color:#444; font-style:italic; margin:2px 0; }
+        .footer hr { border:none; border-top:1px solid #C9A84C; width:120px; margin:14px auto; }
+        .footer .branches { display:flex; justify-content:center; gap:60px; font-size:11px; color:#555; margin-bottom:10px; }
+        .footer .contact { font-size:12px; color:#333; }
+        .footer .contact a { color:#333; text-decoration:none; }
+        @media print { body { padding: 10px; } }
+      </style></head>
+      <body>
+        <div class="header">
+          <img src="/logo.png" alt="Orchid House" />
+          <div>
+            <h1>Orchid House</h1>
+            <div class="sub">${savedBranchName} — Price Quotation #${q.quote_number}</div>
+            <div class="company-info">
+              Company Name: ORCHID KEBAB GROUP SDN. BHD.<br/>
+              Business Registration No.: 202201021268 (1466965-K)<br/>
+              Tax Identification No. (TIN): C29826106050
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <div><strong>Quote To:</strong> ${q.quote_to || '—'}</div>
+          <div><strong>Date:</strong> ${q.quote_date}</div>
         </div>
         <table>
           <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
@@ -472,6 +606,14 @@ export default function QuotationPage() {
         </div>
       </div>
 
+      {/* ✅ جديد: شريط تنبيه لما يكون النموذج محمّل من عرض محفوظ للتعديل */}
+      {editingQuoteId && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(59,130,246,0.12)', border: `1px solid ${S.blue}40`, borderRadius: 12, padding: '10px 16px', marginBottom: 16 }}>
+          <span style={{ fontSize: 13, color: S.blue, fontWeight: 700 }}>✏️ Editing a saved quotation — saving will update it instead of creating a new one</span>
+          <button onClick={cancelEdit} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Cancel</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 10, marginBottom: 40 }}>
         <button onClick={printQuotation}
           style={{ flex: 1, padding: '14px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
@@ -480,7 +622,7 @@ export default function QuotationPage() {
         {/* ✅ جديد: حفظ العرض في قاعدة البيانات (منفصل عن الطباعة) عشان يظهر في قائمة "العروض المحفوظة" تحت */}
         <button onClick={saveQuotation} disabled={savingQuote}
           style={{ flex: 1, padding: '14px', borderRadius: 12, border: `1px solid ${S.green}`, background: 'rgba(34,197,94,0.12)', color: S.green, fontWeight: 800, fontSize: 14, cursor: savingQuote ? 'not-allowed' : 'pointer' }}>
-          {savingQuote ? '⏳ Saving...' : '💾 Save Quotation'}
+          {savingQuote ? '⏳ Saving...' : (editingQuoteId ? '💾 Update Quotation' : '💾 Save Quotation')}
         </button>
       </div>
 
@@ -506,6 +648,15 @@ export default function QuotationPage() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>MYR {Number(q.grand_total).toFixed(2)}</span>
+                      {/* ✅ جديد: تعديل وطباعة مباشرة من القائمة - stopPropagation عشان الضغط عليهم مايفتحش/يقفلش تفاصيل الكارت */}
+                      <button onClick={e => { e.stopPropagation(); loadForEdit(q) }} title="Edit"
+                        style={{ background: 'transparent', border: `1px solid ${S.blue}`, borderRadius: 8, color: S.blue, cursor: 'pointer', fontSize: 12, padding: '5px 9px' }}>
+                        ✏️
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); printSavedQuotation(q) }} title="Print"
+                        style={{ background: 'transparent', border: `1px solid ${S.gold}`, borderRadius: 8, color: S.gold, cursor: 'pointer', fontSize: 12, padding: '5px 9px' }}>
+                        🖨️
+                      </button>
                       <span style={{ color: S.muted, fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
                     </div>
                   </div>

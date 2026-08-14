@@ -22,7 +22,9 @@ const SST_RATE = 0.06
 
 type MenuItem = { id: string; name_en: string; price: number; or_code?: string; category_id: string
   sizes?: { id: string; name_en?: string; name: string; price: number; is_active: boolean }[] }
-type QuoteRow = { item: MenuItem | null; qty: number; selectedSize?: { id: string; name_en?: string; name: string; price: number } }
+// ✅ جديد: دعم "بند مفتوح" (Open Item) - صنف حر مش مرتبط بالمنيو، بسعر وملاحظات يدخلها الموظف بنفسه
+type QuoteRow = { item: MenuItem | null; qty: number; selectedSize?: { id: string; name_en?: string; name: string; price: number }
+  isOpen?: boolean; openName?: string; openPrice?: number; openNotes?: string }
 
 export default function QuotationPage() {
   const sbRef = useRef(createClient())
@@ -61,7 +63,12 @@ export default function QuotationPage() {
   const [includeServiceCharge, setIncludeServiceCharge] = useState(true)
 
   function addRow() { setRows(prev => [...prev, { item: null, qty: 1 }]) }
+  // ✅ جديد: إضافة صف "بند مفتوح" - مش مرتبط بالمنيو، الموظف بيكتب الاسم والسعر بنفسه
+  function addOpenRow() { setRows(prev => [...prev, { item: null, qty: 1, isOpen: true, openName: '', openPrice: 0, openNotes: '' }]) }
   function removeRow(idx: number) { setRows(prev => prev.filter((_, i) => i !== idx)) }
+  function setOpenField(idx: number, field: 'openName' | 'openPrice' | 'openNotes', value: string | number) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r))
+  }
   function setRowItem(idx: number, item: MenuItem) {
     const activeSizes = (item.sizes || []).filter(s => s.is_active)
     if (activeSizes.length > 0) {
@@ -94,7 +101,8 @@ export default function QuotationPage() {
     return matchCat && matchSearch && matchCode
   })
 
-  const lineTotal = (r: QuoteRow) => (r.item ? (r.selectedSize?.price ?? r.item.price) * r.qty : 0)
+  // ✅ Fix: البند المفتوح بيحسب سعره × كميته المُدخلة يدويًا بدل الاعتماد على صنف من المنيو
+  const lineTotal = (r: QuoteRow) => r.isOpen ? (r.openPrice || 0) * r.qty : (r.item ? (r.selectedSize?.price ?? r.item.price) * r.qty : 0)
   const subtotal = rows.reduce((s, r) => s + lineTotal(r), 0)
   const serviceCharge = includeServiceCharge ? subtotal * SERVICE_CHARGE_RATE : 0
   const sst = subtotal * SST_RATE // ✅ ضريبة ثابتة دايمًا، مش قابلة للإلغاء
@@ -102,15 +110,59 @@ export default function QuotationPage() {
 
   const branchName = branches.find(b => b.id === branchId)?.name || employee?.department || 'Orchid House'
 
+  // ✅ جديد: العروض المحفوظة - الأدمن يشوف كل الفروع وكل العروض، والموظف يشوف عروضه هو بس
+  const [savedQuotes, setSavedQuotes] = useState<any[]>([])
+  const [savingQuote, setSavingQuote] = useState(false)
+  const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null)
+
+  async function fetchSavedQuotations() {
+    let q = sb.from('price_quotations').select('*, branches(name), items:price_quotation_items(*)').order('quote_number', { ascending: true })
+    if (!isAdmin) q = q.eq('created_by', employee?.id || '')
+    const { data } = await q
+    setSavedQuotes(data || [])
+  }
+  useEffect(() => { if (employee) fetchSavedQuotations() }, [employee?.id, isAdmin])
+
+  async function saveQuotation() {
+    if (!branchId) { alert('Please select a branch'); return }
+    const validRows = rows.filter(r => r.isOpen ? (r.openName || '').trim() : r.item)
+    if (validRows.length === 0) { alert('Please add at least one item'); return }
+    setSavingQuote(true)
+    const { data: q, error } = await sb.from('price_quotations').insert([{
+      branch_id: branchId, quote_to: quoteTo || null, quote_date: quoteDate,
+      include_service_charge: includeServiceCharge,
+      subtotal, service_charge: serviceCharge, sst, grand_total: grandTotal,
+      notes: notes.filter(n => n.trim()),
+      created_by: employee?.id || null,
+      created_by_name: [employee?.name, (employee as any)?.name_en].filter(Boolean).join(' '),
+    }]).select().single()
+    if (error || !q) { setSavingQuote(false); alert('Error: ' + (error?.message || 'could not save')); return }
+    const itemRows = validRows.map((r, i) => ({
+      quotation_id: q.id,
+      item_type: r.isOpen ? 'open' : 'menu',
+      item_name: r.isOpen ? (r.openName || '').trim() : `${r.item!.name_en}${r.selectedSize ? ' (' + (r.selectedSize.name_en || r.selectedSize.name) + ')' : ''}`,
+      unit_price: r.isOpen ? (r.openPrice || 0) : (r.selectedSize?.price ?? r.item!.price),
+      qty: r.qty, line_total: lineTotal(r),
+      notes: r.isOpen ? (r.openNotes || null) : null,
+      sort_order: i,
+    }))
+    const { error: itemsErr } = await sb.from('price_quotation_items').insert(itemRows)
+    setSavingQuote(false)
+    if (itemsErr) { alert('Error saving items: ' + itemsErr.message); return }
+    alert('✅ Quotation saved successfully')
+    fetchSavedQuotations()
+  }
+
   function printQuotation() {
     const win = window.open('', '_blank')
     if (!win) return
-    const rowsHtml = rows.filter(r => r.item).map((r, i) => `
+    // ✅ Fix: البند المفتوح يُطبع باسمه وسعره المُدخلين يدويًا بدل بيانات صنف من المنيو
+    const rowsHtml = rows.filter(r => r.isOpen ? (r.openName || '').trim() : r.item).map((r, i) => `
       <tr>
         <td style="text-align:center">${i + 1}</td>
-        <td>${r.item!.name_en}${r.selectedSize ? ' (' + (r.selectedSize.name_en || r.selectedSize.name) + ')' : ''}</td>
+        <td>${r.isOpen ? (r.openName || '') : (r.item!.name_en + (r.selectedSize ? ' (' + (r.selectedSize.name_en || r.selectedSize.name) + ')' : ''))}${r.isOpen && r.openNotes ? '<br/><span style="color:#888;font-size:11px">' + r.openNotes + '</span>' : ''}</td>
         <td style="text-align:center">${r.qty}</td>
-        <td style="text-align:right">MYR ${(r.selectedSize?.price ?? r.item!.price).toFixed(2)}</td>
+        <td style="text-align:right">MYR ${(r.isOpen ? (r.openPrice || 0) : (r.selectedSize?.price ?? r.item!.price)).toFixed(2)}</td>
         <td style="text-align:right">MYR ${lineTotal(r).toFixed(2)}</td>
       </tr>`).join('')
     const notesHtml = notes.filter(n => n.trim()).map(n => `<li>${n}</li>`).join('')
@@ -234,6 +286,37 @@ export default function QuotationPage() {
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Items</div>
         {rows.map((row, i) => (
           <div key={i} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 14, marginBottom: 10, position: 'relative' }}>
+            {row.isOpen ? (
+              // ✅ جديد: بند مفتوح - اسم/سعر/كمية/ملاحظات يدخلها الموظف بنفسه، بدون أي بحث في المنيو
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, color: S.gold, fontWeight: 700, background: S.gold3, padding: '3px 10px', borderRadius: 999 }}>✎ Open Item</span>
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 18, flexShrink: 0, padding: '0 4px' }}>✕</button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input value={row.openName || ''} onChange={e => setOpenField(i, 'openName', e.target.value)} placeholder="Item name"
+                    style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11, color: S.muted }}>Price:</span>
+                      <input type="number" min={0} step="0.01" value={row.openPrice || 0} onChange={e => setOpenField(i, 'openPrice', parseFloat(e.target.value) || 0)}
+                        style={{ ...inp, width: 90 }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11, color: S.muted }}>Qty:</span>
+                      <input type="number" min={1} value={row.qty} onChange={e => setRowQty(i, parseInt(e.target.value) || 1)}
+                        style={{ ...inp, width: 60 }} />
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginLeft: 'auto' }}>MYR {lineTotal(row).toFixed(2)}</span>
+                  </div>
+                  <input value={row.openNotes || ''} onChange={e => setOpenField(i, 'openNotes', e.target.value)} placeholder="Notes (optional)"
+                    style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
+                </div>
+              </div>
+            ) : (
+            <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: row.item ? 10 : 0 }}>
               <div style={{ flex: 1, position: 'relative' }}>
                 <div onClick={() => { setSearchOpenFor(i); setSearch(''); setSelectedCat('all') }}
@@ -289,11 +372,19 @@ export default function QuotationPage() {
                 <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginLeft: 'auto' }}>MYR {lineTotal(row).toFixed(2)}</span>
               </div>
             )}
+            </>
+            )}
           </div>
         ))}
-        <button onClick={addRow} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-          + Add Item
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={addRow} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+            + Add Item
+          </button>
+          {/* ✅ جديد: زر بند مفتوح - جمب زر إضافة صنف من المنيو */}
+          <button onClick={addOpenRow} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+            + Open Item
+          </button>
+        </div>
       </div>
 
       {/* ✅ جديد: منتقي الحجم/النوع الفرعي - نفس أسلوب المنيو والكاشير بالظبط */}
@@ -372,10 +463,87 @@ export default function QuotationPage() {
         </div>
       </div>
 
-      <button onClick={printQuotation}
-        style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer', marginBottom: 40 }}>
-        🖨️ Print / Save Quotation
-      </button>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 40 }}>
+        <button onClick={printQuotation}
+          style={{ flex: 1, padding: '14px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
+          🖨️ Print / Save Quotation
+        </button>
+        {/* ✅ جديد: حفظ العرض في قاعدة البيانات (منفصل عن الطباعة) عشان يظهر في قائمة "العروض المحفوظة" تحت */}
+        <button onClick={saveQuotation} disabled={savingQuote}
+          style={{ flex: 1, padding: '14px', borderRadius: 12, border: `1px solid ${S.green}`, background: 'rgba(34,197,94,0.12)', color: S.green, fontWeight: 800, fontSize: 14, cursor: savingQuote ? 'not-allowed' : 'pointer' }}>
+          {savingQuote ? '⏳ Saving...' : '💾 Save Quotation'}
+        </button>
+      </div>
+
+      {/* ✅ جديد: العروض المحفوظة - مرتبة تصاعديًا من 1، الأدمن يشوف الكل والموظف يشوف عروضه هو بس */}
+      <div style={{ marginBottom: 60 }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: S.gold, marginBottom: 14 }}>📋 Saved Quotations</div>
+        {savedQuotes.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 30, color: S.muted, fontSize: 13 }}>No saved quotations yet</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {savedQuotes.map(q => {
+              const expanded = expandedQuoteId === q.id
+              return (
+                <div key={q.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+                  <div onClick={() => setExpandedQuoteId(expanded ? null : q.id)}
+                    style={{ padding: 14, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <span style={{ color: S.gold, fontWeight: 800, fontSize: 14 }}>#{q.quote_number}</span>
+                      <span style={{ color: S.white, fontWeight: 700, fontSize: 13, marginRight: 10 }}> — {q.quote_to || 'No name'}</span>
+                      <div style={{ fontSize: 11, color: S.muted, marginTop: 3 }}>
+                        🏪 {q.branches?.name || '—'} &nbsp;|&nbsp; 📅 {q.quote_date} &nbsp;|&nbsp; 👤 {q.created_by_name || '—'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>MYR {Number(q.grand_total).toFixed(2)}</span>
+                      <span style={{ color: S.muted, fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
+                    </div>
+                  </div>
+                  {expanded && (
+                    <div style={{ padding: '0 14px 14px', borderTop: `1px solid ${S.border}` }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 10 }}>
+                        <thead>
+                          <tr style={{ color: S.muted, textAlign: 'left' }}>
+                            <th style={{ padding: '4px 0' }}>Item</th>
+                            <th style={{ padding: '4px 0', textAlign: 'center' }}>Qty</th>
+                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Unit</th>
+                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(q.items || []).sort((a: any, b: any) => a.sort_order - b.sort_order).map((it: any) => (
+                            <tr key={it.id} style={{ borderTop: `1px solid ${S.border}` }}>
+                              <td style={{ padding: '6px 0', color: S.white }}>
+                                {it.item_name}{it.item_type === 'open' && <span style={{ color: S.blue, fontSize: 10 }}> (Open)</span>}
+                                {it.notes && <div style={{ color: S.muted, fontSize: 10 }}>{it.notes}</div>}
+                              </td>
+                              <td style={{ padding: '6px 0', textAlign: 'center', color: S.white }}>{it.qty}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right', color: S.muted }}>MYR {Number(it.unit_price).toFixed(2)}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right', color: S.white, fontWeight: 700 }}>MYR {Number(it.line_total).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}`, fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Subtotal</span><span>MYR {Number(q.subtotal).toFixed(2)}</span></div>
+                        {q.include_service_charge && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Service Charge (10%)</span><span>MYR {Number(q.service_charge).toFixed(2)}</span></div>}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>SST (6%)</span><span>MYR {Number(q.sst).toFixed(2)}</span></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, fontWeight: 800, fontSize: 14, paddingTop: 6 }}><span>Grand Total</span><span>MYR {Number(q.grand_total).toFixed(2)}</span></div>
+                      </div>
+                      {q.notes && q.notes.length > 0 && (
+                        <div style={{ marginTop: 10, fontSize: 11, color: S.muted }}>
+                          📝 {q.notes.join(' • ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

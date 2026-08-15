@@ -90,6 +90,8 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'sales' },
     { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'sales' },
     { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'admin_only' },
+    // ✅ جديد: رابط قسم البوفية - ظاهر لكل الموظفين (كل موظف يرى داخل الصفحة نفسها طلباته فقط)
+    { label: 'البوفية', label_en: 'Buffet', icon: '🍽️', path: '/dashboard/buffet', permission: 'all_employees' },
   ]},
   { group: 'قائمة الطعام', items: [
     { label: 'الأصناف (المنيو)', label_en: 'Menu Items', icon: '📖', path: '/dashboard/menu/items', permission: 'menu' },

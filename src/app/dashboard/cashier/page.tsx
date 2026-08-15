@@ -1385,6 +1385,16 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
     })
   }
 
+  // ✅ جديد: تحديد الكمية مباشرة بكتابة رقم بدل الضغط المتكرر على "+" (زي لو عايز 20 وجبة، تكتب 20 مرة واحدة)
+  function setItemQty(id: string, newQty: number) {
+    setCart(p => {
+      if (newQty <= 0) return p.filter(c => c.item.id !== id)
+      const ex = p.find(c => c.item.id === id && !c.selectedSize)
+      if (!ex) return p
+      return p.map(c => c === ex ? { ...c, qty: newQty } : c)
+    })
+  }
+
   // ✅ Fix: نستخدم سعر النوع/الحجم المختار لو موجود، وإلا السعر الأساسي للصنف
   const total = cart.reduce((s, c) => s + (c.selectedSize?.price ?? c.item.price) * c.qty, 0)
 
@@ -1473,11 +1483,15 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
                     {/* ✅ جديد: لو له أنواع، نعرض "من" أرخص سعر بدل السعر الأساسي المفرد فقط */}
                     {hasSizes ? `From MYR ${Math.min(...activeSizes.map(s => s.price)).toFixed(2)}` : `MYR ${item.price.toFixed(2)}`}
                   </span>
-                  {/* ✅ Fix: زر الإنقاص السريع يظهر بس للأصناف اللي مالهاش أنواع (تجنبًا لالتباس أي نوع يقصد إنقاصه) */}
+                  {/* ✅ Fix: زر الإنقاص السريع + حقل الكمية بقى قابل للكتابة المباشرة (بدل الضغط المتكرر) - يظهر بس للأصناف اللي مالهاش أنواع */}
                   {qty > 0 && !hasSizes && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => e.stopPropagation()}>
                       <button onClick={() => removeItem(item.id)} style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>−</button>
-                      <span style={{ color: S.gold, fontWeight: 800, fontSize: 13 }}>{qty}</span>
+                      {/* ✅ جديد: اكتب الرقم مباشرة بدل ما تضغط "+" عشرات المرات */}
+                      <input type="number" value={qty} min={0}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => setItemQty(item.id, parseInt(e.target.value) || 0)}
+                        style={{ width: 40, textAlign: 'center', background: S.navy2, border: `1px solid ${S.gold}`, borderRadius: 6, color: S.gold, fontWeight: 800, fontSize: 13, padding: '2px 0', fontFamily: 'Tajawal, sans-serif' }} />
                     </div>
                   )}
                   {qty > 0 && hasSizes && (
@@ -1498,7 +1512,15 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
                   {/* ✅ Fix: نعرض الكود أولًا ثم اسم النوع/الحجم المختار - نفس ترتيب "#246 Cafe Latte" */}
                   <span style={{ color: S.white, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {c.item.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{c.item.or_code}</span>}
-                    <span>{c.item.name_en || c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''} ×{c.qty}</span>
+                    <span>{c.item.name_en || c.item.name}{c.selectedSize ? ` (${c.selectedSize.name_en || c.selectedSize.name})` : ''}</span>
+                    {/* ✅ جديد: الكمية بقت حقل رقمي تقدر تكتب فيه مباشرة بدل الضغط المتكرر */}
+                    <span style={{ color: S.muted }}>×</span>
+                    <input type="number" value={c.qty} min={1}
+                      onChange={e => {
+                        const v = Math.max(1, parseInt(e.target.value) || 1)
+                        setCart(p => p.map((ci, i) => i === idx ? { ...ci, qty: v } : ci))
+                      }}
+                      style={{ width: 40, textAlign: 'center', background: S.navy2, border: `1px solid ${S.gold}`, borderRadius: 6, color: S.gold, fontWeight: 800, fontSize: 12, padding: '2px 0', fontFamily: 'Tajawal, sans-serif' }} />
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ color: S.gold }}>MYR {((c.selectedSize?.price ?? c.item.price) * c.qty).toFixed(2)}</span>

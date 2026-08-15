@@ -43,8 +43,12 @@ interface MaintenanceRequest {
   id: string; branch_id: string; item_name: string; description: string | null
   image_url: string | null; status: string
   requested_by: string; assigned_to: string | null
+  // ✅ جديد: رقم الموظف وقسمه وقت تقديم الطلب
+  requested_by_number?: string | null; requested_by_department?: string | null
   last_followup_at: string | null; last_followup_note: string | null
   completed_at: string | null; created_at: string; updated_at: string
+  // ✅ جديد: بيانات إتمام الصيانة
+  paid_amount?: number | null; invoice_url?: string | null; after_image_url?: string | null
   branches?: { name: string }
 }
 
@@ -57,6 +61,14 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// ✅ جديد: عرض موحّد لمقدّم الطلب - الاسم الكامل + رقم الموظف (إن وجد) + القسم (إن وجد)
+function requesterLabel(req: { requested_by: string; requested_by_number?: string | null; requested_by_department?: string | null }) {
+  const parts = [req.requested_by]
+  if (req.requested_by_number) parts.push(`#${req.requested_by_number}`)
+  const base = parts.join(' ')
+  return req.requested_by_department ? `${base} — ${req.requested_by_department}` : base
 }
 
 const inp: React.CSSProperties = {
@@ -99,6 +111,9 @@ function NewMaintenanceModal({ branches, currentEmployee, isAdmin, onClose, onSa
       image_url: imgUrl || null, status: 'pending',
       requested_by: fullEmployeeName(currentEmployee) || 'غير معروف',
       requested_by_id: currentEmployee?.id || null,
+      // ✅ جديد: رقم الموظف وقسمه، بنفس مصدر الاسم مباشرة من بيانات الموظف الحالي
+      requested_by_number: currentEmployee?.employee_number || null,
+      requested_by_department: currentEmployee?.department || null,
     }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -157,6 +172,21 @@ function DetailModal({ req, currentEmployee, isAdmin, onClose, onUpdate }: {
   const [saving, setSaving] = useState(false)
   const status = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending
 
+  // ✅ جديد: بيانات إتمام الصيانة - تُطلب قبل تأكيد "تم تنفيذ الصيانة"
+  const [showCompleteForm, setShowCompleteForm] = useState(false)
+  const [paidAmount, setPaidAmount] = useState('')
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
+  const [invoicePreview, setInvoicePreview] = useState('')
+  const [afterFile, setAfterFile] = useState<File | null>(null)
+  const [afterPreview, setAfterPreview] = useState('')
+
+  function pickImage(file: File, setFile: (f: File) => void, setPreview: (p: string) => void) {
+    setFile(file)
+    const reader = new FileReader()
+    reader.onload = () => setPreview(reader.result as string)
+    reader.readAsDataURL(file)
+  }
+
   async function saveAssignment() {
     if (!assignedTo.trim()) { alert('يرجى كتابة اسم فني الصيانة'); return }
     setSaving(true)
@@ -181,11 +211,22 @@ function DetailModal({ req, currentEmployee, isAdmin, onClose, onUpdate }: {
     onUpdate()
   }
 
-  async function markCompleted() {
-    if (!confirm('تأكيد إتمام الصيانة؟')) return
+  // ✅ جديد: تأكيد الإتمام الفعلي - بعد التأكد من المبلغ المدفوع وصورتي الفاتورة وما بعد الصيانة
+  async function confirmCompletion() {
+    if (!paidAmount.trim() || isNaN(parseFloat(paidAmount)) || parseFloat(paidAmount) < 0) { alert('يرجى إدخال المبلغ المدفوع بشكل صحيح'); return }
+    if (!invoiceFile) { alert('يرجى إرفاق صورة الفاتورة'); return }
+    if (!afterFile) { alert('يرجى إرفاق صورة بعد الصيانة'); return }
     setSaving(true)
+    const invoiceFileName = `maintenance/invoice-${req.id}-${Date.now()}.jpg`
+    const { data: invoiceUpData } = await sb.storage.from('employees').upload(invoiceFileName, invoiceFile, { upsert: true })
+    const afterFileName = `maintenance/after-${req.id}-${Date.now()}.jpg`
+    const { data: afterUpData } = await sb.storage.from('employees').upload(afterFileName, afterFile, { upsert: true })
+    if (!invoiceUpData || !afterUpData) { setSaving(false); alert('تعذّر رفع الصور، حاول مرة أخرى'); return }
+    const invoiceUrl = sb.storage.from('employees').getPublicUrl(invoiceUpData.path).data.publicUrl
+    const afterUrl = sb.storage.from('employees').getPublicUrl(afterUpData.path).data.publicUrl
     const { error } = await sb.from('maintenance_requests').update({
       status: 'completed', completed_at: new Date().toISOString(),
+      paid_amount: parseFloat(paidAmount), invoice_url: invoiceUrl, after_image_url: afterUrl,
     }).eq('id', req.id)
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -248,7 +289,7 @@ function DetailModal({ req, currentEmployee, isAdmin, onClose, onUpdate }: {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16, fontSize: 12 }}>
           <div><span style={{ color: S.muted }}>🏪 الفرع: </span><span style={{ color: S.white, fontWeight: 700 }}>{req.branches?.name || '—'}</span></div>
-          <div><span style={{ color: S.muted }}>👷 طلب بواسطة: </span><span style={{ color: S.white, fontWeight: 700 }}>{req.requested_by}</span></div>
+          <div><span style={{ color: S.muted }}>👷 طلب بواسطة: </span><span style={{ color: S.white, fontWeight: 700 }}>{requesterLabel(req)}</span></div>
           <div><span style={{ color: S.muted }}>🕐 تاريخ الطلب: </span><span style={{ color: S.white }}>{fmtDate(req.created_at)}</span></div>
           <div><span style={{ color: S.muted }}>🔄 آخر تحديث: </span><span style={{ color: S.white }}>{fmtDate(req.updated_at)}</span></div>
         </div>
@@ -284,16 +325,70 @@ function DetailModal({ req, currentEmployee, isAdmin, onClose, onUpdate }: {
               </div>
             </div>
 
-            <button onClick={markCompleted} disabled={saving}
-              style={{ width: '100%', padding: '12px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              ✅ تم تنفيذ الصيانة
-            </button>
+            {/* ✅ جديد: قبل تأكيد إتمام الصيانة، لازم يدخل المبلغ المدفوع ويرفق صورة الفاتورة وصورة بعد الصيانة */}
+            {!showCompleteForm ? (
+              <button onClick={() => setShowCompleteForm(true)} disabled={saving}
+                style={{ width: '100%', padding: '12px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                ✅ تم تنفيذ الصيانة
+              </button>
+            ) : (
+              <div style={{ background: S.card, borderRadius: 12, padding: 14, border: `1px solid ${S.green}40` }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: S.green, marginBottom: 10 }}>✅ إتمام الصيانة</div>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>💰 المبلغ المدفوع (RM) *</label>
+                  <input type="number" min={0} step="0.01" style={inp} value={paidAmount} onChange={e => setPaidAmount(e.target.value)} placeholder="0.00" />
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>🧾 صورة الفاتورة *</label>
+                  <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && pickImage(e.target.files[0], setInvoiceFile, setInvoicePreview)} style={{ fontSize: 12, color: S.white }} />
+                  {invoicePreview && <img src={invoicePreview} alt="الفاتورة" style={{ width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 8, marginTop: 8 }} />}
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>📷 صورة بعد الصيانة *</label>
+                  <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && pickImage(e.target.files[0], setAfterFile, setAfterPreview)} style={{ fontSize: 12, color: S.white }} />
+                  {afterPreview && <img src={afterPreview} alt="بعد الصيانة" style={{ width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 8, marginTop: 8 }} />}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={confirmCompletion} disabled={saving}
+                    style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: S.green, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    {saving ? '⏳ جارٍ الحفظ...' : '✅ تأكيد الإتمام'}
+                  </button>
+                  <button onClick={() => setShowCompleteForm(false)} disabled={saving}
+                    style={{ padding: '11px 16px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
 
         {req.status === 'completed' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ fontSize: 12, color: S.muted }}>✅ تم الإتمام في: {fmtDate(req.completed_at)}</div>
+            {/* ✅ جديد: عرض بيانات الإتمام المحفوظة (المبلغ المدفوع + الفاتورة + صورة بعد الصيانة) */}
+            {req.paid_amount !== null && req.paid_amount !== undefined && (
+              <div style={{ background: S.card, borderRadius: 10, padding: 12, fontSize: 13 }}>
+                <span style={{ color: S.muted }}>💰 المبلغ المدفوع: </span>
+                <span style={{ color: S.white, fontWeight: 700 }}>RM {Number(req.paid_amount).toFixed(2)}</span>
+              </div>
+            )}
+            {(req.invoice_url || req.after_image_url) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {req.invoice_url && (
+                  <a href={req.invoice_url} target="_blank" rel="noreferrer">
+                    <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🧾 الفاتورة</div>
+                    <img src={req.invoice_url} alt="الفاتورة" style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
+                  </a>
+                )}
+                {req.after_image_url && (
+                  <a href={req.after_image_url} target="_blank" rel="noreferrer">
+                    <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📷 بعد الصيانة</div>
+                    <img src={req.after_image_url} alt="بعد الصيانة" style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
+                  </a>
+                )}
+              </div>
+            )}
             <button onClick={reopen} disabled={saving}
               style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
               ↩️ إعادة فتح الطلب
@@ -321,7 +416,7 @@ function MaintenanceCard({ req, onOpen }: { req: MaintenanceRequest; onOpen: () 
           <span style={{ padding: '3px 9px', borderRadius: 999, background: status.bg, color: status.color, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>{status.label}</span>
         </div>
         <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🏪 {req.branches?.name || '—'}</div>
-        <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👷 طلب بواسطة: {req.requested_by}</div>
+        <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👷 طلب بواسطة: {requesterLabel(req)}</div>
         <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👷‍♂️ الفني: {req.assigned_to || '— لم يُعيَّن بعد'}</div>
         <div style={{ fontSize: 10, color: S.muted, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${S.border}` }}>🔄 آخر تحديث: {fmtDate(req.updated_at)}</div>
         {req.last_followup_at && <div style={{ fontSize: 10, color: S.blue, marginTop: 3 }}>📋 آخر متابعة: {fmtDate(req.last_followup_at)}</div>}
@@ -369,7 +464,7 @@ export default function MaintenancePage() {
   const filtered = requests.filter(r => {
     if (tab !== 'all' && r.status !== tab) return false
     if (isAdmin && branchFilter && r.branch_id !== branchFilter) return false
-    if (!matchesSearch(r.item_name, search) && !matchesSearch(r.requested_by, search) && !matchesSearch(r.assigned_to, search)) return false
+    if (!matchesSearch(r.item_name, search) && !matchesSearch(r.requested_by, search) && !matchesSearch(r.assigned_to, search) && !matchesSearch(r.requested_by_number, search) && !matchesSearch(r.requested_by_department, search)) return false
     return true
   })
 

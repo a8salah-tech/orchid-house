@@ -3207,7 +3207,9 @@ export default function CashierPage() {
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>🧾 Receipt Photo(s) — required</div>
             <label style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: 10, border: `1px dashed ${S.border}`, color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', marginBottom: 10 }}>
               📷 Tap to take a photo or choose from gallery
-              <input type="file" accept="image/*" multiple capture="environment" style={{ display: 'none' }}
+              {/* ✅ Fix: شلنا capture="environment" - كانت بتجبر فتح الكاميرا مباشرة في أغلب المتصفحات وتخفي
+                  خيار الاختيار من الجاليري. من غيرها، المتصفح بيعرض الاختيار الطبيعي (كاميرا / جاليري / ملفات) */}
+              <input type="file" accept="image/*" multiple style={{ display: 'none' }}
                 onChange={e => {
                   const files = Array.from(e.target.files || [])
                   if (files.length === 0) return

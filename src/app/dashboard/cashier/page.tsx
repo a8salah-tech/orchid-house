@@ -3205,19 +3205,32 @@ export default function CashierPage() {
 
             {/* ✅ جديد: إرفاق صورة أو أكتر لفاتورة المصروف - إلزامي */}
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>🧾 Receipt Photo(s) — required</div>
-            <label style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: 10, border: `1px dashed ${S.border}`, color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', marginBottom: 10 }}>
-              📷 Tap to take a photo or choose from gallery
-              {/* ✅ Fix: شلنا capture="environment" - كانت بتجبر فتح الكاميرا مباشرة في أغلب المتصفحات وتخفي
-                  خيار الاختيار من الجاليري. من غيرها، المتصفح بيعرض الاختيار الطبيعي (كاميرا / جاليري / ملفات) */}
-              <input type="file" accept="image/*" multiple style={{ display: 'none' }}
-                onChange={e => {
-                  const files = Array.from(e.target.files || [])
-                  if (files.length === 0) return
-                  setExpImages(prev => [...prev, ...files])
-                  setExpImagePreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
-                  e.target.value = '' // ✅ يسمح باختيار نفس الملف تاني لو اتشال بالغلط
-                }} />
-            </label>
+            {/* ✅ Fix: زرارين منفصلين وواضحين بدل زرار واحد - سلوك المتصفحات مش ثابت مع input واحد (بعضها بيفتح
+                الجاليري بس حتى من غير capture)، فدلوقتي كل زرار بيفتح اللي المفروض يفتحه على طول بشكل مضمون */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+              <label style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: 10, border: `1px dashed ${S.blue}`, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                📷 Take Photo
+                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+                  onChange={e => {
+                    const files = Array.from(e.target.files || [])
+                    if (files.length === 0) return
+                    setExpImages(prev => [...prev, ...files])
+                    setExpImagePreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
+                    e.target.value = ''
+                  }} />
+              </label>
+              <label style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: 10, border: `1px dashed ${S.border}`, color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                🖼️ Choose from Gallery
+                <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                  onChange={e => {
+                    const files = Array.from(e.target.files || [])
+                    if (files.length === 0) return
+                    setExpImages(prev => [...prev, ...files])
+                    setExpImagePreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
+                    e.target.value = ''
+                  }} />
+              </label>
+            </div>
             {expImagePreviews.length > 0 && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
                 {expImagePreviews.map((src, i) => (

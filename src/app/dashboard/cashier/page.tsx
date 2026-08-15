@@ -1251,7 +1251,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
           <button onClick={printReceipt} style={{ flex: 1, padding: '12px 6px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
             <span style={{ fontSize: 18 }}>🖨️</span> Print
           </button>
-          {(isCashierRole || isLimitedTableRole) && (
+          {/* ✅ Fix: التحويل رجع يقتصر على الكاشير بس - شيلنا استثناء الدور المحدود (مشرف الصالة) */}
+          {isCashierRole && (
             <button onClick={() => onTransfer(order)} style={{ flex: 1, padding: '12px 6px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
               <span style={{ fontSize: 18 }}>🔄</span> Transfer
             </button>
@@ -1818,7 +1819,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
 }
 
 // ══ Main ══
-function TransferTableModal({ order, tables, onClose, onTransferred }: { order: Order; tables: TableRow[]; onClose: () => void; onTransferred: () => void }) {
+function TransferTableModal({ order, tables, isCashierRole, onClose, onTransferred }: { order: Order; tables: TableRow[]; isCashierRole?: boolean; onClose: () => void; onTransferred: () => void }) {
   const sb = createClient()
   const [moving, setMoving] = useState(false)
   // ✅ Fix: لازم نفلتر الطاولات المتاحة لنقل الطلب إليها بنفس فرع الطاولة الحالية بس، مش كل الفروع
@@ -1829,6 +1830,8 @@ function TransferTableModal({ order, tables, onClose, onTransferred }: { order: 
   )
 
   async function transferTo(newTable: TableRow) {
+    // ✅ Fix: فحص صلاحية حقيقي جوه الدالة نفسها، مش بس إخفاء الزرار من الواجهة
+    if (!isCashierRole) { alert('🔒 Transferring tables requires cashier access'); return }
     setMoving(true)
     const oldTableId = order.table_id
     // ✅ جيب الطاولة القديمة عشان نحافظ على وقت الجلوس الأصلي (occupied_since) بدل ما يرجع العداد للصفر
@@ -2144,6 +2147,8 @@ export default function CashierPage() {
 
   // ✅ جديد: دمج طاولتين مؤقتًا في فاتورة واحدة موحدة
   async function mergeTables(tableA: string, tableB: string) {
+    // ✅ Fix: فحص صلاحية حقيقي جوه الدالة نفسها، مش بس إخفاء الزرار من الواجهة
+    if (!isCashierRole) { alert('🔒 Merging tables requires cashier access'); return }
     const fullName = [employee?.name, (employee as any)?.name_en].filter(Boolean).join(' ') || 'غير معروف'
     const branchId = tablesRef.current.find(t => t.id === tableA)?.branch_id || null
     const { error } = await sb.from('table_merges').insert([{
@@ -2155,6 +2160,8 @@ export default function CashierPage() {
 
   // ✅ جديد: فك دمج الطاولتين (بدون التأثير على الطلبات نفسها، فقط إلغاء الربط المؤقت)
   async function unmergeTables(mergeId: string) {
+    // ✅ Fix: فحص صلاحية حقيقي جوه الدالة نفسها
+    if (!isCashierRole) { alert('🔒 Unmerging tables requires cashier access'); return }
     if (!confirm('هل أنت متأكد من فك دمج الطاولتين؟ ستعود كل طاولة مستقلة بفاتورتها.')) return
     await sb.from('table_merges').update({ unmerged_at: new Date().toISOString() }).eq('id', mergeId)
     await fetchAll()
@@ -2662,8 +2669,8 @@ export default function CashierPage() {
                     {activeOrder && (
                       <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {(activeOrder.total_amount || 0).toFixed(2)}</div>
                     )}
-                    {/* ✅ جديد: زر دمج/فك دمج و+ - يظهروا للكاشير وكمان للدور المحدود (مشرف الصالة) دلوقتي */}
-                    {(isCashierRole || isLimitedTableRole) && activeOrder && (
+                    {/* ✅ Fix: الدمج/فك الدمج رجع يقتصر على الكاشير بس - شيلنا استثناء الدور المحدود (مشرف الصالة) */}
+                    {isCashierRole && activeOrder && (
                       <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 6 }}>
                         <button onClick={e => {
                           e.stopPropagation()
@@ -3188,6 +3195,7 @@ export default function CashierPage() {
         <TransferTableModal
           order={transferOrder}
           tables={tables}
+          isCashierRole={isCashierRole}
           onClose={() => setTransferOrder(null)}
           onTransferred={() => { setTransferOrder(null); fetchAll() }}
         />

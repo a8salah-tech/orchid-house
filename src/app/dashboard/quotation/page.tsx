@@ -20,6 +20,41 @@ const S = {
 const SERVICE_CHARGE_RATE = 0.10
 const SST_RATE = 0.06
 
+// ✅ جديد: تصميم موحّد للطباعة (يُستخدم في printQuotation و printSavedQuotation معًا) بحيث
+// الاثنين يفضلوا متطابقين دايمًا:
+// 1) اللوجو أكبر  2) الهيدر عمودي متوسّط بالكامل (اللوجو فوق، والاسم/البيانات تحته)
+// 3) الفوتر مثبّت في أسفل الصفحة دايمًا (flex column + margin-top:auto)
+// 4) لون الخطوط والجدول موحّد بنفس درجة الذهبي بتاع اللوجو (#C9A84C) بدل الرمادي
+const PRINT_STYLE = `
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; padding: 0; margin: 0; color: #1a1a1a; }
+  .page { display: flex; flex-direction: column; min-height: 100vh; padding: 32px; }
+  .content { flex: 1; }
+  .header { display:flex; flex-direction:row; align-items:center; justify-content:space-between; border-bottom: 2px solid #00FFFF; padding-bottom:18px; margin-bottom:22px; }
+  .header img { width:100px; height:100px; border-radius:50%; object-fit:cover; flex-shrink:0; }
+  .header .text { text-align:right; }
+  h1 { font-size:22px; margin:0; color:#1a1a1a; }
+  .sub { font-size:13px; color:#037A7A; margin-top:3px; }
+  .company-info { font-size:10px; color:#888; margin-top:8px; line-height:1.6; }
+  .meta { display:flex; justify-content:space-between; font-size:13px; margin-bottom:20px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:20px; }
+  th, td { border:1px solid rgba(0,255,255,0.45); padding:8px 10px; }
+  th { background:rgba(0,255,255,0.18); text-align:left; color:#036666; }
+  .totals { width:280px; margin-left:auto; font-size:13px; }
+  .totals div { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(0,255,255,0.25); }
+  .totals .discount { color:#C0392B; }
+  .totals .grand { font-weight:bold; font-size:15px; border-top:2px solid #00FFFF; border-bottom:none; padding-top:10px; }
+  .notes { margin-top:24px; font-size:12px; }
+  .notes h3 { font-size:13px; margin-bottom:6px; }
+  .footer { margin-top:32px; text-align:center; }
+  .footer .welcome { font-size:13px; color:#444; font-style:italic; margin:2px 0; }
+  .footer hr { border:none; border-top:1px solid #00FFFF; width:120px; margin:14px auto; }
+  .footer .branches { display:flex; justify-content:center; gap:60px; font-size:11px; color:#555; margin-bottom:10px; }
+  .footer .contact { font-size:12px; color:#333; }
+  .footer .contact a { color:#333; text-decoration:none; }
+  @media print { .page { padding: 14px; min-height: 98vh; } }
+`
+
 type MenuItem = { id: string; name_en: string; price: number; or_code?: string; category_id: string
   sizes?: { id: string; name_en?: string; name: string; price: number; is_active: boolean }[] }
 // ✅ جديد: دعم "بند مفتوح" (Open Item) - صنف حر مش مرتبط بالمنيو، بسعر وملاحظات يدخلها الموظف بنفسه
@@ -61,6 +96,8 @@ export default function QuotationPage() {
   const [sizePickerFor, setSizePickerFor] = useState<{ rowIdx: number; item: MenuItem } | null>(null)
   // ✅ جديد: تفعيل/إلغاء رسوم الخدمة والضريبة - قابلة للإيقاف لأي عرض سعر مايحتاجهاش
   const [includeServiceCharge, setIncludeServiceCharge] = useState(true)
+  // ✅ جديد: خصم بمبلغ ثابت (MYR) يُطرح من الإجمالي النهائي
+  const [discount, setDiscount] = useState(0)
 
   function addRow() { setRows(prev => [...prev, { item: null, qty: 1 }]) }
   // ✅ جديد: إضافة صف "بند مفتوح" - مش مرتبط بالمنيو، الموظف بيكتب الاسم والسعر بنفسه
@@ -111,7 +148,8 @@ export default function QuotationPage() {
   const subtotal = rows.reduce((s, r) => s + lineTotal(r), 0)
   const serviceCharge = includeServiceCharge ? subtotal * SERVICE_CHARGE_RATE : 0
   const sst = subtotal * SST_RATE // ✅ ضريبة ثابتة دايمًا، مش قابلة للإلغاء
-  const grandTotal = subtotal + serviceCharge + sst
+  // ✅ جديد: خصم يُطرح من الإجمالي النهائي بعد رسوم الخدمة والضريبة (مبلغ ثابت بالـ MYR)
+  const grandTotal = Math.max(0, subtotal + serviceCharge + sst - discount)
 
   const branchName = branches.find(b => b.id === branchId)?.name || employee?.department || 'Orchid House'
 
@@ -130,6 +168,7 @@ export default function QuotationPage() {
     setQuoteTo(q.quote_to || '')
     setQuoteDate(q.quote_date)
     setIncludeServiceCharge(q.include_service_charge)
+    setDiscount(Number(q.discount) || 0)
     setNotes(q.notes && q.notes.length > 0 ? q.notes : [''])
     const loadedRows: QuoteRow[] = (q.items || [])
       .slice()
@@ -149,10 +188,12 @@ export default function QuotationPage() {
     setRows([{ item: null, qty: 1 }])
     setNotes([''])
     setIncludeServiceCharge(true)
+    setDiscount(0)
   }
 
   async function fetchSavedQuotations() {
-    let q = sb.from('price_quotations').select('*, branches(name), items:price_quotation_items(*)').order('quote_number', { ascending: true })
+    // ✅ Fix: الترتيب بقى تنازليًا (الأحدث فوق) بدل تصاعدي (الأقدم فوق)
+    let q = sb.from('price_quotations').select('*, branches(name), items:price_quotation_items(*)').order('quote_number', { ascending: false })
     if (!isAdmin) q = q.eq('created_by', employee?.id || '')
     const { data } = await q
     setSavedQuotes(data || [])
@@ -168,7 +209,7 @@ export default function QuotationPage() {
     const payload = {
       branch_id: branchId, quote_to: quoteTo || null, quote_date: quoteDate,
       include_service_charge: includeServiceCharge,
-      subtotal, service_charge: serviceCharge, sst, grand_total: grandTotal,
+      subtotal, service_charge: serviceCharge, sst, discount, grand_total: grandTotal,
       notes: notes.filter(n => n.trim()),
     }
     let quotationId = editingQuoteId
@@ -216,72 +257,55 @@ export default function QuotationPage() {
         <td style="text-align:right">MYR ${lineTotal(r).toFixed(2)}</td>
       </tr>`).join('')
     const notesHtml = notes.filter(n => n.trim()).map(n => `<li>${n}</li>`).join('')
+    // ✅ جديد: سطر الخصم يظهر بس لو فيه خصم فعلي أكبر من صفر
     const totalsHtml = `
       <div><span>Subtotal</span><span>MYR ${subtotal.toFixed(2)}</span></div>
       ${includeServiceCharge ? `<div><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toFixed(2)}</span></div>` : ''}
       <div><span>SST (6%)</span><span>MYR ${sst.toFixed(2)}</span></div>
+      ${discount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${discount.toFixed(2)}</span></div>` : ''}
       <div class="grand"><span>Grand Total</span><span>MYR ${grandTotal.toFixed(2)}</span></div>`
     win.document.write(`
       <html><head><title>Price Quotation</title>
-      <style>
-        body { font-family: Arial, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; }
-        .header { display:flex; align-items:center; gap:16px; border-bottom: 2px solid #C9A84C; padding-bottom:16px; margin-bottom:20px; }
-        .header img { width:64px; height:64px; border-radius:50%; object-fit:cover; }
-        h1 { font-size:20px; margin:0; color:#1a1a1a; }
-        .sub { font-size:12px; color:#666; margin-top:2px; }
-        .company-info { font-size:10px; color:#888; margin-top:6px; line-height:1.5; }
-        .meta { display:flex; justify-content:space-between; font-size:13px; margin-bottom:20px; }
-        table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:20px; }
-        th, td { border:1px solid #ccc; padding:8px 10px; }
-        th { background:#f5f0e0; text-align:left; }
-        .totals { width:280px; margin-left:auto; font-size:13px; }
-        .totals div { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #eee; }
-        .totals .grand { font-weight:bold; font-size:15px; border-top:2px solid #C9A84C; border-bottom:none; padding-top:10px; }
-        .notes { margin-top:24px; font-size:12px; }
-        .notes h3 { font-size:13px; margin-bottom:6px; }
-        .footer { margin-top:32px; text-align:center; }
-        .footer .welcome { font-size:13px; color:#444; font-style:italic; margin:2px 0; }
-        .footer hr { border:none; border-top:1px solid #C9A84C; width:120px; margin:14px auto; }
-        .footer .branches { display:flex; justify-content:center; gap:60px; font-size:11px; color:#555; margin-bottom:10px; }
-        .footer .contact { font-size:12px; color:#333; }
-        .footer .contact a { color:#333; text-decoration:none; }
-        @media print { body { padding: 10px; } }
-      </style></head>
+      <style>${PRINT_STYLE}</style></head>
       <body>
-        <div class="header">
-          <img src="/logo.png" alt="Orchid House" />
-          <div>
-            <h1>Orchid House</h1>
-            <div class="sub">${branchName} — Price Quotation</div>
-            <div class="company-info">
-              Company Name: ORCHID KEBAB GROUP SDN. BHD.<br/>
-              Business Registration No.: 202201021268 (1466965-K)<br/>
-              Tax Identification No. (TIN): C29826106050
+        <div class="page">
+          <div class="content">
+            <div class="header">
+              <img src="/logo.png" alt="Orchid House" />
+              <div class="text">
+                <h1>Orchid House</h1>
+                <div class="sub">${branchName} — Price Quotation</div>
+                <div class="company-info">
+                  Company Name: ORCHID KEBAB GROUP SDN. BHD.<br/>
+                  Business Registration No.: 202201021268 (1466965-K)<br/>
+                  Tax Identification No. (TIN): C29826106050
+                </div>
+              </div>
             </div>
+            <div class="meta">
+              <div><strong>Quote To:</strong> ${quoteTo || '—'}</div>
+              <div><strong>Date:</strong> ${quoteDate}</div>
+            </div>
+            <table>
+              <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+            <div class="totals">
+              ${totalsHtml}
+            </div>
+            ${notesHtml ? `<div class="notes"><h3>Notes</h3><ul>${notesHtml}</ul></div>` : ''}
           </div>
-        </div>
-        <div class="meta">
-          <div><strong>Quote To:</strong> ${quoteTo || '—'}</div>
-          <div><strong>Date:</strong> ${quoteDate}</div>
-        </div>
-        <table>
-          <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-        <div class="totals">
-          ${totalsHtml}
-        </div>
-        ${notesHtml ? `<div class="notes"><h3>Notes</h3><ul>${notesHtml}</ul></div>` : ''}
-        <div class="footer">
-          <p class="welcome">Thank you for considering Orchid House for your special occasion.</p>
-          <p class="welcome">We look forward to welcoming you and creating an unforgettable dining experience.</p>
-          <hr />
-          <div class="branches">
-            <div><strong>Orchid House</strong><br/>02, Lorong Raja Uda 1</div>
-            <div><strong>Orchid KLCC</strong><br/>4, Lorong Yap Kwan Seng</div>
-          </div>
-          <div class="contact">
-            📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
+          <div class="footer">
+            <p class="welcome">Thank you for considering Orchid House for your special occasion.</p>
+            <p class="welcome">We look forward to welcoming you and creating an unforgettable dining experience.</p>
+            <hr />
+            <div class="branches">
+              <div><strong>Orchid House</strong><br/>02, Lorong Raja Uda 1</div>
+              <div><strong>Orchid KLCC</strong><br/>4, Lorong Yap Kwan Seng</div>
+            </div>
+            <div class="contact">
+              📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
+            </div>
           </div>
         </div>
         <script>window.onload = () => window.print()</script>
@@ -305,72 +329,56 @@ export default function QuotationPage() {
         <td style="text-align:right">MYR ${Number(it.line_total).toFixed(2)}</td>
       </tr>`).join('')
     const notesHtml = (q.notes || []).filter((n: string) => n.trim()).map((n: string) => `<li>${n}</li>`).join('')
+    // ✅ جديد: سطر الخصم يظهر بس لو العرض المحفوظ فيه خصم فعلي أكبر من صفر
+    const savedDiscount = Number(q.discount) || 0
     const totalsHtml = `
       <div><span>Subtotal</span><span>MYR ${Number(q.subtotal).toFixed(2)}</span></div>
       ${q.include_service_charge ? `<div><span>Service Charge (10%)</span><span>MYR ${Number(q.service_charge).toFixed(2)}</span></div>` : ''}
       <div><span>SST (6%)</span><span>MYR ${Number(q.sst).toFixed(2)}</span></div>
+      ${savedDiscount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${savedDiscount.toFixed(2)}</span></div>` : ''}
       <div class="grand"><span>Grand Total</span><span>MYR ${Number(q.grand_total).toFixed(2)}</span></div>`
     win.document.write(`
       <html><head><title>Price Quotation #${q.quote_number}</title>
-      <style>
-        body { font-family: Arial, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; }
-        .header { display:flex; align-items:center; gap:16px; border-bottom: 2px solid #C9A84C; padding-bottom:16px; margin-bottom:20px; }
-        .header img { width:64px; height:64px; border-radius:50%; object-fit:cover; }
-        h1 { font-size:20px; margin:0; color:#1a1a1a; }
-        .sub { font-size:12px; color:#666; margin-top:2px; }
-        .company-info { font-size:10px; color:#888; margin-top:6px; line-height:1.5; }
-        .meta { display:flex; justify-content:space-between; font-size:13px; margin-bottom:20px; }
-        table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:20px; }
-        th, td { border:1px solid #ccc; padding:8px 10px; }
-        th { background:#f5f0e0; text-align:left; }
-        .totals { width:280px; margin-left:auto; font-size:13px; }
-        .totals div { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #eee; }
-        .totals .grand { font-weight:bold; font-size:15px; border-top:2px solid #C9A84C; border-bottom:none; padding-top:10px; }
-        .notes { margin-top:24px; font-size:12px; }
-        .notes h3 { font-size:13px; margin-bottom:6px; }
-        .footer { margin-top:32px; text-align:center; }
-        .footer .welcome { font-size:13px; color:#444; font-style:italic; margin:2px 0; }
-        .footer hr { border:none; border-top:1px solid #C9A84C; width:120px; margin:14px auto; }
-        .footer .branches { display:flex; justify-content:center; gap:60px; font-size:11px; color:#555; margin-bottom:10px; }
-        .footer .contact { font-size:12px; color:#333; }
-        .footer .contact a { color:#333; text-decoration:none; }
-        @media print { body { padding: 10px; } }
-      </style></head>
+      <style>${PRINT_STYLE}</style></head>
       <body>
-        <div class="header">
-          <img src="/logo.png" alt="Orchid House" />
-          <div>
-            <h1>Orchid House</h1>
-            <div class="sub">${savedBranchName} — Price Quotation #${q.quote_number}</div>
-            <div class="company-info">
-              Company Name: ORCHID KEBAB GROUP SDN. BHD.<br/>
-              Business Registration No.: 202201021268 (1466965-K)<br/>
-              Tax Identification No. (TIN): C29826106050
+        <div class="page">
+          <div class="content">
+            <div class="header">
+              <img src="/logo.png" alt="Orchid House" />
+              <div class="text">
+                <h1>Orchid House</h1>
+                <div class="sub">${savedBranchName} — Price Quotation #${q.quote_number}</div>
+                <div class="company-info">
+                  Company Name: ORCHID KEBAB GROUP SDN. BHD.<br/>
+                  Business Registration No.: 202201021268 (1466965-K)<br/>
+                  Tax Identification No. (TIN): C29826106050
+                </div>
+              </div>
             </div>
+            <div class="meta">
+              <div><strong>Quote To:</strong> ${q.quote_to || '—'}</div>
+              <div><strong>Date:</strong> ${q.quote_date}</div>
+            </div>
+            <table>
+              <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+            <div class="totals">
+              ${totalsHtml}
+            </div>
+            ${notesHtml ? `<div class="notes"><h3>Notes</h3><ul>${notesHtml}</ul></div>` : ''}
           </div>
-        </div>
-        <div class="meta">
-          <div><strong>Quote To:</strong> ${q.quote_to || '—'}</div>
-          <div><strong>Date:</strong> ${q.quote_date}</div>
-        </div>
-        <table>
-          <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
-        <div class="totals">
-          ${totalsHtml}
-        </div>
-        ${notesHtml ? `<div class="notes"><h3>Notes</h3><ul>${notesHtml}</ul></div>` : ''}
-        <div class="footer">
-          <p class="welcome">Thank you for considering Orchid House for your special occasion.</p>
-          <p class="welcome">We look forward to welcoming you and creating an unforgettable dining experience.</p>
-          <hr />
-          <div class="branches">
-            <div><strong>Orchid House</strong><br/>02, Lorong Raja Uda 1</div>
-            <div><strong>Orchid KLCC</strong><br/>4, Lorong Yap Kwan Seng</div>
-          </div>
-          <div class="contact">
-            📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
+          <div class="footer">
+            <p class="welcome">Thank you for considering Orchid House for your special occasion.</p>
+            <p class="welcome">We look forward to welcoming you and creating an unforgettable dining experience.</p>
+            <hr />
+            <div class="branches">
+              <div><strong>Orchid House</strong><br/>02, Lorong Raja Uda 1</div>
+              <div><strong>Orchid KLCC</strong><br/>4, Lorong Yap Kwan Seng</div>
+            </div>
+            <div class="contact">
+              📧 info@restaurantorchid.com &nbsp;|&nbsp; 📱 <a href="https://wa.me/60104410200">+60 10-441 0200</a>
+            </div>
           </div>
         </div>
         <script>window.onload = () => window.print()</script>
@@ -571,6 +579,14 @@ export default function QuotationPage() {
             <span>SST (6%)</span>
             <span>MYR {sst.toFixed(2)}</span>
           </div>
+          {/* ✅ جديد: خصم بمبلغ ثابت (MYR) يُطرح من الإجمالي النهائي */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, color: S.red, borderBottom: `1px solid ${S.border}` }}>
+            <span>Discount (MYR)</span>
+            <input type="number" min={0} step="0.01" value={discount === 0 ? '' : discount}
+              onChange={e => setDiscount(e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+              placeholder="0.00"
+              style={{ width: 90, textAlign: 'right', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '4px 8px', fontSize: 13, color: S.red, outline: 'none', fontFamily: 'inherit' }} />
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, fontSize: 16, fontWeight: 800, color: S.gold }}>
             <span>Grand Total</span><span>MYR {grandTotal.toFixed(2)}</span>
           </div>
@@ -614,19 +630,19 @@ export default function QuotationPage() {
         </div>
       )}
 
+      {/* ✅ Fix: زرّين واضحين ومنفصلين - طباعة، وحفظ - كل واحد بوظيفته لوحده */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 40 }}>
         <button onClick={printQuotation}
-          style={{ flex: 1, padding: '14px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-          🖨️ Print / Save Quotation
+          style={{ flex: 1, padding: '14px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg, #00FFFF, #00CFCF)`, color: S.navy, fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
+          🖨️ Print Quotation
         </button>
-        {/* ✅ جديد: حفظ العرض في قاعدة البيانات (منفصل عن الطباعة) عشان يظهر في قائمة "العروض المحفوظة" تحت */}
         <button onClick={saveQuotation} disabled={savingQuote}
-          style={{ flex: 1, padding: '14px', borderRadius: 12, border: `1px solid ${S.green}`, background: 'rgba(34,197,94,0.12)', color: S.green, fontWeight: 800, fontSize: 14, cursor: savingQuote ? 'not-allowed' : 'pointer' }}>
+          style={{ flex: 1, padding: '14px', borderRadius: 12, border: `1px solid #00FFFF`, background: 'rgba(0,255,255,0.10)', color: '#00FFFF', fontWeight: 800, fontSize: 14, cursor: savingQuote ? 'not-allowed' : 'pointer' }}>
           {savingQuote ? '⏳ Saving...' : (editingQuoteId ? '💾 Update Quotation' : '💾 Save Quotation')}
         </button>
       </div>
 
-      {/* ✅ جديد: العروض المحفوظة - مرتبة تصاعديًا من 1، الأدمن يشوف الكل والموظف يشوف عروضه هو بس */}
+      {/* ✅ جديد: العروض المحفوظة - الأحدث فوق، الأدمن يشوف الكل والموظف يشوف عروضه هو بس */}
       <div style={{ marginBottom: 60 }}>
         <div style={{ fontSize: 16, fontWeight: 800, color: S.gold, marginBottom: 14 }}>📋 Saved Quotations</div>
         {savedQuotes.length === 0 ? (
@@ -689,6 +705,7 @@ export default function QuotationPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Subtotal</span><span>MYR {Number(q.subtotal).toFixed(2)}</span></div>
                         {q.include_service_charge && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Service Charge (10%)</span><span>MYR {Number(q.service_charge).toFixed(2)}</span></div>}
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>SST (6%)</span><span>MYR {Number(q.sst).toFixed(2)}</span></div>
+                        {Number(q.discount) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.red, padding: '3px 0' }}><span>Discount</span><span>-MYR {Number(q.discount).toFixed(2)}</span></div>}
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, fontWeight: 800, fontSize: 14, paddingTop: 6 }}><span>Grand Total</span><span>MYR {Number(q.grand_total).toFixed(2)}</span></div>
                       </div>
                       {q.notes && q.notes.length > 0 && (

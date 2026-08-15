@@ -1894,6 +1894,10 @@ export default function CashierPage() {
   const [expStatus, setExpStatus] = useState<'paid' | 'pending'>('paid')
   const [expSaving, setExpSaving] = useState(false)
   const [expSaved, setExpSaved] = useState(false)
+  // ✅ جديد: صور الفاتورة المرفقة مع المصروف - ممكن أكتر من صورة
+  const [expImages, setExpImages] = useState<File[]>([])
+  const [expImagePreviews, setExpImagePreviews] = useState<string[]>([])
+  const [expUploading, setExpUploading] = useState(false)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
   // ✅ جديد: مودال اختيار اسم الكاشير الحقيقي وقت بدء الشيفت - مهم لما يكون فيه حساب دخول مشترك بين أكتر من كاشير
@@ -1908,7 +1912,7 @@ export default function CashierPage() {
   const [closedOrders, setClosedOrders] = useState<Order[]>([])
   const [closedSessions, setClosedSessions] = useState<{ id: string; shift: string; cashier_name: string; started_at: string; ended_at: string | null; branch_id: string | null }[]>([])
   // ✅ جديد: مصروفات الكاش المسجّلة لليوم المعروض في Closed - كانت بتتسجل في قاعدة البيانات بس مفيهاش أي عرض هنا
-  const [closedExpenses, setClosedExpenses] = useState<{ id: string; shift: string; cashier_name: string; description: string; amount: number; status: string; created_at: string; branch_id: string | null }[]>([])
+  const [closedExpenses, setClosedExpenses] = useState<{ id: string; shift: string; cashier_name: string; description: string; amount: number; status: string; created_at: string; branch_id: string | null; receipt_urls: string[] | null }[]>([])
   // ✅ جديد: تفاصيل دفعات الفواتير المقسّمة (Split Payment) - مطلوبة عشان نجمع كام كاش وكام فيزا فعليًا حتى للفواتير المقسّمة
   const [closedSplitPayments, setClosedSplitPayments] = useState<{ order_id: string; person_label: string; amount: number; payment_method: string; card_bank: string | null }[]>([])
   const [closedLoading, setClosedLoading] = useState(false)
@@ -2193,7 +2197,7 @@ export default function CashierPage() {
     }
 
     // ✅ جديد: جلب مصروفات الكاش المسجّلة لليوم ده - نفس جدول daily_cash_expenses اللي زرار "💸 Add Expense" بيكتب فيه
-    let eq = sb.from('daily_cash_expenses').select('id,shift,cashier_name,description,amount,status,created_at,branch_id')
+    let eq = sb.from('daily_cash_expenses').select('id,shift,cashier_name,description,amount,status,created_at,branch_id,receipt_urls')
       .eq('expense_date', targetDate).order('created_at', { ascending: false })
     if (!isAdmin && employee?.branch_id) eq = eq.eq('branch_id', employee.branch_id)
     if (isAdmin && adminBranchFilter) eq = eq.eq('branch_id', adminBranchFilter)
@@ -2828,12 +2832,20 @@ export default function CashierPage() {
                               <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, fontWeight: 700 }}>💸 Expenses Log</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {closedExpenses.map(exp => (
-                                  <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                                  <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, flexWrap: 'wrap', gap: 6 }}>
                                     <span style={{ color: S.white }}>
                                       {exp.status === 'paid' ? '✅' : '⏳'} {exp.description}
                                       <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {exp.shift === 'shift1' ? 'Shift 1' : exp.shift === 'shift2' ? 'Shift 2' : 'Shift 3'} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
                                     </span>
-                                    <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      {/* ✅ جديد: صور الفاتورة المرفقة - صور مصغّرة قابلة للضغط لفتحها بحجمها الكامل */}
+                                      {(exp.receipt_urls || []).map((url, i) => (
+                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                                          <img src={url} alt="receipt" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
+                                        </a>
+                                      ))}
+                                      <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -2953,9 +2965,16 @@ export default function CashierPage() {
                               <div style={{ fontSize: 11, color: S.muted, marginBottom: 6, fontWeight: 700 }}>💸 Expenses</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                                 {sExpenses.map(exp => (
-                                  <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                                  <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, flexWrap: 'wrap', gap: 6 }}>
                                     <span style={{ color: S.white }}>{exp.status === 'paid' ? '✅' : '⏳'} {exp.description}</span>
-                                    <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      {(exp.receipt_urls || []).map((url, i) => (
+                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                                          <img src={url} alt="receipt" style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
+                                        </a>
+                                      ))}
+                                      <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -3167,12 +3186,12 @@ export default function CashierPage() {
       )}
       {/* ✅ New: log a cash expense during the shift - saved into the same daily_cash_expenses table the Daily Report reads automatically */}
       {showExpenseModal && (
-        <div onClick={() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false) }}
+        <div onClick={() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false); setExpImages([]); setExpImagePreviews([]) }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 380, padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 380, padding: 24, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>💸 Add Cash Expense</h2>
-              <button onClick={() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false) }}
+              <button onClick={() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false); setExpImages([]); setExpImagePreviews([]) }}
                 style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>
@@ -3183,6 +3202,34 @@ export default function CashierPage() {
               value={expDesc} onChange={e => setExpDesc(e.target.value)} />
             <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }} type="number" placeholder="Amount (MYR)"
               value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+
+            {/* ✅ جديد: إرفاق صورة أو أكتر لفاتورة المصروف - إلزامي */}
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>🧾 Receipt Photo(s) — required</div>
+            <label style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: 10, border: `1px dashed ${S.border}`, color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', marginBottom: 10 }}>
+              📷 Tap to take a photo or choose from gallery
+              <input type="file" accept="image/*" multiple capture="environment" style={{ display: 'none' }}
+                onChange={e => {
+                  const files = Array.from(e.target.files || [])
+                  if (files.length === 0) return
+                  setExpImages(prev => [...prev, ...files])
+                  setExpImagePreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
+                  e.target.value = '' // ✅ يسمح باختيار نفس الملف تاني لو اتشال بالغلط
+                }} />
+            </label>
+            {expImagePreviews.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                {expImagePreviews.map((src, i) => (
+                  <div key={i} style={{ position: 'relative', width: 64, height: 64 }}>
+                    <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
+                    <button onClick={() => {
+                      setExpImages(prev => prev.filter((_, idx) => idx !== i))
+                      setExpImagePreviews(prev => prev.filter((_, idx) => idx !== i))
+                    }} style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', border: 'none', background: S.red, color: '#fff', cursor: 'pointer', fontSize: 12, lineHeight: '20px', padding: 0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
               {[{ k: 'paid', label: '✅ Already Spent' }, { k: 'pending', label: '⏳ Still Pending' }].map(s => (
                 <button key={s.k} onClick={() => setExpStatus(s.k as any)}
@@ -3194,19 +3241,38 @@ export default function CashierPage() {
             <button
               onClick={async () => {
                 if (!expDesc.trim() || !(parseFloat(expAmount) > 0)) { alert('Please enter a valid description and amount'); return }
+                if (expImages.length === 0) { alert('Please attach at least one receipt photo'); return }
                 setExpSaving(true)
+                setExpUploading(true)
+                // ✅ جديد: نرفع كل الصور المرفقة لـ Supabase Storage الأول، وناخد روابطها العامة
+                const uploadedUrls: string[] = []
+                for (const file of expImages) {
+                  const fileExt = file.name.split('.').pop() || 'jpg'
+                  const fileName = `${employee?.branch_id || 'unknown'}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+                  const { error: upErr } = await sb.storage.from('expense-receipts').upload(fileName, file)
+                  if (upErr) { alert('⚠️ Failed to upload image: ' + upErr.message); setExpSaving(false); setExpUploading(false); return }
+                  const { data: urlData } = sb.storage.from('expense-receipts').getPublicUrl(fileName)
+                  uploadedUrls.push(urlData.publicUrl)
+                }
+                setExpUploading(false)
                 const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
-                await sb.from('daily_cash_expenses').insert([{
+                const { error } = await sb.from('daily_cash_expenses').insert([{
                   branch_id: employee?.branch_id || null, expense_date: todayMY, shift,
                   cashier_name: activeShiftCashierName || employee?.name || 'Unknown',
                   description: expDesc.trim(), amount: parseFloat(expAmount), status: expStatus,
+                  receipt_urls: uploadedUrls,
                 }])
-                setExpSaving(false); setExpSaved(true)
-                setTimeout(() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false) }, 1200)
+                setExpSaving(false)
+                if (error) { alert('⚠️ Failed to save expense: ' + error.message); return }
+                setExpSaved(true)
+                setTimeout(() => {
+                  setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false)
+                  setExpImages([]); setExpImagePreviews([])
+                }, 1200)
               }}
               disabled={expSaving}
               style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: expSaved ? S.green : S.red, color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: expSaving ? 0.6 : 1 }}>
-              {expSaving ? '⏳ Saving...' : expSaved ? '✅ Saved!' : '💾 Save Expense'}
+              {expUploading ? '⏳ Uploading photos...' : expSaving ? '⏳ Saving...' : expSaved ? '✅ Saved!' : '💾 Save Expense'}
             </button>
           </div>
         </div>

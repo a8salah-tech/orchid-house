@@ -2669,18 +2669,21 @@ export default function CashierPage() {
                     {activeOrder && (
                       <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {(activeOrder.total_amount || 0).toFixed(2)}</div>
                     )}
-                    {/* ✅ Fix: الدمج/فك الدمج رجع يقتصر على الكاشير بس - شيلنا استثناء الدور المحدود (مشرف الصالة) */}
-                    {isCashierRole && activeOrder && (
+                    {/* ✅ Fix: الدمج/فك الدمج يقتصر على الكاشير بس، لكن زرار + (إضافة طلب على طاولة مشغولة)
+                        متاح للكاشير والدور المحدود (مشرف الصالة) مع بعض */}
+                    {(isCashierRole || isLimitedTableRole) && activeOrder && (
                       <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 6 }}>
-                        <button onClick={e => {
-                          e.stopPropagation()
-                          if (mergeRecord) { unmergeTables(mergeRecord.id) }
-                          else { setMergePickerTable(table) }
-                        }}
-                          style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${mergeRecord ? S.red : S.gold}60`, background: 'transparent', color: mergeRecord ? S.red : S.gold, cursor: 'pointer', fontSize: 9, fontFamily: 'inherit' }}>
-                          {mergeRecord ? '🔗 Unmerge' : '🔗 Merge'}
-                        </button>
-                        {/* ✅ جديد: يسمح للكاشير بإضافة طلب جديد على الطاولة حتى لو كانت مشغولة بالفعل (بدل ما يضطر يدخل شاشة الدفع بس) */}
+                        {isCashierRole && (
+                          <button onClick={e => {
+                            e.stopPropagation()
+                            if (mergeRecord) { unmergeTables(mergeRecord.id) }
+                            else { setMergePickerTable(table) }
+                          }}
+                            style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${mergeRecord ? S.red : S.gold}60`, background: 'transparent', color: mergeRecord ? S.red : S.gold, cursor: 'pointer', fontSize: 9, fontFamily: 'inherit' }}>
+                            {mergeRecord ? '🔗 Unmerge' : '🔗 Merge'}
+                          </button>
+                        )}
+                        {/* ✅ جديد: يسمح للكاشير والدور المحدود بإضافة طلب جديد على الطاولة حتى لو كانت مشغولة بالفعل */}
                         <button onClick={e => { e.stopPropagation(); setAddOrderTable(table) }}
                           title="Add another order to this table"
                           style={{ padding: '3px 9px', borderRadius: 6, border: `1px solid ${S.green}60`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', fontWeight: 800 }}>

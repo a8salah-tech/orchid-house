@@ -626,25 +626,34 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     // عشان مايفضلش عندها إشارة قديمة لطلب اتقفل وخلص خالص
     await sb.from('tables').update({ redirected_to_table_id: null, redirected_at: null }).eq('redirected_to_table_id', order.table_id)
 
-    // ✅ جديد: لو الفاتورة كانت مدموجة من طاولتين، نغلق طلبات الطاولة الشريكة كمان ونعيدها متاحة، ونفك الدمج تلقائيًا
+    // ✅ Fix حرج جدًا: لو الفاتورة كانت مدموجة من طاولتين، المفروض نضم أصناف الطاولة الشريكة فعليًا للفاتورة
+    // الأساسية (مش نسيبها في صف طلب منفصل يتقفل "مدفوع" بإجماله القديم قبل الدمج) - وإلا نفس الفلوس بتتحسب
+    // مرتين في كل التقارير (مرة في الطاولة الأساسية بالإجمالي الصحيح المدموج، ومرة تانية في الطاولة الشريكة
+    // بإجمالها القديم المنفصل). دلوقتي بننقل كل order_items للفاتورة الأساسية، ونلغي (مش ندفع) صف الطلب
+    // الشريك بإجمالي صفر، بالظبط زي منطق دمج الطلبات المكررة اللي بنيناه قبل كده
     if (order.mergedTableId) {
-      await sb.from('orders').update({
-        status: 'paid',
-        payment_method: discountType === 'free' ? 'free' : method,
-        card_bank: method === 'visa' ? (cardBank || null) : null,
-        paid_at: new Date().toISOString(),
-        customer_id: selectedCustomer?.id || null,
-        paid_by: employee?.id || null,
-        paid_by_name: employee?.name || null,
-        notes: (discountType === 'amount' || discountType === 'percent' || discountType === 'free') && discountReason.trim()
-          ? `${discountType === 'free' ? '🎁 Free reason' : '🏷️ Discount reason'}: ${discountReason.trim()}`
-          : null,
-      }).eq('table_id', order.mergedTableId).in('status', ['confirmed','preparing','ready'])
-      await sb.from('tables').update({
+      const { data: partnerOrders } = await sb.from('orders').select('id')
+        .eq('table_id', order.mergedTableId).in('status', ['confirmed', 'preparing', 'ready'])
+      const partnerOrderIds = (partnerOrders || []).map((o: any) => o.id)
+      if (partnerOrderIds.length > 0) {
+        // ننقل كل أصناف الطاولة الشريكة للفاتورة الأساسية - عشان تبان كاملة في أي تقرير أو مراجعة لاحقة
+        const { error: moveItemsError } = await sb.from('order_items').update({ order_id: order.id }).in('order_id', partnerOrderIds)
+        if (moveItemsError) throw new Error('Failed to merge partner table items: ' + moveItemsError.message)
+        // نلغي صف الطلب الشريك نفسه بإجمالي صفر - الإجمالي الحقيقي كله بقى مسجّل على الفاتورة الأساسية بس
+        const { error: cancelPartnerError } = await sb.from('orders').update({
+          status: 'cancelled', total_amount: 0,
+          cancel_reason: `🔗 Merged into ${order.tables?.name || 'Table ' + order.tables?.number}'s bill`,
+        }).in('id', partnerOrderIds)
+        if (cancelPartnerError) throw new Error('Failed to close partner table order: ' + cancelPartnerError.message)
+      }
+      const { error: partnerTableError } = await sb.from('tables').update({
         status: 'available', current_order_id: null, occupied_since: null,
       }).eq('id', order.mergedTableId)
+      if (partnerTableError) throw new Error('Failed to free partner table: ' + partnerTableError.message)
       if (order.mergeId) {
-        await sb.from('table_merges').update({ unmerged_at: new Date().toISOString() }).eq('id', order.mergeId)
+        // ✅ Fix حرج: بنتأكد من نجاح فك الدمج فعليًا - قبل كده لو فشل الاستعلام ده بصمت، علامة الدمج كانت بتفضل عالقة للأبد
+        const { error: unmergeError } = await sb.from('table_merges').update({ unmerged_at: new Date().toISOString() }).eq('id', order.mergeId)
+        if (unmergeError) throw new Error('Failed to clear table merge: ' + unmergeError.message)
       }
     }
 
@@ -780,6 +789,31 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
       current_order_id: null,
       occupied_since: null,
     }).eq('id', order.table_id)
+
+    // ✅ Fix حرج جدًا: نفس معالجة doPay بالظبط - كانت مفقودة تمامًا هنا، فأي فاتورة مدموجة من طاولتين
+    // اتدفعت عن طريق Split Payment كانت بتسيب الطاولة الشريكة عالقة "مشغولة" للأبد وعلامة الدمج ماتتفكش
+    if (order.mergedTableId) {
+      const { data: partnerOrders } = await sb.from('orders').select('id')
+        .eq('table_id', order.mergedTableId).in('status', ['confirmed', 'preparing', 'ready'])
+      const partnerOrderIds = (partnerOrders || []).map((o: any) => o.id)
+      if (partnerOrderIds.length > 0) {
+        const { error: moveItemsError } = await sb.from('order_items').update({ order_id: order.id }).in('order_id', partnerOrderIds)
+        if (moveItemsError) throw new Error('Failed to merge partner table items: ' + moveItemsError.message)
+        const { error: cancelPartnerError } = await sb.from('orders').update({
+          status: 'cancelled', total_amount: 0,
+          cancel_reason: `🔗 Merged into ${order.tables?.name || 'Table ' + order.tables?.number}'s bill`,
+        }).in('id', partnerOrderIds)
+        if (cancelPartnerError) throw new Error('Failed to close partner table order: ' + cancelPartnerError.message)
+      }
+      const { error: partnerTableError } = await sb.from('tables').update({
+        status: 'available', current_order_id: null, occupied_since: null,
+      }).eq('id', order.mergedTableId)
+      if (partnerTableError) throw new Error('Failed to free partner table: ' + partnerTableError.message)
+      if (order.mergeId) {
+        const { error: unmergeError } = await sb.from('table_merges').update({ unmerged_at: new Date().toISOString() }).eq('id', order.mergeId)
+        if (unmergeError) throw new Error('Failed to clear table merge: ' + unmergeError.message)
+      }
+    }
 
     onPaid()
     } catch (err: any) {
@@ -1917,6 +1951,8 @@ export default function CashierPage() {
   const [closedSplitPayments, setClosedSplitPayments] = useState<{ order_id: string; person_label: string; amount: number; payment_method: string; card_bank: string | null }[]>([])
   const [closedLoading, setClosedLoading] = useState(false)
   const [closedFetched, setClosedFetched] = useState(false)
+  // ✅ جديد: عرض صورة إيصال المصروف بحجمها الكامل جوه نفس الصفحة (بدل ما تفتح في تاب جديد)
+  const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null)
 
 
   // Init notifications + restore sound state
@@ -2840,7 +2876,7 @@ export default function CashierPage() {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                       {/* ✅ جديد: صور الفاتورة المرفقة - صور مصغّرة قابلة للضغط لفتحها بحجمها الكامل */}
                                       {(exp.receipt_urls || []).map((url, i) => (
-                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                                        <a key={i} href={url} onClick={e => { e.preventDefault(); e.stopPropagation(); setViewingReceiptUrl(url) }}>
                                           <img src={url} alt="receipt" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
                                         </a>
                                       ))}
@@ -2969,7 +3005,7 @@ export default function CashierPage() {
                                     <span style={{ color: S.white }}>{exp.status === 'paid' ? '✅' : '⏳'} {exp.description}</span>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                       {(exp.receipt_urls || []).map((url, i) => (
-                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                                        <a key={i} href={url} onClick={e => { e.preventDefault(); e.stopPropagation(); setViewingReceiptUrl(url) }}>
                                           <img src={url} alt="receipt" style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
                                         </a>
                                       ))}
@@ -3184,6 +3220,17 @@ export default function CashierPage() {
           </div>
         </div>
       )}
+      {/* ✅ جديد: عرض صورة إيصال المصروف بحجمها الكامل جوه نفس الصفحة - بدل ما تفتح في تاب جديد */}
+      {viewingReceiptUrl && (
+        <div onClick={() => setViewingReceiptUrl(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <button onClick={() => setViewingReceiptUrl(null)}
+            style={{ position: 'absolute', top: 20, right: 20, width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          <img src={viewingReceiptUrl} alt="receipt" onClick={e => e.stopPropagation()}
+            style={{ maxWidth: '95%', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8 }} />
+        </div>
+      )}
+
       {/* ✅ New: log a cash expense during the shift - saved into the same daily_cash_expenses table the Daily Report reads automatically */}
       {showExpenseModal && (
         <div onClick={() => { setShowExpenseModal(false); setExpDesc(''); setExpAmount(''); setExpSaved(false); setExpImages([]); setExpImagePreviews([]) }}

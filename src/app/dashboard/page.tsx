@@ -83,7 +83,9 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   const greeting = isAr ? (hour < 12 ? 'صباح الخير' : hour < 17 ? 'مساء الخير' : 'مساء النور') : (hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening')
 
   const role = employee?.role || 'employee'
-  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner']
+  // ✅ أضفنا hall_worker (عامل صالة) هنا — بدونها ما كانوا يقدروا يشوفوا حتى صفحاتهم الشخصية الأساسية
+  // (دوامي، الحضور، طلباتي، راتبي)، مش بس الطاولات والكاشير
+  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','assistant_cashier','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner','hall_worker']
   const KITCHEN_ROLES = ['kitchen_manager','kitchen_supervisor']
   const HALL_ROLES = ['hall_manager','hall_supervisor']
   const BAR_ROLES = ['bar_manager','bar_supervisor']
@@ -95,8 +97,9 @@ function EmployeeDashboard({ employee }: { employee: any }) {
     { icon: '👨‍🍳', label: isAr ? 'المطبخ' : 'Kitchen',              path: '/dashboard/kitchen',           show: [...KITCHEN_ROLES] },
     { icon: '🍰', label: isAr ? 'الحلويات' : 'Desserts',              path: '/dashboard/desserts',          show: ['kitchen_manager','kitchen_supervisor'] },
     { icon: '☕', label: isAr ? 'البار' : 'Bar',                       path: '/dashboard/bar',               show: [...BAR_ROLES] },
-    { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',                path: '/dashboard/tables',            show: [...HALL_ROLES,'cashier'] },
-    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',                path: '/dashboard/cashier',           show: ['cashier'] },
+    // ✅ عامل الصالة (hall_worker) أضيف هنا وفي الكاشير — يقدر يشوف الطاولات ويضيف طلبات
+    { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',                path: '/dashboard/tables',            show: [...HALL_ROLES,'cashier','assistant_cashier','hall_worker'] },
+    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',                path: '/dashboard/cashier',           show: ['cashier','assistant_cashier','hall_worker'] },
     { icon: '🏭', label: isAr ? 'المستودع' : 'Warehouse',             path: '/dashboard/warehouse',         show: ['warehouse_keeper','warehouse_manager'] },
     // ── الإدارة (مديرين فقط) ──
     { icon: '👷', label: isAr ? 'الموظفون' : 'Employees',             path: '/dashboard/hr/employees',      show: [...MANAGER_ROLES] },

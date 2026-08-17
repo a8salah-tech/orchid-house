@@ -260,9 +260,10 @@ function lastOrderTime(order?: Order | null): string | null {
 function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tables }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onPaymentStart?: (tableId: string) => void; onTransfer: (order: Order) => void; tables?: TableRow[] }) {
   const sb = createClient()
   const { employee, permissions } = useAuth()
-  const isCashierRole = permissions?.all === true || ['cashier', 'assistant_cashier'].includes(employee?.role || '')
-  // ✅ جديد: الدور المحدود (مشرف الصالة) - يقدر يستخدم Transfer كامل زي الكاشير بالظبط
-  const isLimitedTableRole = ['hall_supervisor', 'hall_manager'].includes(employee?.role || '')
+  // ✅ Fix: مساعد الكاشير (assistant_cashier) بقى نفس مستوى موظف/مشرف الصالة بالظبط - مش صلاحيات كاشير كاملة
+  const isCashierRole = permissions?.all === true || employee?.role === 'cashier'
+  // ✅ جديد: الدور المحدود (مشرف/موظف الصالة + مساعد الكاشير) - بياخدوا "+" بس، مش الدفع/الدمج/التحويل
+  const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'assistant_cashier'].includes(employee?.role || '')
   const isAdminUser = permissions?.all === true
   // ✅ Fix: حماية من تنفيذ الدفع مرتين لو حصل ضغط مزدوج سريع على "Confirm" (كان بيضاعف إحصائيات العميل)
   const isPayingRef = useRef(false)
@@ -1897,9 +1898,11 @@ export default function CashierPage() {
   const sb = sbRef.current
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
-  const isCashierRole = isAdmin || ['cashier','assistant_cashier'].includes(employee?.role || '')
-  // ✅ جديد: حساب مشترك محدود لمشرفي الصالة - يقدر يشوف الطاولات ويضيف طلبات بس، من غير الدفع/التحويل/التقارير
-  const isLimitedTableRole = ['hall_supervisor', 'hall_manager'].includes(employee?.role || '')
+  // ✅ Fix: مساعد الكاشير بقى نفس مستوى موظف/مشرف الصالة بالظبط - مش صلاحيات كاشير كاملة
+  const isCashierRole = isAdmin || employee?.role === 'cashier'
+  // ✅ جديد: حساب مشترك محدود لمشرفي/موظفي الصالة + مساعد الكاشير - يقدروا يشوفوا الطاولات ويضيفوا طلبات
+  // بس، من غير الدفع/الدمج/التحويل/التقارير
+  const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'assistant_cashier'].includes(employee?.role || '')
 
   // ✅ كشف الموبايل عشان نظبط تنسيق الهيدر والتابات فوق
   const [isMobile, setIsMobile] = useState(false)

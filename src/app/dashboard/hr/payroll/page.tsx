@@ -562,6 +562,10 @@ export default function PayrollPage() {
   const [loadingPayslipAtt, setLoadingPayslipAtt] = useState(false)
   // ✅ تفاصيل الإجازات الرسمية وأيام الغياب الفعلية (بتواريخها) لتقرير الراتب المفتوح حالياً
   const [payslipScheduleInfo, setPayslipScheduleInfo] = useState<{ leaveDates: string[]; absentDates: string[] } | null>(null)
+  // ✅ نافذة تفاصيل المخالفات — تُفتح عند الضغط على سطر "مخالفات" في قسيمة الراتب
+  const [showViolationDetails, setShowViolationDetails] = useState(false)
+  const [violationDetailsList, setViolationDetailsList] = useState<{ date: string; amount: number; reason: string; status: string }[]>([])
+  const [loadingViolationDetails, setLoadingViolationDetails] = useState(false)
 
   useEffect(() => {
     if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); setPayslipScheduleInfo(null); return }
@@ -957,6 +961,22 @@ export default function PayrollPage() {
     <script>window.onload=function(){window.print()}<\/script>
     </body></html>`)
     win.document.close()
+  }
+
+  // ✅ جلب تفاصيل المخالفات الفعلية لموظف معيّن في الشهر المحدَّد — نفس فلتر الحساب الأساسي (status='active')
+  async function openViolationDetails(employeeId: string) {
+    if (!selectedMonth) return
+    setShowViolationDetails(true)
+    setLoadingViolationDetails(true)
+    const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
+    const { data } = await sb.from('violations')
+      .select('date, amount, reason, status')
+      .eq('employee_id', employeeId)
+      .eq('status', 'active')
+      .gte('date', monthStart).lte('date', monthEnd)
+      .order('date', { ascending: false })
+    setViolationDetailsList(data || [])
+    setLoadingViolationDetails(false)
   }
 
   function printSinglePayslip(record: PayrollRecord) {
@@ -1514,7 +1534,7 @@ export default function PayrollPage() {
                     </div>
                   )}
                 </div>
-                <button onClick={() => setPayslipRecord(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+                <button onClick={() => { setPayslipRecord(null); setShowViolationDetails(false) }} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
               </div>
 
               {/* Body */}
@@ -1545,7 +1565,16 @@ export default function PayrollPage() {
                     <div style={rowStyle}><span style={{ color: S.muted }}>خروج مبكر ({payslipRecord.early_exit_hours} س)</span><span>{fmt2(c.earlyDed)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>التأمينات</span><span>{fmt2(payslipRecord.insurance)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>الضريبة</span><span>{fmt2(payslipRecord.tax)}</span></div>
-                    {payslipRecord.deduction_1 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_1_label}</span><span>{fmt2(payslipRecord.deduction_1)}</span></div>}
+                    {payslipRecord.deduction_1 > 0 && (
+                      <div
+                        style={{ ...rowStyle, cursor: 'pointer' }}
+                        onClick={() => openViolationDetails(payslipRecord.employee_id)}
+                        title="اضغط لعرض تفاصيل المخالفات"
+                      >
+                        <span style={{ color: S.muted, textDecoration: 'underline dotted' }}>{payslipRecord.deduction_1_label} 🔍</span>
+                        <span>{fmt2(payslipRecord.deduction_1)}</span>
+                      </div>
+                    )}
                     {payslipRecord.deduction_2 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_2_label}</span><span>{fmt2(payslipRecord.deduction_2)}</span></div>}
                     {payslipRecord.deduction_3 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_3_label}</span><span>{fmt2(payslipRecord.deduction_3)}</span></div>}
                     {payslipRecord.advance > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>سلفة</span><span>{fmt2(payslipRecord.advance)}</span></div>}
@@ -1618,13 +1647,52 @@ export default function PayrollPage() {
 
               {/* Footer */}
               <div style={{ padding: '14px 22px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
-                <button onClick={() => setPayslipRecord(null)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+                <button onClick={() => { setPayslipRecord(null); setShowViolationDetails(false) }} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
                 <button onClick={() => printSinglePayslip(payslipRecord)} style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة هذا الموظف</button>
               </div>
             </div>
           </div>
         )
       })()}
+
+      {/* ✅ نافذة تفاصيل المخالفات — تظهر في منتصف الشاشة فوق قسيمة الراتب */}
+      {showViolationDetails && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 700, padding: 20 }}
+          onClick={() => setShowViolationDetails(false)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: S.navy2, border: `1px solid ${S.red}50`, borderRadius: 16, padding: 22, maxWidth: 440, width: '100%', maxHeight: '70vh', overflowY: 'auto' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>⚠️ تفاصيل المخالفات</div>
+              <button onClick={() => setShowViolationDetails(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            {loadingViolationDetails ? (
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>⏳ جاري التحميل...</div>
+            ) : violationDetailsList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>لا توجد مخالفات نشطة مسجَّلة لهذا الشهر</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {violationDetailsList.map((v, i) => (
+                  <div key={i} style={{ background: S.redB, border: `1px solid ${S.red}30`, borderRadius: 10, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: S.muted }}>📅 {v.date}</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: S.red }}>{v.amount.toFixed(2)} MYR</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: S.white, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{v.reason || 'بلا سبب مسجَّل'}</div>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderTop: `1px solid ${S.border}`, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>الإجمالي</span>
+                  <span style={{ fontSize: 15, fontWeight: 900, color: S.red }}>{violationDetailsList.reduce((s, v) => s + v.amount, 0).toFixed(2)} MYR</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

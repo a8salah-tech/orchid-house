@@ -664,8 +664,10 @@ export default function PayrollPage() {
     const monthEnd   = new Date(Date.UTC(month.year, month.month, 0)).toISOString().split('T')[0]
     // ✅ لحساب الغياب فقط: يجب ألا نتجاوز يوم اليوم الحالي مهما كانت نهاية الشهر التقويمية — وإلا أي شيفت مجدول
     // مسبقاً لبقية شهر لم ينتهِ بعد (أو حتى شهر مستقبلي بالكامل) سيُحتسَب "غياباً بدون عذر" رغم أن هذه الأيام لم تأتِ بعد
-    const todayStr = new Date().toISOString().slice(0, 10)
-    const absenceCalcEnd = monthEnd < todayStr ? monthEnd : todayStr
+    // ✅ نستخدم "أمس" لا "اليوم" كحد أقصى — لأن شيفت اليوم نفسه ربما لم يبدأ بعد وقت مراجعة الأدمن للصفحة
+    // (مثال: شيفت ليلي يبدأ 8 مساءً، لو الأدمن راجع الصفحة ظهراً، اليوم سيُحتسَب "غياباً" رغم أن الشيفت لم يحن وقته بعد)
+    const yesterdayForAbsence = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const absenceCalcEnd = monthEnd < yesterdayForAbsence ? monthEnd : yesterdayForAbsence
 
     // ✅ فلتر موظفي الفرع المختار + استبعاد أي موظف كان متوقف بالكامل قبل بداية هذا الشهر
     // (لو اتوقف داخل الشهر نفسه، بيفضل ظاهر لكي راتبه المتناسب لحد يوم التوقف)

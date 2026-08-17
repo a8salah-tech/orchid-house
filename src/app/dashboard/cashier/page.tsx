@@ -418,17 +418,20 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     : discountType === 'free' ? subtotal
     : discountType === 'percent' ? subtotal * (parseFloat(discountValue) || 0) / 100
     : parseFloat(discountValue) || 0
-  const afterDiscount = Math.max(0, subtotal - discountAmt)
   // ✅ جديد: طلبات التيك أواي (Foodpanda/Grab/Customer/Other) مالهاش رسوم خدمة خالص - مافيش خدمة طاولة أصلًا
   const isTakeawayOrder = order.tables?.section === 'takeaway'
   // ✅ جديد: حسابات التوصيل الخارجية (Grab/Foodpanda) بتدفع للمطعم لاحقًا (تسوية دورية)، مش وقت قفل الفاتورة -
   // فمحتاجين نفرّق بينها وبين الكاش الحقيقي اللي في درج الكاشير
   const isPlatformCreditOrder = /grab|foodpanda/i.test(order.tables?.name || '')
-  const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : afterDiscount * SERVICE_CHARGE_RATE
-  const sst = discountType === 'free' ? 0 : afterDiscount * SST_RATE
+  // ✅ Fix حرج: الخدمة والضريبة بقيا يتحسبوا على السعر الأصلي (subtotal) مش بعد خصم الخصم - والخصم بقى
+  // يتخصم في الآخر من الإجمالي الكلي (سعر + خدمة + ضريبة)، مش من السعر لوحده قبل حساب الخدمة والضريبة
+  const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : subtotal * SERVICE_CHARGE_RATE
+  const sst = discountType === 'free' ? 0 : subtotal * SST_RATE
   // ✅ جديد: لو العميل طبّق عربون سابق، بيتخصم من الإجمالي النهائي المطلوب دفعه دلوقتي
-  const depositDeduction = depositApplied ? Math.min(totalAvailableDeposit, afterDiscount + serviceCharge + sst) : 0
-  const total = Math.max(0, afterDiscount + serviceCharge + sst - depositDeduction)
+  const depositDeduction = depositApplied ? Math.min(totalAvailableDeposit, subtotal + serviceCharge + sst - discountAmt) : 0
+  const total = Math.max(0, subtotal + serviceCharge + sst - discountAmt - depositDeduction)
+  // ✅ صافي المبيعات بعد الخصم - للاستخدام في القيد المحاسبي بس (مش بيأثر على حساب الخدمة/الضريبة، دول بقوا على السعر الأصلي)
+  const afterDiscount = Math.max(0, subtotal - discountAmt)
   // ✅ جديد: الباقي المطلوب إرجاعه للعميل لو دفع كاش أكتر من قيمة الفاتورة
   const cashReceivedNum = parseFloat(cashReceived) || 0
   const changeDue = Math.max(0, cashReceivedNum - total)
@@ -850,11 +853,11 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     `).join('')}
     <div class="line"></div>
     <div class="row"><span>Subtotal</span><span>MYR ${subtotal.toFixed(2)}</span></div>
-    ${discountAmt > 0 ? `<div class="row"><span>Discount</span><span>- MYR ${discountAmt.toFixed(2)}</span></div>` : ''}
     ${discountType !== 'free' ? `
     ${!isTakeawayOrder ? `<div class="row"><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toFixed(2)}</span></div>` : ''}
     <div class="row"><span>SST (6%)</span><span>MYR ${sst.toFixed(2)}</span></div>
     ` : ''}
+    ${discountAmt > 0 ? `<div class="row"><span>Discount</span><span>- MYR ${discountAmt.toFixed(2)}</span></div>` : ''}
     <div class="line"></div>
     <div class="row bold big"><span>TOTAL</span><span>MYR ${total.toFixed(2)}</span></div>
     <div class="line"></div>
@@ -1201,9 +1204,9 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 20 }}>
           {[
             { label: 'Subtotal', value: subtotal, color: S.white },
-            discountAmt > 0 ? { label: 'Discount', value: -discountAmt, color: S.red } : null,
             discountType !== 'free' && !isTakeawayOrder ? { label: 'Service Charge (10%)', value: serviceCharge, color: S.muted } : null,
             discountType !== 'free' ? { label: 'SST 6%', value: sst, color: S.muted } : null,
+            discountAmt > 0 ? { label: 'Discount', value: -discountAmt, color: S.red } : null,
           ].filter(Boolean).map((row, i) => row && (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13 }}>
               <span style={{ color: S.muted }}>{row.label}</span>
@@ -1466,7 +1469,14 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
       notes: c.notes || null, status: 'pending',
       destination: 'kitchen',
     })))
-    await sb.from('tables').update({ status: 'occupied', current_order_id: orderId, occupied_since: new Date().toISOString() }).eq('id', tableId)
+    // ✅ Fix حرج: وقت الجلوس (occupied_since) بقى يتسجل بس مع أول طلب حقيقي على الطاولة، مش مع كل جولة إضافية -
+    // قبل كده كان بيتحدّث في كل مرة (حتى لو الطاولة شغالة بالفعل)، فالعداد الظاهر على الطاولة كان بيرجع للصفر
+    // مع كل جولة جديدة، بدل ما يفضل من أول ما العميل قعد فعليًا
+    if (!existingOrder?.id) {
+      await sb.from('tables').update({ status: 'occupied', current_order_id: orderId, occupied_since: new Date().toISOString() }).eq('id', tableId)
+    } else {
+      await sb.from('tables').update({ current_order_id: orderId }).eq('id', tableId)
+    }
     setSaving(false)
     onSaved()
   }
@@ -3463,12 +3473,6 @@ export default function CashierPage() {
                   <span>Subtotal</span>
                   <span>MYR {archiveDetailOrder.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0).toFixed(2)}</span>
                 </div>
-                {archiveDetailOrder.discount_amount > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.red, marginBottom: 4 }}>
-                    <span>Discount {archiveDetailOrder.discount_type ? `(${archiveDetailOrder.discount_type})` : ''}</span>
-                    <span>- MYR {archiveDetailOrder.discount_amount.toFixed(2)}</span>
-                  </div>
-                )}
                 {archiveDetailOrder.service_charge > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.amber, marginBottom: 4 }}>
                     <span>Service Charge</span>
@@ -3479,6 +3483,12 @@ export default function CashierPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.teal, marginBottom: 4 }}>
                     <span>SST</span>
                     <span>MYR {archiveDetailOrder.sst_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                {archiveDetailOrder.discount_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.red, marginBottom: 4 }}>
+                    <span>Discount {archiveDetailOrder.discount_type ? `(${archiveDetailOrder.discount_type})` : ''}</span>
+                    <span>- MYR {archiveDetailOrder.discount_amount.toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: S.gold, marginTop: 8 }}>

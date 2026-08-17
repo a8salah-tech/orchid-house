@@ -578,11 +578,18 @@ const filteredItems = items
     // ✅ Critical fix: used to set the old table's (table.id) status to "occupied" for the new order, even if the order
     // was actually recorded on the correct table after the redirect (effectiveTableId) - this was exactly why the old table
     // appeared "occupied again" with a separate order after it had been cleared by the redirect
-    await sb.from('tables').update({
-      status: 'occupied',
-      occupied_since: new Date().toISOString(),
-      current_order_id: orderId,
-    }).eq('id', effectiveTableId)
+    // ✅ Critical fix: occupied_since now only gets set when this is a genuinely new order, not on every additional
+    // round placed on an already-occupied table - otherwise the elapsed-time shown to the cashier kept resetting to
+    // zero with every new round instead of reflecting when the customer actually sat down
+    if (existingOrder) {
+      await sb.from('tables').update({ status: 'occupied', current_order_id: orderId }).eq('id', effectiveTableId)
+    } else {
+      await sb.from('tables').update({
+        status: 'occupied',
+        occupied_since: new Date().toISOString(),
+        current_order_id: orderId,
+      }).eq('id', effectiveTableId)
+    }
 
     setOrderNumber(orderId.slice(-6).toUpperCase())
     setConfirmedOrderId(orderId)

@@ -326,11 +326,15 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
   const [form, setForm] = useState({
     employee_id: currentEmployeeId || '', request_type: initialType || 'leave_sick',
     title: '', description: '', amount: '',
-    start_date: '', end_date: '',
+    // ✅ لو المودال اتفتح مباشرة بنوع "تصحيح حضور"، لازم تاريخ اليوم يتظبط من البداية بدون انتظار اختيار يدوي
+    start_date: initialType === 'attendance_correction' ? new Date().toISOString().slice(0, 10) : '',
+    end_date: '',
     correct_checkin: '', correct_checkout: '',
   })
 
   const reqType = REQUEST_TYPES[form.request_type]
+  // ✅ تاريخ اليوم بصيغة YYYY-MM-DD — نستخدمه كحد أدنى/أقصى في خانات التاريخ، وفي التحقق وقت الحفظ
+  const todayStr = new Date().toISOString().slice(0, 10)
 
   const daysCount = form.start_date && form.end_date
     ? Math.ceil((new Date(form.end_date).getTime() - new Date(form.start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1
@@ -340,6 +344,18 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
     if (!form.employee_id || !form.request_type) { alert('يرجى اختيار الموظف ونوع الطلب'); return }
     if (!form.description) { alert('يرجى إدخال تفاصيل الطلب'); return }
     if (form.request_type === 'attendance_correction' && !form.start_date) { alert('يرجى تحديد تاريخ الحضور المراد تصحيحه'); return }
+    // ✅ تحقق فعلي وقت الحفظ (مش بس قيد الواجهة min/max اللي ممكن يتلف بالتعديل المباشر على الصفحة) —
+    // تصحيح الحضور: لازم يكون تاريخ اليوم أو قبله. باقي الطلبات ذات التواريخ (الإجازات): لازم اليوم أو بعده
+    if (reqType?.hasDates && form.start_date) {
+      if (form.request_type === 'attendance_correction' && form.start_date !== todayStr) {
+        alert('تصحيح الحضور متاح لليوم الحالي فقط')
+        return
+      }
+      if (form.request_type !== 'attendance_correction' && form.start_date < todayStr) {
+        alert('لا يمكن تقديم طلب بتاريخ سابق — التاريخ يجب أن يكون اليوم أو بعده')
+        return
+      }
+    }
     setSaving(true)
 
     // إضافة معلومات تصحيح الحضور للوصف
@@ -381,7 +397,12 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
             {Object.entries(REQUEST_TYPES)
               .filter(([key]) => key !== 'salary_increase' && key !== 'salary_advance')
               .map(([key, cfg]) => (
-              <button key={key} onClick={() => setForm(p => ({ ...p, request_type: key }))}
+              <button key={key} onClick={() => setForm(p => ({
+                ...p,
+                request_type: key,
+                // ✅ تصحيح الحضور دائماً بتاريخ اليوم تلقائياً (بلا تقويم يدوي) — نضبطها هنا فور اختيار النوع
+                start_date: key === 'attendance_correction' ? todayStr : p.start_date,
+              }))}
                 style={{ padding: '10px 8px', borderRadius: 10, border: `1px solid ${form.request_type === key ? cfg.color : S.border}`, background: form.request_type === key ? cfg.bg : 'transparent', color: form.request_type === key ? cfg.color : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: form.request_type === key ? 700 : 400, textAlign: 'center', transition: 'all .2s' }}>
                 <div style={{ fontSize: 20, marginBottom: 4 }}>{cfg.icon}</div>
                 {isAr ? cfg.label : cfg.label_en}
@@ -435,12 +456,28 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>
                   {form.request_type === 'attendance_correction' ? 'تاريخ الحضور *' : 'من تاريخ'}
                 </label>
-                <input style={inp} type="date" value={form.start_date} onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))} />
+                {form.request_type === 'attendance_correction' ? (
+                  // ✅ تصحيح الحضور دائماً لليوم الحالي فقط — بلا تقويم اختيار خالص، القيمة ثابتة تلقائياً
+                  // ولا يمكن تعديلها، لضمان تصحيح فوري في نفس اليوم فقط وليس رجوعاً لأيام سابقة
+                  <div style={{ ...inp, display: 'flex', alignItems: 'center', gap: 8, background: S.card2, cursor: 'default' }}>
+                    📅 {todayStr} <span style={{ fontSize: 11, color: S.muted }}>(اليوم فقط)</span>
+                  </div>
+                ) : (
+                  <input
+                    style={inp} type="date" value={form.start_date}
+                    min={todayStr}
+                    onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))}
+                  />
+                )}
               </div>
               {form.request_type !== 'attendance_correction' && (
                 <div>
                   <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>إلى تاريخ</label>
-                  <input style={inp} type="date" value={form.end_date} onChange={e => setForm(p => ({ ...p, end_date: e.target.value }))} />
+                  <input
+                    style={inp} type="date" value={form.end_date}
+                    min={form.start_date || todayStr}
+                    onChange={e => setForm(p => ({ ...p, end_date: e.target.value }))}
+                  />
                 </div>
               )}
               {daysCount > 0 && form.request_type !== 'attendance_correction' && (

@@ -31,6 +31,8 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   hall_supervisor:     { label: 'مشرف الصالة',    icon: '🍽️', color: S.blue,    bg: S.blueB,                        desc: 'الصالة والحجوزات وخدمة العملاء' },
   bar_supervisor:      { label: 'مشرف البار',     icon: '☕', color: S.teal,    bg: S.tealB,                        desc: 'البار والمشروبات والمخزون' },
   cashier:             { label: 'كاشير',           icon: '💰', color: S.green,   bg: S.greenB,                       desc: 'المبيعات والفواتير والدفع' },
+  // ✅ أضيف هنا — كان غير موجود خالص، وده سبب عدم ظهوره في صفحة الصلاحيات وعدم امتلاكه أي صلاحية أصلاً
+  assistant_cashier:   { label: 'مساعد كاشير',     icon: '💳', color: S.green,   bg: S.greenB,                       desc: 'المبيعات والفواتير — نفس صلاحيات الكاشير' },
   warehouse_keeper:    { label: 'أمين المستودع',  icon: '🏭', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'إدارة المخزون والمشتريات وطلبات الفروع' },
   warehouse_manager:   { label: 'مدير المستودعات', icon: '🏭', color: '#EA580C', bg: 'rgba(234,88,12,0.12)',         desc: 'إدارة المستودعات لكل الفروع والموظفين' },
   employee:            { label: 'موظف',            icon: '👤', color: S.muted,   bg: S.card2,                        desc: 'طلباته الشخصية فقط' },
@@ -46,6 +48,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   hall_supervisor:    { hall: true, bookings: true, market_purchases: true, my_requests: true, attendance: true, marketing: true },
   bar_supervisor:     { bar: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true },
   cashier:            { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
+  // ✅ نفس صلاحيات الكاشير بالضبط كنقطة بداية معقولة — الأدمن يقدر يعدّلها لاحقاً من نفس الصفحة لو عايز يقيّدها أكتر
+  assistant_cashier:  { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
   warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   warehouse_manager:  { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true, marketing: true },

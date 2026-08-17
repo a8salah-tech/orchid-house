@@ -2213,10 +2213,28 @@ export default function CashierPage() {
     const sessions = (sData as any[]) || []
     setClosedSessions(sessions)
 
+    // ✅ Fix حرج جدًا: منع تكرار نفس الفاتورة في يومين مختلفين. لو فيه شيفت بدأ *اليوم اللي فات* ولسه شغال
+    // (أو امتد لحد داخل اليوم المطلوب دلوقتي)، الفترة المتداخلة دي أصلاً بتاعة الشيفت القديم ده (يوم بدايته)
+    // مش اليوم الحالي - فبنأجّل بداية استعلام اليوم الحالي لحد ما الشيفت القديم ده يخلص فعليًا (أو "دلوقتي"
+    // لو لسه شغال)، عشان الفترة متتحسبش مرتين. من غير الفحص ده، أي طلب اتدفع بعد نص الليل من شيفت امبارح
+    // كان بيظهر مرتين: تحت شيفت امبارح صح، وتحت "Other Closed Orders" النهاردة غلط
+    const prevDate = new Date(new Date(targetDate + 'T00:00:00+08:00').getTime() - 24 * 60 * 60 * 1000)
+      .toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    let pq = sb.from('cashier_shift_sessions').select('ended_at').eq('session_date', prevDate)
+      .or(`ended_at.is.null,ended_at.gte.${dayStart}`)
+    if (!isAdmin && employee?.branch_id) pq = pq.eq('branch_id', employee.branch_id)
+    if (isAdmin && adminBranchFilter) pq = pq.eq('branch_id', adminBranchFilter)
+    const { data: prevData } = await pq
+    let effectiveDayStart = dayStart
+    for (const p of (prevData || [])) {
+      const pEnd = p.ended_at || new Date().toISOString() // لسه شغال؟ يبقى النهاردة كله محجوز لحد ما يخلص
+      if (new Date(pEnd).getTime() > new Date(effectiveDayStart).getTime()) effectiveDayStart = pEnd
+    }
+
     // ✅ جديد: تاب Closed بتاع الكاشير المفروض يوري "الشيفت كامل من أوله لآخره" حتى لو عدّى منتصف الليل -
     // بعكس تقرير اليومية اللي لازم يتقسم على أيام تقويمية للمحاسبة. عشان كده بنوسّع نطاق جلب الطلبات ليغطي
     // من أول جلسة شيفت (حتى لو بدأت امبارح) لحد نهاية اليوم المطلوب (أو دلوقتي لو فيه شيفت لسه شغال)
-    let ordersRangeStart = dayStart
+    let ordersRangeStart = effectiveDayStart
     let ordersRangeEnd = dayEnd
     // ✅ Fix حرج جدًا: المقارنة بين الأوقات لازم تتم بالتوقيت الحقيقي (getTime) مش كنصوص (String) - المقارنة
     // النصية كانت بتفشل لما تختلف صيغة المنطقة الزمنية بين القيمتين (مثلاً "21:05+00:00" من قاعدة البيانات
@@ -2231,7 +2249,7 @@ export default function CashierPage() {
     // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
     // والملغية (مالهاش paid_at) بتفضل محصورة في اليوم المطلوب بس (created_at)
     const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
-      .or(`and(status.eq.paid,paid_at.gte.${ordersRangeStart},paid_at.lte.${ordersRangeEnd}),and(status.eq.cancelled,created_at.gte.${dayStart},created_at.lte.${dayEnd})`)
+      .or(`and(status.eq.paid,paid_at.gte.${ordersRangeStart},paid_at.lte.${ordersRangeEnd}),and(status.eq.cancelled,created_at.gte.${effectiveDayStart},created_at.lte.${dayEnd})`)
       // ✅ الترتيب بقى حسب وقت القفل الفعلي (paid_at) - مش وقت فتح الطلب - عشان الفواتير تظهر بترتيب زمني صحيح
       .order('paid_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })

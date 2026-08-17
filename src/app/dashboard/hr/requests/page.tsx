@@ -460,7 +460,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
                   // ✅ تصحيح الحضور دائماً لليوم الحالي فقط — بلا تقويم اختيار خالص، القيمة ثابتة تلقائياً
                   // ولا يمكن تعديلها، لضمان تصحيح فوري في نفس اليوم فقط وليس رجوعاً لأيام سابقة
                   <div style={{ ...inp, display: 'flex', alignItems: 'center', gap: 8, background: S.card2, cursor: 'default' }}>
-                    📅 {todayStr} <span style={{ fontSize: 11, color: S.muted }}>(اليوم فقط)</span>
+                    📅 {todayStr}
                   </div>
                 ) : (
                   <input

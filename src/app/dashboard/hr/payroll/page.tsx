@@ -586,10 +586,15 @@ export default function PayrollPage() {
       // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
       const deactDate = empMap[payslipRecord.employee_id]?.deactivated_at
       const joinDate = empMap[payslipRecord.employee_id]?.join_date
+      // ✅ نفس تصحيح "أمس بدل اليوم" المطبَّق في الحساب الأساسي (loadMonthRecords) — وإلا هذه القائمة
+      // (المعروضة في القسيمة) تفضل تشمل أيام المستقبل اللي لسه ما جاتش، بينما رقم الخصم نفسه (المحسوب
+      // من مكان آخر) صحيح ومستبعِد لها بالفعل، فيظهر تناقض واضح بين الرقم والقائمة المعروضة تحته
+      const yesterdayForAbsence = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       const leaveDates: string[] = []
       const workDates: string[] = []
       for (const s of (schedRes.data || [])) {
         const d = String(s.date).slice(0, 10)
+        if (d > yesterdayForAbsence) continue
         if (deactDate && d > deactDate) continue
         if (joinDate && d < joinDate) continue
         if (!s.shift_id && !s.custom_start) leaveDates.push(d)
@@ -1016,11 +1021,14 @@ export default function PayrollPage() {
       // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
       const deactDate = empMap[employeeId]?.deactivated_at
       const joinDate = empMap[employeeId]?.join_date
+      // ✅ نفس تصحيح "أمس بدل اليوم" — وإلا الطباعة الجماعية تعرض أيام مستقبلية كغياب فعلي
+      const yesterdayForAbsence = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       const leaveDates: string[] = []
       const workDates: string[] = []
       for (const s of schedRows) {
         if (s.employee_id !== employeeId) continue
         const d = String(s.date).slice(0, 10)
+        if (d > yesterdayForAbsence) continue
         if (deactDate && d > deactDate) continue
         if (joinDate && d < joinDate) continue
         if (!s.shift_id && !s.custom_start) leaveDates.push(d)

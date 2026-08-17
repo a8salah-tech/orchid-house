@@ -2218,10 +2218,13 @@ export default function CashierPage() {
     // من أول جلسة شيفت (حتى لو بدأت امبارح) لحد نهاية اليوم المطلوب (أو دلوقتي لو فيه شيفت لسه شغال)
     let ordersRangeStart = dayStart
     let ordersRangeEnd = dayEnd
+    // ✅ Fix حرج جدًا: المقارنة بين الأوقات لازم تتم بالتوقيت الحقيقي (getTime) مش كنصوص (String) - المقارنة
+    // النصية كانت بتفشل لما تختلف صيغة المنطقة الزمنية بين القيمتين (مثلاً "21:05+00:00" من قاعدة البيانات
+    // مقابل "23:59+08:00" الافتراضي)، فكان بيقف نطاق الطلبات عند نص الليل بالظبط ومش بيوسّع لآخر الشيفت الحقيقي
     for (const s of sessions) {
-      if (s.started_at < ordersRangeStart) ordersRangeStart = s.started_at
+      if (new Date(s.started_at).getTime() < new Date(ordersRangeStart).getTime()) ordersRangeStart = s.started_at
       const sEnd = s.ended_at || new Date().toISOString()
-      if (sEnd > ordersRangeEnd) ordersRangeEnd = sEnd
+      if (new Date(sEnd).getTime() > new Date(ordersRangeEnd).getTime()) ordersRangeEnd = sEnd
     }
 
     const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`

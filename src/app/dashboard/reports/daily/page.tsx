@@ -749,11 +749,13 @@ export default function DailyReportPage() {
     // الحقيقية، وإلا مبيعات يوم أمس بالكامل كانت هتتحسب غلط جوه تقرير اليوم ده. وقت العرض (Started HH:MM) لسه
     // بيوري الوقت الحقيقي اللي الكاشير بدأ فيه فعليًا، بس حساب المبيعات بس بيتقصّر على جزء اليوم الحالي
     const windows = useTimeWindow
-      ? validSessions.map(s => ({ start: s.started_at < dayStart ? dayStart : s.started_at, end: s.ended_at || cappedNow }))
+      ? validSessions.map(s => ({ start: new Date(s.started_at).getTime() < new Date(dayStart).getTime() ? dayStart : s.started_at, end: s.ended_at || cappedNow }))
       : [{ start: dayStart, end: dayEnd }]
     // أوسع مدى زمني يغطي كل الجلسات، عشان نجيب الأوردرات في استعلام واحد ثم نفلترها بدقة على كل نافذة
-    const rangeStart = windows.reduce((m, w) => (w.start < m ? w.start : m), windows[0].start)
-    const rangeEnd = windows.reduce((m, w) => (w.end > m ? w.end : m), windows[0].end)
+    // ✅ Fix حرج: نفس باج المقارنة النصية - لازم نقارن بالتوقيت الحقيقي (getTime) مش كنصوص، وإلا اختلاف صيغة
+    // المنطقة الزمنية بين قيم قاعدة البيانات (+00:00) والقيم المحسوبة يدويًا (+08:00) بيدي نتيجة غلط
+    const rangeStart = windows.reduce((m, w) => (new Date(w.start).getTime() < new Date(m).getTime() ? w.start : m), windows[0].start)
+    const rangeEnd = windows.reduce((m, w) => (new Date(w.end).getTime() > new Date(m).getTime() ? w.end : m), windows[0].end)
 
     let ordersQuery = sb.from('orders')
       .select('total_amount, discount_amount, payment_method, card_bank, shift, paid_at, paid_by_name, tables!inner(branch_id)')

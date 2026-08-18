@@ -2700,9 +2700,15 @@ export default function CashierPage() {
                     {activeOrder && table.occupied_since && (
                       <div style={{ fontSize: 10, color: S.amber, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(table.occupied_since)}</div>
                     )}
-                    {activeOrder && (
-                      <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {(activeOrder.total_amount || 0).toFixed(2)}</div>
-                    )}
+                    {activeOrder && (() => {
+                      // ✅ Fix حرج: السعر الظاهر على البطاقة كان بيعرض total_amount الخام بس (سعر الأصناف
+                      // من غير خدمة أو ضريبة، لأن دول بيتحسبوا بس وقت الدفع الفعلي). دلوقتي بنحسبهم هنا
+                      // للعرض بس، عشان الرقم الظاهر يطابق المبلغ الحقيقي اللي العميل هيدفعه فعليًا
+                      const isTakeaway = (table as any).section === 'takeaway'
+                      const raw = activeOrder.total_amount || 0
+                      const withFees = raw + (isTakeaway ? 0 : raw * SERVICE_CHARGE_RATE) + raw * SST_RATE
+                      return <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {withFees.toFixed(2)}</div>
+                    })()}
                     {/* ✅ Fix: الدمج/فك الدمج يقتصر على الكاشير بس، لكن زرار + (إضافة طلب على طاولة مشغولة)
                         متاح للكاشير والدور المحدود (مشرف الصالة) مع بعض */}
                     {(isCashierRole || isLimitedTableRole) && activeOrder && (

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAuth } from '../../components/AuthProvider'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -39,6 +39,11 @@ const STATUS: Record<string, { label: string; color: string; bg: string }> = {
 }
 const SHIFT_LABEL: Record<string, string> = { morning: '☀️ شيفت صباحي', evening: '🌙 شيفت مسائي' }
 const PAYMENT_LABEL: Record<string, string> = { cash: '💵 نقدًا', visa: '💳 فيزا', online: '🌐 أونلاين', bank_transfer: '🏦 تحويل بنكي', other: '➕ أخرى' }
+// ✅ جديد: نوع البوفية — داخلي (في المطعم) أو خارجي (عند العميل)
+const BUFFET_TYPE_LABEL: Record<string, { label: string; icon: string; color: string; bg: string }> = {
+  internal: { label: 'بوفية داخلية', icon: '🏠', color: S.teal, bg: S.tealB },
+  external: { label: 'بوفية خارجية', icon: '🚚', color: S.purple, bg: S.purpleB },
+}
 
 // ══ Types ══
 interface Branch { id: string; name: string }
@@ -55,7 +60,7 @@ interface BuffetRating { id?: string; buffet_order_id: string; rated_by: string 
 interface BuffetOrder {
   id: string; branch_id: string; buffet_date: string; buffet_time: string
   guests_count: number; adults_count: number | null; kids_count: number | null
-  shift: string | null; payment_method: string
+  shift: string | null; payment_method: string; buffet_type: string
   total_amount: number; paid_amount: number; status: string; notes: string | null
   created_by: string | null; created_at: string; branches?: { name: string }
 }
@@ -124,6 +129,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
 }) {
   const supabase = createClient()
   const [branchId, setBranchId] = useState(currentUser?.branch_id || '')
+  const [buffetType, setBuffetType] = useState<'internal' | 'external'>('internal')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [time, setTime] = useState('12:00')
   const [guests, setGuests] = useState('10')
@@ -179,6 +185,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
       buffet_date: date,
       buffet_time: time,
       guests_count: parseInt(guests) || 1,
+      buffet_type: buffetType,
       payment_method: paymentMethod,
       total_amount: totalNum,
       paid_amount: paidNum,
@@ -213,6 +220,23 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
         {error && <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: S.red }}>❌ {error}</div>}
+
+        {/* ✅ جديد: نوع البوفية — داخلية (في المطعم) أو خارجية (عند العميل) */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>نوع البوفية *</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {(['internal', 'external'] as const).map(t => {
+              const tInfo = BUFFET_TYPE_LABEL[t]
+              const selected = buffetType === t
+              return (
+                <button key={t} onClick={() => setBuffetType(t)} type="button"
+                  style={{ padding: '12px', borderRadius: 12, border: `2px solid ${selected ? tInfo.color : S.border}`, background: selected ? tInfo.bg : 'transparent', color: selected ? tInfo.color : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, textAlign: 'center' }}>
+                  {tInfo.icon} {tInfo.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
           <div>
@@ -440,7 +464,12 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
-        <span style={{ display: 'inline-block', background: st.bg, color: st.color, borderRadius: 20, padding: '4px 14px', fontSize: 12, fontWeight: 700, marginBottom: 18 }}>{st.label}</span>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+          <span style={{ display: 'inline-block', background: st.bg, color: st.color, borderRadius: 20, padding: '4px 14px', fontSize: 12, fontWeight: 700 }}>{st.label}</span>
+          <span style={{ display: 'inline-block', background: BUFFET_TYPE_LABEL[order.buffet_type]?.bg || S.card, color: BUFFET_TYPE_LABEL[order.buffet_type]?.color || S.muted, borderRadius: 20, padding: '4px 14px', fontSize: 12, fontWeight: 700 }}>
+            {BUFFET_TYPE_LABEL[order.buffet_type]?.icon} {BUFFET_TYPE_LABEL[order.buffet_type]?.label || order.buffet_type}
+          </span>
+        </div>
         {error && <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: S.red }}>❌ {error}</div>}
 
         {loading ? (
@@ -584,10 +613,14 @@ function BuffetPrepModal({ order, onClose, onChanged }: { order: BuffetOrder; on
   const [savingMeta, setSavingMeta] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
+  // ✅ حارس محلي يمنع تنفيذ التعبئة الأولية أكثر من مرة في نفس الجلسة حتى لو استُدعيت load() أكثر من مرة بسرعة
+  const seedingRef = useRef(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase.from('buffet_prep_checklist').select('*').eq('buffet_order_id', order.id).order('sort_order')
-    if (!data || data.length === 0) {
+    if ((!data || data.length === 0) && !seedingRef.current) {
+      seedingRef.current = true
       // ✅ أول فتح لهذا الطلب: ننسخ القائمة الأساسية (١٠٠ بند) تلقائيًا كنقطة بداية
       const seedRows: any[] = []
       let sort = 0
@@ -598,10 +631,14 @@ function BuffetPrepModal({ order, onClose, onChanged }: { order: BuffetOrder; on
           seedRows.push({ buffet_order_id: order.id, category: cat.category, item_name: name, quantity_needed: isPersonal ? order.guests_count : 1, is_prepared: false, sort_order: sort++ })
         })
       })
-      const { data: inserted } = await supabase.from('buffet_prep_checklist').insert(seedRows).select('*').order('sort_order')
-      setRows(inserted || [])
+      // ✅ upsert بدل insert المباشر: لو تمت التعبئة بالفعل من نداء متزامن آخر، القيد الفريد في قاعدة البيانات
+      // (buffet_order_id + item_name) يمنع أي تكرار بدلًا من إدخال ١٠٠ بند إضافي
+      await supabase.from('buffet_prep_checklist').upsert(seedRows, { onConflict: 'buffet_order_id,item_name', ignoreDuplicates: true })
+      const { data: finalRows } = await supabase.from('buffet_prep_checklist').select('*').eq('buffet_order_id', order.id).order('sort_order')
+      setRows(finalRows || [])
+      seedingRef.current = false
     } else {
-      setRows(data)
+      setRows(data || [])
     }
     setLoading(false)
   }, [order.id])
@@ -626,14 +663,32 @@ function BuffetPrepModal({ order, onClose, onChanged }: { order: BuffetOrder; on
     setCollapsed(p => { const n = new Set(p); n.has(cat) ? n.delete(cat) : n.add(cat); return n })
   }
 
-  const doneCount = rows.filter(r => r.is_prepared).length
+  // ✅ إجراء وقائي: إزالة أي بند مكرر بنفس الاسم من العرض حتى لو وُجد تكرار قديم في قاعدة البيانات لم يُنظَّف بعد
+  const displayRows = (() => {
+    const seen = new Set<string>()
+    return rows.filter(r => {
+      const key = `${r.category}::${r.item_name}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  })()
+  const doneCount = displayRows.filter(r => r.is_prepared).length
 
   // ✅ فتح نافذة طباعة منفصلة بقائمة تجهيز نظيفة جاهزة للطباعة الورقية
   function printChecklist() {
     const win = window.open('', '_blank')
     if (!win) return
+    // ✅ إجراء وقائي إضافي: إزالة أي بند مكرر بنفس الاسم قبل الطباعة، حتى لو وُجد تكرار قديم في البيانات
+    const seen = new Set<string>()
+    const dedupedRows = rows.filter(r => {
+      const key = `${r.category}::${r.item_name}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     const bodyRows = PREP_CATEGORIES.map(cat => {
-      const catRows = rows.filter(r => r.category === cat.category)
+      const catRows = dedupedRows.filter(r => r.category === cat.category)
       if (catRows.length === 0) return ''
       return `<tr><td colspan="3" style="background:#222;color:#fff;font-weight:bold;padding:8px 10px;">${cat.category}</td></tr>` +
         catRows.map(r => `
@@ -698,12 +753,12 @@ function BuffetPrepModal({ order, onClose, onChanged }: { order: BuffetOrder; on
         ) : (
           <>
             <div style={{ background: S.gold3, border: `1px solid ${S.goldB}`, borderRadius: 10, padding: '8px 14px', marginBottom: 14, fontSize: 13, color: S.gold, fontWeight: 700, textAlign: 'center' }}>
-              ✅ تم تجهيز {doneCount} من أصل {rows.length} بند
+              ✅ تم تجهيز {doneCount} من أصل {displayRows.length} بند
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {PREP_CATEGORIES.map(cat => {
-                const catRows = rows.filter(r => r.category === cat.category)
+                const catRows = displayRows.filter(r => r.category === cat.category)
                 if (catRows.length === 0) return null
                 const catDone = catRows.filter(r => r.is_prepared).length
                 const isCollapsed = collapsed.has(cat.category)
@@ -894,17 +949,24 @@ export default function BuffetPage() {
             const remaining = Math.max(0, o.total_amount - o.paid_amount)
             return (
               <div key={o.id} onClick={() => tab === 'prep' ? setPrepOrder(o) : setDetailOrder(o)}
-                style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: 18, cursor: 'pointer', transition: 'border-color .15s', position: 'relative' }}>
-                {isAdmin && (
-                  <button onClick={e => { e.stopPropagation(); deleteOrderQuick(o) }} title="حذف نهائي (أدمن فقط)"
-                    style={{ position: 'absolute', top: 10, left: 10, width: 26, height: 26, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🗑️</button>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: 18, cursor: 'pointer', transition: 'border-color .15s' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{o.buffet_date}</div>
-                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {isAdmin && (
+                      <button onClick={e => { e.stopPropagation(); deleteOrderQuick(o) }} title="حذف نهائي (أدمن فقط)"
+                        style={{ width: 24, height: 24, borderRadius: 7, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🗑️</button>
+                    )}
+                    <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.label}</span>
+                  </div>
                 </div>
                 <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>
                   🕐 {o.buffet_time} · 👥 {o.guests_count} شخص {isAdmin && o.branches?.name ? `· 🏪 ${o.branches.name}` : ''}
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: BUFFET_TYPE_LABEL[o.buffet_type]?.color || S.muted, background: BUFFET_TYPE_LABEL[o.buffet_type]?.bg || S.card, borderRadius: 8, padding: '3px 9px' }}>
+                    {BUFFET_TYPE_LABEL[o.buffet_type]?.icon} {BUFFET_TYPE_LABEL[o.buffet_type]?.label || o.buffet_type}
+                  </span>
                 </div>
                 {tab === 'prep' ? (
                   (() => {

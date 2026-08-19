@@ -54,10 +54,56 @@ interface BuffetConfirmation {
 interface BuffetRating { id?: string; buffet_order_id: string; rated_by: string | null; stars: number; issues_notes: string | null; created_at?: string }
 interface BuffetOrder {
   id: string; branch_id: string; buffet_date: string; buffet_time: string
-  guests_count: number; shift: string | null; payment_method: string
+  guests_count: number; adults_count: number | null; kids_count: number | null
+  shift: string | null; payment_method: string
   total_amount: number; paid_amount: number; status: string; notes: string | null
   created_by: string | null; created_at: string; branches?: { name: string }
 }
+// ✅ جديد: بند من بنود قائمة تجهيز البوفية
+interface PrepItem { id: string; buffet_order_id: string; category: string; item_name: string; quantity_needed: number; is_prepared: boolean; sort_order: number }
+
+// ✅ جديد: القائمة الأساسية الشاملة لتجهيزات أي بوفية (١٠٠ بند مقسّمة على ٨ فئات) — تُستخدم كنموذج افتراضي يُنسخ لكل طلب بوفية جديد
+const PREP_CATEGORIES: { category: string; items: string[] }[] = [
+  { category: '🍽️ أدوات المائدة والتقديم', items: [
+    'صحون كبيرة', 'صحون صغيرة', 'صحون تحلية', 'أطباق تقديم رئيسية', 'ملاعق كبيرة', 'ملاعق صغيرة',
+    'شوك', 'سكاكين', 'ملاعق تقديم (سرفس)', 'ملقط تقديم', 'أكواب مياه', 'أكواب شاي', 'أكواب عصير',
+    'فناجين قهوة', 'صحون فناجين', 'مناديل ورقية', 'مناديل قماش', 'أطباق سلطة', 'أوعية صوص',
+    'سفرية كبيرة (تقديم أرز/مندي)', 'سفرية صغيرة', 'صواني تقديم معدنية', 'أباريق شاي', 'أباريق قهوة',
+    'حاملات صحون ساخنة (تحت الصحن)',
+  ]},
+  { category: '🔥 التسخين والتبريد', items: [
+    'سخان ماء', 'سخان شاي', 'سخانات طعام (شافينج ديش)', 'مواقد تسخين احتياطية', 'صناديق تبريد (كولر)',
+    'ثلاجة عرض متنقلة', 'ترامس شاي', 'ترامس قهوة', 'أواني حفظ حرارة الأرز', 'سلك/شبكة تسخين احتياطي',
+  ]},
+  { category: '🥤 المشروبات والمياه', items: [
+    'جك مياه كبير', 'جك مياه صغير', 'زجاجات مياه فردية', 'ثلج', 'عصائر جاهزة', 'مشروبات غازية',
+    'آلة قهوة/إسبريسو', 'مبرد مشروبات', 'أكياس شاي وقهوة احتياطية', 'سكر وحليب للضيافة',
+  ]},
+  { category: '🌸 الديكور والتنسيق', items: [
+    'ستائر', 'مفارش طاولات', 'مفارش كراسي', 'تنسيق زهور للطاولة المركزية', 'شموع/إضاءة ديكور', 'بالونات',
+    'لافتة اسم المناسبة', 'سجادة استقبال', 'حاملات قوائم الطعام (منيو ستاند)', 'لوحة ترحيب',
+    'إكسسوارات طاولة البوفية الرئيسية', 'زهور طبيعية أو صناعية للممرات', 'إضاءة خارجية (إن وجدت)',
+    'ديكور المدخل', 'عناصر تزيين حسب مناسبة العميل (عيد ميلاد، خطوبة، إلخ)',
+  ]},
+  { category: '🔊 الصوتيات والمرئيات', items: [
+    'شاشات', 'سماعات', 'ميكروفون', 'مضخم صوت', 'كابلات توصيل', 'راوتر إنترنت للفعالية',
+    'جهاز عرض بروجكتور', 'كاميرا تصوير للمناسبة (إن طُلبت)', 'مصدر موسيقى/بلاي ليست', 'مصدر كهرباء احتياطي (UPS)',
+  ]},
+  { category: '🪑 الأثاث', items: [
+    'طاولات الضيوف', 'كراسي الضيوف', 'طاولة البوفية الرئيسية', 'طاولة الحلويات', 'طاولة الاستقبال',
+    'ستاندات تقديم مرتفعة', 'طاولة أطفال (إن وجدت)', 'كراسي أطفال', 'طاولة هدايا/كروت', 'حواجز تنظيم الطابور',
+  ]},
+  { category: '🧼 النظافة والسلامة', items: [
+    'أكياس قمامة', 'مناديل تنظيف', 'معقم أيدي', 'قفازات تقديم', 'مطهرات أسطح', 'طفاية حريق',
+    'صندوق إسعافات أولية', 'لافتات إرشادية (مخرج/دخول)', 'سلال قمامة إضافية', 'ممسحة وأدوات تنظيف سريع',
+  ]},
+  { category: '👥 الطاقم والتنظيم', items: [
+    'عدد الجرسونات المطلوب', 'الشيف المسؤول عن البوفية', 'منسق/مسؤول تنظيم الحفل',
+    'جدول أوقات التقديم (البداية/التقديم/الختام)', 'خطة توزيع المهام بين الموظفين', 'زي موحد للطاقم',
+    'بطاقات أسماء الموظفين', 'خطة الطوارئ (نقص كمية، تأخير، إلخ)', 'تنسيق موعد الوصول المسبق للتجهيز',
+    'مراجعة نهائية قبل بدء الحفل (تشيك ليست ختامي)',
+  ]},
+]
 
 // ══ جلب الصنف المسؤول والتقييم لطلب بوفية محدد ══
 async function fetchOrderExtras(supabase: ReturnType<typeof createClient>, orderId: string) {
@@ -364,6 +410,17 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
     onClose()
   }
 
+  // ✅ جديد: حذف نهائي لطلب البوفية بالكامل من قاعدة البيانات — للأدمن فقط
+  async function deleteOrder() {
+    if (!confirm('تحذير: سيتم حذف طلب البوفية هذا نهائيًا مع كل بياناته (الأصناف، التثبيتات، التقييم، قائمة التجهيز). هل أنت متأكد؟')) return
+    setBusy(true)
+    const { error: err } = await supabase.from('buffet_orders').delete().eq('id', order.id)
+    setBusy(false)
+    if (err) { setError('حدث خطأ أثناء الحذف: ' + err.message); return }
+    onChanged()
+    onClose()
+  }
+
   const st = STATUS[order.status] || STATUS.pending_confirmation
   const canConfirmKitchen = isKitchenManager && !confirmation?.kitchen_confirmed_at
   const canConfirmHall = isHallManager && !confirmation?.hall_confirmed_at
@@ -498,9 +555,179 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
               </div>
             ) : null}
 
-            {canCancel && (
-              <button onClick={cancelOrder} disabled={busy} style={{ width: '100%', padding: 10, borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>❌ إلغاء طلب البوفية</button>
+            {(canCancel || isAdmin) && (
+              <div style={{ borderTop: `1px solid ${S.border}`, marginTop: 20, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {canCancel && (
+                  <button onClick={cancelOrder} disabled={busy} style={{ width: '100%', padding: 10, borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>❌ إلغاء طلب البوفية</button>
+                )}
+                {isAdmin && (
+                  <button onClick={deleteOrder} disabled={busy} style={{ width: '100%', padding: 10, borderRadius: 10, border: `1px solid ${S.red}`, background: 'transparent', color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>🗑️ حذف نهائي (أدمن فقط)</button>
+                )}
+              </div>
             )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════
+// ══ Modal: تجهيز البوفية — القائمة، التوزيع، الطباعة ══
+// ══════════════════════════════════════════════════════════════
+function BuffetPrepModal({ order, onClose, onChanged }: { order: BuffetOrder; onClose: () => void; onChanged: () => void }) {
+  const supabase = createClient()
+  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<PrepItem[]>([])
+  const [adults, setAdults] = useState(String(order.adults_count ?? order.guests_count))
+  const [kids, setKids] = useState(String(order.kids_count ?? 0))
+  const [savingMeta, setSavingMeta] = useState(false)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase.from('buffet_prep_checklist').select('*').eq('buffet_order_id', order.id).order('sort_order')
+    if (!data || data.length === 0) {
+      // ✅ أول فتح لهذا الطلب: ننسخ القائمة الأساسية (١٠٠ بند) تلقائيًا كنقطة بداية
+      const seedRows: any[] = []
+      let sort = 0
+      PREP_CATEGORIES.forEach(cat => {
+        cat.items.forEach(name => {
+          // الأصناف الشخصية (صحون، ملاعق، أكواب...) تُقترح بعدد الضيوف تلقائيًا، والباقي بعدد 1 قابل للتعديل
+          const isPersonal = /صحن|ملعق|شوك|سكاكين|كوب|أكواب|فنجان|فناجين|منديل/.test(name)
+          seedRows.push({ buffet_order_id: order.id, category: cat.category, item_name: name, quantity_needed: isPersonal ? order.guests_count : 1, is_prepared: false, sort_order: sort++ })
+        })
+      })
+      const { data: inserted } = await supabase.from('buffet_prep_checklist').insert(seedRows).select('*').order('sort_order')
+      setRows(inserted || [])
+    } else {
+      setRows(data)
+    }
+    setLoading(false)
+  }, [order.id])
+
+  useEffect(() => { load() }, [load])
+
+  async function toggleDone(row: PrepItem) {
+    setRows(p => p.map(r => r.id === row.id ? { ...r, is_prepared: !r.is_prepared } : r))
+    await supabase.from('buffet_prep_checklist').update({ is_prepared: !row.is_prepared, updated_at: new Date().toISOString() }).eq('id', row.id)
+  }
+  async function updateQty(row: PrepItem, qty: number) {
+    setRows(p => p.map(r => r.id === row.id ? { ...r, quantity_needed: qty } : r))
+    await supabase.from('buffet_prep_checklist').update({ quantity_needed: qty, updated_at: new Date().toISOString() }).eq('id', row.id)
+  }
+  async function saveMeta() {
+    setSavingMeta(true)
+    await supabase.from('buffet_orders').update({ adults_count: parseInt(adults) || 0, kids_count: parseInt(kids) || 0 }).eq('id', order.id)
+    setSavingMeta(false)
+    onChanged()
+  }
+  function toggleCategory(cat: string) {
+    setCollapsed(p => { const n = new Set(p); n.has(cat) ? n.delete(cat) : n.add(cat); return n })
+  }
+
+  const doneCount = rows.filter(r => r.is_prepared).length
+
+  // ✅ فتح نافذة طباعة منفصلة بقائمة تجهيز نظيفة جاهزة للطباعة الورقية
+  function printChecklist() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const bodyRows = PREP_CATEGORIES.map(cat => {
+      const catRows = rows.filter(r => r.category === cat.category)
+      if (catRows.length === 0) return ''
+      return `<tr><td colspan="3" style="background:#222;color:#fff;font-weight:bold;padding:8px 10px;">${cat.category}</td></tr>` +
+        catRows.map(r => `
+          <tr>
+            <td style="padding:6px 10px;border-bottom:1px solid #ddd;">${r.item_name}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #ddd;text-align:center;width:90px;">${r.quantity_needed}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #ddd;text-align:center;width:70px;font-size:16px;">${r.is_prepared ? '✔' : '☐'}</td>
+          </tr>`).join('')
+    }).join('')
+    win.document.write(`
+      <html dir="rtl" lang="ar"><head><meta charset="utf-8" /><title>قائمة تجهيز البوفية</title>
+      <style>
+        body { font-family: Tajawal, Arial, sans-serif; padding: 24px; color: #111; }
+        h1 { font-size: 20px; margin-bottom: 6px; }
+        p { color: #444; margin: 2px 0; font-size: 13px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        thead th { background: #C9A84C; color: #111; padding: 8px 10px; text-align: right; font-size: 13px; }
+        @media print { body { padding: 10px; } }
+      </style></head>
+      <body>
+        <h1>قائمة تجهيز البوفية${order.branches?.name ? ' — ' + order.branches.name : ''}</h1>
+        <p>التاريخ: ${order.buffet_date} — الوقت: ${order.buffet_time}</p>
+        <p>عدد الأشخاص: ${order.guests_count} (كبار: ${adults || '—'} / صغار: ${kids || '—'})</p>
+        <table>
+          <thead><tr><th>البند</th><th>العدد المطلوب</th><th>تم التجهيز</th></tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+        <script>window.onload = function(){ window.print() }</script>
+      </body></html>
+    `)
+    win.document.close()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 680, maxHeight: '90vh', overflowY: 'auto', padding: 28, fontFamily: 'Tajawal, sans-serif', direction: 'rtl' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+          <div>
+            <h3 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 6 }}>🧺 تجهيز البوفية{order.branches?.name ? ' — ' + order.branches.name : ''}</h3>
+            <div style={{ fontSize: 13, color: S.muted }}>{order.buffet_date} — {order.buffet_time} · 👥 {order.guests_count} شخص</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={printChecklist} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة</button>
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, marginBottom: 18, alignItems: 'end' }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>عدد الكبار</label>
+            <input style={inp} type="number" min={0} value={adults} onChange={e => setAdults(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>عدد الصغار (أطفال)</label>
+            <input style={inp} type="number" min={0} value={kids} onChange={e => setKids(e.target.value)} />
+          </div>
+          <button onClick={saveMeta} disabled={savingMeta} style={{ padding: '10px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{savingMeta ? '⏳' : 'حفظ'}</button>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>⏳ جاري التحميل...</div>
+        ) : (
+          <>
+            <div style={{ background: S.gold3, border: `1px solid ${S.goldB}`, borderRadius: 10, padding: '8px 14px', marginBottom: 14, fontSize: 13, color: S.gold, fontWeight: 700, textAlign: 'center' }}>
+              ✅ تم تجهيز {doneCount} من أصل {rows.length} بند
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {PREP_CATEGORIES.map(cat => {
+                const catRows = rows.filter(r => r.category === cat.category)
+                if (catRows.length === 0) return null
+                const catDone = catRows.filter(r => r.is_prepared).length
+                const isCollapsed = collapsed.has(cat.category)
+                return (
+                  <div key={cat.category} style={{ background: S.card, borderRadius: 12, overflow: 'hidden' }}>
+                    <button onClick={() => toggleCategory(cat.category)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{cat.category}</span>
+                      <span style={{ fontSize: 11, color: catDone === catRows.length ? S.green : S.muted }}>{catDone}/{catRows.length} {isCollapsed ? '▸' : '▾'}</span>
+                    </button>
+                    {!isCollapsed && (
+                      <div>
+                        {catRows.map(r => (
+                          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', borderTop: `1px solid ${S.border}` }}>
+                            <span style={{ flex: 1, fontSize: 12.5, color: r.is_prepared ? S.muted : S.white, textDecoration: r.is_prepared ? 'line-through' : 'none' }}>{r.item_name}</span>
+                            <input type="number" min={0} value={r.quantity_needed} onChange={e => updateQty(r, parseFloat(e.target.value) || 0)} style={{ width: 60, ...inp, padding: '4px 6px', textAlign: 'center', fontSize: 12 }} />
+                            <button onClick={() => toggleDone(r)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${r.is_prepared ? S.green : S.border}`, background: r.is_prepared ? S.greenB : 'transparent', color: S.green, cursor: 'pointer', fontSize: 14, flexShrink: 0 }}>{r.is_prepared ? '✔' : ''}</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </>
         )}
       </div>
@@ -529,6 +756,8 @@ export default function BuffetPage() {
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [detailOrder, setDetailOrder] = useState<BuffetOrder | null>(null)
+  const [prepOrder, setPrepOrder] = useState<BuffetOrder | null>(null)
+  const [tab, setTab] = useState<'orders' | 'prep'>('orders')
   const [filterBranch, setFilterBranch] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
 
@@ -583,6 +812,29 @@ export default function BuffetPage() {
   const employeesById = Object.fromEntries(employees.map(e => [e.id, e]))
   const branchEmployeesForOrder = (branchId: string) => employees.filter(e => e.branch_id === branchId)
 
+  // ✅ جديد: ملخص حالة التجهيز لكل طلب — يظهر على البطاقات عند فتح تبويب "تجهيز البوفية"
+  const [prepSummary, setPrepSummary] = useState<Record<string, { done: number; total: number }>>({})
+  useEffect(() => {
+    if (tab !== 'prep' || orders.length === 0) { return }
+    ;(async () => {
+      const { data } = await supabase.from('buffet_prep_checklist').select('buffet_order_id, is_prepared').in('buffet_order_id', orders.map(o => o.id))
+      const map: Record<string, { done: number; total: number }> = {}
+      ;(data || []).forEach(r => {
+        if (!map[r.buffet_order_id]) map[r.buffet_order_id] = { done: 0, total: 0 }
+        map[r.buffet_order_id].total++
+        if (r.is_prepared) map[r.buffet_order_id].done++
+      })
+      setPrepSummary(map)
+    })()
+  }, [tab, orders])
+
+  // ✅ جديد: حذف نهائي سريع من البطاقة مباشرة — أدمن فقط
+  async function deleteOrderQuick(o: BuffetOrder) {
+    if (!confirm('تحذير: سيتم حذف طلب البوفية هذا نهائيًا مع كل بياناته. هل أنت متأكد؟')) return
+    await supabase.from('buffet_orders').delete().eq('id', o.id)
+    fetchAll()
+  }
+
   const visibleOrders = orders.filter(o => {
     if (isAdmin && filterBranch !== 'all' && o.branch_id !== filterBranch) return false
     if (filterStatus !== 'all' && o.status !== filterStatus) return false
@@ -596,7 +848,14 @@ export default function BuffetPage() {
           <h1 style={{ fontSize: 24, fontWeight: 800, color: S.white, marginBottom: 4 }}>🍽️ قسم البوفية</h1>
           <p style={{ fontSize: 13, color: S.muted }}>تنظيم طلبات البوفية ومسؤولية التنفيذ بين المطبخ والصالة</p>
         </div>
-        <button onClick={() => setShowNew(true)} style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>+ طلب بوفية جديد</button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {/* ✅ جديد: مبدّل تبويبات — الطلبات (الافتراضي) أو تجهيز البوفية */}
+          <div style={{ display: 'flex', background: S.card, borderRadius: 10, padding: 4, gap: 4 }}>
+            <button onClick={() => setTab('orders')} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, background: tab === 'orders' ? S.gold3 : 'transparent', color: tab === 'orders' ? S.gold : S.muted }}>📋 الطلبات</button>
+            <button onClick={() => setTab('prep')} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, background: tab === 'prep' ? S.gold3 : 'transparent', color: tab === 'prep' ? S.gold : S.muted }}>🧺 تجهيز البوفية</button>
+          </div>
+          <button onClick={() => setShowNew(true)} style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>+ طلب بوفية جديد</button>
+        </div>
       </div>
 
       {/* ── الفلاتر ── */}
@@ -613,6 +872,12 @@ export default function BuffetPage() {
         </select>
       </div>
 
+      {tab === 'prep' && (
+        <div style={{ background: S.gold3, border: `1px solid ${S.goldB}`, borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: S.gold, fontWeight: 700 }}>
+          🧺 اضغط على أي طلب بوفية أدناه لعرض وإدارة قائمة تجهيزه (١٠٠ بند)
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
       ) : visibleOrders.length === 0 ? (
@@ -628,8 +893,12 @@ export default function BuffetPage() {
             const responsible = conf?.responsible_employee_id ? employeesById[conf.responsible_employee_id] : null
             const remaining = Math.max(0, o.total_amount - o.paid_amount)
             return (
-              <div key={o.id} onClick={() => setDetailOrder(o)}
-                style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: 18, cursor: 'pointer', transition: 'border-color .15s' }}>
+              <div key={o.id} onClick={() => tab === 'prep' ? setPrepOrder(o) : setDetailOrder(o)}
+                style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: 18, cursor: 'pointer', transition: 'border-color .15s', position: 'relative' }}>
+                {isAdmin && (
+                  <button onClick={e => { e.stopPropagation(); deleteOrderQuick(o) }} title="حذف نهائي (أدمن فقط)"
+                    style={{ position: 'absolute', top: 10, left: 10, width: 26, height: 26, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🗑️</button>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{o.buffet_date}</div>
                   <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
@@ -637,16 +906,31 @@ export default function BuffetPage() {
                 <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>
                   🕐 {o.buffet_time} · 👥 {o.guests_count} شخص {isAdmin && o.branches?.name ? `· 🏪 ${o.branches.name}` : ''}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 10 }}>
-                  <span style={{ color: S.muted }}>الإجمالي: <strong style={{ color: S.white }}>MYR {o.total_amount.toFixed(2)}</strong></span>
-                  <span style={{ color: remaining > 0 ? S.red : S.green }}>المتبقي: MYR {remaining.toFixed(2)}</span>
-                </div>
-                {responsible ? (
-                  <div style={{ fontSize: 12, color: S.green, background: S.greenB, borderRadius: 8, padding: '6px 10px' }}>
-                    👤 {responsible.name} {o.shift ? `· ${SHIFT_LABEL[o.shift]}` : ''}
-                  </div>
+                {tab === 'prep' ? (
+                  (() => {
+                    const ps = prepSummary[o.id]
+                    return ps ? (
+                      <div style={{ fontSize: 12, color: ps.done === ps.total ? S.green : S.amber, background: ps.done === ps.total ? S.greenB : S.amberB, borderRadius: 8, padding: '6px 10px', fontWeight: 700 }}>
+                        🧺 تم تجهيز {ps.done} من {ps.total} بند
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: S.muted, background: S.card, borderRadius: 8, padding: '6px 10px' }}>🧺 اضغط لعرض/بدء قائمة التجهيز</div>
+                    )
+                  })()
                 ) : (
-                  <div style={{ fontSize: 12, color: S.amber, background: S.amberB, borderRadius: 8, padding: '6px 10px' }}>⏳ بانتظار تعيين الموظف المسؤول</div>
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 10 }}>
+                      <span style={{ color: S.muted }}>الإجمالي: <strong style={{ color: S.white }}>MYR {o.total_amount.toFixed(2)}</strong></span>
+                      <span style={{ color: remaining > 0 ? S.red : S.green }}>المتبقي: MYR {remaining.toFixed(2)}</span>
+                    </div>
+                    {responsible ? (
+                      <div style={{ fontSize: 12, color: S.green, background: S.greenB, borderRadius: 8, padding: '6px 10px' }}>
+                        👤 {responsible.name} {o.shift ? `· ${SHIFT_LABEL[o.shift]}` : ''}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: S.amber, background: S.amberB, borderRadius: 8, padding: '6px 10px' }}>⏳ بانتظار تعيين الموظف المسؤول</div>
+                    )}
+                  </>
                 )}
               </div>
             )
@@ -663,6 +947,9 @@ export default function BuffetPage() {
           isKitchenManager={isKitchenManager} isHallManager={isHallManager}
           branchEmployees={branchEmployeesForOrder(detailOrder.branch_id)}
           onClose={() => setDetailOrder(null)} onChanged={fetchAll} />
+      )}
+      {prepOrder && (
+        <BuffetPrepModal order={prepOrder} onClose={() => setPrepOrder(null)} onChanged={fetchAll} />
       )}
     </div>
   )

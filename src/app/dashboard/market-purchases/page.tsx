@@ -503,6 +503,19 @@ export default function MarketPurchasesPage() {
   const [adminStatsBranch, setAdminStatsBranch] = useState('')
   // ✅ جديد (إضافة فقط): فلترة الإحصائيات الشاملة بشهر محدد - فاضي معناها كل الأوقات
   const [adminStatsMonth, setAdminStatsMonth] = useState('')
+  // ✅ جديد: نافذة تفاصيل طلبات موظف معيّن (بالضغط على اسمه في "الأكثر طلبًا") + ترقيم صفحات
+  const [selectedRequesterName, setSelectedRequesterName] = useState<string | null>(null)
+  const [requesterPage, setRequesterPage] = useState(1)
+  const REQUESTER_PAGE_SIZE = 8
+  const selectedRequesterRequests = useMemo(() => {
+    if (!selectedRequesterName) return []
+    return requests
+      .filter(r => ([r.requester?.name, r.requester?.name_en].filter(Boolean).join(' ') || '—') === selectedRequesterName)
+      .sort((a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime())
+  }, [requests, selectedRequesterName])
+  const requesterTotalPages = Math.max(1, Math.ceil(selectedRequesterRequests.length / REQUESTER_PAGE_SIZE))
+  const requesterPageItems = selectedRequesterRequests.slice((requesterPage - 1) * REQUESTER_PAGE_SIZE, requesterPage * REQUESTER_PAGE_SIZE)
+
   const adminStatsData = useMemo(() => {
     const filtered = requests
       .filter(r => !adminStatsBranch || r.branch_id === adminStatsBranch)
@@ -1111,8 +1124,12 @@ export default function MarketPurchasesPage() {
               {adminStatsData.topRequesters.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {adminStatsData.topRequesters.map(([name, count], i) => (
-                    <div key={i} style={{ fontSize: 12, fontWeight: 700, color: S.white, display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{i + 1}. {name}</span>
+                    <div key={i}
+                      onClick={() => { setSelectedRequesterName(name); setRequesterPage(1) }}
+                      style={{ fontSize: 12, fontWeight: 700, color: S.white, display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = S.gold)}
+                      onMouseLeave={e => (e.currentTarget.style.color = S.white)}>
+                      <span style={{ textDecoration: 'underline', textDecorationStyle: 'dotted' }}>{i + 1}. {name}</span>
                       <span style={{ color: S.gold }}>{count}</span>
                     </div>
                   ))}
@@ -1150,14 +1167,46 @@ export default function MarketPurchasesPage() {
                       <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
                       {/* ✅ جديد (إضافة فقط): عدد الأصناف في هذه العملية تحديدًا */}
                       <span style={{ background: S.card, color: S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>📦 {(r.market_purchase_request_items || []).length} صنف</span>
+                      {/* ✅ جديد: شارة تنبيه سريعة لو فيه صنف واحد على الأقل مختلف عن المطلوب في هذا الطلب */}
+                      {(() => {
+                        const mismatchCount = (r.market_purchase_request_items || []).filter(it =>
+                          it.purchased_quantity != null && (
+                            it.purchased_quantity !== it.requested_quantity ||
+                            (!!it.purchased_unit_id && !!it.requested_unit_id && it.purchased_unit_id !== it.requested_unit_id)
+                          )
+                        ).length
+                        return mismatchCount > 0 ? (
+                          <span style={{ background: S.redB, color: S.red, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                            ⚠️ فرق في {mismatchCount} صنف
+                          </span>
+                        ) : null
+                      })()}
                     </div>
                   </div>
 
                   {/* الأصناف */}
                   <div style={{ marginBottom: 10 }}>
-                    {(r.market_purchase_request_items || []).map(it => (
-                      <div key={it.id} style={{ fontSize: 12, color: S.white }}>• {it.item_name || it.warehouse_products?.name} — {it.requested_quantity} {it.req_unit?.symbol}</div>
-                    ))}
+                    {(r.market_purchase_request_items || []).map(it => {
+                      // ✅ جديد: كشف أي فرق بين الكمية/الوحدة المطلوبة والمُشتراة فعليًا - لتنبيه الإدارة لمراجعة الفرق يدويًا
+                      const hasPurchase = it.purchased_quantity != null
+                      const qtyMismatch = hasPurchase && it.purchased_quantity !== it.requested_quantity
+                      const unitMismatch = hasPurchase && !!it.purchased_unit_id && !!it.requested_unit_id && it.purchased_unit_id !== it.requested_unit_id
+                      const mismatch = qtyMismatch || unitMismatch
+                      const isShort = qtyMismatch && (it.purchased_quantity as number) < it.requested_quantity
+                      return (
+                        <div key={it.id} style={{ fontSize: 12, color: S.white, marginBottom: 4 }}>
+                          • {it.item_name || it.warehouse_products?.name} —
+                          {hasPurchase
+                            ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: mismatch ? S.red : S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b></span>
+                            : <span> {it.requested_quantity} {it.req_unit?.symbol}</span>}
+                          {mismatch && (
+                            <span style={{ display: 'inline-block', marginRight: 8, background: S.redB, color: S.red, borderRadius: 8, padding: '1px 8px', fontSize: 10, fontWeight: 800 }}>
+                              ⚠️ {unitMismatch && !qtyMismatch ? 'وحدة مختلفة عن المطلوب' : isShort ? 'كمية أقل من المطلوب' : 'كمية أكثر من المطلوب'}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
 
                   {/* الخط الزمني الكامل */}
@@ -1400,6 +1449,76 @@ export default function MarketPurchasesPage() {
                 {saving ? '⏳...' : '✅ إتمام الشراء نهائيًا'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Requester Detail Modal (يظهر بالضغط على اسم شخص في "الأكثر طلبًا") ── */}
+      {selectedRequesterName && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 350, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => setSelectedRequesterName(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: `1px solid ${S.border}` }}>
+              <div>
+                <h2 style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>👤 {selectedRequesterName}</h2>
+                <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{selectedRequesterRequests.length} طلب إجمالًا</div>
+              </div>
+              <button onClick={() => setSelectedRequesterName(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding: '16px 22px', overflowY: 'auto', flex: 1 }}>
+              {requesterPageItems.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>لا توجد طلبات</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {requesterPageItems.map(r => {
+                    const st = STATUS_CFG[r.status] || STATUS_CFG.pending
+                    return (
+                      <div key={r.id} style={{ background: S.card, borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: S.gold }}>#{r.request_number || '—'} — 🏪 {r.branches?.name}</div>
+                            <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>📅 {fmtMYTime(r.requested_at)}</div>
+                          </div>
+                          <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {(r.market_purchase_request_items || []).map(it => {
+                            const hasPurchase = it.purchased_quantity != null
+                            const mismatch = hasPurchase && (
+                              it.purchased_quantity !== it.requested_quantity ||
+                              (!!it.purchased_unit_id && !!it.requested_unit_id && it.purchased_unit_id !== it.requested_unit_id)
+                            )
+                            return (
+                              <div key={it.id} style={{ fontSize: 11, color: S.white }}>
+                                • {it.item_name || it.warehouse_products?.name} —
+                                {hasPurchase
+                                  ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: mismatch ? S.red : S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b></span>
+                                  : <span> {it.requested_quantity} {it.req_unit?.symbol}</span>}
+                                {mismatch && <span style={{ color: S.red, fontWeight: 800 }}> ⚠️</span>}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            {/* ✅ ترقيم صفحات - يظهر بس لو عدد الطلبات أكبر من حجم الصفحة الواحدة */}
+            {requesterTotalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, padding: '12px 22px', borderTop: `1px solid ${S.border}` }}>
+                <button onClick={() => setRequesterPage(p => Math.max(1, p - 1))} disabled={requesterPage === 1}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: requesterPage === 1 ? S.muted : S.white, cursor: requesterPage === 1 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                  ‹ السابق
+                </button>
+                <span style={{ fontSize: 12, color: S.muted }}>صفحة {requesterPage} من {requesterTotalPages}</span>
+                <button onClick={() => setRequesterPage(p => Math.min(requesterTotalPages, p + 1))} disabled={requesterPage === requesterTotalPages}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: requesterPage === requesterTotalPages ? S.muted : S.white, cursor: requesterPage === requesterTotalPages ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                  التالي ›
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

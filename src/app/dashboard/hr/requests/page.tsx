@@ -335,6 +335,8 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
   const reqType = REQUEST_TYPES[form.request_type]
   // ✅ تاريخ اليوم بصيغة YYYY-MM-DD — نستخدمه كحد أدنى/أقصى في خانات التاريخ، وفي التحقق وقت الحفظ
   const todayStr = new Date().toISOString().slice(0, 10)
+  // ✅ لتصحيح الحضور: أقصى مدى مسموح للرجوع هو الأمس بس
+  const yesterdayStr = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const daysCount = form.start_date && form.end_date
     ? Math.ceil((new Date(form.end_date).getTime() - new Date(form.start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1
@@ -345,10 +347,10 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
     if (!form.description) { alert('يرجى إدخال تفاصيل الطلب'); return }
     if (form.request_type === 'attendance_correction' && !form.start_date) { alert('يرجى تحديد تاريخ الحضور المراد تصحيحه'); return }
     // ✅ تحقق فعلي وقت الحفظ (مش بس قيد الواجهة min/max اللي ممكن يتلف بالتعديل المباشر على الصفحة) —
-    // تصحيح الحضور: لازم يكون تاريخ اليوم أو قبله. باقي الطلبات ذات التواريخ (الإجازات): لازم اليوم أو بعده
+    // تصحيح الحضور: لازم يكون اليوم أو الأمس بس. باقي الطلبات ذات التواريخ (الإجازات): لازم اليوم أو بعده
     if (reqType?.hasDates && form.start_date) {
-      if (form.request_type === 'attendance_correction' && form.start_date !== todayStr) {
-        alert('تصحيح الحضور متاح لليوم الحالي فقط')
+      if (form.request_type === 'attendance_correction' && form.start_date !== todayStr && form.start_date !== yesterdayStr) {
+        alert('تصحيح الحضور متاح لليوم الحالي أو الأمس فقط')
         return
       }
       if (form.request_type !== 'attendance_correction' && form.start_date < todayStr) {
@@ -457,11 +459,13 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
                   {form.request_type === 'attendance_correction' ? 'تاريخ الحضور *' : 'من تاريخ'}
                 </label>
                 {form.request_type === 'attendance_correction' ? (
-                  // ✅ تصحيح الحضور دائماً لليوم الحالي فقط — بلا تقويم اختيار خالص، القيمة ثابتة تلقائياً
-                  // ولا يمكن تعديلها، لضمان تصحيح فوري في نفس اليوم فقط وليس رجوعاً لأيام سابقة
-                  <div style={{ ...inp, display: 'flex', alignItems: 'center', gap: 8, background: S.card2, cursor: 'default' }}>
-                    📅 {todayStr}
-                  </div>
+                  // ✅ تصحيح الحضور: يسمح باختيار اليوم الحالي أو الأمس فقط (min/max بنفس القيمة تقريباً) —
+                  // يمنع المتصفح تلقائياً من فتح أي تاريخ أبعد من كده في التقويم
+                  <input
+                    style={inp} type="date" value={form.start_date}
+                    min={yesterdayStr} max={todayStr}
+                    onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))}
+                  />
                 ) : (
                   <input
                     style={inp} type="date" value={form.start_date}

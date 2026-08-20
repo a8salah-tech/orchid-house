@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
@@ -897,6 +897,86 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
   const [exchanges, setExchanges] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'sent' | 'received' | 'all'>(isAdmin ? 'all' : 'received')
+  // ✅ جديد: ترقيم صفحات - 20 طلب في كل صفحة
+  const EX_PAGE_SIZE = 20
+  const [exPage, setExPage] = useState(1)
+  useEffect(() => { setExPage(1) }, [tab])
+
+  // ✅ جديد: إحصائية شهرية - تجميع أصناف التبادل حسب (الفرع المرسل → الفرع المستقبل → اسم الصنف بعد التطبيع)
+  const [showMonthlyStats, setShowMonthlyStats] = useState(false)
+  const [statsMonth, setStatsMonth] = useState(() => new Date().toISOString().slice(0, 7)) // 'YYYY-MM'
+
+  // ✅ تطبيع اسم الصنف عشان "طبق" و"الطبق" و" طبق " يتحسبوا كصنف واحد بدل ما يتفرقوا في الإحصائية
+  function normalizeItemName(name: string): string {
+    return (name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670]/g, '') // إزالة التشكيل
+      .replace(/^ال/, '') // إزالة "أل" التعريف من بداية الاسم
+      .replace(/\s+/g, ' ')
+  }
+
+  const monthlyStatsRows = useMemo(() => {
+    if (!showMonthlyStats) return []
+    const [y, m] = statsMonth.split('-').map(Number)
+    const monthStart = new Date(y, m - 1, 1)
+    const monthEnd = new Date(y, m, 1)
+    const filtered = exchanges.filter(ex => {
+      const d = new Date(ex.created_at)
+      return d >= monthStart && d < monthEnd
+    })
+    const groups: Record<string, { from: string; to: string; itemName: string; unit: string; qty: number; requesters: Set<string> }> = {}
+    for (const ex of filtered) {
+      const fromName = ex.from_branch?.name || '—'
+      const toName = ex.to_branch?.name || '—'
+      const requesterName = [ex.requester?.name, ex.requester?.name_en].filter(Boolean).join(' ') || '—'
+      for (const it of (ex.items || [])) {
+        const norm = normalizeItemName(it.item_name)
+        const key = `${fromName}|${toName}|${norm}`
+        if (!groups[key]) groups[key] = { from: fromName, to: toName, itemName: it.item_name, unit: it.unit || '', qty: 0, requesters: new Set() }
+        groups[key].qty += Number(it.quantity) || 0
+        groups[key].requesters.add(requesterName)
+      }
+    }
+    return Object.values(groups).sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.itemName.localeCompare(b.itemName))
+  }, [exchanges, statsMonth, showMonthlyStats])
+
+  // ✅ جديد: طباعة تقرير الإحصائية الشهرية
+  function printMonthlyStats() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const rowsHtml = monthlyStatsRows.map((row, i) => `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${row.from}</td>
+        <td>${row.to}</td>
+        <td>${row.itemName}</td>
+        <td style="text-align:center">${row.qty} ${row.unit}</td>
+        <td>${Array.from(row.requesters).join('، ')}</td>
+      </tr>`).join('')
+    win.document.write(`
+      <html><head><title>إحصائية شهرية - تبادل الفروع - ${statsMonth}</title>
+      <style>
+        body { font-family: Arial, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; direction: rtl; }
+        h1 { font-size: 18px; margin-bottom: 4px; }
+        .sub { font-size: 12px; color: #666; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #C9A84C80; padding: 7px 9px; text-align: right; }
+        th { background: #C9A84C30; }
+        @media print { body { padding: 10px; } }
+      </style></head>
+      <body>
+        <h1>📊 إحصائية شهرية — تبادل الفروع</h1>
+        <div class="sub">الشهر: ${statsMonth} — إجمالي ${monthlyStatsRows.length} صنف مجمَّع</div>
+        <table>
+          <thead><tr><th>#</th><th>من فرع</th><th>إلى فرع</th><th>الصنف</th><th>الكمية الإجمالية</th><th>طلب بواسطة</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <script>window.onload = () => window.print()</script>
+      </body></html>
+    `)
+    win.document.close()
+  }
 
   const [showNew, setShowNew] = useState(false)
   const [newTargetBranch, setNewTargetBranch] = useState('')
@@ -1051,6 +1131,9 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
   }
 
   const list = tab === 'all' ? exchanges : tab === 'sent' ? sentRequests : receivedRequests
+  // ✅ جديد: تقسيم القائمة لصفحات، 20 طلب في كل صفحة
+  const exTotalPages = Math.max(1, Math.ceil(list.length / EX_PAGE_SIZE))
+  const pagedList = list.slice((exPage - 1) * EX_PAGE_SIZE, exPage * EX_PAGE_SIZE)
 
   return (
     <div>
@@ -1073,10 +1156,19 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
             {pendingSentCount > 0 && <span style={{ background: S.blue, color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{pendingSentCount}</span>}
           </button>
         </div>
-        <button onClick={() => { resetNewForm(); setShowNew(true) }}
-          style={{ padding: '10px 20px', borderRadius: 12, border: 'none', background: S.gold, color: S.navy, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
-          ➕ طلب جديد
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {/* ✅ جديد: الإحصائية الشهرية - للأدمن بس، لأنها بتغطي كل الفروع */}
+          {isAdmin && (
+            <button onClick={() => setShowMonthlyStats(true)}
+              style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: 'rgba(75,158,240,0.12)', color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              📊 إحصائية شهرية
+            </button>
+          )}
+          <button onClick={() => { resetNewForm(); setShowNew(true) }}
+            style={{ padding: '10px 20px', borderRadius: 12, border: 'none', background: S.gold, color: S.navy, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+            ➕ طلب جديد
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -1088,7 +1180,7 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
-          {list.map(ex => {
+          {pagedList.map(ex => {
             const st = EX_STATUS_INFO[ex.status] || EX_STATUS_INFO.pending
             const isRecipient = ex.assigned_to === employee?.id
             const isSender = ex.requested_by === employee?.id
@@ -1176,6 +1268,21 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* ✅ جديد: أزرار التنقل بين الصفحات - تظهر بس لو عدد الطلبات أكبر من صفحة واحدة */}
+      {!loading && list.length > EX_PAGE_SIZE && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
+          <button onClick={() => setExPage(p => Math.max(1, p - 1))} disabled={exPage === 1}
+            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: exPage === 1 ? S.muted : S.white, cursor: exPage === 1 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+            ‹ السابق
+          </button>
+          <span style={{ fontSize: 12, color: S.muted }}>صفحة {exPage} من {exTotalPages} ({list.length} طلب)</span>
+          <button onClick={() => setExPage(p => Math.min(exTotalPages, p + 1))} disabled={exPage === exTotalPages}
+            style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: exPage === exTotalPages ? S.muted : S.white, cursor: exPage === exTotalPages ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+            التالي ›
+          </button>
         </div>
       )}
 
@@ -1270,6 +1377,57 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
                 {saving ? '⏳ جاري الإرسال...' : '📤 إرسال الطلب'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: نافذة الإحصائية الشهرية - جدول من فرع → إلى فرع، الأصناف مجمّعة، ومين طلب */}
+      {showMonthlyStats && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 820, maxHeight: '88vh', overflowY: 'auto', padding: isMobile ? 18 : 26 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: S.white }}>📊 إحصائية شهرية — تبادل الفروع</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {/* ✅ جديد: زر طباعة تقرير الإحصائية الشهرية */}
+                <button onClick={printMonthlyStats} disabled={monthlyStatsRows.length === 0}
+                  style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: monthlyStatsRows.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: monthlyStatsRows.length === 0 ? 0.5 : 1 }}>
+                  🖨️ طباعة
+                </button>
+                <button onClick={() => setShowMonthlyStats(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>الأصناف المتشابهة الاسم مُجمَّعة تلقائيًا في كمية واحدة لكل مسار (من فرع → إلى فرع) خلال الشهر المختار.</p>
+            <div style={{ marginBottom: 18 }}>
+              <input type="month" value={statsMonth} onChange={e => setStatsMonth(e.target.value)}
+                style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', outline: 'none' }} />
+            </div>
+            {monthlyStatsRows.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>لا توجد عمليات تبادل مسجَّلة في هذا الشهر</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
+                  <thead>
+                    <tr style={{ background: S.navy3 }}>
+                      {['من فرع', 'إلى فرع', 'الصنف', 'الكمية الإجمالية', 'طلب بواسطة'].map(h => (
+                        <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyStatsRows.map((row, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${S.border}` }}>
+                        <td style={{ padding: '10px 14px', fontSize: 13, color: S.white }}>🏪 {row.from}</td>
+                        <td style={{ padding: '10px 14px', fontSize: 13, color: S.white }}>🏪 {row.to}</td>
+                        <td style={{ padding: '10px 14px', fontSize: 13, color: S.gold, fontWeight: 700 }}>{row.itemName}</td>
+                        <td style={{ padding: '10px 14px', fontSize: 13, color: S.white, fontWeight: 700 }}>{row.qty} {row.unit}</td>
+                        <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>{Array.from(row.requesters).join('، ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <button onClick={() => setShowMonthlyStats(false)} style={{ width: '100%', marginTop: 16, padding: '10px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
           </div>
         </div>
       )}

@@ -565,6 +565,82 @@ export default function MarketPurchasesPage() {
     }
   }, [requests, adminStatsBranch, adminStatsMonth])
 
+  // ✅ جديد: ترقيم صفحات للسجل التفصيلي - 20 عملية في كل صفحة
+  const ADMIN_LOG_PAGE_SIZE = 20
+  const [adminLogPage, setAdminLogPage] = useState(1)
+  useEffect(() => { setAdminLogPage(1) }, [adminStatsBranch, adminStatsMonth])
+  const adminLogTotalPages = Math.max(1, Math.ceil(adminStatsData.log.length / ADMIN_LOG_PAGE_SIZE))
+  const adminLogPageItems = adminStatsData.log.slice((adminLogPage - 1) * ADMIN_LOG_PAGE_SIZE, adminLogPage * ADMIN_LOG_PAGE_SIZE)
+
+  // ✅ جديد: تطبيع اسم الصنف عشان الأصناف المتشابهة الاسم تتجمّع في كمية واحدة بدل ما تتفرق
+  function normalizeItemNameStats(name: string): string {
+    return (name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670]/g, '') // إزالة التشكيل
+      .replace(/^ال/, '') // إزالة "أل" التعريف من بداية الاسم
+      .replace(/\s+/g, ' ')
+  }
+
+  // ✅ جديد: ملخّص الأصناف المجمّعة - حسب (الفرع → الصنف بعد التطبيع) لنفس فلتر الفرع/الشهر الحالي
+  const groupedItemsSummary = useMemo(() => {
+    const groups: Record<string, { branch: string; itemName: string; unit: string; qtyRequested: number; qtyPurchased: number; requestCount: number; requesters: Set<string> }> = {}
+    for (const r of adminStatsData.log) {
+      const branchName = r.branches?.name || '—'
+      const requesterName = [r.requester?.name, r.requester?.name_en].filter(Boolean).join(' ') || '—'
+      for (const it of (r.market_purchase_request_items || [])) {
+        const rawName = it.item_name || it.warehouse_products?.name || '—'
+        const norm = normalizeItemNameStats(rawName)
+        const key = `${branchName}|${norm}`
+        if (!groups[key]) groups[key] = { branch: branchName, itemName: rawName, unit: it.req_unit?.symbol || '', qtyRequested: 0, qtyPurchased: 0, requestCount: 0, requesters: new Set() }
+        groups[key].qtyRequested += Number(it.requested_quantity) || 0
+        if (it.purchased_quantity != null) groups[key].qtyPurchased += Number(it.purchased_quantity) || 0
+        groups[key].requestCount += 1
+        groups[key].requesters.add(requesterName)
+      }
+    }
+    return Object.values(groups).sort((a, b) => a.branch.localeCompare(b.branch) || a.itemName.localeCompare(b.itemName))
+  }, [adminStatsData.log])
+
+  // ✅ جديد: طباعة ملخّص الأصناف المجمّعة
+  function printGroupedItemsSummary() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const rowsHtml = groupedItemsSummary.map((row, i) => `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${row.branch}</td>
+        <td>${row.itemName}</td>
+        <td style="text-align:center">${row.qtyRequested} ${row.unit}</td>
+        <td style="text-align:center">${row.qtyPurchased} ${row.unit}</td>
+        <td style="text-align:center">${row.requestCount}</td>
+        <td>${Array.from(row.requesters).join('، ')}</td>
+      </tr>`).join('')
+    const filterLabel = `${adminStatsBranch ? branches.find(b => b.id === adminStatsBranch)?.name || '' : 'كل الفروع'} — ${adminStatsMonth || 'كل الأوقات'}`
+    win.document.write(`
+      <html><head><title>ملخص الأصناف المجمّع - مشتريات السوق</title>
+      <style>
+        body { font-family: Arial, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; direction: rtl; }
+        h1 { font-size: 18px; margin-bottom: 4px; }
+        .sub { font-size: 12px; color: #666; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #C9A84C80; padding: 7px 9px; text-align: right; }
+        th { background: #C9A84C30; }
+        @media print { body { padding: 10px; } }
+      </style></head>
+      <body>
+        <h1>📦 ملخص الأصناف المجمّع — مشتريات السوق</h1>
+        <div class="sub">${filterLabel} — إجمالي ${groupedItemsSummary.length} صنف مجمَّع</div>
+        <table>
+          <thead><tr><th>#</th><th>الفرع</th><th>الصنف</th><th>الكمية المطلوبة</th><th>الكمية المشتراة</th><th>عدد الطلبات</th><th>طلب بواسطة</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <script>window.onload = () => window.print()</script>
+      </body></html>
+    `)
+    win.document.close()
+  }
+
   // ✅ جديد: طباعة التقرير المجمّع
   function printConsolidatedReport() {
     const win = window.open('', '_blank')
@@ -1151,10 +1227,46 @@ export default function MarketPurchasesPage() {
             </div>
           </div>
 
+          {/* ✅ جديد: ملخّص الأصناف المجمّعة - الأصناف المتشابهة الاسم تتجمّع في كمية واحدة لكل فرع */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>📦 ملخّص الأصناف المجمّع</div>
+            <button onClick={printGroupedItemsSummary} disabled={groupedItemsSummary.length === 0}
+              style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: groupedItemsSummary.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: groupedItemsSummary.length === 0 ? 0.5 : 1 }}>
+              🖨️ طباعة الملخّص
+            </button>
+          </div>
+          {groupedItemsSummary.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 24, color: S.muted, marginBottom: 24 }}>لا توجد بيانات ضمن الفلاتر الحالية</div>
+          ) : (
+            <div style={{ overflowX: 'auto', marginBottom: 30 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
+                <thead>
+                  <tr style={{ background: S.navy3 }}>
+                    {['الفرع', 'الصنف', 'الكمية المطلوبة', 'الكمية المشتراة', 'عدد الطلبات', 'طلب بواسطة'].map(h => (
+                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedItemsSummary.map((row, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.white }}>🏪 {row.branch}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.gold, fontWeight: 700 }}>{row.itemName}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.white }}>{row.qtyRequested} {row.unit}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.blue, fontWeight: 700 }}>{row.qtyPurchased} {row.unit}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>{row.requestCount}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>{Array.from(row.requesters).join('، ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* السجل التفصيلي الكامل لكل عملية */}
           <div style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 12 }}>📜 سجل تفصيلي لكل عملية</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {adminStatsData.log.map(r => {
+            {adminLogPageItems.map(r => {
               const st = STATUS_CFG[r.status] || STATUS_CFG.pending
               return (
                 <div key={r.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 16 }}>
@@ -1239,6 +1351,21 @@ export default function MarketPurchasesPage() {
               <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>لا توجد أي عمليات مسجّلة</div>
             )}
           </div>
+
+          {/* ✅ جديد: أزرار التنقل بين صفحات السجل التفصيلي */}
+          {adminStatsData.log.length > ADMIN_LOG_PAGE_SIZE && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
+              <button onClick={() => setAdminLogPage(p => Math.max(1, p - 1))} disabled={adminLogPage === 1}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: adminLogPage === 1 ? S.muted : S.white, cursor: adminLogPage === 1 ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                ‹ السابق
+              </button>
+              <span style={{ fontSize: 12, color: S.muted }}>صفحة {adminLogPage} من {adminLogTotalPages} ({adminStatsData.log.length} عملية)</span>
+              <button onClick={() => setAdminLogPage(p => Math.min(adminLogTotalPages, p + 1))} disabled={adminLogPage === adminLogTotalPages}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: adminLogPage === adminLogTotalPages ? S.muted : S.white, cursor: adminLogPage === adminLogTotalPages ? 'not-allowed' : 'pointer', fontSize: 12 }}>
+                التالي ›
+              </button>
+            </div>
+          )}
         </div>
       )}
 

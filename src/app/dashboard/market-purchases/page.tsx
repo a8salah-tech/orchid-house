@@ -534,6 +534,134 @@ export default function MarketPurchasesPage() {
   const requesterTotalPages = Math.max(1, Math.ceil(selectedRequesterRequests.length / REQUESTER_PAGE_SIZE))
   const requesterPageItems = selectedRequesterRequests.slice((requesterPage - 1) * REQUESTER_PAGE_SIZE, requesterPage * REQUESTER_PAGE_SIZE)
 
+  // ✅ جديد: مقارنة استخدام الفروع - مين بيطلب أكتر. بتحترم فلتر الشهر، لكن عمدًا بتتجاهل فلتر
+  // الفرع المحدد (adminStatsBranch) لأن الهدف أصلاً مقارنة كل الفروع مع بعض
+  const branchComparisonData = useMemo(() => {
+    const filtered = requests.filter(r => {
+      if (!adminStatsMonth) return true
+      const d = new Date(r.requested_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      return key === adminStatsMonth
+    })
+    const groups: Record<string, { branchId: string; branchName: string; requestCount: number; itemCount: number; deliveredCount: number; deliveryHours: number[] }> = {}
+    for (const r of filtered) {
+      const bId = r.branch_id || '—'
+      const bName = r.branches?.name || '—'
+      if (!groups[bId]) groups[bId] = { branchId: bId, branchName: bName, requestCount: 0, itemCount: 0, deliveredCount: 0, deliveryHours: [] }
+      groups[bId].requestCount += 1
+      groups[bId].itemCount += (r.market_purchase_request_items || []).length
+      if (r.status === 'delivered') {
+        groups[bId].deliveredCount += 1
+        if (r.delivered_at) groups[bId].deliveryHours.push((new Date(r.delivered_at).getTime() - new Date(r.requested_at).getTime()) / (1000 * 60 * 60))
+      }
+    }
+    const rows = Object.values(groups)
+      .map(g => ({
+        ...g,
+        avgDeliveryHours: g.deliveryHours.length > 0 ? g.deliveryHours.reduce((s, h) => s + h, 0) / g.deliveryHours.length : null,
+      }))
+      .sort((a, b) => b.requestCount - a.requestCount)
+    const maxRequests = Math.max(1, ...rows.map(r => r.requestCount))
+    return { rows, maxRequests }
+  }, [requests, adminStatsMonth])
+
+  // ✅ جديد: تطبيع اسم الصنف - مستخدَم هنا بس لتجميع الأصناف المتشابهة داخل تقرير الطباعة
+  function normalizeItemNameCompare(name: string): string {
+    return (name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670]/g, '')
+      .replace(/^ال/, '')
+      .replace(/\s+/g, ' ')
+  }
+
+  // ✅ جديد: مقارنة كل صنف بين الفروع - للاستخدام داخل تقرير الطباعة بس (مفيش قسم جديد في الشاشة)
+  const itemBranchComparisonData = useMemo(() => {
+    const filtered = requests.filter(r => {
+      if (!adminStatsMonth) return true
+      const d = new Date(r.requested_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      return key === adminStatsMonth
+    })
+    const itemGroups: Record<string, { itemName: string; unit: string; byBranch: Record<string, { branchName: string; qty: number }> }> = {}
+    const branchNamesSet = new Set<string>()
+    for (const r of filtered) {
+      const branchName = r.branches?.name || '—'
+      branchNamesSet.add(branchName)
+      for (const it of (r.market_purchase_request_items || [])) {
+        const rawName = it.item_name || it.warehouse_products?.name || '—'
+        const norm = normalizeItemNameCompare(rawName)
+        if (!itemGroups[norm]) itemGroups[norm] = { itemName: rawName, unit: it.req_unit?.symbol || '', byBranch: {} }
+        if (!itemGroups[norm].byBranch[branchName]) itemGroups[norm].byBranch[branchName] = { branchName, qty: 0 }
+        itemGroups[norm].byBranch[branchName].qty += Number(it.requested_quantity) || 0
+      }
+    }
+    const branchNames = Array.from(branchNamesSet).sort()
+    const rows = Object.values(itemGroups)
+      .map(g => ({ itemName: g.itemName, unit: g.unit, totalQty: Object.values(g.byBranch).reduce((s, b) => s + b.qty, 0), byBranch: g.byBranch }))
+      .sort((a, b) => b.totalQty - a.totalQty)
+    return { rows, branchNames }
+  }, [requests, adminStatsMonth])
+
+  // ✅ Fix: نفس زر "طباعة" بتاع مقارنة الفروع، لكن دلوقتي بيطبع كمان جدول مقارنة الأصناف تفصيليًا
+  // (كل صنف وكمية كل فرع منه جنب بعض) تحت ملخّص الفروع، في نفس المستند
+  function printBranchComparison() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const rowsHtml = branchComparisonData.rows.map((row, i) => `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${row.branchName}</td>
+        <td style="text-align:center">${row.requestCount}</td>
+        <td style="text-align:center">${row.itemCount}</td>
+        <td style="text-align:center">${row.deliveredCount}</td>
+        <td style="text-align:center">${row.avgDeliveryHours != null ? row.avgDeliveryHours.toFixed(1) + ' ساعة' : '—'}</td>
+      </tr>`).join('')
+    const { rows: itemRows, branchNames } = itemBranchComparisonData
+    const itemHeaderCols = branchNames.map(b => `<th style="text-align:center">${b}</th>`).join('')
+    const itemRowsHtml = itemRows.map((row, i) => {
+      const branchCells = branchNames.map(b => `<td style="text-align:center">${row.byBranch[b]?.qty || 0} ${row.unit}</td>`).join('')
+      return `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${row.itemName}</td>
+        ${branchCells}
+        <td style="text-align:center;font-weight:bold">${row.totalQty} ${row.unit}</td>
+      </tr>`
+    }).join('')
+    const monthLabel = adminStatsMonth || 'كل الأوقات'
+    win.document.write(`
+      <html><head><title>مقارنة استخدام الفروع - مشتريات السوق</title>
+      <style>
+        body { font-family: Arial, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; direction: rtl; }
+        h1 { font-size: 18px; margin-bottom: 4px; }
+        h2 { font-size: 15px; margin: 28px 0 4px; }
+        .sub { font-size: 12px; color: #666; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #C9A84C80; padding: 7px 9px; text-align: right; }
+        th { background: #C9A84C30; }
+        @media print { body { padding: 10px; } }
+      </style></head>
+      <body>
+        <h1>🏪 مقارنة استخدام الفروع — مشتريات السوق</h1>
+        <div class="sub">الشهر: ${monthLabel}</div>
+        <table>
+          <thead><tr><th>#</th><th>الفرع</th><th>عدد الطلبات</th><th>عدد الأصناف</th><th>تم التسليم</th><th>متوسط وقت التنفيذ</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+
+        <h2>📦 مقارنة الأصناف بين الفروع</h2>
+        <div class="sub">إجمالي ${itemRows.length} صنف</div>
+        <table>
+          <thead><tr><th>#</th><th>الصنف</th>${itemHeaderCols}<th>الإجمالي</th></tr></thead>
+          <tbody>${itemRowsHtml}</tbody>
+        </table>
+        <script>window.onload = () => window.print()</script>
+      </body></html>
+    `)
+    win.document.close()
+  }
+
   const adminStatsData = useMemo(() => {
     const filtered = requests
       .filter(r => !adminStatsBranch || r.branch_id === adminStatsBranch)
@@ -1256,6 +1384,38 @@ export default function MarketPurchasesPage() {
               ) : <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>—</div>}
             </div>
           </div>
+
+          {/* ✅ جديد: مقارنة استخدام الفروع - مين بيطلب أكتر (بيشمل كل الفروع دايمًا بغض النظر عن فلتر الفرع فوق) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>🏪 مقارنة استخدام الفروع</div>
+            <button onClick={printBranchComparison} disabled={branchComparisonData.rows.length === 0}
+              style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: branchComparisonData.rows.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: branchComparisonData.rows.length === 0 ? 0.5 : 1 }}>
+              🖨️ طباعة
+            </button>
+          </div>
+          {branchComparisonData.rows.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 24, color: S.muted, marginBottom: 24 }}>لا توجد بيانات ضمن الفلاتر الحالية</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 30 }}>
+              {branchComparisonData.rows.map((row, i) => (
+                <div key={row.branchId} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: S.white }}>{i + 1}. 🏪 {row.branchName}</div>
+                    <div style={{ display: 'flex', gap: 14, fontSize: 11, color: S.muted, flexWrap: 'wrap' }}>
+                      <span>📦 {row.itemCount} صنف</span>
+                      <span>✅ {row.deliveredCount} مُسلَّم</span>
+                      <span>⏱️ {row.avgDeliveryHours != null ? `${row.avgDeliveryHours.toFixed(1)} ساعة` : '—'}</span>
+                    </div>
+                  </div>
+                  {/* شريط بصري لسهولة مقارنة عدد الطلبات بين الفروع */}
+                  <div style={{ background: S.navy3, borderRadius: 999, height: 20, overflow: 'hidden', position: 'relative' }}>
+                    <div style={{ width: `${(row.requestCount / branchComparisonData.maxRequests) * 100}%`, background: i === 0 ? S.gold : S.blue, height: '100%', borderRadius: 999, transition: 'width 0.3s' }} />
+                    <span style={{ position: 'absolute', top: 0, right: 10, height: '100%', display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 800, color: S.white }}>{row.requestCount} طلب</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* السجل التفصيلي الكامل لكل عملية */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>

@@ -414,24 +414,27 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   ).slice(0, 8)
 
   const subtotal = order.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
-  const discountAmt = discountType === 'none' ? 0
-    : discountType === 'free' ? subtotal
-    : discountType === 'percent' ? subtotal * (parseFloat(discountValue) || 0) / 100
-    : parseFloat(discountValue) || 0
   // ✅ جديد: طلبات التيك أواي (Foodpanda/Grab/Customer/Other) مالهاش رسوم خدمة خالص - مافيش خدمة طاولة أصلًا
   const isTakeawayOrder = order.tables?.section === 'takeaway'
   // ✅ جديد: حسابات التوصيل الخارجية (Grab/Foodpanda) بتدفع للمطعم لاحقًا (تسوية دورية)، مش وقت قفل الفاتورة -
   // فمحتاجين نفرّق بينها وبين الكاش الحقيقي اللي في درج الكاشير
   const isPlatformCreditOrder = /grab|foodpanda/i.test(order.tables?.name || '')
-  // ✅ Fix حرج: الخدمة والضريبة بقيا يتحسبوا على السعر الأصلي (subtotal) مش بعد خصم الخصم - والخصم بقى
-  // يتخصم في الآخر من الإجمالي الكلي (سعر + خدمة + ضريبة)، مش من السعر لوحده قبل حساب الخدمة والضريبة
+  // ✅ الخدمة والضريبة بيتحسبوا على السعر الأصلي (subtotal) دايمًا
   const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : subtotal * SERVICE_CHARGE_RATE
   const sst = discountType === 'free' ? 0 : subtotal * SST_RATE
+  // ✅ Fix حرج جدًا: نسبة الخصم (%) بقت تتحسب على *الإجمالي الكلي* (سعر + خدمة + ضريبة)، مش على السعر
+  // الأساسي بس - عشان "خصم 50%" يبقى فعلاً نص قيمة الفاتورة كاملة شاملة الضرائب، مش نص السعر الأساسي بس
+  // (اللي كان بيدي نسبة خصم فعلية أقل من اللي الموظف كاتبها)
+  const preDiscountTotal = subtotal + serviceCharge + sst
+  const discountAmt = discountType === 'none' ? 0
+    : discountType === 'free' ? preDiscountTotal
+    : discountType === 'percent' ? preDiscountTotal * (parseFloat(discountValue) || 0) / 100
+    : parseFloat(discountValue) || 0
   // ✅ جديد: لو العميل طبّق عربون سابق، بيتخصم من الإجمالي النهائي المطلوب دفعه دلوقتي
-  const depositDeduction = depositApplied ? Math.min(totalAvailableDeposit, subtotal + serviceCharge + sst - discountAmt) : 0
-  const total = Math.max(0, subtotal + serviceCharge + sst - discountAmt - depositDeduction)
-  // ✅ صافي المبيعات بعد الخصم - للاستخدام في القيد المحاسبي بس (مش بيأثر على حساب الخدمة/الضريبة، دول بقوا على السعر الأصلي)
-  const afterDiscount = Math.max(0, subtotal - discountAmt)
+  const depositDeduction = depositApplied ? Math.min(totalAvailableDeposit, preDiscountTotal - discountAmt) : 0
+  const total = Math.max(0, preDiscountTotal - discountAmt - depositDeduction)
+  // ✅ صافي المبيعات بعد الخصم - للاستخدام في القيد المحاسبي بس
+  const afterDiscount = Math.max(0, preDiscountTotal - discountAmt)
   // ✅ جديد: الباقي المطلوب إرجاعه للعميل لو دفع كاش أكتر من قيمة الفاتورة
   const cashReceivedNum = parseFloat(cashReceived) || 0
   const changeDue = Math.max(0, cashReceivedNum - total)

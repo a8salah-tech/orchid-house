@@ -53,6 +53,8 @@ interface PurchaseRequest {
   effective_date?: string | null
   requested_at: string; purchased_at: string | null; purchased_by: string | null
   delivered_at: string | null; delivered_image_url: string | null
+  // ✅ جديد: مصفوفة كل صور إثبات الاستلام (بدل صورة واحدة فقط)
+  delivered_image_urls?: string[] | null
   received_by: string | null; received_at: string | null; total_amount: number; notes: string | null
   branches?: { name: string }
   requester?: { name: string; name_en?: string; employee_number?: string }
@@ -160,8 +162,9 @@ export default function MarketPurchasesPage() {
 
   // ── Receive confirmation state ──
   const [receivingReq, setReceivingReq] = useState<PurchaseRequest | null>(null)
-  const [receiveImg, setReceiveImg] = useState<File | null>(null)
-  const [receiveImgPreview, setReceiveImgPreview] = useState('')
+  // ✅ Fix: بدل صورة واحدة، دلوقتي نقدر نرفع أكتر من صورة إثبات استلام
+  const [receiveImgs, setReceiveImgs] = useState<File[]>([])
+  const [receiveImgPreviews, setReceiveImgPreviews] = useState<string[]>([])
   const [confirming, setConfirming] = useState(false)
 
   const fetchAll = useCallback(async () => {
@@ -359,18 +362,26 @@ export default function MarketPurchasesPage() {
     setAvailableEdits({})
   }
 
-  function handleReceiveImgSelect(file: File) {
-    setReceiveImg(file)
-    const reader = new FileReader()
-    reader.onload = () => setReceiveImgPreview(reader.result as string)
-    reader.readAsDataURL(file)
+  // ✅ Fix: بدل ما ياخد ملف واحد ويستبدله، دلوقتي بيضيف كل صورة جديدة لقائمة الصور المختارة
+  function handleReceiveImgSelect(files: FileList) {
+    const newFiles = Array.from(files)
+    setReceiveImgs(prev => [...prev, ...newFiles])
+    newFiles.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = () => setReceiveImgPreviews(prev => [...prev, reader.result as string])
+      reader.readAsDataURL(file)
+    })
+  }
+  function removeReceiveImg(idx: number) {
+    setReceiveImgs(prev => prev.filter((_, i) => i !== idx))
+    setReceiveImgPreviews(prev => prev.filter((_, i) => i !== idx))
   }
 
   async function confirmReceive() {
     if (!receivingReq) return
-    if (!receiveImg) { alert('يرجى رفع صورة إثبات الاستلام'); return }
+    if (receiveImgs.length === 0) { alert('يرجى رفع صورة واحدة على الأقل كإثبات استلام'); return }
     setConfirming(true)
-    // ✅ جديد: حفظ الكمية/الوحدة المُعدَّلة لكل صنف (لو المستلم غيّرها) قبل رفع الصورة وتأكيد الحالة
+    // ✅ جديد: حفظ الكمية/الوحدة المُعدَّلة لكل صنف (لو المستلم غيّرها) قبل رفع الصور وتأكيد الحالة
     for (const it of (receivingReq.market_purchase_request_items || [])) {
       const edit = receiveEdits[it.id]
       if (!edit) continue
@@ -380,13 +391,20 @@ export default function MarketPurchasesPage() {
         purchased_quantity: qty, purchased_unit_id: edit.unit_id,
       }).eq('id', it.id)
     }
-    const fileName = `market-purchases/${receivingReq.id}-${Date.now()}.jpg`
-    const { data: upData } = await sb.storage.from('employees').upload(fileName, receiveImg, { upsert: true })
-    let imgUrl = ''
-    if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); imgUrl = urlData.publicUrl }
+    // ✅ Fix: رفع كل الصور المختارة (مش صورة واحدة بس) وتجميع روابطها في مصفوفة
+    const uploadedUrls: string[] = []
+    for (let i = 0; i < receiveImgs.length; i++) {
+      const fileName = `market-purchases/${receivingReq.id}-${Date.now()}-${i}.jpg`
+      const { data: upData } = await sb.storage.from('employees').upload(fileName, receiveImgs[i], { upsert: true })
+      if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); uploadedUrls.push(urlData.publicUrl) }
+    }
+    if (uploadedUrls.length === 0) { setConfirming(false); alert('تعذّر رفع الصور، حاول مرة أخرى'); return }
 
     await sb.from('market_purchase_requests').update({
-      status: 'delivered', delivered_at: new Date().toISOString(), delivered_image_url: imgUrl,
+      status: 'delivered', delivered_at: new Date().toISOString(),
+      // ✅ Fix: delivered_image_url (الحقل القديم) بيتسجّل بأول صورة للتوافق مع أي كود قديم، ومصفوفة
+      // delivered_image_urls الجديدة بتحفظ كل الصور
+      delivered_image_url: uploadedUrls[0], delivered_image_urls: uploadedUrls,
       received_by: currentUser?.id, received_at: new Date().toISOString(),
     }).eq('id', receivingReq.id)
     // ✅ جديد: إشعار للإدارة بمتابعة اكتمال الطلب، وإشعار لمقدّم الطلب لو مختلف عن الشخص اللي أكد الاستلام
@@ -397,8 +415,8 @@ export default function MarketPurchasesPage() {
     await fetchAll()
     setConfirming(false)
     setReceivingReq(null)
-    setReceiveImg(null)
-    setReceiveImgPreview('')
+    setReceiveImgs([])
+    setReceiveImgPreviews([])
     setReceiveEdits({})
   }
 
@@ -572,7 +590,7 @@ export default function MarketPurchasesPage() {
   const adminLogTotalPages = Math.max(1, Math.ceil(adminStatsData.log.length / ADMIN_LOG_PAGE_SIZE))
   const adminLogPageItems = adminStatsData.log.slice((adminLogPage - 1) * ADMIN_LOG_PAGE_SIZE, adminLogPage * ADMIN_LOG_PAGE_SIZE)
 
-  // ✅ جديد: تطبيع اسم الصنف عشان الأصناف المتشابهة الاسم تتجمّع في كمية واحدة بدل ما تتفرق
+  // ✅ Fix: تطبيع اسم الصنف عشان الأصناف المتشابهة الاسم تتجمّع في كمية واحدة بدل ما تتفرق في الطباعة
   function normalizeItemNameStats(name: string): string {
     return (name || '')
       .trim()
@@ -582,38 +600,44 @@ export default function MarketPurchasesPage() {
       .replace(/\s+/g, ' ')
   }
 
-  // ✅ جديد: ملخّص الأصناف المجمّعة - حسب (الفرع → الصنف بعد التطبيع) لنفس فلتر الفرع/الشهر الحالي
-  const groupedItemsSummary = useMemo(() => {
-    const groups: Record<string, { branch: string; itemName: string; unit: string; qtyRequested: number; qtyPurchased: number; requestCount: number; requesters: Set<string> }> = {}
+  // ✅ Fix: رجّعنا تجميع الأصناف (زي ما كان قبل كده) بس مقصور على الطباعة بس - الشاشة فاضلة بالسجل التفصيلي العادي
+  function printDetailedLog() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const groups: Record<string, {
+      branch: string; itemName: string; unit: string
+      qtyRequested: number; qtyPurchased: number; requestCount: number
+      requesters: Set<string>; purchaseDates: Set<string>; deliveryDates: Set<string>
+    }> = {}
     for (const r of adminStatsData.log) {
       const branchName = r.branches?.name || '—'
       const requesterName = [r.requester?.name, r.requester?.name_en].filter(Boolean).join(' ') || '—'
+      // ✅ خلي في تاريخ التسليم (وقت الشراء/التسليم من المندوب) وتاريخ الاستلام (وقت وصوله للفرع) بس
+      const purchaseDateStr = r.purchased_at ? fmtMYTime(r.purchased_at) : null
+      const deliveryDateStr = r.delivered_at ? fmtMYTime(r.delivered_at) : null
       for (const it of (r.market_purchase_request_items || [])) {
         const rawName = it.item_name || it.warehouse_products?.name || '—'
         const norm = normalizeItemNameStats(rawName)
         const key = `${branchName}|${norm}`
-        if (!groups[key]) groups[key] = { branch: branchName, itemName: rawName, unit: it.req_unit?.symbol || '', qtyRequested: 0, qtyPurchased: 0, requestCount: 0, requesters: new Set() }
+        if (!groups[key]) groups[key] = { branch: branchName, itemName: rawName, unit: it.req_unit?.symbol || '', qtyRequested: 0, qtyPurchased: 0, requestCount: 0, requesters: new Set(), purchaseDates: new Set(), deliveryDates: new Set() }
         groups[key].qtyRequested += Number(it.requested_quantity) || 0
         if (it.purchased_quantity != null) groups[key].qtyPurchased += Number(it.purchased_quantity) || 0
         groups[key].requestCount += 1
         groups[key].requesters.add(requesterName)
+        if (purchaseDateStr) groups[key].purchaseDates.add(purchaseDateStr)
+        if (deliveryDateStr) groups[key].deliveryDates.add(deliveryDateStr)
       }
     }
-    return Object.values(groups).sort((a, b) => a.branch.localeCompare(b.branch) || a.itemName.localeCompare(b.itemName))
-  }, [adminStatsData.log])
-
-  // ✅ جديد: طباعة ملخّص الأصناف المجمّعة
-  function printGroupedItemsSummary() {
-    const win = window.open('', '_blank')
-    if (!win) return
-    const rowsHtml = groupedItemsSummary.map((row, i) => `
+    const groupedRows = Object.values(groups).sort((a, b) => a.branch.localeCompare(b.branch) || a.itemName.localeCompare(b.itemName))
+    const rowsHtml = groupedRows.map((row, i) => `
       <tr>
         <td style="text-align:center">${i + 1}</td>
         <td>${row.branch}</td>
         <td>${row.itemName}</td>
         <td style="text-align:center">${row.qtyRequested} ${row.unit}</td>
         <td style="text-align:center">${row.qtyPurchased} ${row.unit}</td>
-        <td style="text-align:center">${row.requestCount}</td>
+        <td>${Array.from(row.purchaseDates).join('<br/>') || '—'}</td>
+        <td>${Array.from(row.deliveryDates).join('<br/>') || '—'}</td>
         <td>${Array.from(row.requesters).join('، ')}</td>
       </tr>`).join('')
     const filterLabel = `${adminStatsBranch ? branches.find(b => b.id === adminStatsBranch)?.name || '' : 'كل الفروع'} — ${adminStatsMonth || 'كل الأوقات'}`
@@ -624,15 +648,15 @@ export default function MarketPurchasesPage() {
         h1 { font-size: 18px; margin-bottom: 4px; }
         .sub { font-size: 12px; color: #666; margin-bottom: 20px; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        th, td { border: 1px solid #C9A84C80; padding: 7px 9px; text-align: right; }
+        th, td { border: 1px solid #C9A84C80; padding: 7px 9px; text-align: right; vertical-align: top; }
         th { background: #C9A84C30; }
         @media print { body { padding: 10px; } }
       </style></head>
       <body>
         <h1>📦 ملخص الأصناف المجمّع — مشتريات السوق</h1>
-        <div class="sub">${filterLabel} — إجمالي ${groupedItemsSummary.length} صنف مجمَّع</div>
+        <div class="sub">${filterLabel} — إجمالي ${groupedRows.length} صنف مجمَّع</div>
         <table>
-          <thead><tr><th>#</th><th>الفرع</th><th>الصنف</th><th>الكمية المطلوبة</th><th>الكمية المشتراة</th><th>عدد الطلبات</th><th>طلب بواسطة</th></tr></thead>
+          <thead><tr><th>#</th><th>الفرع</th><th>الصنف</th><th>الكمية المطلوبة</th><th>الكمية المشتراة</th><th>تاريخ التسليم</th><th>تاريخ الاستلام</th><th>طلب بواسطة</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
         <script>window.onload = () => window.print()</script>
@@ -969,8 +993,14 @@ export default function MarketPurchasesPage() {
                     ✅ تأكيد الاستلام + رفع صورة
                   </button>
                 )}
-                {req.status === 'delivered' && req.delivered_image_url && (
-                  <img src={req.delivered_image_url} alt="إثبات الاستلام" style={{ width: 80, height: 80, borderRadius: 10, objectFit: 'cover', border: `1px solid ${S.border}` }} />
+                {req.status === 'delivered' && ((req.delivered_image_urls && req.delivered_image_urls.length > 0) || req.delivered_image_url) && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {(req.delivered_image_urls && req.delivered_image_urls.length > 0 ? req.delivered_image_urls : [req.delivered_image_url!]).map((url, i) => (
+                      <a key={i} href={url} target="_blank" rel="noreferrer">
+                        <img src={url} alt={`إثبات الاستلام ${i + 1}`} style={{ width: 80, height: 80, borderRadius: 10, objectFit: 'cover', border: `1px solid ${S.border}` }} />
+                      </a>
+                    ))}
+                  </div>
                 )}
               </div>
             )
@@ -1227,44 +1257,15 @@ export default function MarketPurchasesPage() {
             </div>
           </div>
 
-          {/* ✅ جديد: ملخّص الأصناف المجمّعة - الأصناف المتشابهة الاسم تتجمّع في كمية واحدة لكل فرع */}
+          {/* السجل التفصيلي الكامل لكل عملية */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>📦 ملخّص الأصناف المجمّع</div>
-            <button onClick={printGroupedItemsSummary} disabled={groupedItemsSummary.length === 0}
-              style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: groupedItemsSummary.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: groupedItemsSummary.length === 0 ? 0.5 : 1 }}>
-              🖨️ طباعة الملخّص
+            <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>📜 سجل تفصيلي لكل عملية</div>
+            {/* ✅ جديد: طباعة السجل التفصيلي بنفس أسلوب الطباعة في تبادل الفروع */}
+            <button onClick={printDetailedLog} disabled={adminStatsData.log.length === 0}
+              style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: adminStatsData.log.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: adminStatsData.log.length === 0 ? 0.5 : 1 }}>
+              🖨️ طباعة
             </button>
           </div>
-          {groupedItemsSummary.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 24, color: S.muted, marginBottom: 24 }}>لا توجد بيانات ضمن الفلاتر الحالية</div>
-          ) : (
-            <div style={{ overflowX: 'auto', marginBottom: 30 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
-                <thead>
-                  <tr style={{ background: S.navy3 }}>
-                    {['الفرع', 'الصنف', 'الكمية المطلوبة', 'الكمية المشتراة', 'عدد الطلبات', 'طلب بواسطة'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupedItemsSummary.map((row, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${S.border}` }}>
-                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.white }}>🏪 {row.branch}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.gold, fontWeight: 700 }}>{row.itemName}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.white }}>{row.qtyRequested} {row.unit}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 13, color: S.blue, fontWeight: 700 }}>{row.qtyPurchased} {row.unit}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>{row.requestCount}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>{Array.from(row.requesters).join('، ')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* السجل التفصيلي الكامل لكل عملية */}
-          <div style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 12 }}>📜 سجل تفصيلي لكل عملية</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {adminLogPageItems.map(r => {
               const st = STATUS_CFG[r.status] || STATUS_CFG.pending
@@ -1339,10 +1340,14 @@ export default function MarketPurchasesPage() {
                   </div>
 
                   {/* صورة إثبات الاستلام */}
-                  {r.delivered_image_url && (
-                    <a href={r.delivered_image_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 10 }}>
-                      <img src={r.delivered_image_url} alt="إثبات الاستلام" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
-                    </a>
+                  {((r.delivered_image_urls && r.delivered_image_urls.length > 0) || r.delivered_image_url) && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                      {(r.delivered_image_urls && r.delivered_image_urls.length > 0 ? r.delivered_image_urls : [r.delivered_image_url!]).map((url, i) => (
+                        <a key={i} href={url} target="_blank" rel="noreferrer">
+                          <img src={url} alt={`إثبات الاستلام ${i + 1}`} style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </div>
               )
@@ -1656,7 +1661,7 @@ export default function MarketPurchasesPage() {
           <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 420, padding: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 18 }}>
               <h2 style={{ fontSize: 16, fontWeight: 800 }}>✅ تأكيد الاستلام</h2>
-              <button onClick={() => { setReceivingReq(null); setReceiveImg(null); setReceiveImgPreview(''); setReceiveEdits({}) }} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => { setReceivingReq(null); setReceiveImgs([]); setReceiveImgPreviews([]); setReceiveEdits({}) }} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             {/* ✅ جديد: تعديل الكمية/الوحدة المستلمة فعليًا لكل صنف قبل رفع الصورة - عشان المستلم
                 يقدر يصحّح الفرق لو استلم أقل أو أكثر من المطلوب/المشترى، بنفس الوحدة الأساسية أو الفرعية */}
@@ -1682,9 +1687,19 @@ export default function MarketPurchasesPage() {
                 )
               })}
             </div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>📷 صورة إثبات الاستلام *</label>
-            <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && handleReceiveImgSelect(e.target.files[0])} style={{ marginBottom: 14, fontSize: 12, color: S.white }} />
-            {receiveImgPreview && <img src={receiveImgPreview} alt="معاينة" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 10, marginBottom: 14 }} />}
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>📷 صور إثبات الاستلام (يمكن اختيار أكثر من صورة) *</label>
+            <input type="file" accept="image/*" multiple onChange={e => e.target.files && e.target.files.length > 0 && handleReceiveImgSelect(e.target.files)} style={{ marginBottom: 14, fontSize: 12, color: S.white }} />
+            {receiveImgPreviews.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 8, marginBottom: 14 }}>
+                {receiveImgPreviews.map((src, i) => (
+                  <div key={i} style={{ position: 'relative' }}>
+                    <img src={src} alt={`صورة ${i + 1}`} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 8 }} />
+                    <button onClick={() => removeReceiveImg(i)}
+                      style={{ position: 'absolute', top: 4, left: 4, width: 20, height: 20, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: S.red, cursor: 'pointer', fontSize: 12, lineHeight: '20px', padding: 0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <button onClick={confirmReceive} disabled={confirming}
               style={{ width: '100%', padding: '12px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: confirming ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               {confirming ? '⏳ جاري التأكيد...' : '✅ تأكيد الاستلام'}

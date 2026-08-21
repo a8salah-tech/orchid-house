@@ -941,7 +941,7 @@ export default function PayrollPage() {
     <title>Payroll - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>
     <style>body{font-family:Arial,sans-serif;font-size:10px;margin:10px;direction:rtl}h2{text-align:center;font-size:14px}h3{text-align:center;font-size:11px;color:#C9A84C}table{width:100%;border-collapse:collapse;font-size:9px}th{background:#0A1628;color:white;padding:5px 4px;border:1px solid #333;text-align:center;white-space:nowrap}td{padding:4px;border:1px solid #ccc;text-align:center}tr:nth-child(even){background:#f9f9f9}.total-row{background:#fff8e1!important;font-weight:bold}@media print{@page{size:A3 landscape;margin:8mm}}</style>
     </head><body>
-    <h2>🌸 Orchid House — Payroll Sheet</h2>
+    <h2>🌸 Orchid Group — Payroll Sheet</h2>
     <h3>${monthName} ${selectedMonth.year}${selectedBranch ? ' | ' + selectedBranch.name : ''}</h3>
     <table><thead><tr>
       <th>ID</th><th>Employee</th><th>Basic</th><th>Ins.</th><th>Daily</th><th>Hourly</th>

@@ -160,7 +160,12 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     }
   }
 
+  // ✅ تاريخ اليوم — أي يوم قبله يُعتبر "ماضياً" ومقفولاً تماماً بلا استثناء (قرار إداري: "اللي راح راح")
+  const todayStr = new Date().toISOString().slice(0, 10)
+  function isPastDate(dateStr: string) { return dateStr < todayStr }
+
   function toggleDate(dateStr: string) {
+    if (isPastDate(dateStr)) return // ✅ الأيام الماضية مقفولة بالكامل — لا تحديد ولا تعديل مهما كانت الطريقة
     if (editDay === dateStr) { setEditDay(null); return }
     setSelectedDates(prev => {
       const next = new Set(prev)
@@ -176,8 +181,11 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   // تداخل فعلي بين تحديد اليوم المقصود وأيام تانية كانت متحددة من قبل، ويبان الأمر وكأن الإجازة "دمجت"
   // مع يوم تاني
   const dayClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // ✅ نافذة تنبيه "اليوم مقفول" — في منتصف الشاشة بدل alert() الافتراضية
+  const [lockedDayAlert, setLockedDayAlert] = useState(false)
 
   function handleDaySingleClick(dateStr: string) {
+    if (isPastDate(dateStr)) return
     if (dayClickTimer.current) clearTimeout(dayClickTimer.current)
     dayClickTimer.current = setTimeout(() => {
       toggleDate(dateStr)
@@ -186,6 +194,11 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   }
 
   function handleDayDoubleClick(dateStr: string) {
+    if (isPastDate(dateStr)) {
+      // ✅ نافذة في منتصف الشاشة بدل alert() المتصفح الافتراضية — بفصحى عربية سليمة، ومعها الترجمة الإنجليزية
+      setLockedDayAlert(true)
+      return
+    }
     if (dayClickTimer.current) { clearTimeout(dayClickTimer.current); dayClickTimer.current = null }
     setEditDay(dateStr)
   }
@@ -197,6 +210,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     setCalendarMap(prev => {
       const next = { ...prev }
       selectedDates.forEach(d => {
+        if (isPastDate(d)) return // ✅ حماية أخيرة — لن يحدث عادةً لأن الأيام الماضية أصلاً لا تدخل selectedDates
         if (bulkType === 'off') delete next[d]
         else if (bulkType === 'shift') next[d] = { type: 'shift', shiftId: bulkShift }
         else if (bulkType === 'custom') next[d] = { type: 'custom', customStart, customEnd }
@@ -208,23 +222,41 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   }
 
   function applyPattern(pattern: 'all_shift' | 'weekdays' | 'clear') {
-    if (pattern === 'clear') { setCalendarMap({}); return }
+    // ✅ "مسح الكل" لا يجوز يمسح شيفتات أيام ماضية محفوظة بالفعل — يمسح المستقبل فقط ويُبقي الماضي كما هو
+    if (pattern === 'clear') {
+      setCalendarMap(prev => {
+        const next: typeof prev = {}
+        for (const [date, val] of Object.entries(prev)) {
+          if (isPastDate(date)) next[date] = val // نُبقي الأيام الماضية بلا أي تغيير
+        }
+        return next
+      })
+      return
+    }
     if (bulkType === 'shift' && !bulkShift) { alert('اختر الشيفت أولاً'); return }
     if (bulkType === 'custom' && (!customStart || !customEnd)) { alert('أدخل الوقت أولاً'); return }
-    const next: Record<string, { type: string; shiftId?: string; customStart?: string; customEnd?: string }> = {}
-    allDays.forEach(d => {
-      const include = pattern === 'all_shift' || (pattern === 'weekdays' && d.dow !== 5 && d.dow !== 6)
-      if (include) {
-        if (bulkType === 'shift') next[d.date] = { type: 'shift', shiftId: bulkShift }
-        else if (bulkType === 'custom') next[d.date] = { type: 'custom', customStart, customEnd }
+    setCalendarMap(prev => {
+      // ✅ نبدأ من الأيام الماضية المحفوظة الحالية كما هي (بلا لمسها)، ونضيف عليها فقط أيام اليوم والمستقبل
+      const next: Record<string, { type: string; shiftId?: string; customStart?: string; customEnd?: string }> = {}
+      for (const [date, val] of Object.entries(prev)) {
+        if (isPastDate(date)) next[date] = val
       }
+      allDays.forEach(d => {
+        if (isPastDate(d.date)) return // ✅ استبعاد كل الأيام الماضية من أي تطبيق جماعي (كل الشهر / أيام الأسبوع)
+        const include = pattern === 'all_shift' || (pattern === 'weekdays' && d.dow !== 5 && d.dow !== 6)
+        if (include) {
+          if (bulkType === 'shift') next[d.date] = { type: 'shift', shiftId: bulkShift }
+          else if (bulkType === 'custom') next[d.date] = { type: 'custom', customStart, customEnd }
+        }
+      })
+      return next
     })
-    setCalendarMap(next)
   }
 
   // تعديل يوم واحد مباشرة
   function applyEditDay(type: string, shiftId?: string, cs?: string, ce?: string) {
     if (!editDay) return
+    if (isPastDate(editDay)) return // ✅ حماية أخيرة — لن يحدث عادةً لأن نافذة التعديل أصلاً لا تُفتح ليوم ماضٍ
     setCalendarMap(prev => {
       const next = { ...prev }
       if (type === 'off') delete next[editDay]
@@ -238,14 +270,18 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
 
   async function save() {
     if (!empId) { alert('اختر موظف'); return }
-    const shiftDays = Object.entries(calendarMap).filter(([, v]) => v.type === 'shift' || v.type === 'custom')
-    const leaveDays = Object.entries(calendarMap).filter(([, v]) => v.type === 'leave')
+    // ✅ حماية نهائية وحاسمة: نستبعد أي يوم ماضٍ تماماً من الحذف ومن الإدراج، بغض النظر عمّا يحتويه calendarMap —
+    // الأيام الماضية لا تُحذف ولا تُعاد كتابتها إطلاقاً مهما حدث في الواجهة، فتبقى كما هي في قاعدة البيانات دون أي تدخل
+    const shiftDays = Object.entries(calendarMap).filter(([d, v]) => !isPastDate(d) && (v.type === 'shift' || v.type === 'custom'))
+    const leaveDays = Object.entries(calendarMap).filter(([d, v]) => !isPastDate(d) && v.type === 'leave')
     if (shiftDays.length === 0 && leaveDays.length === 0) { alert('لم تحدد أي أيام'); return }
     setSaving(true)
     const ms = `${year}-${String(month + 1).padStart(2, '0')}-01`
     const me = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+    // ✅ حد الحذف يبدأ من اليوم الحالي كحد أدنى (أو بداية الشهر لو الشهر بالكامل مستقبلي) — لا نحذف أي شيء من الماضي إطلاقاً
+    const deleteFrom = ms < todayStr ? todayStr : ms
     setProgress('حذف الجدول القديم...')
-    await supabase.from('shift_schedules').delete().eq('employee_id', empId).gte('date', ms).lte('date', me)
+    await supabase.from('shift_schedules').delete().eq('employee_id', empId).gte('date', deleteFrom).lte('date', me)
     if (shiftDays.length > 0) {
       setProgress(`إضافة ${shiftDays.length} يوم...`)
       const rows = shiftDays.map(([date, v]) => ({
@@ -293,6 +329,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   }
 
   return (
+    <>
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 720, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -441,6 +478,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               const isToday = d.date === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
               const shift = entry?.type === 'shift' ? shifts.find(s => s.id === entry.shiftId) : null
               const isWeekend = d.dow === 5 || d.dow === 6
+              const isPast = isPastDate(d.date)
 
               let bg = 'rgba(255,255,255,0.03)'
               let border = '1px solid rgba(255,255,255,0.06)'
@@ -450,14 +488,16 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               else if (entry?.type === 'custom') { bg = 'rgba(139,92,246,0.15)'; border = `1px solid ${S.purple}60` }
               else if (entry?.type === 'leave') { bg = 'rgba(245,158,11,0.15)'; border = `1px solid ${S.amber}40` }
               if (isToday && !isEditDay) border = `2px solid ${S.gold}`
+              // ✅ مؤشر بصري واضح للأيام الماضية المقفولة — تعتيم كامل + مؤشر "غير مسموح" بدل يد الاختيار
+              if (isPast) { bg = 'rgba(255,255,255,0.015)'; }
 
               return (
                 <div key={d.date}
                   onClick={() => handleDaySingleClick(d.date)}
                   onDoubleClick={() => handleDayDoubleClick(d.date)}
-                  title="اضغط للتحديد — اضغط مرتين للتعديل المباشر"
-                  style={{ background: bg, border, borderRadius: 8, padding: '4px 2px', cursor: 'pointer', textAlign: 'center', minHeight: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'all .1s' }}>
-                  <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}</div>
+                  title={isPast ? 'يوم ماضٍ — مقفول تماماً، لا يمكن تعديله' : 'اضغط للتحديد — اضغط مرتين للتعديل المباشر'}
+                  style={{ background: bg, border, borderRadius: 8, padding: '4px 2px', cursor: isPast ? 'not-allowed' : 'pointer', textAlign: 'center', minHeight: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'all .1s', opacity: isPast ? 0.4 : 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}{isPast && ' 🔒'}</div>
                   {entry?.type === 'shift' && shift && (
                     <div style={{ fontSize: 9, fontWeight: 700, color: shift.color, background: shift.color + '30', borderRadius: 4, padding: '1px 4px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {shift.name?.slice(0, 4)}
@@ -521,6 +561,38 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         </div>
       </div>
     </div>
+
+    {/* ✅ نافذة "اليوم مقفول" — في منتصف الشاشة فوق كل شيء، بالعربية الفصحى مع الترجمة الإنجليزية أسفلها */}
+    {lockedDayAlert && (
+      <div
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        onClick={() => setLockedDayAlert(false)}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ background: S.navy2, border: `2px solid ${S.amber}`, borderRadius: 16, padding: 26, maxWidth: 420, width: '100%', textAlign: 'center', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
+        >
+          <div style={{ fontSize: 34, marginBottom: 10 }}>🔒</div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: S.amber, marginBottom: 10 }}>
+            هذا اليوم قد مضى بالفعل
+          </div>
+          <div style={{ fontSize: 13, color: S.white, lineHeight: 1.9, marginBottom: 12 }}>
+            لا يمكن تعديل شيفتات الأيام الماضية من هذه الصفحة نهائياً. إذا كنت بحاجة إلى تصحيح فعلي، يُرجى مراجعة المسؤول مباشرة.
+          </div>
+          <div style={{ borderTop: `1px solid ${S.border}`, margin: '12px 0' }} />
+          <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.8, fontStyle: 'italic', marginBottom: 18 }}>
+            This day has already passed. Shifts for past days cannot be edited from this page at all. If an actual correction is needed, please contact the administrator directly.
+          </div>
+          <button
+            onClick={() => setLockedDayAlert(false)}
+            style={{ padding: '10px 26px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontWeight: 800, fontFamily: 'inherit', fontSize: 13 }}
+          >
+            فهمت / Understood
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 

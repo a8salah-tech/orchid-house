@@ -70,20 +70,36 @@ function pickImage(file: File, setFile: (f: File) => void, setPreview: (p: strin
 }
 
 // ══ Modal: إضافة/تعديل أصل في الكتالوج (لأمين المستودع) ══
-function AssetFormModal({ asset, onClose, onSaved }: { asset?: FixedAsset | null; onClose: () => void; onSaved: () => void }) {
+// ✅ Fix: بدل حقل كمية ثابت للمستودع الرئيسي بس، دلوقتي بتختار "الموقع" (مستودع رئيسي أو أحد
+// الفرعين) من قائمة، والكمية بتتغيّر تلقائيًا لتعرض رصيد الموقع المختار - وبتُحفظ لنفس الموقع بس
+function AssetFormModal({ asset, allBranches, stockByAsset, onClose, onSaved }: {
+  asset?: FixedAsset | null; allBranches: { id: string; name: string }[]
+  stockByAsset: Record<string, { mainWarehouse: number; branchQty: Record<string, number> }>
+  onClose: () => void; onSaved: () => void
+}) {
   const sb = createClient()
   const [name, setName] = useState(asset?.name || '')
   const [nameEn, setNameEn] = useState(asset?.name_en || '')
   const [category, setCategory] = useState(asset?.category || '')
   const [description, setDescription] = useState(asset?.description || '')
-  // ✅ جديد: سعر الأصل - إضافة اختيارية، يقدر مدير المستودعات يسيبها فاضية
+  // ✅ Fix: السعر بقى إجباري بدل اختياري
   const [price, setPrice] = useState(asset?.price != null ? String(asset.price) : '')
+  // ✅ جديد: الموقع المختار لإدخال/تعديل كميته - 'main' أو معرّف فرع
+  const [location, setLocation] = useState<string>('main')
+  const currentQtyForLocation = !asset ? 0
+    : location === 'main' ? (stockByAsset[asset.id]?.mainWarehouse ?? 0)
+    : (stockByAsset[asset.id]?.branchQty[location] ?? 0)
+  const [qty, setQty] = useState(String(currentQtyForLocation))
+  // ✅ لما يغيّر الموقع المختار، نحدّث الكمية المعروضة لرصيد الموقع الجديد تلقائيًا
+  useEffect(() => { setQty(String(currentQtyForLocation)) }, [location])
   const [img, setImg] = useState<File | null>(null)
   const [imgPreview, setImgPreview] = useState(asset?.image_url || '')
   const [saving, setSaving] = useState(false)
 
   async function save() {
     if (!name.trim()) { alert('يرجى كتابة اسم الأصل'); return }
+    // ✅ Fix: السعر إجباري - مفيش حفظ من غيره
+    if (!price.trim()) { alert('يرجى إدخال السعر'); return }
     setSaving(true)
     let imgUrl = asset?.image_url || ''
     if (img) {
@@ -94,14 +110,24 @@ function AssetFormModal({ asset, onClose, onSaved }: { asset?: FixedAsset | null
     const payload = {
       name: name.trim(), name_en: nameEn.trim() || null, category: category.trim() || null,
       description: description.trim() || null, image_url: imgUrl || null,
-      // ✅ جديد: حفظ السعر (null لو الحقل فاضي)
-      price: price.trim() ? parseFloat(price) : null,
+      price: parseFloat(price),
     }
-    const { error } = asset
-      ? await sb.from('fixed_assets').update(payload).eq('id', asset.id)
-      : await sb.from('fixed_assets').insert([{ ...payload, is_active: true }])
+    const { data: savedAsset, error } = asset
+      ? await sb.from('fixed_assets').update(payload).eq('id', asset.id).select().single()
+      : await sb.from('fixed_assets').insert([{ ...payload, is_active: true }]).select().single()
+    if (error || !savedAsset) { setSaving(false); alert('خطأ: ' + (error?.message || '')); return }
+    // ✅ جديد: حفظ كمية الموقع المختار بس (مستودع رئيسي أو فرع محدد) - مش كل المواقع مرة واحدة
+    const qtyValue = Math.max(0, parseInt(qty) || 0)
+    const isMain = location === 'main'
+    let query = sb.from('fixed_asset_stock').select('id').eq('asset_id', savedAsset.id).eq('location_type', isMain ? 'main_warehouse' : 'branch')
+    query = isMain ? query.is('branch_id', null) : query.eq('branch_id', location)
+    const { data: existingStock } = await query.maybeSingle()
+    if (existingStock) {
+      await sb.from('fixed_asset_stock').update({ quantity_good: qtyValue, updated_at: new Date().toISOString() }).eq('id', existingStock.id)
+    } else {
+      await sb.from('fixed_asset_stock').insert([{ asset_id: savedAsset.id, location_type: isMain ? 'main_warehouse' : 'branch', branch_id: isMain ? null : location, quantity_good: qtyValue }])
+    }
     setSaving(false)
-    if (error) { alert('خطأ: ' + error.message); return }
     onSaved()
   }
 
@@ -126,9 +152,21 @@ function AssetFormModal({ asset, onClose, onSaved }: { asset?: FixedAsset | null
             <input style={inp} value={category} onChange={e => setCategory(e.target.value)} placeholder="مثال: أدوات مائدة" />
           </div>
           <div>
-            {/* ✅ جديد: سعر الأصل - النافذة دي أصلًا ما بتفتحش إلا لـ canManage (مدير المستودعات/الأدمن)، فمفيش داعي لفحص إضافي */}
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>💰 السعر (RM)</label>
-            <input type="number" min={0} step="0.01" style={inp} value={price} onChange={e => setPrice(e.target.value)} placeholder="اختياري..." />
+            {/* ✅ Fix: السعر بقى إجباري (*) */}
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>💰 السعر (RM) *</label>
+            <input type="number" min={0} step="0.01" style={inp} value={price} onChange={e => setPrice(e.target.value)} placeholder="0.00" />
+          </div>
+          <div>
+            {/* ✅ جديد: اختيار الموقع (مستودع رئيسي أو أحد الفرعين) لإدخال/تعديل كميته */}
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>📦 الكمية في</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select value={location} onChange={e => setLocation(e.target.value)} style={{ ...inp, flex: 1 }}>
+                <option value="main">🏭 المستودع الرئيسي</option>
+                {allBranches.map(b => <option key={b.id} value={b.id}>🏪 {b.name}</option>)}
+              </select>
+              <input type="number" min={0} value={qty} onChange={e => setQty(e.target.value)} style={{ ...inp, width: 90 }} placeholder="0" />
+            </div>
+            {!asset && <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>💡 لو عايز تدخل كمية لموقع تاني، احفظ الأصل الأول ثم عدّله واختار الموقع التاني</div>}
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>التفاصيل</label>
@@ -447,28 +485,6 @@ export default function FixedAssetsPage() {
 
   useEffect(() => { if (employee) fetchAll() }, [employee?.id])
 
-  // ✅ جديد: تعديل رصيد المستودع الرئيسي مباشرة (لمدير المستودعات/الأدمن) - عشان نقدر ندخل الكمية الأولية أصلًا
-  async function updateMainWarehouseQty(assetId: string, newQty: number) {
-    const { data: existing } = await sb.from('fixed_asset_stock').select('id').eq('asset_id', assetId).eq('location_type', 'main_warehouse').is('branch_id', null).maybeSingle()
-    if (existing) {
-      await sb.from('fixed_asset_stock').update({ quantity_good: Math.max(0, newQty), updated_at: new Date().toISOString() }).eq('id', existing.id)
-    } else {
-      await sb.from('fixed_asset_stock').insert([{ asset_id: assetId, location_type: 'main_warehouse', branch_id: null, quantity_good: Math.max(0, newQty) }])
-    }
-    fetchAll()
-  }
-
-  // ✅ جديد: تعديل رصيد فرع معيّن مباشرة (لمدير المستودعات/الأدمن) - نفس فكرة تعديل المستودع الرئيسي
-  async function updateBranchQty(assetId: string, branchId: string, newQty: number) {
-    const { data: existing } = await sb.from('fixed_asset_stock').select('id').eq('asset_id', assetId).eq('location_type', 'branch').eq('branch_id', branchId).maybeSingle()
-    if (existing) {
-      await sb.from('fixed_asset_stock').update({ quantity_good: Math.max(0, newQty), updated_at: new Date().toISOString() }).eq('id', existing.id)
-    } else {
-      await sb.from('fixed_asset_stock').insert([{ asset_id: assetId, location_type: 'branch', branch_id: branchId, quantity_good: Math.max(0, newQty) }])
-    }
-    fetchAll()
-  }
-
   if (!canView) {
     return <div style={{ padding: 40, textAlign: 'center', color: S.muted, fontFamily: 'Tajawal, sans-serif' }}>ليس لديك صلاحية للوصول لهذه الصفحة</div>
   }
@@ -530,31 +546,17 @@ export default function FixedAssetsPage() {
                     {canManage && a.price != null && (
                       <div style={{ fontSize: 12, fontWeight: 700, color: S.green, marginBottom: 8 }}>💰 السعر: RM {Number(a.price).toFixed(2)}</div>
                     )}
-                    {/* ✅ جديد: الكمية المتاحة - المستودع الرئيسي وكل فرع في سطر منفصل */}
+                    {/* ✅ Fix: الكمية بقت للعرض فقط دايمًا - التعديل بقى حصريًا من نافذة إضافة/تعديل الأصل */}
                     <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
                       <div style={{ fontSize: 11, color: S.muted, fontWeight: 700, marginBottom: 2 }}>📊 الكمية المتاحة في:</div>
                       <div style={{ fontSize: 11, color: S.white, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>🏭 المستودع الرئيسي</span>
-                        {canManage ? (
-                          <input type="number" min={0} defaultValue={stockByAsset[a.id]?.mainWarehouse ?? 0}
-                            onClick={e => e.stopPropagation()}
-                            onBlur={e => { const v = parseInt(e.target.value) || 0; if (v !== (stockByAsset[a.id]?.mainWarehouse ?? 0)) updateMainWarehouseQty(a.id, v) }}
-                            style={{ width: 60, textAlign: 'center', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 6, padding: '2px 4px', fontSize: 11, color: S.gold, fontWeight: 700, outline: 'none' }} />
-                        ) : (
-                          <span style={{ fontWeight: 700, color: S.gold }}>{stockByAsset[a.id]?.mainWarehouse ?? 0}</span>
-                        )}
+                        <span style={{ fontWeight: 700, color: S.gold }}>{stockByAsset[a.id]?.mainWarehouse ?? 0}</span>
                       </div>
                       {allBranches.map(b => (
                         <div key={b.id} style={{ fontSize: 11, color: S.white, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span>🏪 {b.name}</span>
-                          {canManage ? (
-                            <input type="number" min={0} defaultValue={stockByAsset[a.id]?.branchQty[b.id] ?? 0}
-                              onClick={e => e.stopPropagation()}
-                              onBlur={e => { const v = parseInt(e.target.value) || 0; if (v !== (stockByAsset[a.id]?.branchQty[b.id] ?? 0)) updateBranchQty(a.id, b.id, v) }}
-                              style={{ width: 60, textAlign: 'center', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 6, padding: '2px 4px', fontSize: 11, color: S.blue, fontWeight: 700, outline: 'none' }} />
-                          ) : (
-                            <span style={{ fontWeight: 700, color: S.blue }}>{stockByAsset[a.id]?.branchQty[b.id] ?? 0}</span>
-                          )}
+                          <span style={{ fontWeight: 700, color: S.blue }}>{stockByAsset[a.id]?.branchQty[b.id] ?? 0}</span>
                         </div>
                       ))}
                     </div>
@@ -651,6 +653,7 @@ export default function FixedAssetsPage() {
 
       {showAssetForm && (
         <AssetFormModal asset={showAssetForm === 'new' ? null : showAssetForm}
+          allBranches={allBranches} stockByAsset={stockByAsset}
           onClose={() => setShowAssetForm(null)} onSaved={() => { setShowAssetForm(null); fetchAll() }} />
       )}
       {showNewTransfer && (

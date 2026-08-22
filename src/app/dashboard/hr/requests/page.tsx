@@ -70,6 +70,8 @@ interface EmployeeRequest {
   title: string; description: string; amount: number
   start_date: string; end_date: string; days_count: number
   approved_by: string; approved_at: string; rejection_reason: string
+  // ✅ جديد: رابط التقرير الطبي المرفق (إجباري للإجازة المرضية فقط)
+  attachment_url?: string | null
   employees?: { name: string; name_en?: string; role: string; department: string; employee_number?: string; branch_id?: string; branches?: { name: string } }
 }
 
@@ -323,6 +325,9 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
   const supabase = createClient()
   const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
+  // ✅ جديد: التقرير الطبي المرفق - إجباري للإجازة المرضية فقط
+  const [attachment, setAttachment] = useState<File | null>(null)
+  const [attachmentPreview, setAttachmentPreview] = useState('')
   const [form, setForm] = useState({
     employee_id: currentEmployeeId || '', request_type: initialType || 'leave_sick',
     title: '', description: '', amount: '',
@@ -346,6 +351,8 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
     if (!form.employee_id || !form.request_type) { alert('يرجى اختيار الموظف ونوع الطلب'); return }
     if (!form.description) { alert('يرجى إدخال تفاصيل الطلب'); return }
     if (form.request_type === 'attendance_correction' && !form.start_date) { alert('يرجى تحديد تاريخ الحضور المراد تصحيحه'); return }
+    // ✅ جديد: إرفاق التقرير الطبي إجباري للإجازة المرضية فقط
+    if (form.request_type === 'leave_sick' && !attachment) { alert('يرجى إرفاق تقرير طبي من الطبيب أو المستشفى'); return }
     // ✅ تحقق فعلي وقت الحفظ (مش بس قيد الواجهة min/max اللي ممكن يتلف بالتعديل المباشر على الصفحة) —
     // تصحيح الحضور: لازم يكون اليوم أو الأمس بس. باقي الطلبات ذات التواريخ (الإجازات): لازم اليوم أو بعده
     if (reqType?.hasDates && form.start_date) {
@@ -359,6 +366,15 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
       }
     }
     setSaving(true)
+
+    // ✅ جديد: رفع التقرير الطبي (لو مُرفق) قبل إدراج الطلب
+    let attachmentUrl = ''
+    if (attachment) {
+      const fileName = `employee-requests/${Date.now()}-${attachment.name}`
+      const { data: upData } = await supabase.storage.from('employees').upload(fileName, attachment, { upsert: true })
+      if (upData) { const { data: urlData } = supabase.storage.from('employees').getPublicUrl(upData.path); attachmentUrl = urlData.publicUrl }
+      if (!attachmentUrl) { setSaving(false); alert('تعذّر رفع الملف، يرجى المحاولة مرة أخرى'); return }
+    }
 
     // إضافة معلومات تصحيح الحضور للوصف
     const correctionInfo = form.request_type === 'attendance_correction'
@@ -375,6 +391,8 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
       end_date: form.end_date || null,
       days_count: daysCount || null,
       status: 'pending',
+      // ✅ جديد: حفظ رابط التقرير الطبي (فارغ لو الطلب مش إجازة مرضية)
+      attachment_url: attachmentUrl || null,
     }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -512,6 +530,27 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
               <div style={{ fontSize: 11, color: S.muted, marginTop: 8 }}>
                 Leave empty if you only want to correct one time
               </div>
+            </div>
+          )}
+
+          {/* ✅ جديد: التقرير الطبي - إجباري للإجازة المرضية فقط */}
+          {form.request_type === 'leave_sick' && (
+            <div style={{ background: S.redB, border: `1px solid ${S.red}30`, borderRadius: 12, padding: 14 }}>
+              <label style={{ fontSize: 12, color: S.red, fontWeight: 700, display: 'block', marginBottom: 8 }}>🏥 التقرير الطبي (من الطبيب أو المستشفى) *</label>
+              <input type="file" accept="image/*,application/pdf" onChange={e => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                setAttachment(file)
+                if (file.type.startsWith('image/')) {
+                  const reader = new FileReader()
+                  reader.onload = () => setAttachmentPreview(reader.result as string)
+                  reader.readAsDataURL(file)
+                } else {
+                  setAttachmentPreview('')
+                }
+              }} style={{ fontSize: 12, color: S.white }} />
+              {attachment && !attachmentPreview && <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>📎 {attachment.name}</div>}
+              {attachmentPreview && <img src={attachmentPreview} alt="التقرير الطبي" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }} />}
             </div>
           )}
         </div>
@@ -833,6 +872,18 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
           <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>📝 تفاصيل الطلب</div>
           <div style={{ fontSize: 13, color: S.white, lineHeight: 1.8, whiteSpace: 'pre-line' }}>{request.description}</div>
         </div>
+
+        {/* ✅ جديد: عرض التقرير الطبي المرفق (للإجازة المرضية) */}
+        {request.attachment_url && (
+          <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🏥 التقرير الطبي المرفق</div>
+            <a href={request.attachment_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block' }}>
+              {/\.(jpe?g|png|webp|gif)$/i.test(request.attachment_url)
+                ? <img src={request.attachment_url} alt="التقرير الطبي" style={{ maxWidth: 220, maxHeight: 220, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
+                : <span style={{ fontSize: 13, color: S.blue, textDecoration: 'underline' }}>📎 عرض الملف المرفق</span>}
+            </a>
+          </div>
+        )}
 
         {/* Rejection reason */}
         {request.rejection_reason && (

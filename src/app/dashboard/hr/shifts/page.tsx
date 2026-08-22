@@ -96,7 +96,7 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
 }
 
 // ══ Assign Monthly Modal ══
-function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initialMonth, initialYear }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null; initialMonth?: number; initialYear?: number }) {
+function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initialMonth, initialYear, canEditPastDays }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null; initialMonth?: number; initialYear?: number; canEditPastDays?: boolean }) {
   const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState('')
@@ -162,7 +162,9 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
 
   // ✅ تاريخ اليوم — أي يوم قبله يُعتبر "ماضياً" ومقفولاً تماماً بلا استثناء (قرار إداري: "اللي راح راح")
   const todayStr = new Date().toISOString().slice(0, 10)
-  function isPastDate(dateStr: string) { return dateStr < todayStr }
+  // ✅ القفل على الأيام الماضية لا ينطبق على الأدمن أو مدير القسم/الفرع — لهم وحدهم صلاحية تصحيح شيفت
+  // يوم فات فعلاً عند الحاجة، بينما باقي المستخدمين (مثل المشرفين) ممنوعون تماماً من لمس الماضي
+  function isPastDate(dateStr: string) { return !canEditPastDays && dateStr < todayStr }
 
   function toggleDate(dateStr: string) {
     if (isPastDate(dateStr)) return // ✅ الأيام الماضية مقفولة بالكامل — لا تحديد ولا تعديل مهما كانت الطريقة
@@ -279,7 +281,9 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     const ms = `${year}-${String(month + 1).padStart(2, '0')}-01`
     const me = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
     // ✅ حد الحذف يبدأ من اليوم الحالي كحد أدنى (أو بداية الشهر لو الشهر بالكامل مستقبلي) — لا نحذف أي شيء من الماضي إطلاقاً
-    const deleteFrom = ms < todayStr ? todayStr : ms
+    // ✅ حد الحذف يبدأ من اليوم الحالي كحد أدنى (أو بداية الشهر لو الشهر بالكامل مستقبلي) — إلا لو المستخدم
+    // مخوَّل (أدمن/مدير)، فوقتها يُسمح بلمس الماضي فعلياً بناءً على طلبه الصريح
+    const deleteFrom = (!canEditPastDays && ms < todayStr) ? todayStr : ms
     setProgress('حذف الجدول القديم...')
     await supabase.from('shift_schedules').delete().eq('employee_id', empId).gte('date', deleteFrom).lte('date', me)
     if (shiftDays.length > 0) {
@@ -479,6 +483,9 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               const shift = entry?.type === 'shift' ? shifts.find(s => s.id === entry.shiftId) : null
               const isWeekend = d.dow === 5 || d.dow === 6
               const isPast = isPastDate(d.date)
+              // ✅ تمييز بصري خفيف (نقطة برتقالية) للأدمن/المدير عند تعديل يوم ماضٍ فعلياً — تذكير بس، مش قفل،
+              // بما إن الصلاحية دي مقصورة عليهم أصلاً
+              const isRealPastDate = d.date < todayStr
 
               let bg = 'rgba(255,255,255,0.03)'
               let border = '1px solid rgba(255,255,255,0.06)'
@@ -488,16 +495,16 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               else if (entry?.type === 'custom') { bg = 'rgba(139,92,246,0.15)'; border = `1px solid ${S.purple}60` }
               else if (entry?.type === 'leave') { bg = 'rgba(245,158,11,0.15)'; border = `1px solid ${S.amber}40` }
               if (isToday && !isEditDay) border = `2px solid ${S.gold}`
-              // ✅ مؤشر بصري واضح للأيام الماضية المقفولة — تعتيم كامل + مؤشر "غير مسموح" بدل يد الاختيار
+              // ✅ مؤشر بصري واضح للأيام الماضية المقفولة (لغير المخوَّلين) — تعتيم كامل + مؤشر "غير مسموح" بدل يد الاختيار
               if (isPast) { bg = 'rgba(255,255,255,0.015)'; }
 
               return (
                 <div key={d.date}
                   onClick={() => handleDaySingleClick(d.date)}
                   onDoubleClick={() => handleDayDoubleClick(d.date)}
-                  title={isPast ? 'يوم ماضٍ — مقفول تماماً، لا يمكن تعديله' : 'اضغط للتحديد — اضغط مرتين للتعديل المباشر'}
+                  title={isPast ? 'يوم ماضٍ — مقفول تماماً، لا يمكن تعديله' : isRealPastDate ? 'يوم ماضٍ — يمكنك تعديله بصلاحيتك الإدارية، يُرجى الحذر' : 'اضغط للتحديد — اضغط مرتين للتعديل المباشر'}
                   style={{ background: bg, border, borderRadius: 8, padding: '4px 2px', cursor: isPast ? 'not-allowed' : 'pointer', textAlign: 'center', minHeight: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'all .1s', opacity: isPast ? 0.4 : 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}{isPast && ' 🔒'}</div>
+                  <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}{isPast ? ' 🔒' : (isRealPastDate ? ' 🟠' : '')}</div>
                   {entry?.type === 'shift' && shift && (
                     <div style={{ fontSize: 9, fontWeight: 700, color: shift.color, background: shift.color + '30', borderRadius: 4, padding: '1px 4px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {shift.name?.slice(0, 4)}
@@ -1313,7 +1320,7 @@ export default function ShiftsPage() {
 
       {/* Modals */}
       {(showAddShift||editShift)&&<ShiftModal shift={editShift} onClose={()=>{setShowAddShift(false);setEditShift(null)}} onSaved={()=>{setShowAddShift(false);setEditShift(null);refresh()}} />}
-      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} initialMonth={viewMonth} initialYear={viewYear} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
+      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} initialMonth={viewMonth} initialYear={viewYear} canEditPastDays={isManager} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
       {showRequest&&employee?.id&&<RequestModal shifts={shifts} employeeId={employee.id} onClose={()=>setShowRequest(false)} onSaved={()=>{setShowRequest(false);refresh()}} />}
     </div>
   )

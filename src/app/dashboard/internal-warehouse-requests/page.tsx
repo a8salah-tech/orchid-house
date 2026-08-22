@@ -128,7 +128,6 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [allDeptProducts, setAllDeptProducts] = useState<Record<string, any[]>>({ المطبخ: [], البار: [], الصالة: [] })
   const [branchWarehouseProductIds, setBranchWarehouseProductIds] = useState<Set<string>>(new Set())
   const [units, setUnits] = useState<any[]>([])
-  // ✅ جديد: معاملات التحويل - عشان نحدد الوحدات المسموحة فقط لكل صنف (الأساسية + أي وحدة فرعية مسجلة له)
   const [unitConversions, setUnitConversions] = useState<any[]>([])
   const [items, setItems] = useState<{ product_id: string; product_name: string; product_name_en?: string; available_locally: boolean; qty: string; unit_id: string; base_unit_id: string; notes: string }[]>([{ product_id: '', product_name: '', available_locally: true, qty: '', unit_id: '', base_unit_id: '', notes: '' }])
   const [search, setSearch] = useState('')
@@ -187,10 +186,12 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
           if (wp.is_active === false) continue
           const cleanName = (wp.name || '').trim()
           if (!cleanName) continue
+          // ✅ Fix: لا نعرض أي صنف غير مسجَّل في مستودع فرع الموظف نفسه، بدل عرض نسخة من مستودع
+          // آخر (كان يسبب التباسًا على الموظف بخصوص الوحدة الظاهرة). إن لم يكن الصنف مسجَّلًا
+          // في مستودع الفرع، فلا يظهر إطلاقًا بدل الاعتماد على بديل من مستودع آخر
+          if (!branchWarehouseId || wp.warehouse_id !== branchWarehouseId) continue
           const existing = seen.get(cleanName)
-          const isFromBranchWarehouse = branchWarehouseId && wp.warehouse_id === branchWarehouseId
-          // نفضّل نسخة مستودع الفرع دائمًا، حتى لو وصلت بعد نسخة أخرى تم تسجيلها مسبقًا
-          if (!existing || isFromBranchWarehouse) {
+          if (!existing) {
             seen.set(cleanName, wp)
           }
         }

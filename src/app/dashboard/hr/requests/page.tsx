@@ -567,8 +567,8 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
 }
 
 // ══ Request Detail Modal ══
-function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSupervisor, onClose, onUpdate, onDelete }: {
-  request: EmployeeRequest; currentUser?: { id?: string; name?: string; name_en?: string }; isAdmin?: boolean; isDeptManager?: boolean; isSupervisor?: boolean; onClose: () => void; onUpdate: () => void; onDelete: () => void
+function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSupervisor, isBranchManager, onClose, onUpdate, onDelete }: {
+  request: EmployeeRequest; currentUser?: { id?: string; name?: string; name_en?: string }; isAdmin?: boolean; isDeptManager?: boolean; isSupervisor?: boolean; isBranchManager?: boolean; onClose: () => void; onUpdate: () => void; onDelete: () => void
 }) {
   const supabase = createClient()
   const { isAr } = useLang()
@@ -580,9 +580,10 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   const isOwnRequest = currentUser?.id === request.employee_id
   // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط - مثل ما هي بالظبط، من غير أي تغيير
   const isSalaryAdvance = request.request_type === 'salary_advance'
-  // ✅ تسلسل بسيط: مدير القسم (أو الأدمن) هو المعتمد الوحيد لكل طلبات الموظفين - المشرف ليس له اعتماد على الإطلاق
+  // ✅ مدير الفرع أصبح مخوَّلاً باعتماد طلبات سلفة الراتب لموظفي فرعه (لم يكن مضمَّناً هنا أبداً من قبل رغم
+  // أن الاستعلام الأساسي في fetchAll() كان أصلاً يجلب له طلبات فرعه بس بشكل صحيح)
   const canTakeAction = !isOwnRequest && (
-    isSalaryAdvance ? isAdmin : (isAdmin || isDeptManager)
+    isSalaryAdvance ? (isAdmin || isBranchManager) : (isAdmin || isDeptManager)
   )
 
   // ✅ دالة مشتركة لعكس أثر سلفة "completed" على الرواتب — تُستخدم عند تغيير الحالة بعيداً عن "completed"،
@@ -949,7 +950,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             // ✅ صاحب الطلب نفسه، أو طلب سلفة راتب لمستخدم غير admin — لا تظهر أزرار الاعتماد على الإطلاق
             <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, textAlign: 'center' }}>
               <div style={{ fontSize: 13, color: S.amber, fontWeight: 700 }}>
-                {isOwnRequest ? '⏳ طلبك قيد المراجعة من الإدارة' : '🔒 هذا الطلب يحتاج اعتماد مدير النظام فقط'}
+                {isOwnRequest ? '⏳ طلبك قيد المراجعة من الإدارة' : (isSalaryAdvance ? '🔒 هذا الطلب يحتاج اعتماد مدير النظام أو مدير الفرع' : '🔒 هذا الطلب يحتاج اعتماد مدير القسم أو مدير النظام')}
               </div>
             </div>
           )
@@ -1372,7 +1373,7 @@ export default function EmployeeRequestsPage() {
 {showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
   <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />
 )}
-      {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} isAdmin={isAdmin} isDeptManager={isDeptManager} isSupervisor={isSupervisor} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
+      {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} isAdmin={isAdmin} isDeptManager={isDeptManager} isSupervisor={isSupervisor} isBranchManager={isBranchManager} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
 } 

@@ -47,6 +47,9 @@ export default function UniformRequestsPage() {
   const sb = createClient()
   const { employee: currentUser, permissions } = useAuth()
   const isAdmin = permissions?.all === true
+  // ✅ مدير الفرع يقدر يشوف ويعتمد طلبات يونيفورم موظفي فرعه بس (بنفس صلاحيات الأدمن، لكن محدودة بفرعه)
+  const isBranchManager = currentUser?.role === 'branch_manager'
+  const canManage = isAdmin || isBranchManager
 
   const [selections, setSelections] = useState<Record<string, { size: string; quantity: number }>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -57,17 +60,30 @@ export default function UniformRequestsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const baseSelect = `*, employees:employee_id(name, name_en, employee_number, department), uniform_request_items(*)`
+    const baseSelect = `*, employees:employee_id(name, name_en, employee_number, department, branch_id), uniform_request_items(*)`
+    let allQuery = null as any
+    if (isAdmin) {
+      // ✅ الأدمن يشوف كل الطلبات من كل الفروع
+      allQuery = sb.from('uniform_requests').select(baseSelect).order('requested_at', { ascending: false })
+    } else if (isBranchManager && currentUser?.branch_id) {
+      // ✅ مدير الفرع: نجيب أولاً موظفي فرعه، ثم نحصر الطلبات عليهم فقط — نفس نمط تحديد النطاق
+      // المستخدم في صفحة طلبات الموظفين الأخرى (سلفة الراتب)
+      const { data: branchEmps } = await sb.from('employees').select('id').eq('branch_id', currentUser.branch_id)
+      const ids = (branchEmps || []).map(e => e.id)
+      allQuery = ids.length > 0
+        ? sb.from('uniform_requests').select(baseSelect).in('employee_id', ids).order('requested_at', { ascending: false })
+        : Promise.resolve({ data: [] })
+    } else {
+      allQuery = Promise.resolve({ data: [] })
+    }
     const [mine, all] = await Promise.all([
       sb.from('uniform_requests').select(baseSelect).eq('employee_id', currentUser?.id || '').order('requested_at', { ascending: false }),
-      isAdmin
-        ? sb.from('uniform_requests').select(baseSelect).order('requested_at', { ascending: false })
-        : Promise.resolve({ data: [] }),
+      allQuery,
     ])
     setMyRequests((mine.data as any) || [])
     setAllRequests((all.data as any) || [])
     setLoading(false)
-  }, [currentUser?.id, isAdmin])
+  }, [currentUser?.id, currentUser?.branch_id, isAdmin, isBranchManager])
 
   useEffect(() => { if (currentUser?.id) fetchAll() }, [currentUser?.id, fetchAll])
 
@@ -143,7 +159,7 @@ export default function UniformRequestsPage() {
           style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'mine' ? S.gold : S.border}`, background: tab === 'mine' ? S.gold3 : 'transparent', color: tab === 'mine' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'mine' ? 700 : 400 }}>
           📋 طلباتي ({myRequests.length})
         </button>
-        {isAdmin && (
+        {canManage && (
           <button onClick={() => setTab('admin')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'admin' ? S.gold : S.border}`, background: tab === 'admin' ? S.gold3 : 'transparent', color: tab === 'admin' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'admin' ? 700 : 400, position: 'relative' }}>
             🔐 كل الطلبات ({allRequests.length})
@@ -238,7 +254,7 @@ export default function UniformRequestsPage() {
       )}
 
       {/* ── Admin Tab ── */}
-      {tab === 'admin' && isAdmin && (
+      {tab === 'admin' && canManage && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>

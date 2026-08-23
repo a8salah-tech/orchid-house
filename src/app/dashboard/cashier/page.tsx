@@ -170,7 +170,7 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
   <div class="summary">
     <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toFixed(2)} · BSN ${totals.visaBsn.toFixed(2)})</div><div class="value">MYR ${totals.visa.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">📱 Online</div><div class="value">MYR ${totals.online.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toFixed(2)}</div></div>
@@ -328,6 +328,10 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     const fullName = [employee?.name, (employee as any)?.name_en].filter(Boolean).join(' ') || 'غير معروف'
     const sourceTableLabel = order.tables?.name || `Table ${order.tables?.number}`
 
+    // ✅ Fix حرج جدًا: Supabase مابيرميش استثناء تلقائي لما السيرفر يرفض الطلب - كنا لاقيناها قبل كده في
+    // الدفع، ونفس المشكلة كانت هنا بالظبط. دلوقتي try/catch شامل + تحقق صريح من كل عملية، عشان أي فشل
+    // يوري رسالة واضحة بدل ما يسيب الطلب المصدر عالق بإجمالي قديم وحالة نشطة من غير تفسير
+    try {
     // ✅ نجيب الطلب النشط للطاولة الوجهة - لو مفيش، ننشئ طلب جديد فارغ ليها ونشغّلها
     let destOrderId: string
     const { data: destActiveOrder } = await sb.from('orders')
@@ -335,11 +339,13 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     if (destActiveOrder?.id) {
       destOrderId = destActiveOrder.id
     } else {
-      const { data: newOrder } = await sb.from('orders').insert([{
+      const { data: newOrder, error: newOrderError } = await sb.from('orders').insert([{
         table_id: destTable.id, status: 'confirmed', total_amount: 0, shift: 'shift1',
       }]).select('id').single()
-      destOrderId = newOrder!.id
-      await sb.from('tables').update({ status: 'occupied', current_order_id: destOrderId, occupied_since: new Date().toISOString() }).eq('id', destTable.id)
+      if (newOrderError || !newOrder) throw new Error('Failed to create destination order: ' + (newOrderError?.message || 'unknown'))
+      destOrderId = newOrder.id
+      const { error: destTableError } = await sb.from('tables').update({ status: 'occupied', current_order_id: destOrderId, occupied_since: new Date().toISOString() }).eq('id', destTable.id)
+      if (destTableError) throw new Error('Failed to occupy destination table: ' + destTableError.message)
     }
 
     // ✅ ننقل كل صنف مختار: نغيّر order_id بتاعه للطلب الوجهة، ونضيف ملاحظة توضح المصدر ومين نقله
@@ -347,30 +353,40 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
       const item = order.order_items.find(i => i.id === itemId)
       const moveNote = `📤 نُقل من ${sourceTableLabel} بواسطة ${fullName}`
       const combinedNotes = item?.notes ? `${item.notes} — ${moveNote}` : moveNote
-      await sb.from('order_items').update({ order_id: destOrderId, notes: combinedNotes }).eq('id', itemId)
+      const { error: moveItemError } = await sb.from('order_items').update({ order_id: destOrderId, notes: combinedNotes }).eq('id', itemId)
+      if (moveItemError) throw new Error('Failed to move item: ' + moveItemError.message)
     }
 
     // ✅ إعادة حساب إجمالي الطلبين (المصدر والوجهة) بعد النقل
     const { data: destItems } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', destOrderId)
     const destTotal = (destItems || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
-    await sb.from('orders').update({ total_amount: destTotal }).eq('id', destOrderId)
+    const { error: destTotalError } = await sb.from('orders').update({ total_amount: destTotal }).eq('id', destOrderId)
+    if (destTotalError) throw new Error('Failed to update destination total: ' + destTotalError.message)
 
     const { data: srcItems } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', order.id)
     const srcActiveItems = (srcItems || []).filter(i => i.status !== 'cancelled')
     const srcTotal = srcActiveItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
-    await sb.from('orders').update({ total_amount: srcTotal }).eq('id', order.id)
+    const { error: srcTotalError } = await sb.from('orders').update({ total_amount: srcTotal }).eq('id', order.id)
+    if (srcTotalError) throw new Error('Failed to update source total: ' + srcTotalError.message)
 
     // ✅ جديد: لو الطاولة المصدر بقت من غير أي أصناف نشطة بعد النقل، نقفل طلبها ونرجّعها "فاضية" تلقائيًا
     if (srcActiveItems.length === 0) {
-      await sb.from('orders').update({ status: 'done' }).eq('id', order.id)
-      await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', order.table_id)
+      const { error: closeSrcError } = await sb.from('orders').update({ status: 'done' }).eq('id', order.id)
+      if (closeSrcError) throw new Error('Failed to close source order: ' + closeSrcError.message)
+      const { error: freeSrcTableError } = await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', order.table_id)
+      if (freeSrcTableError) throw new Error('Failed to free source table: ' + freeSrcTableError.message)
     }
 
-    setMovingItems(false)
     setShowMoveItems(false)
     setMoveSelectedIds(new Set())
     setMoveDestTableId('')
     onPaid() // نعيد تحميل البيانات وإغلاق المودال، بنفس أثر إتمام أي عملية
+    } catch (err: any) {
+      console.error('moveSelectedItemsToTable error:', err)
+      alert('⚠️ Move failed: ' + (err?.message || 'Unknown error') + '\n\nPlease try again or contact support.')
+    } finally {
+      setMovingItems(false)
+    }
   }
 
   // ✅ Fix حرج: كان بيجيب أول 200 عميل بس (مرتبين بالاسم) ويبحث فيهم محليًا - يعني أي عميل اسمه بيبدأ بحرف
@@ -1029,7 +1045,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
               {[
                 { k: 'cash', label: '💵 Cash', color: S.green },
                 { k: 'visa', label: '💳 Visa', color: S.blue },
-                { k: 'online', label: '📱 Online', color: S.purple },
+                { k: 'online', label: '📱 Bank Transfer', color: S.purple },
                 // ✅ جديد: يظهر بس لطاولات جراب/فودباندا - الفلوس هتتحصّل من المنصة لاحقًا مش دلوقتي
                 ...(isPlatformCreditOrder ? [{ k: 'credit', label: '🧾 Credit', color: S.amber }] : []),
               ].map(m => (
@@ -1172,7 +1188,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
                     {[
                       { k: 'cash', label: '💵 Cash', color: S.green },
                       { k: 'visa', label: '💳 Visa', color: S.blue },
-                      { k: 'online', label: '📱 Online', color: S.purple },
+                      { k: 'online', label: '📱 Bank Transfer', color: S.purple },
                     ].map(m => (
                       <button key={m.k} onClick={() => setPersonMethods(prev => ({ ...prev, [p.idx]: m.k as any }))}
                         style={{ padding: '7px', borderRadius: 8, border: `1px solid ${personMethods[p.idx] === m.k ? m.color : S.border}`, background: personMethods[p.idx] === m.k ? m.color + '20' : 'transparent', color: personMethods[p.idx] === m.k ? m.color : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: personMethods[p.idx] === m.k ? 700 : 400 }}>
@@ -1747,7 +1763,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
     <div class="summary">
       <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totalCash.toFixed(2)}</div></div>
       <div class="summary-box"><div class="label">💳 Visa</div><div class="value">MYR ${totalVisa.toFixed(2)}</div></div>
-      <div class="summary-box"><div class="label">📱 Online</div><div class="value">MYR ${totalOnline.toFixed(2)}</div></div>
+      <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totalOnline.toFixed(2)}</div></div>
       <div class="summary-box"><div class="label">🎁 Complimentary</div><div class="value">${totalFree} orders</div></div>
     </div>
     <script>window.onload=()=>window.print()<\/script>
@@ -1779,7 +1795,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
             { label: 'Grand Total', value: `MYR ${grandTotal.toFixed(2)}`, color: S.gold, icon: '💰' },
             { label: 'Cash', value: `MYR ${totalCash.toFixed(2)}`, color: S.green, icon: '💵' },
             { label: 'Visa', value: `MYR ${totalVisa.toFixed(2)}`, color: S.blue, icon: '💳' },
-            { label: 'Online', value: `MYR ${totalOnline.toFixed(2)}`, color: S.purple, icon: '📱' },
+            { label: 'Bank Transfer', value: `MYR ${totalOnline.toFixed(2)}`, color: S.purple, icon: '📱' },
             { label: 'Discount', value: `MYR ${totalDiscount.toFixed(2)}`, color: S.red, icon: '🏷️' },
             { label: 'Service 10%', value: `MYR ${totalService.toFixed(2)}`, color: S.amber, icon: '⚡' },
             { label: 'SST 6%', value: `MYR ${totalSST.toFixed(2)}`, color: S.teal, icon: '🧾' },
@@ -1951,6 +1967,16 @@ export default function CashierPage() {
   const [expImages, setExpImages] = useState<File[]>([])
   const [expImagePreviews, setExpImagePreviews] = useState<string[]>([])
   const [expUploading, setExpUploading] = useState(false)
+  // ✅ جديد: تسجيل عربون (Deposit) لعميل من شاشة الكاشير مباشرة - باسمه ورقمه بس (مش لازم يكون مسجّل مسبقًا،
+  // لو رقمه مش موجود في نظام العملاء بننشئله حساب جديد تلقائيًا)
+  const [showDepositModal, setShowDepositModal] = useState(false)
+  const [depCustName, setDepCustName] = useState('')
+  const [depCustPhone, setDepCustPhone] = useState('')
+  const [depAmount, setDepAmount] = useState('')
+  const [depMethod, setDepMethod] = useState<'cash' | 'visa' | 'online'>('cash')
+  const [depCardBank, setDepCardBank] = useState<'maybank' | 'bsn' | ''>('')
+  const [depSaving, setDepSaving] = useState(false)
+  const [depSaved, setDepSaved] = useState(false)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
   // ✅ جديد: مودال اختيار اسم الكاشير الحقيقي وقت بدء الشيفت - مهم لما يكون فيه حساب دخول مشترك بين أكتر من كاشير
@@ -1968,6 +1994,8 @@ export default function CashierPage() {
   const [closedExpenses, setClosedExpenses] = useState<{ id: string; shift: string; cashier_name: string; description: string; amount: number; status: string; created_at: string; branch_id: string | null; receipt_urls: string[] | null }[]>([])
   // ✅ جديد: تفاصيل دفعات الفواتير المقسّمة (Split Payment) - مطلوبة عشان نجمع كام كاش وكام فيزا فعليًا حتى للفواتير المقسّمة
   const [closedSplitPayments, setClosedSplitPayments] = useState<{ order_id: string; person_label: string; amount: number; payment_method: string; card_bank: string | null }[]>([])
+  // ✅ جديد: العربونات المأخوذة في نطاق اليوم/الشيفت المعروض في تاب Closed - عشان تتحسب ضمن Cash/Visa/Online
+  const [closedDeposits, setClosedDeposits] = useState<{ id: string; amount: number; payment_method: string; card_bank: string | null; created_at: string; created_by_name: string | null; branch_id: string | null }[]>([])
   const [closedLoading, setClosedLoading] = useState(false)
   const [closedFetched, setClosedFetched] = useState(false)
   // ✅ جديد: عرض صورة إيصال المصروف بحجمها الكامل جوه نفس الصفحة (بدل ما تفتح في تاب جديد)
@@ -2213,7 +2241,11 @@ export default function CashierPage() {
     if (!isAdmin && employee?.branch_id) sq = sq.eq('branch_id', employee.branch_id)
     if (isAdmin && adminBranchFilter) sq = sq.eq('branch_id', adminBranchFilter)
     const { data: sData } = await sq
-    const sessions = (sData as any[]) || []
+    let sessions = (sData as any[]) || []
+    // ✅ جديد: أي كاشير (غير الأدمن) يشوف بس بطاقة شيفته هو، مش شيفتات باقي الكاشيرية
+    if (!isAdmin) {
+      sessions = sessions.filter(s => s.cashier_name === employee?.name)
+    }
     setClosedSessions(sessions)
 
     // ✅ Fix حرج جدًا: منع تكرار نفس الفاتورة في يومين مختلفين. لو فيه شيفت بدأ *اليوم اللي فات* ولسه شغال
@@ -2263,6 +2295,10 @@ export default function CashierPage() {
     if (isAdmin && adminBranchFilter) {
       results = results.filter(o => tables.find(t => t.id === o.table_id)?.branch_id === adminBranchFilter)
     }
+    // ✅ جديد: أي كاشير (غير الأدمن) يشوف بس الفواتير اللي هو شخصيًا دفّعها - مش فواتير باقي الكاشيرية في نفس اليوم
+    if (!isAdmin) {
+      results = results.filter(o => (o as any).paid_by_name === employee?.name)
+    }
     setClosedOrders(results)
 
     // ✅ جديد: لأي فاتورة مقسّمة (payment_method = 'split')، نجيب تفاصيل كل دفعة فيها (طريقتها وبنكها الحقيقي)
@@ -2275,6 +2311,20 @@ export default function CashierPage() {
     } else {
       setClosedSplitPayments([])
     }
+
+    // ✅ جديد: العربونات المأخوذة في نفس نطاق الطلبات الموسّع (ordersRangeStart/End) - عشان تتحسب ضمن
+    // Cash/Visa/Online بتاعة الشيفت اللي اتاخدت فيه، بالظبط زي أي فاتورة عادية
+    let dq = sb.from('customer_deposits').select('id, amount, payment_method, card_bank, created_at, created_by_name, branch_id')
+      .gte('created_at', ordersRangeStart).lte('created_at', ordersRangeEnd)
+    if (!isAdmin && employee?.branch_id) dq = dq.eq('branch_id', employee.branch_id)
+    if (isAdmin && adminBranchFilter) dq = dq.eq('branch_id', adminBranchFilter)
+    const { data: depositsData } = await dq
+    let deposits = (depositsData as any[]) || []
+    // ✅ نفس تقييد "كل كاشير يشوف بس بتاعته" - العربونات اللي هو شخصيًا سجّلها بس
+    if (!isAdmin) {
+      deposits = deposits.filter(d => d.created_by_name === employee?.name)
+    }
+    setClosedDeposits(deposits)
 
     // ✅ جديد: جلب مصروفات الكاش المسجّلة لليوم ده - نفس جدول daily_cash_expenses اللي زرار "💸 Add Expense" بيكتب فيه
     let eq = sb.from('daily_cash_expenses').select('id,shift,cashier_name,description,amount,status,created_at,branch_id,receipt_urls')
@@ -2569,6 +2619,13 @@ export default function CashierPage() {
               💸 {isMobile ? '' : 'Add Expense'}
             </button>
           )}
+          {/* ✅ جديد: تسجيل عربون (Deposit) لعميل - باسمه ورقمه بس، من غير ما يحتاج يكون مسجّل مسبقًا */}
+          {isCashierRole && (
+            <button onClick={() => setShowDepositModal(true)}
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              💰 {isMobile ? '' : 'Add Deposit'}
+            </button>
+          )}
           {!shiftStarted ? (
             <button onClick={async () => {
               // ✅ جديد: بدل ما ناخد الاسم تلقائي من الحساب (مهم لو الحساب مشترك بين أكتر من كاشير)، نفتح
@@ -2853,7 +2910,11 @@ export default function CashierPage() {
                       // ✅ Fix حرج: بدل ما نحسب من payment_method المسجّل على الفاتورة مباشرة (اللي بيبقى "split"
                       // للفواتير المقسّمة ومش بيتحسب في أي عمود)، بنفكّك كل فاتورة لدفعاتها الحقيقية (getPaymentBreakdown)
                       // ونجمعها حسب الطريقة الفعلية لكل دفعة - كده الفواتير المقسّمة بتتحسب صح في Cash/Visa/Online/Credit
-                      const dayPayments = dayPaid.flatMap(o => getPaymentBreakdown(o, closedSplitPayments))
+                      const dayPayments = [
+                        ...dayPaid.flatMap(o => getPaymentBreakdown(o, closedSplitPayments)),
+                        // ✅ جديد: العربونات المأخوذة اليوم بتتحسب زي أي دفعة عادية حسب طريقتها
+                        ...closedDeposits.map(d => ({ method: d.payment_method, card_bank: d.card_bank, amount: d.amount })),
+                      ]
                       const dCash = dayPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
                       const dVisa = dayPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
                       const dVisaMaybank = dayPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
@@ -2882,7 +2943,7 @@ export default function CashierPage() {
                               <div style={{ fontSize: 15, fontWeight: 800, color: S.blue }}>MYR {dVisa.toFixed(2)}</div>
                             </div>
                             <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontSize: 10, color: S.muted }}>📱 Online</div>
+                              <div style={{ fontSize: 10, color: S.muted }}>📱 Bank Transfer</div>
                               <div style={{ fontSize: 15, fontWeight: 800, color: S.purple }}>MYR {dOnline.toFixed(2)}</div>
                             </div>
                             {dCredit > 0 && (
@@ -2940,6 +3001,23 @@ export default function CashierPage() {
                               </div>
                             </div>
                           )}
+                          {/* ✅ جديد: قائمة تفصيلية بالعربونات المأخوذة اليوم - عشان تبان واضحة مش بس متجمّعة في الإجمالي */}
+                          {closedDeposits.length > 0 && (
+                            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${S.gold}40` }}>
+                              <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, fontWeight: 700 }}>💰 Deposits Log</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {closedDeposits.map(dep => (
+                                  <div key={dep.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                                    <span style={{ color: S.white }}>
+                                      {dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}
+                                      <span style={{ color: S.muted, fontSize: 10 }}> · {dep.created_by_name || '—'} · {new Date(dep.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    </span>
+                                    <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )
                     })()}
@@ -2962,7 +3040,15 @@ export default function CashierPage() {
                       // ✅ Fix حرج: نفس منطق Whole Day Total - نفكّك كل فاتورة مدفوعة لدفعاتها الحقيقية عشان
                       // الفواتير المقسّمة تتحسب صح في Cash/Visa/Online/Credit بدل ما تضيع تحت "split"
                       const sessPaidOrders = sessOrders.filter(o => o.status === 'paid')
-                      const sessPayments = sessPaidOrders.flatMap(o => getPaymentBreakdown(o, closedSplitPayments))
+                      // ✅ جديد: عربونات هذا الشيفت بالذات - بالربط بتوقيت أخذ العربون داخل نافذة الشيفت
+                      const sessDeposits = closedDeposits.filter(d => {
+                        const t = new Date(d.created_at).getTime()
+                        return t >= start && t <= end
+                      })
+                      const sessPayments = [
+                        ...sessPaidOrders.flatMap(o => getPaymentBreakdown(o, closedSplitPayments)),
+                        ...sessDeposits.map(d => ({ method: d.payment_method, card_bank: d.card_bank, amount: d.amount })),
+                      ]
                       const sCash = sessPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
                       const sVisa = sessPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
                       const sVisaMaybank = sessPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
@@ -3004,7 +3090,7 @@ export default function CashierPage() {
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.blue }}>MYR {sVisa.toFixed(2)}</div>
                               </div>
                               <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>📱 Online</div>
+                                <div style={{ fontSize: 10, color: S.muted }}>📱 Bank Transfer</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.purple }}>MYR {sOnline.toFixed(2)}</div>
                               </div>
                               {sCredit > 0 && (
@@ -3064,6 +3150,20 @@ export default function CashierPage() {
                                       ))}
                                       <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
                                     </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* ✅ جديد: قائمة تفصيلية بعربونات هذا الشيفت بالذات */}
+                          {sessDeposits.length > 0 && (
+                            <div style={{ padding: '0 16px 14px', borderTop: `1px solid ${S.border}`, paddingTop: 10 }}>
+                              <div style={{ fontSize: 11, color: S.muted, marginBottom: 6, fontWeight: 700 }}>💰 Deposits</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                {sessDeposits.map(dep => (
+                                  <div key={dep.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                                    <span style={{ color: S.white }}>{dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}</span>
+                                    <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toFixed(2)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -3282,6 +3382,87 @@ export default function CashierPage() {
             style={{ position: 'absolute', top: 20, right: 20, width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer', fontSize: 18 }}>✕</button>
           <img src={viewingReceiptUrl} alt="receipt" onClick={e => e.stopPropagation()}
             style={{ maxWidth: '95%', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8 }} />
+        </div>
+      )}
+
+      {/* ✅ جديد: مودال تسجيل عربون لعميل من شاشة الكاشير - باسمه ورقمه بس، بيتربط تلقائيًا بحساب موجود
+          (لو رقمه متسجّل بالفعل) أو بينشئله حساب جديد في نظام العملاء على طول */}
+      {showDepositModal && (
+        <div onClick={() => { setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount(''); setDepCardBank(''); setDepSaved(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 380, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>💰 Add Deposit</h2>
+              <button onClick={() => { setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount(''); setDepCardBank(''); setDepSaved(false) }}
+                style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>
+              Enter the customer's name and phone number. If they're not registered yet, a new customer profile will be created automatically.
+            </div>
+
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }}
+              placeholder="Customer Name" value={depCustName} onChange={e => setDepCustName(e.target.value)} />
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }}
+              placeholder="Phone Number" value={depCustPhone} onChange={e => setDepCustPhone(e.target.value)} />
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }}
+              type="number" placeholder="Deposit Amount (MYR)" value={depAmount} onChange={e => setDepAmount(e.target.value)} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+              {[{ k: 'cash', label: '💵 Cash' }, { k: 'visa', label: '💳 Visa' }, { k: 'online', label: '📱 Bank Transfer' }].map(m => (
+                <button key={m.k} onClick={() => setDepMethod(m.k as any)}
+                  style={{ padding: '8px', borderRadius: 8, border: `1px solid ${depMethod === m.k ? S.gold : S.border}`, background: depMethod === m.k ? S.gold3 : 'transparent', color: depMethod === m.k ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: depMethod === m.k ? 700 : 400 }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            {depMethod === 'visa' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 14 }}>
+                {[{ k: 'maybank', label: '🏦 Maybank' }, { k: 'bsn', label: '🏦 BSN' }].map(b => (
+                  <button key={b.k} onClick={() => setDepCardBank(b.k as any)}
+                    style={{ padding: '8px', borderRadius: 8, border: `1px solid ${depCardBank === b.k ? S.gold : S.border}`, background: depCardBank === b.k ? S.gold3 : 'transparent', color: depCardBank === b.k ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: depCardBank === b.k ? 700 : 400 }}>
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <button
+              disabled={depSaving}
+              onClick={async () => {
+                if (!depCustName.trim()) { alert('Please enter the customer name'); return }
+                if (!depCustPhone.trim()) { alert('Please enter the customer phone number'); return }
+                if (!(parseFloat(depAmount) > 0)) { alert('Please enter a valid amount'); return }
+                if (depMethod === 'visa' && !depCardBank) { alert('Please select the bank (Maybank / BSN)'); return }
+                setDepSaving(true)
+                // ✅ ندور الأول لو فيه عميل مسجّل بنفس الرقم ده، عشان منعملش نسخة مكررة بالغلط
+                const { data: existingCust, error: findError } = await sb.from('customers')
+                  .select('id').eq('phone', depCustPhone.trim()).limit(1).maybeSingle()
+                if (findError) { alert('⚠️ Failed to check customer: ' + findError.message); setDepSaving(false); return }
+                let customerId = existingCust?.id
+                if (!customerId) {
+                  const { data: newCust, error: newCustError } = await sb.from('customers')
+                    .insert([{ name: depCustName.trim(), phone: depCustPhone.trim() }]).select('id').single()
+                  if (newCustError || !newCust) { alert('⚠️ Failed to create customer: ' + (newCustError?.message || 'unknown')); setDepSaving(false); return }
+                  customerId = newCust.id
+                }
+                const { error: depositError } = await sb.from('customer_deposits').insert([{
+                  customer_id: customerId, branch_id: employee?.branch_id || null,
+                  amount: parseFloat(depAmount), status: 'available',
+                  payment_method: depMethod, card_bank: depMethod === 'visa' ? depCardBank : null,
+                  created_by_name: activeShiftCashierName || employee?.name || null,
+                }])
+                setDepSaving(false)
+                if (depositError) { alert('⚠️ Failed to save deposit: ' + depositError.message); return }
+                setDepSaved(true)
+                setTimeout(() => {
+                  setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount('')
+                  setDepCardBank(''); setDepSaved(false)
+                }, 1200)
+              }}
+              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: depSaved ? S.green : S.blue, color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: depSaving ? 0.6 : 1 }}>
+              {depSaving ? '⏳ Saving...' : depSaved ? '✅ Deposit Saved!' : '💾 Save Deposit'}
+            </button>
+          </div>
         </div>
       )}
 

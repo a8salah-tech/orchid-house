@@ -42,6 +42,12 @@ interface UniformRequest {
   employees?: { name: string; name_en?: string; employee_number?: string; department?: string }
   uniform_request_items?: RequestItem[]
 }
+// ✅ جديد: سجل إدخال كمية مخزون يونيفورم — من أدخلها، ولأي فرع
+interface StockEntry {
+  id: string; item_type: string; size: string; quantity: number; branch_id: string; created_at: string
+  branches?: { name: string }
+  added_by_employee?: { name: string; name_en?: string }
+}
 
 export default function UniformRequestsPage() {
   const sb = createClient()
@@ -56,7 +62,16 @@ export default function UniformRequestsPage() {
   const [myRequests, setMyRequests] = useState<UniformRequest[]>([])
   const [allRequests, setAllRequests] = useState<UniformRequest[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'new' | 'mine' | 'admin'>('new')
+  const [tab, setTab] = useState<'new' | 'mine' | 'admin' | 'stock'>('new')
+
+  // ✅ جديد: حالة تاب "المخزون" — إدخال كميات جديدة وعرض سجل من أدخل كل كمية ولأي فرع
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [stockEntries, setStockEntries] = useState<StockEntry[]>([])
+  const [loadingStock, setLoadingStock] = useState(false)
+  const [stockForm, setStockForm] = useState<{ item_type: string; size: string; quantity: number; branch_id: string }>({
+    item_type: 'jacket', size: 'M', quantity: 1, branch_id: '',
+  })
+  const [savingStock, setSavingStock] = useState(false)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -86,6 +101,60 @@ export default function UniformRequestsPage() {
   }, [currentUser?.id, currentUser?.branch_id, isAdmin, isBranchManager])
 
   useEffect(() => { if (currentUser?.id) fetchAll() }, [currentUser?.id, fetchAll])
+
+  // ✅ جلب الفروع (للأدمن يختار أي فرع، ولمدير الفرع نعرض اسم فرعه فقط) — مرة واحدة عند تحميل الصفحة
+  useEffect(() => {
+    sb.from('branches').select('id, name').order('name').then(({ data }) => {
+      setBranches(data || [])
+      // ✅ نضبط فرع مدير الفرع تلقائياً كقيمة افتراضية ثابتة في الفورم (لا يمكنه تغييره)
+      if (isBranchManager && currentUser?.branch_id) {
+        setStockForm(prev => ({ ...prev, branch_id: currentUser.branch_id || '' }))
+      }
+    })
+  }, [isBranchManager, currentUser?.branch_id])
+
+  const fetchStock = useCallback(async () => {
+    if (!canManage) return
+    setLoadingStock(true)
+    let q = sb.from('uniform_stock_entries')
+      .select('*, branches(name), added_by_employee:added_by(name, name_en)')
+      .order('created_at', { ascending: false })
+    // ✅ مدير الفرع يشوف سجل فرعه بس، الأدمن يشوف كل الفروع
+    if (!isAdmin && isBranchManager && currentUser?.branch_id) {
+      q = q.eq('branch_id', currentUser.branch_id)
+    }
+    const { data } = await q
+    setStockEntries((data as any) || [])
+    setLoadingStock(false)
+  }, [canManage, isAdmin, isBranchManager, currentUser?.branch_id])
+
+  useEffect(() => { if (tab === 'stock') fetchStock() }, [tab, fetchStock])
+
+  async function addStockEntry() {
+    if (!stockForm.branch_id) { alert('يرجى اختيار الفرع'); return }
+    if (stockForm.quantity <= 0) { alert('يرجى إدخال كمية أكبر من صفر'); return }
+    setSavingStock(true)
+    // ✅ نسجّل من أضاف الكمية (added_by) تلقائياً من هوية المستخدم الحالي — بلا أي إدخال يدوي منه
+    const { error } = await sb.from('uniform_stock_entries').insert([{
+      item_type: stockForm.item_type,
+      size: stockForm.size,
+      quantity: stockForm.quantity,
+      branch_id: stockForm.branch_id,
+      added_by: currentUser?.id || null,
+    }])
+    setSavingStock(false)
+    if (error) { alert('حدث خطأ: ' + error.message); return }
+    setStockForm(prev => ({ ...prev, quantity: 1 }))
+    await fetchStock()
+  }
+
+  // ✅ إجمالي الكمية المتاحة حالياً لكل صنف/مقاس/فرع — مجموع كل الإدخالات لنفس التركيبة
+  const stockTotals = stockEntries.reduce((acc, e) => {
+    const key = `${e.item_type}|${e.size}|${e.branch_id}`
+    if (!acc[key]) acc[key] = { item_type: e.item_type, size: e.size, branch_id: e.branch_id, branchName: e.branches?.name || '', total: 0 }
+    acc[key].total += e.quantity
+    return acc
+  }, {} as Record<string, { item_type: string; size: string; branch_id: string; branchName: string; total: number }>)
 
   function toggleItem(key: string) {
     setSelections(prev => {
@@ -166,6 +235,13 @@ export default function UniformRequestsPage() {
             {pendingCount > 0 && (
               <span style={{ position: 'absolute', top: -6, right: -6, background: S.red, color: '#fff', borderRadius: '50%', width: 18, height: 18, fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{pendingCount}</span>
             )}
+          </button>
+        )}
+        {/* ✅ جديد: تاب المخزون — أدمن ومدير الفرع فقط */}
+        {canManage && (
+          <button onClick={() => setTab('stock')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'stock' ? S.gold : S.border}`, background: tab === 'stock' ? S.gold3 : 'transparent', color: tab === 'stock' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'stock' ? 700 : 400 }}>
+            📦 إدارة المخزون
           </button>
         )}
       </div>
@@ -299,6 +375,100 @@ export default function UniformRequestsPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* ── Stock Management Tab ── */}
+      {tab === 'stock' && canManage && (
+        <div>
+          {/* فورم إضافة كمية جديدة */}
+          <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 16 }}>➕ إضافة كمية للمخزون</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف</label>
+                <select value={stockForm.item_type} onChange={e => setStockForm(p => ({ ...p, item_type: e.target.value }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.icon} {it.label_ar}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>المقاس</label>
+                <select value={stockForm.size} onChange={e => setStockForm(p => ({ ...p, size: e.target.value }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+                  {SIZES.map(s => <option key={s} value={s} style={{ background: S.navy2 }}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الكمية</label>
+                <input type="number" min={1} value={stockForm.quantity}
+                  onChange={e => setStockForm(p => ({ ...p, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الفرع</label>
+                {isAdmin ? (
+                  // ✅ الأدمن يقدر يختار أي فرع
+                  <select value={stockForm.branch_id} onChange={e => setStockForm(p => ({ ...p, branch_id: e.target.value }))}
+                    style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+                    <option value="">-- اختر الفرع --</option>
+                    {branches.map(b => <option key={b.id} value={b.id} style={{ background: S.navy2 }}>{b.name}</option>)}
+                  </select>
+                ) : (
+                  // ✅ مدير الفرع: فرعه ثابت ولا يمكن تغييره — عرض فقط
+                  <div style={{ width: '100%', background: S.card, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.muted, boxSizing: 'border-box' }}>
+                    {branches.find(b => b.id === stockForm.branch_id)?.name || '—'}
+                  </div>
+                )}
+              </div>
+            </div>
+            <button onClick={addStockEntry} disabled={savingStock}
+              style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: savingStock ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {savingStock ? '⏳ جاري الإضافة...' : '✅ إضافة الكمية'}
+            </button>
+          </div>
+
+          {/* ملخص الكميات الحالية المتاحة */}
+          {Object.keys(stockTotals).length > 0 && (
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 14 }}>📊 إجمالي الكميات المتاحة حالياً</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 10 }}>
+                {Object.values(stockTotals).map((t, i) => (
+                  <div key={i} style={{ background: S.card, borderRadius: 10, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>{itemLabel(t.item_type)} · {t.size}</div>
+                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{t.branchName}</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: S.gold, marginTop: 4 }}>{t.total}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* سجل كل عمليات الإضافة — مين أضاف وإمتى ولأي فرع */}
+          <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 12 }}>📜 سجل الإضافات</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {loadingStock ? (
+              <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
+            ) : stockEntries.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>
+                لا توجد إضافات مسجَّلة بعد
+              </div>
+            ) : stockEntries.map(entry => (
+              <div key={entry.id} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>
+                    {itemLabel(entry.item_type)} · {entry.size} · <span style={{ color: S.gold }}>+{entry.quantity}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: S.muted, marginTop: 3 }}>
+                    🏪 {entry.branches?.name || '—'} · 👤 {entry.added_by_employee ? `${entry.added_by_employee.name}${entry.added_by_employee.name_en ? ' ' + entry.added_by_employee.name_en : ''}` : 'غير معروف'}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: S.muted }}>
+                  📅 {new Date(entry.created_at).toLocaleString('ar-SA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

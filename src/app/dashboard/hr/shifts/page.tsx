@@ -98,6 +98,8 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
 // ══ Assign Monthly Modal ══
 function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initialMonth, initialYear, canEditPastDays }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null; initialMonth?: number; initialYear?: number; canEditPastDays?: boolean }) {
   const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+  // ✅ هوية المستخدم الحالي — لازمة لتسجيل "مين عمل التغيير" في كل حفظ (assigned_by كان دايماً فاضياً من قبل)
+  const { employee: currentUser } = useAuth()
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState('')
   const now = new Date()
@@ -113,6 +115,8 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   const [customEnd, setCustomEnd] = useState('16:00')
   // لتعديل يوم واحد بشكل مباشر
   const [editDay, setEditDay] = useState<string | null>(null)
+  // ✅ سجل التغييرات لهذا الموظف في هذا الشهر — عدد مرات التغيير، وآخر شخص قام بالتغيير
+  const [changeHistory, setChangeHistory] = useState<{ count: number; lastChangedByName: string | null; lastChangedAt: string | null } | null>(null)
   // تحميل الجدول الموجود عند اختيار موظف
   const [loadedSchedule, setLoadedSchedule] = useState(false)
 
@@ -154,9 +158,23 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
       })
       setCalendarMap(map)
       setLoadedSchedule(true)
+      // ✅ حساب "كام مرة اتغيّر الجدول هذا الشهر" — كل عملية حفظ جماعية تشترك في نفس created_at بالضبط
+      // (لأنها تُدرَج في نفس اللحظة)، فعدد الأوقات المميّزة (Distinct) = عدد مرات الحفظ الفعلية، وليس عدد الأيام
+      const distinctTimestamps = [...new Set(data.map((s: any) => s.created_at))].sort()
+      const mostRecentTimestamp = distinctTimestamps[distinctTimestamps.length - 1]
+      const mostRecentRow = data.find((s: any) => s.created_at === mostRecentTimestamp)
+      const lastChangedByEmp = mostRecentRow?.assigned_by ? employees.find(e => e.id === mostRecentRow.assigned_by) : null
+      setChangeHistory({
+        count: distinctTimestamps.length,
+        lastChangedByName: mostRecentRow?.assigned_by
+          ? (lastChangedByEmp ? `${lastChangedByEmp.name}${lastChangedByEmp.name_en ? ' ' + lastChangedByEmp.name_en : ''}` : 'غير معروف (موظف غير نشط)')
+          : 'غير مسجَّل (تغيير قديم قبل تفعيل هذه الميزة)',
+        lastChangedAt: mostRecentTimestamp || null,
+      })
     } else {
       setCalendarMap({})
       setLoadedSchedule(false)
+      setChangeHistory(null)
     }
   }
 
@@ -295,6 +313,8 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         status: 'confirmed',
         custom_start: v.type === 'custom' ? v.customStart : null,
         custom_end: v.type === 'custom' ? v.customEnd : null,
+        // ✅ نسجّل هوية من قام بالحفظ — كان هذا العمود موجوداً في قاعدة البيانات لكن لم يكن يُملأ إطلاقاً من قبل
+        assigned_by: currentUser?.id || null,
       }))
       for (let i = 0; i < rows.length; i += 50) {
         const { error } = await supabase.from('shift_schedules').insert(rows.slice(i, i + 50))
@@ -313,6 +333,8 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         status: 'confirmed',
         custom_start: null,
         custom_end: null,
+        // ✅ نفس تسجيل الهوية لأيام الإجازة كمان
+        assigned_by: currentUser?.id || null,
       }))
       for (let i = 0; i < leaveRows.length; i += 50) {
         const { error } = await supabase.from('shift_schedules').insert(leaveRows.slice(i, i + 50))
@@ -353,16 +375,27 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               {employees.map(e => <option key={e.id} value={e.id}>{e.name}{e.name_en ? ' '+e.name_en : ''} — {e.department}</option>)}
             </select>
             {loadedSchedule && <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>⚠️ يوجد جدول محفوظ — سيتم استبداله عند الحفظ</div>}
+            {/* ✅ ملخص سجل التغييرات — كام مرة اتغيّر الجدول هذا الشهر، ومين آخر شخص غيّره */}
+            {changeHistory && (
+              <div style={{ fontSize: 11, color: S.teal, marginTop: 6, background: S.tealB, borderRadius: 8, padding: '6px 10px', lineHeight: 1.8 }}>
+                🔄 تم تعديل جدول هذا الموظف <b>{changeHistory.count}</b> مرة هذا الشهر
+                <br />
+                👤 آخر من قام بالتعديل: <b>{changeHistory.lastChangedByName}</b>
+                {changeHistory.lastChangedAt && (
+                  <> — {new Date(changeHistory.lastChangedAt).toLocaleString('ar-SA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الشهر</label>
-            <select style={inp} value={month} onChange={e => { setMonth(parseInt(e.target.value)); setCalendarMap({}); setSelectedDates(new Set()); setLoadedSchedule(false) }}>
+            <select style={inp} value={month} onChange={e => { setMonth(parseInt(e.target.value)); setCalendarMap({}); setSelectedDates(new Set()); setLoadedSchedule(false); setChangeHistory(null) }}>
               {MONTHS_AR.map((m: string, i: number) => <option key={i} value={i}>{m}</option>)}
             </select>
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>السنة</label>
-            <select style={inp} value={year} onChange={e => { setYear(parseInt(e.target.value)); setCalendarMap({}); setSelectedDates(new Set()); setLoadedSchedule(false) }}>
+            <select style={inp} value={year} onChange={e => { setYear(parseInt(e.target.value)); setCalendarMap({}); setSelectedDates(new Set()); setLoadedSchedule(false); setChangeHistory(null) }}>
               {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>

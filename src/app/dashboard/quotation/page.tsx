@@ -98,6 +98,8 @@ export default function QuotationPage() {
   const [includeServiceCharge, setIncludeServiceCharge] = useState(true)
   // ✅ جديد: خصم بمبلغ ثابت (MYR) يُطرح من الإجمالي النهائي
   const [discount, setDiscount] = useState(0)
+  // ✅ جديد: رسوم إضافية (Extra Charge) بمبلغ ثابت (MYR) — تُضاف بعد الضريبة، آخر بند في الحساب
+  const [extraCharge, setExtraCharge] = useState(0)
 
   function addRow() { setRows(prev => [...prev, { item: null, qty: 1 }]) }
   // ✅ جديد: إضافة صف "بند مفتوح" - مش مرتبط بالمنيو، الموظف بيكتب الاسم والسعر بنفسه
@@ -149,7 +151,8 @@ export default function QuotationPage() {
   const serviceCharge = includeServiceCharge ? subtotal * SERVICE_CHARGE_RATE : 0
   const sst = subtotal * SST_RATE // ✅ ضريبة ثابتة دايمًا، مش قابلة للإلغاء
   // ✅ جديد: خصم يُطرح من الإجمالي النهائي بعد رسوم الخدمة والضريبة (مبلغ ثابت بالـ MYR)
-  const grandTotal = Math.max(0, subtotal + serviceCharge + sst - discount)
+  // ✅ جديد: رسوم إضافية ثابتة تُضاف كآخر بند في الحساب، بعد الخصم مباشرة
+  const grandTotal = Math.max(0, subtotal + serviceCharge + sst - discount + extraCharge)
 
   const branchName = branches.find(b => b.id === branchId)?.name || employee?.department || 'Orchid House'
 
@@ -169,6 +172,7 @@ export default function QuotationPage() {
     setQuoteDate(q.quote_date)
     setIncludeServiceCharge(q.include_service_charge)
     setDiscount(Number(q.discount) || 0)
+    setExtraCharge(Number(q.extra_charge) || 0)
     setNotes(q.notes && q.notes.length > 0 ? q.notes : [''])
     const loadedRows: QuoteRow[] = (q.items || [])
       .slice()
@@ -189,6 +193,7 @@ export default function QuotationPage() {
     setNotes([''])
     setIncludeServiceCharge(true)
     setDiscount(0)
+    setExtraCharge(0)
   }
 
   async function fetchSavedQuotations() {
@@ -209,7 +214,7 @@ export default function QuotationPage() {
     const payload = {
       branch_id: branchId, quote_to: quoteTo || null, quote_date: quoteDate,
       include_service_charge: includeServiceCharge,
-      subtotal, service_charge: serviceCharge, sst, discount, grand_total: grandTotal,
+      subtotal, service_charge: serviceCharge, sst, discount, extra_charge: extraCharge, grand_total: grandTotal,
       notes: notes.filter(n => n.trim()),
     }
     let quotationId = editingQuoteId
@@ -263,6 +268,7 @@ export default function QuotationPage() {
       ${includeServiceCharge ? `<div><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toFixed(2)}</span></div>` : ''}
       <div><span>SST (6%)</span><span>MYR ${sst.toFixed(2)}</span></div>
       ${discount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${discount.toFixed(2)}</span></div>` : ''}
+      ${extraCharge > 0 ? `<div><span>Extra Charge</span><span>MYR ${extraCharge.toFixed(2)}</span></div>` : ''}
       <div class="grand"><span>Grand Total</span><span>MYR ${grandTotal.toFixed(2)}</span></div>`
     win.document.write(`
       <html><head><title>Price Quotation</title>
@@ -331,11 +337,13 @@ export default function QuotationPage() {
     const notesHtml = (q.notes || []).filter((n: string) => n.trim()).map((n: string) => `<li>${n}</li>`).join('')
     // ✅ جديد: سطر الخصم يظهر بس لو العرض المحفوظ فيه خصم فعلي أكبر من صفر
     const savedDiscount = Number(q.discount) || 0
+    const savedExtraCharge = Number(q.extra_charge) || 0
     const totalsHtml = `
       <div><span>Subtotal</span><span>MYR ${Number(q.subtotal).toFixed(2)}</span></div>
       ${q.include_service_charge ? `<div><span>Service Charge (10%)</span><span>MYR ${Number(q.service_charge).toFixed(2)}</span></div>` : ''}
       <div><span>SST (6%)</span><span>MYR ${Number(q.sst).toFixed(2)}</span></div>
       ${savedDiscount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${savedDiscount.toFixed(2)}</span></div>` : ''}
+      ${savedExtraCharge > 0 ? `<div><span>Extra Charge</span><span>MYR ${savedExtraCharge.toFixed(2)}</span></div>` : ''}
       <div class="grand"><span>Grand Total</span><span>MYR ${Number(q.grand_total).toFixed(2)}</span></div>`
     win.document.write(`
       <html><head><title>Price Quotation #${q.quote_number}</title>
@@ -587,6 +595,14 @@ export default function QuotationPage() {
               placeholder="0.00"
               style={{ width: 90, textAlign: 'right', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '4px 8px', fontSize: 13, color: S.red, outline: 'none', fontFamily: 'inherit' }} />
           </div>
+          {/* ✅ جديد: رسوم إضافية (Extra Charge) بمبلغ ثابت (MYR) — آخر بند بعد الخصم مباشرة وقبل الإجمالي النهائي */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, color: S.gold, borderBottom: `1px solid ${S.border}` }}>
+            <span>Extra Charge (MYR)</span>
+            <input type="number" min={0} step="0.01" value={extraCharge === 0 ? '' : extraCharge}
+              onChange={e => setExtraCharge(e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+              placeholder="0.00"
+              style={{ width: 90, textAlign: 'right', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '4px 8px', fontSize: 13, color: S.gold, outline: 'none', fontFamily: 'inherit' }} />
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, fontSize: 16, fontWeight: 800, color: S.gold }}>
             <span>Grand Total</span><span>MYR {grandTotal.toFixed(2)}</span>
           </div>
@@ -706,6 +722,7 @@ export default function QuotationPage() {
                         {q.include_service_charge && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Service Charge (10%)</span><span>MYR {Number(q.service_charge).toFixed(2)}</span></div>}
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>SST (6%)</span><span>MYR {Number(q.sst).toFixed(2)}</span></div>
                         {Number(q.discount) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.red, padding: '3px 0' }}><span>Discount</span><span>-MYR {Number(q.discount).toFixed(2)}</span></div>}
+                        {Number(q.extra_charge) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, padding: '3px 0' }}><span>Extra Charge</span><span>MYR {Number(q.extra_charge).toFixed(2)}</span></div>}
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, fontWeight: 800, fontSize: 14, paddingTop: 6 }}><span>Grand Total</span><span>MYR {Number(q.grand_total).toFixed(2)}</span></div>
                       </div>
                       {q.notes && q.notes.length > 0 && (

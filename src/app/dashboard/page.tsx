@@ -82,15 +82,30 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   const hour = new Date().getHours()
   const greeting = isAr ? (hour < 12 ? 'صباح الخير' : hour < 17 ? 'مساء الخير' : 'مساء النور') : (hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening')
 
+  // ✅ اسم الفرع الفعلي للموظف — يُجلب مباشرة من قاعدة البيانات بناءً على branch_id الخاص به،
+  // لأن useAuth() لا يوفر حالياً اسم الفرع (branches relation)، فكانت رسالة الترحيب مكتوبة بشكل ثابت
+  // "Orchid House" دائماً بغض النظر عن الفرع الحقيقي للموظف (KLCC أو غيره)
+  const [branchName, setBranchName] = useState<string | null>(null)
+  useEffect(() => {
+    if (!employee?.branch_id) { setBranchName(null); return }
+    const sb = createClient()
+    sb.from('branches').select('name').eq('id', employee.branch_id).maybeSingle()
+      .then(({ data }) => setBranchName(data?.name || null))
+  }, [employee?.branch_id])
+
   const role = employee?.role || 'employee'
   // ✅ أضفنا hall_worker (عامل صالة) هنا — بدونها ما كانوا يقدروا يشوفوا حتى صفحاتهم الشخصية الأساسية
   // (دوامي، الحضور، طلباتي، راتبي)، مش بس الطاولات والكاشير
-  const ALL_NON_ADMIN = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','assistant_cashier','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner','hall_worker']
+  // ✅ أضفنا branch_manager هنا كمان — كان مفقوداً تماماً من كل الروابط في هذه الصفحة (لا شخصية ولا إدارية)،
+  // فكانت شاشة "وصول سريع" تظهر فارغة تماماً لمدير الفرع رغم أنه دور حقيقي معرَّف في النظام
+  const ALL_NON_ADMIN = ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','assistant_cashier','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner','hall_worker']
   const KITCHEN_ROLES = ['kitchen_manager','kitchen_supervisor']
   const HALL_ROLES = ['hall_manager','hall_supervisor']
   const BAR_ROLES = ['bar_manager','bar_supervisor']
   const SUPERVISOR_ROLES = ['kitchen_supervisor','hall_supervisor','bar_supervisor']
-  const MANAGER_ROLES = ['kitchen_manager','hall_manager','bar_manager']
+  // ✅ مدير الفرع يشرف على الفرع بالكامل، فمن المنطقي يكون له نفس صلاحيات الوصول الإدارية
+  // (الموظفون، الشيفتات، طلبات الفروع) المتاحة لمديري الأقسام الفرعية
+  const MANAGER_ROLES = ['branch_manager','kitchen_manager','hall_manager','bar_manager']
 
   const MY_LINKS = [
     // ── العمل ──
@@ -181,7 +196,11 @@ function EmployeeDashboard({ employee }: { employee: any }) {
       <div style={{ background: S.gold3, border: `1px solid ${S.gold}40`, borderRadius: 16, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
         <div style={{ fontSize: 28 }}>🌸</div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 2 }}>{isAr ? 'مرحباً بك في Orchid House' : 'Welcome to Orchid House'}</div>
+          {/* ✅ اسم الفرع بقى ديناميكياً حسب فرع الموظف الفعلي (branchName)، بدل النص الثابت "Orchid House"
+              مهما كان الموظف في أي فرع. نستخدم اسم الشركة العام ("Orchid Group") كاحتياط لحد ما يتم جلب اسم الفرع */}
+          <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 2 }}>
+            {isAr ? `مرحباً بك في ${branchName || 'Orchid Group'}` : `Welcome to ${branchName || 'Orchid Group'}`}
+          </div>
           <div style={{ fontSize: 12, color: S.muted }}>{isAr ? 'لديك أي استفسار؟ تواصل مع المدير المباشر. نتمنى لك يوم عمل موفق!' : 'Any questions? Contact your manager. Have a great shift!'}</div>
         </div>
       </div>

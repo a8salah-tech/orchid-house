@@ -63,6 +63,9 @@ export default function UniformRequestsPage() {
   const [allRequests, setAllRequests] = useState<UniformRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'new' | 'mine' | 'admin' | 'stock'>('new')
+  // ✅ ترقيم صفحات تاب "كل الطلبات" — 20 طلب في الصفحة الواحدة
+  const [adminPage, setAdminPage] = useState(1)
+  const REQUESTS_PER_PAGE = 20
 
   // ✅ جديد: حالة تاب "المخزون" — إدخال كميات جديدة وعرض سجل من أدخل كل كمية ولأي فرع
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -201,6 +204,15 @@ export default function UniformRequestsPage() {
     await fetchAll()
   }
 
+  // ✅ حذف نهائي للطلب — أدمن فقط. نحذف أصناف الطلب المرتبطة أولاً (uniform_request_items) قبل حذف الطلب نفسه
+  async function deleteRequest(requestId: string) {
+    if (!confirm('⚠️ هل أنت متأكد من حذف هذا الطلب نهائياً؟ لا يمكن التراجع عن هذا الإجراء.')) return
+    await sb.from('uniform_request_items').delete().eq('request_id', requestId)
+    const { error } = await sb.from('uniform_requests').delete().eq('id', requestId)
+    if (error) { alert('حدث خطأ أثناء الحذف: ' + error.message); return }
+    await fetchAll()
+  }
+
   function itemLabel(type: string) {
     const t = ITEM_TYPES.find(i => i.key === type)
     return t ? `${t.icon} ${t.label_ar}` : type
@@ -330,7 +342,12 @@ export default function UniformRequestsPage() {
       )}
 
       {/* ── Admin Tab ── */}
-      {tab === 'admin' && canManage && (
+      {tab === 'admin' && canManage && (() => {
+        // ✅ ترقيم الصفحات: 20 طلب في كل صفحة — نحسب هنا بدل تكرار نفس المنطق أكتر من مرة
+        const totalPages = Math.max(1, Math.ceil(allRequests.length / REQUESTS_PER_PAGE))
+        const safePage = Math.min(adminPage, totalPages)
+        const pageRequests = allRequests.slice((safePage - 1) * REQUESTS_PER_PAGE, safePage * REQUESTS_PER_PAGE)
+        return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
@@ -338,7 +355,7 @@ export default function UniformRequestsPage() {
             <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>
               لا توجد طلبات
             </div>
-          ) : allRequests.map(req => {
+          ) : pageRequests.map(req => {
             const st = STATUS_CFG[req.status] || STATUS_CFG.pending
             return (
               <div key={req.id} style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${req.status === 'pending' ? S.amber + '40' : S.border}`, padding: '16px 18px' }}>
@@ -349,7 +366,17 @@ export default function UniformRequestsPage() {
                     </div>
                     <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{req.employees?.department} · 📅 {new Date(req.requested_at).toLocaleDateString('ar-SA')}</div>
                   </div>
-                  <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
+                    {/* ✅ زرار حذف الطلب نهائياً — أدمن فقط (مش مدير الفرع)، بجانب حالة الطلب مباشرة */}
+                    {isAdmin && (
+                      <button onClick={() => deleteRequest(req.id)}
+                        title="حذف الطلب نهائياً"
+                        style={{ background: 'transparent', border: `1px solid ${S.red}50`, borderRadius: '50%', width: 26, height: 26, color: S.red, cursor: 'pointer', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                   {(req.uniform_request_items || []).map(it => (
@@ -375,8 +402,23 @@ export default function UniformRequestsPage() {
               </div>
             )
           })}
+          {/* ✅ أزرار التنقل بين الصفحات — تظهر فقط لو فيه أكتر من صفحة واحدة */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 14, marginTop: 8 }}>
+              <button onClick={() => setAdminPage(p => Math.max(1, p - 1))} disabled={safePage === 1}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: safePage === 1 ? 'transparent' : S.card, color: safePage === 1 ? S.muted : S.white, cursor: safePage === 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', opacity: safePage === 1 ? 0.5 : 1 }}>
+                ← السابق
+              </button>
+              <span style={{ fontSize: 13, color: S.muted }}>صفحة {safePage} من {totalPages} ({allRequests.length} طلب)</span>
+              <button onClick={() => setAdminPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
+                style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: safePage === totalPages ? 'transparent' : S.card, color: safePage === totalPages ? S.muted : S.white, cursor: safePage === totalPages ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', opacity: safePage === totalPages ? 0.5 : 1 }}>
+                التالي →
+              </button>
+            </div>
+          )}
         </div>
-      )}
+        )
+      })()}
 
       {/* ── Stock Management Tab ── */}
       {tab === 'stock' && canManage && (

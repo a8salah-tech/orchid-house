@@ -1106,7 +1106,7 @@ export default function EmployeeRequestsPage() {
       </head><body>
         <div class="report-header">
           <div class="logo">Orchid Group</div>
-          <div class="subtitle">تقرير سلف الراتب الشامل — كل الفروع</div>
+          <div class="subtitle">تقرير سلف الراتب الشامل — ${isAdmin ? 'كل الفروع' : `فرع ${branches.find(b => b.id === currentUser?.branch_id)?.name || ''}`}</div>
           <div style="font-size:12px;color:#666;margin-top:4px;">تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA')}</div>
         </div>
         ${monthsHtml}
@@ -1173,9 +1173,11 @@ export default function EmployeeRequestsPage() {
   const filtered = branchScopedRequests.filter(r => {
     // 📈 زيادة الراتب: تظهر فقط لمن يملك الصلاحية من صفحة إدارة الصلاحيات
     if (!canSeeSalaryIncrease && r.request_type === 'salary_increase') return false
-    // 💸 سلفة الراتب: ظاهرة دائمًا للجميع (بدون شرط صلاحية)
-    // لكن غير admin يشوف فقط طلباته الشخصية من سلفة/زيادة الراتب
-    if ((r.request_type === 'salary_advance' || r.request_type === 'salary_increase') && !isAdmin && r.employee_id !== currentUser?.id) return false
+    // 💸 سلفة الراتب: مقصورة على صاحبها شخصياً، إلا للأدمن أو مدير الفرع (طلبات فرعه فقط — الاستعلام الأساسي
+    // في fetchAll() أصلاً محصور على موظفي فرعه، فلا داعي لتقييد إضافي يمنعه من رؤية طلبات فرعه بعد جلبها بنجاح)
+    if (r.request_type === 'salary_advance' && !isAdmin && !isBranchManager && r.employee_id !== currentUser?.id) return false
+    // 📈 زيادة الراتب: تبقى مقصورة على الأدمن فقط (أو صاحبها شخصياً) كما كانت — لم يُطلب توسيعها هنا
+    if (r.request_type === 'salary_increase' && !isAdmin && r.employee_id !== currentUser?.id) return false
     const matchStatus = filterStatus === 'all' || r.status === filterStatus
     const matchType = filterType === 'all' || r.request_type === filterType
     const matchEmp = filterEmp === 'all' || r.employee_id === filterEmp
@@ -1209,7 +1211,7 @@ export default function EmployeeRequestsPage() {
     <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '📈 زيادة راتب' : '📈 Salary Increase'}</button>
   )}
   <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
-  {isAdmin && (
+  {(isAdmin || isBranchManager) && (
     <>
       {/* ✅ جديد: اختيار شهر محدد قبل الطباعة - فاضي معناه كل الشهور مع بعض مثل القديم */}
       <input type="month" value={printAdvancesMonth} onChange={e => setPrintAdvancesMonth(e.target.value)}
@@ -1246,7 +1248,11 @@ export default function EmployeeRequestsPage() {
       {/* Type filter chips */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <button onClick={() => setFilterType('all')} style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filterType === 'all' ? S.gold : S.border}`, background: filterType === 'all' ? S.gold3 : 'transparent', color: filterType === 'all' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-          الكل ({branchScopedRequests.filter(r => (canSeeSalaryIncrease || r.request_type !== 'salary_increase') && !((r.request_type === 'salary_advance' || r.request_type === 'salary_increase') && !isAdmin && r.employee_id !== currentUser?.id)).length})
+          الكل ({branchScopedRequests.filter(r =>
+            (canSeeSalaryIncrease || r.request_type !== 'salary_increase') &&
+            !(r.request_type === 'salary_advance' && !isAdmin && !isBranchManager && r.employee_id !== currentUser?.id) &&
+            !(r.request_type === 'salary_increase' && !isAdmin && r.employee_id !== currentUser?.id)
+          ).length})
         </button>
         {Object.entries(REQUEST_TYPES).filter(([key]) => key !== 'salary_increase' || canSeeSalaryIncrease).map(([key, cfg]) => {
           const count = branchScopedRequests.filter(r => r.request_type === key).length

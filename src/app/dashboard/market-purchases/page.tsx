@@ -31,6 +31,8 @@ const STATUS_CFG: Record<string, { label: string; icon: string; color: string; b
   pending:   { label: 'قيد الانتظار', icon: '⏳', color: S.amber, bg: S.amberB },
   purchased: { label: 'تم الشراء',    icon: '🛒', color: S.blue,  bg: S.blueB },
   delivered: { label: 'تم التسليم',   icon: '✅', color: S.green, bg: S.greenB },
+  // ✅ جديد: حالة مستقلة تظهر بوضوح لما يتسلّم الفرع الطلب وفيه صنف أو أكتر غير متاح ولم يُشترَ
+  partially_delivered: { label: 'تم التسليم جزئيًا', icon: '📦', color: S.amber, bg: S.amberB },
   rejected:  { label: 'مرفوض',        icon: '❌', color: S.red,   bg: S.redB },
 }
 
@@ -40,6 +42,8 @@ interface RequestItem {
   purchased_quantity: number | null; purchased_unit_id: string | null; unit_price: number | null; total_price: number | null; notes: string | null
   warehouse_products?: { name: string; name_en?: string }
   req_unit?: { symbol: string }; pur_unit?: { symbol: string }
+  // ✅ جديد: علامة "غير متاح" - يسجّلها مسؤول المشتريات وقت الشراء لو المحل/السوق مالوش الصنف
+  is_unavailable?: boolean
   // ✅ جديد: الكمية المتوفرة بالفعل بالمخزون (مش محتاجة شراء)، والفرع، ومين سجّلها بالاسم الكامل
   available_in_warehouse_qty?: number | null
   available_in_warehouse_branch_id?: string | null
@@ -152,7 +156,7 @@ export default function MarketPurchasesPage() {
 
   // ── Purchaser editing state ──
   const [editingReq, setEditingReq] = useState<PurchaseRequest | null>(null)
-  const [purchaseEdits, setPurchaseEdits] = useState<Record<string, { quantity: string; unit_id: string }>>({})
+  const [purchaseEdits, setPurchaseEdits] = useState<Record<string, { quantity: string; unit_id: string; unavailable?: boolean }>>({})
   // ✅ جديد: تعديل الكمية/الوحدة قبل تأكيد الاستلام في نافذة "تأكيد الاستلام + رفع صورة"
   // (حالة منفصلة عن purchaseEdits عشان متتعارضش مع نافذة تسجيل المشتريات)
   const [receiveEdits, setReceiveEdits] = useState<Record<string, { quantity: string; unit_id: string }>>({})
@@ -318,9 +322,16 @@ export default function MarketPurchasesPage() {
     if (!editingReq) return
     setSaving(true)
     for (const [itemId, edit] of Object.entries(purchaseEdits)) {
+      // ✅ جديد: لو الصنف اتعلّم "غير متاح"، نحفظ العلامة ونصفّر الكمية المشتراة (مفيش حاجة اتشرت فعليًا)
+      if (edit.unavailable) {
+        await sb.from('market_purchase_request_items').update({
+          is_unavailable: true, purchased_quantity: null, purchased_unit_id: null,
+        }).eq('id', itemId)
+        continue
+      }
       const qty = parseFloat(edit.quantity) || 0
       await sb.from('market_purchase_request_items').update({
-        purchased_quantity: qty, purchased_unit_id: edit.unit_id,
+        purchased_quantity: qty, purchased_unit_id: edit.unit_id, is_unavailable: false,
       }).eq('id', itemId)
     }
     // ✅ ملحوظة: لا نلمس status الطلب هنا خالص - يفضل زي ما هو (قيد الانتظار) لحد ما يضغط "إتمام الشراء نهائيًا"
@@ -335,6 +346,8 @@ export default function MarketPurchasesPage() {
     // ✅ تنبيه وتأكيد نهائي واضح قبل إتمام الشراء فعليًا - يوضح ملخص الأصناف والكميات النهائية المطلوب شراؤها
     const itemsSummary = (editingReq.market_purchase_request_items || [])
       .map(it => {
+        // ✅ جديد: عرض "غير متاح" بوضوح في ملخص التأكيد بدل رقم كمية مضلِّل
+        if (purchaseEdits[it.id]?.unavailable) return `• ${it.item_name || it.warehouse_products?.name}: ❌ غير متاح`
         const q = purchaseEdits[it.id]?.quantity || '0'
         const unitSymbol = units.find(u => u.id === purchaseEdits[it.id]?.unit_id)?.symbol || it.req_unit?.symbol || ''
         return `• ${it.item_name || it.warehouse_products?.name}: ${q} ${unitSymbol}`
@@ -344,9 +357,16 @@ export default function MarketPurchasesPage() {
     setSaving(true)
     // ✅ Fix: مفيش سعر هنا خالص - بس نسجل الكمية والوحدة الفعلية بعد المراجعة
     for (const [itemId, edit] of Object.entries(purchaseEdits)) {
+      // ✅ جديد: حفظ علامة "غير متاح" للصنف بدل كمية مشتراة
+      if (edit.unavailable) {
+        await sb.from('market_purchase_request_items').update({
+          is_unavailable: true, purchased_quantity: null, purchased_unit_id: null,
+        }).eq('id', itemId)
+        continue
+      }
       const qty = parseFloat(edit.quantity) || 0
       await sb.from('market_purchase_request_items').update({
-        purchased_quantity: qty, purchased_unit_id: edit.unit_id,
+        purchased_quantity: qty, purchased_unit_id: edit.unit_id, is_unavailable: false,
       }).eq('id', itemId)
     }
     await sb.from('market_purchase_requests').update({
@@ -400,8 +420,13 @@ export default function MarketPurchasesPage() {
     }
     if (uploadedUrls.length === 0) { setConfirming(false); alert('تعذّر رفع الصور، حاول مرة أخرى'); return }
 
+    // ✅ جديد: لو فيه صنف واحد على الأقل مُعلَّم "غير متاح"، الطلب يتسجّل "تم التسليم جزئيًا"
+    // بدل "تم التسليم" العادية - عشان يكون واضح للجميع إن الطلب مكتمل جزئيًا مش بالكامل
+    const hasUnavailableItems = (receivingReq.market_purchase_request_items || []).some(it => it.is_unavailable)
+    const finalStatus = hasUnavailableItems ? 'partially_delivered' : 'delivered'
+
     await sb.from('market_purchase_requests').update({
-      status: 'delivered', delivered_at: new Date().toISOString(),
+      status: finalStatus, delivered_at: new Date().toISOString(),
       // ✅ Fix: delivered_image_url (الحقل القديم) بيتسجّل بأول صورة للتوافق مع أي كود قديم، ومصفوفة
       // delivered_image_urls الجديدة بتحفظ كل الصور
       delivered_image_url: uploadedUrls[0], delivered_image_urls: uploadedUrls,
@@ -1097,7 +1122,9 @@ export default function MarketPurchasesPage() {
                   {(req.market_purchase_request_items || []).map(it => (
                     <div key={it.id} style={{ fontSize: 12, color: S.white }}>
                       • {it.item_name || it.warehouse_products?.name} —
-                      {it.purchased_quantity != null
+                      {it.is_unavailable
+                        ? <span style={{ color: S.red, fontWeight: 700 }}> ❌ غير متاح</span>
+                        : it.purchased_quantity != null
                         ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b></span>
                         : <span> {it.requested_quantity} {it.req_unit?.symbol}</span>}
                     </div>
@@ -1469,10 +1496,12 @@ export default function MarketPurchasesPage() {
                       return (
                         <div key={it.id} style={{ fontSize: 12, color: S.white, marginBottom: 4 }}>
                           • {it.item_name || it.warehouse_products?.name} —
-                          {hasPurchase
+                          {it.is_unavailable
+                            ? <span style={{ color: S.red, fontWeight: 700 }}> ❌ غير متاح</span>
+                            : hasPurchase
                             ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: mismatch ? S.red : S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b></span>
                             : <span> {it.requested_quantity} {it.req_unit?.symbol}</span>}
-                          {mismatch && (
+                          {mismatch && !it.is_unavailable && (
                             <span style={{ display: 'inline-block', marginRight: 8, background: S.redB, color: S.red, borderRadius: 8, padding: '1px 8px', fontSize: 10, fontWeight: 800 }}>
                               ⚠️ {unitMismatch && !qtyMismatch ? 'وحدة مختلفة عن المطلوب' : isShort ? 'كمية أقل من المطلوب' : 'كمية أكثر من المطلوب'}
                             </span>
@@ -1677,11 +1706,23 @@ export default function MarketPurchasesPage() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {(editingReq.market_purchase_request_items || []).map(it => {
-                const edit = purchaseEdits[it.id] || { quantity: '', unit_id: '' }
+                const edit = purchaseEdits[it.id] || { quantity: '', unit_id: '', unavailable: it.is_unavailable || false }
                 const avEdit = availableEdits[it.id] || { qty: it.available_in_warehouse_qty ? String(it.available_in_warehouse_qty) : '', branchId: it.available_in_warehouse_branch_id || '' }
                 return (
-                  <div key={it.id} style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{it.item_name || it.warehouse_products?.name} <span style={{ color: S.muted, fontSize: 11 }}>(مطلوب: {it.requested_quantity} {it.req_unit?.symbol})</span></div>
+                  <div key={it.id} style={{ background: S.card, borderRadius: 12, padding: 14, border: edit.unavailable ? `1px solid ${S.red}60` : undefined }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{it.item_name || it.warehouse_products?.name} <span style={{ color: S.muted, fontSize: 11 }}>(مطلوب: {it.requested_quantity} {it.req_unit?.symbol})</span></div>
+                      {/* ✅ جديد: زر تعليم الصنف كـ"غير متاح" - يقفل حقل الكمية ويصفّر ما تم إدخاله فيه */}
+                      <button onClick={() => setPurchaseEdits(p => ({ ...p, [it.id]: { ...edit, unavailable: !edit.unavailable, quantity: !edit.unavailable ? '' : edit.quantity } }))}
+                        style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${edit.unavailable ? S.red : S.border}`, background: edit.unavailable ? S.redB : 'transparent', color: edit.unavailable ? S.red : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {edit.unavailable ? '❌ غير متاح' : 'تعليم كغير متاح'}
+                      </button>
+                    </div>
+                    {edit.unavailable ? (
+                      <div style={{ fontSize: 11, color: S.red, background: S.redB, borderRadius: 8, padding: '8px 10px' }}>
+                        ⚠️ هذا الصنف مُعلَّم كغير متاح ولن يُشترى في هذه العملية، وسيظهر ذلك لمقدّم الطلب
+                      </div>
+                    ) : (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <div>
                         <label style={{ fontSize: 10, color: S.muted, display: 'block', marginBottom: 4 }}>الكمية المتاحة فعليًا</label>
@@ -1696,6 +1737,7 @@ export default function MarketPurchasesPage() {
                         </select>
                       </div>
                     </div>
+                    )}
 
                     {/* ✅ جديد: تسجيل كمية متوفرة بالفعل بالمخزون - يقدر أي فرد من فريق الشراء يسجّلها، وتقلل المطلوب شراؤه تلقائيًا */}
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>

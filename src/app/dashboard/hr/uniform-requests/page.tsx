@@ -62,7 +62,14 @@ export default function UniformRequestsPage() {
   const [myRequests, setMyRequests] = useState<UniformRequest[]>([])
   const [allRequests, setAllRequests] = useState<UniformRequest[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'new' | 'mine' | 'admin' | 'stock'>('new')
+  const [tab, setTab] = useState<'new' | 'mine' | 'admin' | 'stock' | 'lastReceived'>('new')
+  // ✅ جديد: تقرير "آخر استلام" — كل الموظفين في كل الفروع، كل نوع أخذه، الكمية، وتاريخ آخر مرة
+  const [lastReceivedData, setLastReceivedData] = useState<{
+    employeeId: string; name: string; nameEn?: string; employeeNumber?: string
+    department?: string; branchName: string; itemType: string; quantity: number; lastDate: string
+  }[]>([])
+  const [loadingLastReceived, setLoadingLastReceived] = useState(false)
+  const [lastReceivedBranchFilter, setLastReceivedBranchFilter] = useState('')
   // ✅ ترقيم صفحات تاب "كل الطلبات" — 20 طلب في الصفحة الواحدة
   const [adminPage, setAdminPage] = useState(1)
   const REQUESTS_PER_PAGE = 20
@@ -132,6 +139,85 @@ export default function UniformRequestsPage() {
   }, [canManage, isAdmin, isBranchManager, currentUser?.branch_id])
 
   useEffect(() => { if (tab === 'stock') fetchStock() }, [tab, fetchStock])
+
+  // ✅ جلب تقرير "آخر استلام" — لكل موظف ولكل نوع صنف أخذه، نجيب آخر مرة استلم فيها والكمية وقتها،
+  // من كل الطلبات المُسلَّمة فعلياً (status = 'delivered') في كل الفروع
+  const fetchLastReceived = useCallback(async () => {
+    if (!canManage) return
+    setLoadingLastReceived(true)
+    const { data } = await sb.from('uniform_requests')
+      .select('id, delivered_at, employee_id, employees:employee_id(name, name_en, employee_number, department, branch_id, branches(name)), uniform_request_items(item_type, size, quantity)')
+      .eq('status', 'delivered')
+      .order('delivered_at', { ascending: false })
+
+    // ✅ لكل تركيبة (موظف + نوع الصنف)، نحتفظ بأحدث تاريخ استلام فقط — بما أن البيانات مرتبة تنازلياً
+    // حسب التاريخ أصلاً، أول ظهور لكل تركيبة هو الأحدث تلقائياً
+    const map: Record<string, typeof lastReceivedData[number]> = {}
+    for (const req of (data as any[] || [])) {
+      const emp = req.employees
+      if (!emp) continue
+      for (const item of (req.uniform_request_items || [])) {
+        const key = `${req.employee_id}|${item.item_type}`
+        if (!map[key]) {
+          map[key] = {
+            employeeId: req.employee_id,
+            name: emp.name,
+            nameEn: emp.name_en,
+            employeeNumber: emp.employee_number,
+            department: emp.department,
+            branchName: emp.branches?.name || '—',
+            itemType: item.item_type,
+            quantity: item.quantity,
+            lastDate: req.delivered_at,
+          }
+        }
+      }
+    }
+    const rows = Object.values(map).sort((a, b) => a.name.localeCompare(b.name, 'ar'))
+    setLastReceivedData(rows)
+    setLoadingLastReceived(false)
+  }, [canManage])
+
+  useEffect(() => { if (tab === 'lastReceived') fetchLastReceived() }, [tab, fetchLastReceived])
+
+  const filteredLastReceived = lastReceivedBranchFilter
+    ? lastReceivedData.filter(r => r.branchName === lastReceivedBranchFilter)
+    : lastReceivedData
+
+  function printLastReceivedReport() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const rowsHtml = filteredLastReceived.map(r => `
+      <tr>
+        <td>${r.name}${r.nameEn ? ' ' + r.nameEn : ''}</td>
+        <td>${r.employeeNumber || '—'}</td>
+        <td>${r.department || '—'}</td>
+        <td>${r.branchName}</td>
+        <td>${itemLabel(r.itemType)}</td>
+        <td>${r.quantity}</td>
+        <td>${new Date(r.lastDate).toLocaleDateString('ar-SA')}</td>
+      </tr>`).join('')
+    win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+      <title>تقرير آخر استلام يونيفورم</title>
+      <style>
+        body { font-family: Tajawal, Arial, sans-serif; padding: 24px; }
+        h1 { font-size: 18px; margin-bottom: 4px; }
+        p { font-size: 12px; color: #666; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: right; }
+        th { background: #f0f0f0; font-weight: 700; }
+      </style>
+      </head><body>
+      <h1>تقرير آخر استلام يونيفورم</h1>
+      <p>${lastReceivedBranchFilter || 'كل الفروع'} — تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA')}</p>
+      <table>
+        <thead><tr><th>الموظف</th><th>الرقم</th><th>القسم</th><th>الفرع</th><th>النوع</th><th>الكمية</th><th>آخر استلام</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <script>window.onload=function(){window.print()}<\/script>
+      </body></html>`)
+    win.document.close()
+  }
 
   async function addStockEntry() {
     if (!stockForm.branch_id) { alert('يرجى اختيار الفرع'); return }
@@ -254,6 +340,13 @@ export default function UniformRequestsPage() {
           <button onClick={() => setTab('stock')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'stock' ? S.gold : S.border}`, background: tab === 'stock' ? S.gold3 : 'transparent', color: tab === 'stock' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'stock' ? 700 : 400 }}>
             📦 إدارة المخزون
+          </button>
+        )}
+        {/* ✅ جديد: تاب تقرير آخر استلام — أدمن ومدير الفرع فقط */}
+        {canManage && (
+          <button onClick={() => setTab('lastReceived')}
+            style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${tab === 'lastReceived' ? S.gold : S.border}`, background: tab === 'lastReceived' ? S.gold3 : 'transparent', color: tab === 'lastReceived' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === 'lastReceived' ? 700 : 400 }}>
+            📋 آخر استلام
           </button>
         )}
       </div>
@@ -511,6 +604,63 @@ export default function UniformRequestsPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Last Received Report Tab ── */}
+      {tab === 'lastReceived' && canManage && (
+        <div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* ✅ فلتر الفرع — كل الفروع أو فرع محدد */}
+            <select value={lastReceivedBranchFilter} onChange={e => setLastReceivedBranchFilter(e.target.value)}
+              style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+              <option value="">🏪 كل الفروع</option>
+              {branches.map(b => <option key={b.id} value={b.name} style={{ background: S.navy2 }}>{b.name}</option>)}
+            </select>
+            <button onClick={printLastReceivedReport}
+              style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, marginRight: 'auto' }}>
+              🖨️ طباعة التقرير
+            </button>
+          </div>
+
+          {loadingLastReceived ? (
+            <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
+          ) : filteredLastReceived.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted }}>
+              لا توجد بيانات استلام مسجَّلة بعد
+            </div>
+          ) : (
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: S.card }}>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>الموظف</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>الرقم</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>القسم</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>الفرع</th>
+                    {/* ✅ عمود "النوع" — نوع الصنف اللي أخذه الموظف */}
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>النوع</th>
+                    {/* ✅ عمود "الكمية" — قد إيه أخذ من النوع ده آخر مرة */}
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>الكمية</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>آخر استلام</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLastReceived.map((r, i) => (
+                    <tr key={`${r.employeeId}-${r.itemType}`} style={{ borderTop: `1px solid ${S.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                      <td style={{ padding: '10px 14px', color: S.white, fontWeight: 600 }}>{r.name}{r.nameEn ? ' ' + r.nameEn : ''}</td>
+                      <td style={{ padding: '10px 14px', color: S.gold }}>{r.employeeNumber || '—'}</td>
+                      <td style={{ padding: '10px 14px', color: S.muted }}>{r.department || '—'}</td>
+                      <td style={{ padding: '10px 14px', color: S.muted }}>{r.branchName}</td>
+                      <td style={{ padding: '10px 14px', color: S.white }}>{itemLabel(r.itemType)}</td>
+                      <td style={{ padding: '10px 14px', color: S.gold, fontWeight: 700 }}>{r.quantity}</td>
+                      <td style={{ padding: '10px 14px', color: S.muted }}>{new Date(r.lastDate).toLocaleDateString('ar-SA')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

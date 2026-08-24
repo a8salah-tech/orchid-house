@@ -70,6 +70,17 @@ export default function UniformRequestsPage() {
   }[]>([])
   const [loadingLastReceived, setLoadingLastReceived] = useState(false)
   const [lastReceivedBranchFilter, setLastReceivedBranchFilter] = useState('')
+  // ✅ جديد: قايمة كل الموظفين (بغض النظر عن استلامهم من عدمه) — لعرض قسم "كل الموظفين" في التقرير
+  const [allEmployees, setAllEmployees] = useState<{
+    id: string; name: string; name_en?: string; employee_number?: string
+    department?: string; branch_id?: string; branchName: string
+  }[]>([])
+  const [loadingAllEmployees, setLoadingAllEmployees] = useState(false)
+  // ✅ جديد: فورم إضافة "استلام سابق" (تاريخي) — لتسجيل موظفين استلموا يونيفورم قبل وجود هذا النظام
+  const [historyForm, setHistoryForm] = useState<{ employee_id: string; item_type: string; size: string; quantity: number; date: string }>({
+    employee_id: '', item_type: 'jacket', size: 'M', quantity: 1, date: new Date().toISOString().slice(0, 10),
+  })
+  const [savingHistory, setSavingHistory] = useState(false)
   // ✅ ترقيم صفحات تاب "كل الطلبات" — 20 طلب في الصفحة الواحدة
   const [adminPage, setAdminPage] = useState(1)
   const REQUESTS_PER_PAGE = 20
@@ -179,6 +190,50 @@ export default function UniformRequestsPage() {
   }, [canManage])
 
   useEffect(() => { if (tab === 'lastReceived') fetchLastReceived() }, [tab, fetchLastReceived])
+
+  // ✅ جلب كل الموظفين النشطين (بغض النظر عن الاستلام) — لعرض قسم "كل الموظفين" وقايمة الاختيار في فورم الإضافة التاريخية
+  const fetchAllEmployees = useCallback(async () => {
+    if (!canManage) return
+    setLoadingAllEmployees(true)
+    let q = sb.from('employees').select('id, name, name_en, employee_number, department, branch_id, branches(name)').eq('is_active', true).order('name')
+    // ✅ مدير الفرع يشوف موظفي فرعه بس، الأدمن يشوف الجميع
+    if (!isAdmin && isBranchManager && currentUser?.branch_id) q = q.eq('branch_id', currentUser.branch_id)
+    const { data } = await q
+    setAllEmployees((data as any[] || []).map(e => ({ ...e, branchName: e.branches?.name || '—' })))
+    setLoadingAllEmployees(false)
+  }, [canManage, isAdmin, isBranchManager, currentUser?.branch_id])
+
+  useEffect(() => { if (tab === 'lastReceived') fetchAllEmployees() }, [tab, fetchAllEmployees])
+
+  // ✅ إضافة "استلام سابق" (تاريخي) — لتسجيل موظف استلم يونيفورم قبل وجود هذا النظام، بتاريخ اختياري في الماضي.
+  // ننشئ طلباً مكتملاً مباشرة (status: 'delivered') بدل المرور بدورة الطلب العادية، لأن هذا تسجيل بأثر رجعي فقط
+  async function addHistoryEntry() {
+    if (!historyForm.employee_id) { alert('يرجى اختيار الموظف'); return }
+    if (historyForm.quantity <= 0) { alert('يرجى إدخال كمية أكبر من صفر'); return }
+    setSavingHistory(true)
+    const { data: reqData, error: reqErr } = await sb.from('uniform_requests').insert([{
+      employee_id: historyForm.employee_id,
+      status: 'delivered',
+      requested_at: historyForm.date,
+      delivered_at: historyForm.date,
+      delivered_by: currentUser?.id || null,
+      notes: 'تسجيل استلام سابق (تاريخي) — أُضيف يدوياً',
+    }]).select('id').single()
+    if (reqErr || !reqData) { alert('حدث خطأ: ' + (reqErr?.message || '')); setSavingHistory(false); return }
+    const { error: itemErr } = await sb.from('uniform_request_items').insert([{
+      request_id: reqData.id, item_type: historyForm.item_type, size: historyForm.size, quantity: historyForm.quantity,
+    }])
+    setSavingHistory(false)
+    if (itemErr) { alert('حدث خطأ أثناء إضافة الصنف: ' + itemErr.message); return }
+    setHistoryForm(prev => ({ ...prev, quantity: 1 }))
+    await fetchLastReceived()
+  }
+
+  // ✅ مجموعة معرّفات الموظفين اللي استلموا حاجة واحدة على الأقل — لتحديد حالة كل موظف في قسم "كل الموظفين"
+  const receivedEmployeeIds = new Set(lastReceivedData.map(r => r.employeeId))
+  const filteredAllEmployees = lastReceivedBranchFilter
+    ? allEmployees.filter(e => e.branchName === lastReceivedBranchFilter)
+    : allEmployees
 
   const filteredLastReceived = lastReceivedBranchFilter
     ? lastReceivedData.filter(r => r.branchName === lastReceivedBranchFilter)
@@ -623,6 +678,94 @@ export default function UniformRequestsPage() {
             </button>
           </div>
 
+          {/* ✅ فورم إضافة استلام سابق (تاريخي) — لتسجيل موظفين استلموا يونيفورم قبل وجود هذا النظام */}
+          <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 4 }}>➕ إضافة استلام سابق (تاريخي)</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>لتسجيل موظفين استلموا يونيفورم قبل استخدام هذا النظام — يمكن اختيار تاريخ في الماضي</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الموظف</label>
+                <select value={historyForm.employee_id} onChange={e => setHistoryForm(p => ({ ...p, employee_id: e.target.value }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+                  <option value="" style={{ background: S.navy2 }}>-- اختر الموظف --</option>
+                  {allEmployees.map(e => <option key={e.id} value={e.id} style={{ background: S.navy2 }}>{e.name}{e.name_en ? ' ' + e.name_en : ''} ({e.employee_number || '—'})</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف</label>
+                <select value={historyForm.item_type} onChange={e => setHistoryForm(p => ({ ...p, item_type: e.target.value }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.icon} {it.label_ar}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>المقاس</label>
+                <select value={historyForm.size} onChange={e => setHistoryForm(p => ({ ...p, size: e.target.value }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+                  {SIZES.map(s => <option key={s} value={s} style={{ background: S.navy2 }}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الكمية</label>
+                <input type="number" min={1} value={historyForm.quantity}
+                  onChange={e => setHistoryForm(p => ({ ...p, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>تاريخ الاستلام</label>
+                <input type="date" value={historyForm.date} max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setHistoryForm(p => ({ ...p, date: e.target.value }))}
+                  style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', colorScheme: 'dark' }} />
+              </div>
+            </div>
+            <button onClick={addHistoryEntry} disabled={savingHistory}
+              style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: savingHistory ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {savingHistory ? '⏳ جاري الإضافة...' : '✅ إضافة السجل'}
+            </button>
+          </div>
+
+          {/* ✅ القسم الأول: كل الموظفين بأسمائهم، مع حالة استلام سريعة (✅/❌) */}
+          <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 12 }}>👥 كل الموظفين ({filteredAllEmployees.length})</div>
+          {loadingAllEmployees ? (
+            <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
+          ) : filteredAllEmployees.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, color: S.muted, marginBottom: 24 }}>
+              لا يوجد موظفون
+            </div>
+          ) : (
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden', overflowX: 'auto', marginBottom: 24 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: S.card }}>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>الموظف</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>الرقم</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>القسم</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', color: S.muted, fontSize: 12 }}>الفرع</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'center', color: S.muted, fontSize: 12 }}>استلم؟</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAllEmployees.map((e, i) => {
+                    const received = receivedEmployeeIds.has(e.id)
+                    return (
+                      <tr key={e.id} style={{ borderTop: `1px solid ${S.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                        <td style={{ padding: '10px 14px', color: S.white, fontWeight: 600 }}>{e.name}{e.name_en ? ' ' + e.name_en : ''}</td>
+                        <td style={{ padding: '10px 14px', color: S.gold }}>{e.employee_number || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: S.muted }}>{e.department || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: S.muted }}>{e.branchName}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                          {received ? <span style={{ color: S.green, fontWeight: 700 }}>✅</span> : <span style={{ color: S.red, fontWeight: 700 }}>❌</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ✅ القسم الثاني: تفاصيل من استلم فعلياً (نوع، كمية، تاريخ آخر استلام) */}
+          <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 12 }}>✅ من استلم ({filteredLastReceived.length})</div>
           {loadingLastReceived ? (
             <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري التحميل...</div>
           ) : filteredLastReceived.length === 0 ? (

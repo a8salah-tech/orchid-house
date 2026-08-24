@@ -1123,7 +1123,7 @@ export default function MarketPurchasesPage() {
                     <div key={it.id} style={{ fontSize: 12, color: S.white }}>
                       • {it.item_name || it.warehouse_products?.name} —
                       {it.is_unavailable
-                        ? <span style={{ color: S.red, fontWeight: 700 }}> ❌ غير متاح</span>
+                        ? <span style={{ color: S.red, fontWeight: 700 }}> ❌ غير متاح <span style={{ color: S.muted, fontWeight: 400 }}>(كان مطلوبًا: {it.requested_quantity} {it.req_unit?.symbol})</span></span>
                         : it.purchased_quantity != null
                         ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b></span>
                         : <span> {it.requested_quantity} {it.req_unit?.symbol}</span>}
@@ -1497,7 +1497,7 @@ export default function MarketPurchasesPage() {
                         <div key={it.id} style={{ fontSize: 12, color: S.white, marginBottom: 4 }}>
                           • {it.item_name || it.warehouse_products?.name} —
                           {it.is_unavailable
-                            ? <span style={{ color: S.red, fontWeight: 700 }}> ❌ غير متاح</span>
+                            ? <span style={{ color: S.red, fontWeight: 700 }}> ❌ غير متاح <span style={{ color: S.muted, fontWeight: 400 }}>(كان مطلوبًا: {it.requested_quantity} {it.req_unit?.symbol})</span></span>
                             : hasPurchase
                             ? <span> طُلب {it.requested_quantity} {it.req_unit?.symbol} / اشتُري <b style={{ color: mismatch ? S.red : S.blue }}>{it.purchased_quantity} {it.pur_unit?.symbol}</b></span>
                             : <span> {it.requested_quantity} {it.req_unit?.symbol}</span>}
@@ -1869,6 +1869,16 @@ export default function MarketPurchasesPage() {
                 يقدر يصحّح الفرق لو استلم أقل أو أكثر من المطلوب/المشترى، بنفس الوحدة الأساسية أو الفرعية */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, maxHeight: 260, overflowY: 'auto' }}>
               {(receivingReq.market_purchase_request_items || []).map(it => {
+                // ✅ Fix: الصنف "غير متاح" لا يظهر كحقل قابل للتعديل بالكمية المطلوبة كاملة (كان يوهم المستلم
+                // بأنه يجب تأكيد استلامه) - يظهر بدلًا من ذلك كسطر توضيحي فقط، ولا يُحفظ له أي كمية استلام
+                if (it.is_unavailable) {
+                  return (
+                    <div key={it.id} style={{ background: S.redB, borderRadius: 10, padding: 10, border: `1px solid ${S.red}40` }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: S.red }}>{it.item_name || it.warehouse_products?.name} — ❌ غير متاح</div>
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>كان مطلوبًا: {it.requested_quantity} {it.req_unit?.symbol} — لن يُستلَم هذا الصنف</div>
+                    </div>
+                  )
+                }
                 const edit = receiveEdits[it.id] || { quantity: String(it.purchased_quantity ?? it.requested_quantity), unit_id: it.purchased_unit_id || it.requested_unit_id }
                 return (
                   <div key={it.id} style={{ background: S.card, borderRadius: 10, padding: 10 }}>

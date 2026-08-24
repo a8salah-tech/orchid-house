@@ -215,10 +215,22 @@ export default function ViolationsPage() {
     const { data: vData, error } = await vQ
     if (error) { console.error('violations error:', error.message); setLoading(false); return }
     if (vData && vData.length > 0) {
-      const ids2 = [...new Set(vData.map(v => v.employee_id).concat(vData.map(v => v.created_by)).filter(Boolean))]
+      const ids2 = [...new Set(vData.map(v => v.employee_id).concat(vData.map(v => v.created_by)).concat(vData.map(v => v.manager_approved_by)).filter(Boolean))]
       const { data: empNames } = await sb.from('employees').select('id,name,name_en,department,employee_number').in('id', ids2 as string[])
       const empMap = Object.fromEntries((empNames || []).map(e => [e.id, e]))
-      setViolations(vData.map(v => ({ ...v, empName: empMap[v.employee_id]?.name || '—', empNameEn: empMap[v.employee_id]?.name_en || '', empDept: empMap[v.employee_id]?.department || '', empNumber: empMap[v.employee_id]?.employee_number || '', creatorName: `${empMap[v.created_by]?.name || '—'} ${empMap[v.created_by]?.name_en || ''}`.trim() })))
+      setViolations(vData.map(v => ({
+        ...v,
+        empName: empMap[v.employee_id]?.name || '—',
+        empNameEn: empMap[v.employee_id]?.name_en || '',
+        empDept: empMap[v.employee_id]?.department || '',
+        empNumber: empMap[v.employee_id]?.employee_number || '',
+        creatorName: `${empMap[v.created_by]?.name || '—'} ${empMap[v.created_by]?.name_en || ''}`.trim(),
+        // ✅ جديد: الاسم الكامل (عربي + إنجليزي) لمن اعتمد المخالفة فعلياً — منفصل تماماً عن creatorName
+        // (اللي بيسجّلها) لأنهم غالباً شخصين مختلفين، وكانت هوية المعتمِد غير معروضة في الواجهة إطلاقاً
+        approverName: v.manager_approved_by
+          ? `${empMap[v.manager_approved_by]?.name || 'غير معروف'} ${empMap[v.manager_approved_by]?.name_en || ''}`.trim()
+          : null,
+      })))
     } else { setViolations([]) }
     setLoading(false)
   }
@@ -549,6 +561,10 @@ export default function ViolationsPage() {
                   <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn}{v.empNumber ? ` (#${v.empNumber})` : ''} — {v.empDept}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{v.reason}</div>
                   <div style={{ fontSize: 13, color: S.muted }}>📅 {v.date} · <span style={{ color: S.white, fontWeight: 600 }}>{isAr ? 'بواسطة' : 'by'}: {v.creatorName}</span></div>
+                  {/* ✅ جديد: اسم من اعتمد المخالفة فعلياً (منفصل عن "بواسطة" اللي بيسجّلها) — يظهر بس لو اتعتمدت */}
+                  {v.approverName && (
+                    <div style={{ fontSize: 13, color: S.green, marginTop: 2 }}>✅ {isAr ? 'اعتمدها' : 'Approved by'}: <span style={{ fontWeight: 600 }}>{v.approverName}</span></div>
+                  )}
                   {v.attachment_url && (
                     <div style={{ marginTop: 8 }}>
                       {v.attachment_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
@@ -976,6 +992,10 @@ export default function ViolationsPage() {
                         <div style={{fontSize:14,fontWeight:700,color:'#F97316',marginBottom:4}}>{v.department}</div>
                         <div style={{fontSize:13,color:S.white,marginBottom:6,lineHeight:1.5}}>{v.reason}</div>
                         <div style={{fontSize:11,color:S.muted}}>📅 {v.date} · {isAr?'بواسطة':'by'}: {v.creatorName}</div>
+                        {/* ✅ جديد: اسم من اعتمد المخالفة فعلياً */}
+                        {v.approverName && (
+                          <div style={{fontSize:11,color:S.green,marginTop:2}}>✅ {isAr?'اعتمدها':'Approved by'}: <span style={{fontWeight:600}}>{v.approverName}</span></div>
+                        )}
                         {v.attachment_url && (
                           <div style={{marginTop:8}}>
                             {v.attachment_url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (

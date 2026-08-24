@@ -30,6 +30,9 @@ const inp: React.CSSProperties = {
   borderRadius: 10, padding: '10px 14px', fontSize: 13,
   color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
   boxSizing: 'border-box', direction: 'rtl',
+  // ✅ يخلي متصفح Chrome/Edge يرسم عناصر التقويم الأصلية (النص والأيقونة) بألوان مناسبة للخلفية الداكنة —
+  // بدون هذا، بعض المتصفحات كانت ترسم نص حقول type="date"/"month" بلون أسود على خلفية داكنة فيصبح غير مقروء
+  colorScheme: 'dark',
 }
 
 const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: string; color: string; bg: string; hasAmount?: boolean; hasDates?: boolean }> = {
@@ -1010,6 +1013,80 @@ export default function EmployeeRequestsPage() {
   const [search, setSearch] = useState('')
   // ✅ جديد: اختيار شهر محدد لطباعة تقرير سلف الراتب - فاضي معناه كل الشهور (السلوك القديم)
   const [printAdvancesMonth, setPrintAdvancesMonth] = useState('')
+  // ✅ جديد: فرع محدد + شهر محدد لطباعة "استمارات" السلفة الفردية دفعة واحدة (كل موظف في صفحة مستقلة)
+  const [bulkAppBranch, setBulkAppBranch] = useState('')
+  const [bulkAppMonth, setBulkAppMonth] = useState('')
+
+  // ══ طباعة استمارات طلب السلفة الفردية دفعة واحدة — لكل الموظفين اللي طلبوا سلفة في فرع وشهر محددين ══
+  // نفس تصميم استمارة الطلب الفردي (بطاقة الموظف + الحقول + خانات التوقيع)، لكن متكررة لكل موظف على حدة
+  // بدل الاستدعاء اليدوي لكل موظف لوحده — أفضل من جدول ملخّص عادي لأنها استمارة كاملة جاهزة للتوقيع فوراً
+  function printBulkApplications() {
+    if (!bulkAppBranch) { alert('يرجى اختيار الفرع أولاً'); return }
+    if (!bulkAppMonth) { alert('يرجى اختيار الشهر أولاً'); return }
+    const matching = requests
+      .filter(r => r.request_type === 'salary_advance')
+      .filter(r => r.employees?.branches?.name === bulkAppBranch)
+      .filter(r => r.created_at?.slice(0, 7) === bulkAppMonth)
+    if (matching.length === 0) { alert('لا توجد طلبات سلفة راتب لهذا الفرع في هذا الشهر'); return }
+
+    const applicationsHtml = matching.map((request, i) => `
+      <div class="app-page" ${i > 0 ? 'style="page-break-before: always;"' : ''}>
+        <div class="header">
+          <div class="logo">Orchid Group</div>
+          <div class="subtitle">${request.title || 'Salary Advance Application'}</div>
+          <div class="req-number">Request #${request.request_number} · ${new Date(request.created_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+        </div>
+        <div class="employee-card">
+          <div class="name">${request.employees?.name || '—'}${request.employees?.name_en ? ' ' + request.employees.name_en : ''}</div>
+          <div class="grid">
+            <div><div class="field-label">Employee ID / رقم الموظف</div><div class="field-value">${request.employees?.employee_number || '—'}</div></div>
+            <div><div class="field-label">Department / القسم</div><div class="field-value">${request.employees?.department || '—'}</div></div>
+            <div><div class="field-label">Branch / الفرع</div><div class="field-value">${request.employees?.branches?.name || '—'}</div></div>
+            <div><div class="field-label">Position / الوظيفة</div><div class="field-value">${request.employees?.role || '—'}</div></div>
+          </div>
+        </div>
+        <p class="section-title">Request Information</p>
+        <table>
+          <tr><td>Status</td><td>${STATUS_CONFIG[request.status]?.label || request.status}</td></tr>
+          <tr><td>Date Submitted</td><td>${new Date(request.created_at).toLocaleDateString('en-GB')}</td></tr>
+          ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toFixed(2) + '</td></tr>' : ''}
+        </table>
+        <p class="section-title">Request Details</p>
+        <table><tr><td colspan="2"><div class="description">${request.description || '—'}</div></td></tr></table>
+        <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:40px;">
+          <div style="border-top:1px solid #ccc;padding-top:6px;text-align:center;font-size:11px;color:#666;">Employee Signature</div>
+          <div style="border-top:1px solid #ccc;padding-top:6px;text-align:center;font-size:11px;color:#666;">Manager Signature</div>
+        </div>
+      </div>`).join('')
+
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>استمارات سلفة راتب — ${bulkAppBranch} — ${new Date(bulkAppMonth + '-01').toLocaleDateString('ar-SA', { year: 'numeric', month: 'long' })}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 18px; font-size: 12.5px; color: #1a1a1a; }
+        .header { text-align: center; border-bottom: 3px solid #C9A84C; padding-bottom: 10px; margin-bottom: 16px; }
+        .logo { font-size: 20px; font-weight: 900; color: #1a1a1a; margin-bottom: 3px; }
+        .subtitle { font-size: 13px; color: #C9A84C; font-weight: 700; }
+        .req-number { font-size: 11px; color: #666; margin-top: 3px; }
+        .employee-card { background: #FAF7ED; border: 2px solid #C9A84C; border-radius: 8px; padding: 12px 18px; margin-bottom: 14px; }
+        .employee-card .name { font-size: 16px; font-weight: 900; color: #1a1a1a; }
+        .employee-card .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+        .employee-card .field-label { font-size: 10px; color: #888; }
+        .employee-card .field-value { font-size: 13px; font-weight: 700; color: #1a1a1a; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+        td { padding: 7px 14px; border-bottom: 1px solid #e5e5e5; font-size: 12.5px; vertical-align: top; }
+        td:first-child { font-weight: 700; color: #444; width: 200px; background: #fafafa; }
+        .section-title { background: #f0f0f0; font-weight: 700; color: #333; padding: 6px 14px; margin-top: 12px; margin-bottom: 0; border-right: 4px solid #C9A84C; page-break-after: avoid; }
+        .description { white-space: pre-line; line-height: 1.6; }
+        @media print { @page { size: A4; margin: 10mm; } }
+      </style>
+      </head><body>
+      ${applicationsHtml}
+      <script>window.onload=function(){window.print()}<\/script>
+      </body></html>`)
+    win.document.close()
+  }
 
   // ══ تقرير سلف الراتب الشامل: مجمّع بالشهر ثم الفرع، مع إجماليات وتقسيم صفحات كل 20 صف ══
   function printAllSalaryAdvances() {
@@ -1192,6 +1269,7 @@ export default function EmployeeRequestsPage() {
         @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
         select option { background: #0F2040; color: #FAFAF8; }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+        input[type="month"]::-webkit-calendar-picker-indicator { filter: invert(1); }
         .req-row:hover td { background: rgba(255,255,255,0.03) !important; }
       `}</style>
 
@@ -1217,8 +1295,22 @@ export default function EmployeeRequestsPage() {
       {/* ✅ جديد: اختيار شهر محدد قبل الطباعة - فاضي معناه كل الشهور مع بعض مثل القديم */}
       <input type="month" value={printAdvancesMonth} onChange={e => setPrintAdvancesMonth(e.target.value)}
         title="اختر شهرًا لطباعته فقط (اتركه فاضيًا لكل الشهور)"
-        style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+        style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', colorScheme: 'dark' }} />
       <button onClick={printAllSalaryAdvances} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🖨️ تقرير السلف الشامل' : '🖨️ Full Advances Report'}</button>
+    </>
+  )}
+  {/* ✅ جديد: طباعة استمارات السلفة الفردية دفعة واحدة لكل موظفي فرع ما في شهر محدد */}
+  {(isAdmin || isBranchManager) && (
+    <>
+      <select value={bulkAppBranch} onChange={e => setBulkAppBranch(e.target.value)}
+        style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+        <option value="" style={{ background: S.navy2 }}>-- اختر الفرع --</option>
+        {branches.map(b => <option key={b.id} value={b.name} style={{ background: S.navy2 }}>{b.name}</option>)}
+      </select>
+      <input type="month" value={bulkAppMonth} onChange={e => setBulkAppMonth(e.target.value)}
+        title="اختر شهر الطلبات المراد طباعة استماراتها"
+        style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', colorScheme: 'dark' }} />
+      <button onClick={printBulkApplications} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة استمارات السلف</button>
     </>
   )}
 </div>

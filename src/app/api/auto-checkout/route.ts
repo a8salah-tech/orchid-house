@@ -13,6 +13,12 @@ const AUTO_CHECKOUT_GRACE_HOURS = 1
 const PENALTY_HOURS = 2
 // ✅ لا نعالج سجلات حضور أقدم من هذا العدد من الأيام (حماية من إعادة المعالجة اللانهائية لسجلات قديمة معلَّقة)
 const MAX_LOOKBACK_DAYS = 3
+// ✅ جديد: أي سجل حضور (مفتوح أو مقفول، بغض النظر مين قفله) مدته أطول من هذا العدد من الساعات
+// يُعتبر مشكوكاً فيه ويستحق مراجعة — يمسك حالة الموظف اللي بيقفل شيفته بنفسه متأخراً جداً (24 ساعة مثلاً)،
+// وهي حالة كانت تفلت تماماً من الفحص القديم لأن ذلك الفحص كان يعالج السجلات "المفتوحة" فقط
+const SUSPICIOUS_DURATION_HOURS = 16
+// ✅ علامة نضعها داخل notes بعد رصد سجل مشكوك فيه، لمنع رصده وإنشاء مخالفة له مرة أخرى في كل تشغيلة يومية تالية
+const SUSPICIOUS_FLAG_MARKER = '⚠️ تم رصد مدة غير منطقية'
 
 type AttendanceRow = {
   id: string
@@ -164,7 +170,78 @@ async function handleAutoCheckout(req: NextRequest) {
       results.push({ employee_id: rec.employee_id, date: dateStr, checkout_time: checkoutIso, proposed_penalty_myr: penaltyAmount })
     }
 
-    return NextResponse.json({ dryRun, processed, results })
+    // ══════════════════════════════════════════════════════════════════════
+    // ✅ فحص منفصل جديد: أي سجل حضور مقفول بالفعل (سواء أغلقه الموظف بنفسه يدوياً، أو الأداة أعلاه) لكن
+    // مدته أطول من حد معقول — الفحص القديم فوق كان يعالج السجلات "المفتوحة" فقط، فلو موظف قفل شيفته
+    // بنفسه بعد مدة غير منطقية (24 ساعة مثلاً) قبل ما الأداة تشتغل في موعدها اليومي، كان يفلت تماماً بلا أي رصد
+    // ══════════════════════════════════════════════════════════════════════
+    const suspiciousResults: { employee_id: string; date: string; duration_hours: number; proposed_penalty_myr: number }[] = []
+    let suspiciousProcessed = 0
+
+    const { data: closedRecords, error: closedErr } = await supabaseAdmin
+      .from('attendance')
+      .select('id, employee_id, date, check_in_time, check_out_time, notes')
+      .not('check_in_time', 'is', null)
+      .not('check_out_time', 'is', null)
+      .gte('date', lookbackDate)
+
+    if (!closedErr && closedRecords) {
+      for (const rec of closedRecords as (AttendanceRow & { notes: string | null })[]) {
+        // ✅ تخطّي أي سجل اتفحص قبل كده (العلامة موجودة بالفعل في notes) — يمنع تكرار نفس المخالفة كل يوم
+        if (rec.notes && rec.notes.includes(SUSPICIOUS_FLAG_MARKER)) continue
+        if (!rec.check_out_time) continue
+
+        const durationHours = (new Date(rec.check_out_time).getTime() - new Date(rec.check_in_time).getTime()) / (60 * 60 * 1000)
+        if (durationHours <= SUSPICIOUS_DURATION_HOURS) continue
+
+        const dateStr = String(rec.date).slice(0, 10)
+
+        if (dryRun) {
+          suspiciousProcessed++
+          suspiciousResults.push({ employee_id: rec.employee_id, date: dateStr, duration_hours: parseFloat(durationHours.toFixed(1)), proposed_penalty_myr: 0 })
+          continue
+        }
+
+        const { data: emp } = await supabaseAdmin
+          .from('employees')
+          .select('salary')
+          .eq('id', rec.employee_id)
+          .maybeSingle()
+        const dailyRate = (emp?.salary || 0) / 30
+        const hourlyRate = dailyRate / 8
+        const penaltyAmount = parseFloat((hourlyRate * PENALTY_HOURS).toFixed(2))
+
+        // ✅ نضيف العلامة على الملاحظات الحالية (بدون مسح أي ملاحظة سابقة موجودة، مثل علامة الخروج التلقائي)
+        const newNotes = rec.notes ? `${rec.notes}\n${SUSPICIOUS_FLAG_MARKER}` : SUSPICIOUS_FLAG_MARKER
+        await supabaseAdmin.from('attendance').update({ notes: newNotes }).eq('id', rec.id)
+
+        if (penaltyAmount > 0) {
+          await supabaseAdmin.from('violations').insert([{
+            employee_id: rec.employee_id,
+            amount: penaltyAmount,
+            reason: `خصم مقترح (قيد المراجعة): سجل حضور بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة — مدة غير منطقية لشيفت واحد. راجع السجل قبل الاعتماد، قد يكون خطأ في وقت التسجيل أو نسيان تسجيل الخروج في وقته الصحيح\nProposed deduction (pending review): attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours — unreasonable duration for a single shift. Please review before approving, this may be a check-in/out time error or a very late manual checkout`,
+            date: dateStr,
+            status: 'submitted',
+            submitted_at: new Date().toISOString(),
+          }])
+        }
+
+        await supabaseAdmin.from('notifications').insert([{
+          type: 'suspicious_duration',
+          title: 'مدة حضور غير منطقية / Unusual Attendance Duration',
+          body:
+            `سجل حضورك بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة، وهذا يُعتبر مدة غير منطقية لشيفت واحد. تم اقتراح خصم ${PENALTY_HOURS} ساعة وهو الآن قيد مراجعة الإدارة — لو كان هناك خطأ في التسجيل تواصل مع مديرك المباشر فوراً.\n\n` +
+            `Your attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours, which is considered an unreasonable duration for a single shift. A ${PENALTY_HOURS}-hour deduction has been proposed and is now pending management review — if there was a recording error, please contact your manager right away.`,
+          target_employee_id: rec.employee_id,
+          is_read: false,
+        }])
+
+        suspiciousProcessed++
+        suspiciousResults.push({ employee_id: rec.employee_id, date: dateStr, duration_hours: parseFloat(durationHours.toFixed(1)), proposed_penalty_myr: penaltyAmount })
+      }
+    }
+
+    return NextResponse.json({ dryRun, processed, results, suspiciousProcessed, suspiciousResults })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'خطأ في الخادم' }, { status: 500 })
   }

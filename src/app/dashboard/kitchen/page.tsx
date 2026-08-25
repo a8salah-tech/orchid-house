@@ -30,7 +30,14 @@ type OrderItem = {
   size_name?: string | null
   cancel_reason?: string | null
   cancelled_at?: string | null
-  menu_items: { id: string; name: string; name_en: string }
+  menu_items: { id: string; name: string; name_en: string; menu_categories?: { name_en: string } | null }
+}
+
+// ✅ جديد: إجراء احترازي إضافي - أي صنف من هذين القسمين يُستبعد من شاشة المطبخ نهائيًا
+// حتى لو كانت قيمة عمود destination الخاصة به غير صحيحة، لأن مكانه الفعلي هو شاشة البار
+const BAR_ONLY_CATEGORIES = ['Cold Drinks', 'Hot Drinks']
+function isKitchenItem(i: { destination: string; menu_items?: { menu_categories?: { name_en: string } | null } }) {
+  return i.destination === 'kitchen' && !BAR_ONLY_CATEGORIES.includes(i.menu_items?.menu_categories?.name_en || '')
 }
 
 type KitchenOrder = {
@@ -427,12 +434,12 @@ export default function KitchenPage() {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name, branch_id, branches(name)),
-      order_items(id, quantity, status, destination, created_at, ready_at, size_name, menu_items(id, name, name_en))
+      order_items(id, quantity, status, destination, created_at, ready_at, size_name, menu_items(id, name, name_en, menu_categories(name_en)))
     `).gte('created_at', dayStart).lte('created_at', dayEnd)
 
     let dayOrders = ((data as any) || []).map((o: any) => ({
       ...o,
-      order_items: o.order_items.filter((i: any) => i.destination === 'kitchen'),
+      order_items: o.order_items.filter((i: any) => isKitchenItem(i)),
     })).filter((o: any) => o.order_items.length > 0)
 
     if (!isAdmin && myBranchId) {
@@ -449,14 +456,14 @@ export default function KitchenPage() {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name, branch_id, branches(name)),
-      order_items(id, quantity, notes, status, destination, created_at, ready_at, size_name, cancel_reason, cancelled_at, menu_items(id, name, name_en))
+      order_items(id, quantity, notes, status, destination, created_at, ready_at, size_name, cancel_reason, cancelled_at, menu_items(id, name, name_en, menu_categories(name_en)))
     `)
       // ✅ Fix: بنجيب الطلبات الملغاة كمان (مش بس confirmed/preparing/ready) - عشان تفضل ظاهرة في المطبخ بدل ما تختفي فورًا
       .in('status', ['confirmed', 'preparing', 'ready', 'cancelled']).order('created_at', { ascending: false }) // ✅ Fix: الطلب الأحدث دلوقتي يظهر أول واحد فوق
 
     let filtered = ((data as any) || []).map((o: KitchenOrder) => ({
       ...o,
-      order_items: o.order_items.filter(i => i.destination === 'kitchen'),
+      order_items: o.order_items.filter(i => isKitchenItem(i)),
     })).filter((o: KitchenOrder) => {
       if (o.order_items.length === 0) return false
       // ✅ جديد: الطلب الملغي بالكامل يفضل ظاهر بس لمدة 20 دقيقة من لحظة إلغائه، عشان المطبخ ياخد باله، وبعدها يختفي طبيعي (يفضل في الأرشيف)
@@ -554,8 +561,8 @@ export default function KitchenPage() {
     // ✅ Fix: نتأكد من حالة كل الأصناف مباشرة من قاعدة البيانات (مش من الـ state القديمة في الذاكرة)
     // السبب الأصلي للمشكلة: لو الشيف ضغط "Ready" على أكتر من صنف بسرعة قبل ما الصفحة تتحدث،
     // الفحص القديم كان بيعتمد على بيانات قديمة فيسيب الأوردر "معلّق" حتى لو كل الأصناف فعلاً جاهزة
-    const { data: allItems } = await sb.from('order_items').select('id, status, destination').eq('order_id', orderId)
-    const kitchenItems = (allItems || []).filter(i => i.destination === 'kitchen')
+    const { data: allItems } = await sb.from('order_items').select('id, status, destination, menu_items(menu_categories(name_en))').eq('order_id', orderId)
+    const kitchenItems = (allItems || []).filter(i => isKitchenItem(i as any))
     const allKitchenReady = kitchenItems.length > 0 && kitchenItems.every(i => ['ready', 'cancelled', 'returned', 'replaced'].includes(i.status))
     if (allKitchenReady) {
       await sb.from('orders').update({ status: 'ready' }).eq('id', orderId)

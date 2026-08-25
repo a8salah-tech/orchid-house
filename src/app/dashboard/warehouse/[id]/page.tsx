@@ -353,6 +353,14 @@ function StockOutModal({ warehouseId, warehouseName, products, unitConversionsAl
     return directConv || fallbackConv
   }
 
+  // ✅ Fix: نفس إصلاح المخزون المنخفض الموحّد - مراعاة تحويل الوحدة بدل مقارنة خام بين وحدتين مختلفتين
+  function isLowStock(product: Product) {
+    if (!product.min_stock || product.min_stock <= 0 || product.current_stock <= 0) return false
+    const conv = getConv(product)
+    const minStockInBaseUnit = conv && conv.factor > 1 ? product.min_stock * conv.factor : product.min_stock
+    return product.current_stock <= minStockInBaseUnit
+  }
+
   // ✅ Fix: تنسيق رصيد الصنف بالوحدة الرئيسية والفرعية بدل عرض current_stock الخام
   // (كان بيظهر أرقام كبيرة جدًا زي 3.9465656565626 لما الرصيد متسجل بأرقام عشرية غير مقربة)
   function formatStock(product: Product) {
@@ -452,7 +460,7 @@ function StockOutModal({ warehouseId, warehouseName, products, unitConversionsAl
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                     >
                       <span>{p.name}</span>
-                      <span style={{ fontSize: 11, color: p.current_stock <= p.min_stock && p.min_stock > 0 ? S.red : S.muted }}>متاح: {stockLabel(p)}</span>
+                      <span style={{ fontSize: 11, color: isLowStock(p) ? S.red : S.muted }}>متاح: {stockLabel(p)}</span>
                     </div>
                   ))}
                 {products.filter(p => matchesSearch(p.name, productSearch) || matchesSearch(p.name_en, productSearch)).length === 0 && (
@@ -464,7 +472,7 @@ function StockOutModal({ warehouseId, warehouseName, products, unitConversionsAl
           {selectedProduct && (
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: S.muted }}>المخزون المتاح</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: isLowStock(selectedProduct) ? S.red : S.green }}>
                 {stockLabel(selectedProduct)}
               </span>
             </div>
@@ -537,6 +545,14 @@ function TransferModal({ warehouseId, warehouseName, products, unitConversionsAl
     const directConv = convs.find((c: any) => c.product_id === product.id && c.from_unit_id === product.unit_id)
     const fallbackConv = convs.find((c: any) => c.product_id === product.id)
     return directConv || fallbackConv
+  }
+
+  // ✅ Fix: نفس إصلاح المخزون المنخفض الموحّد - مراعاة تحويل الوحدة بدل مقارنة خام بين وحدتين مختلفتين
+  function isLowStock(product: Product) {
+    if (!product.min_stock || product.min_stock <= 0 || product.current_stock <= 0) return false
+    const conv = getConv(product)
+    const minStockInBaseUnit = conv && conv.factor > 1 ? product.min_stock * conv.factor : product.min_stock
+    return product.current_stock <= minStockInBaseUnit
   }
 
   // ✅ Fix: نفس منطق تنسيق الرصيد بالوحدة الرئيسية والفرعية المستخدم في نافذة خروج بضاعة
@@ -680,7 +696,7 @@ function TransferModal({ warehouseId, warehouseName, products, unitConversionsAl
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                     >
                       <span>{p.name}</span>
-                      <span style={{ fontSize: 11, color: p.current_stock <= p.min_stock && p.min_stock > 0 ? S.red : S.muted }}>متاح: {stockLabel(p)}</span>
+                      <span style={{ fontSize: 11, color: isLowStock(p) ? S.red : S.muted }}>متاح: {stockLabel(p)}</span>
                     </div>
                   ))}
                 {products.filter(p => matchesSearch(p.name, productSearch) || matchesSearch(p.name_en, productSearch)).length === 0 && (
@@ -692,7 +708,7 @@ function TransferModal({ warehouseId, warehouseName, products, unitConversionsAl
           {selectedProduct && (
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: S.muted }}>المخزون المتاح</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: isLowStock(selectedProduct) ? S.red : S.green }}>
                 {stockLabel(selectedProduct)}
               </span>
             </div>
@@ -1088,8 +1104,19 @@ export default function WarehouseDetailPage() {
     fetchAll()
   }
 
+  // ✅ Fix حرج: min_stock محفوظة بالوحدة الكبرى (كرتون مثلًا)، بينما current_stock أحيانًا بيستخدم
+  // الوحدة الصغرى عند وجود تحويل وحدة مسجَّل للصنف. المقارنة الخام (current_stock <= min_stock) كانت
+  // تقارن بين وحدتين مختلفتين فعليًا، فكانت تُظهر "مخزون منخفض" حتى لو الكمية الفعلية أعلى من الحد
+  // الأدنى بكثير بعد التحويل الصحيح. هذه الدالة موحّدة الآن وتُستخدم في كل مكان بدل التكرار الخام
+  function isLowStock(p: Product) {
+    if (!p.min_stock || p.min_stock <= 0 || p.current_stock <= 0) return false
+    const conv = unitConversionsAll.find((c: any) => c.product_id === p.id)
+    const minStockInBaseUnit = conv && conv.factor > 1 ? p.min_stock * conv.factor : p.min_stock
+    return p.current_stock <= minStockInBaseUnit
+  }
+
   // Stats
-  const lowStock = products.filter(p => p.current_stock <= p.min_stock && p.min_stock > 0)
+  const lowStock = products.filter(p => isLowStock(p))
   const today = new Date().toISOString().split('T')[0]
   const todayIn = movements.filter(m => m.movement_type === 'in' && m.movement_date === today)
   const todayOut = movements.filter(m => m.movement_type === 'out' && m.movement_date === today)
@@ -1106,7 +1133,7 @@ export default function WarehouseDetailPage() {
     const matchCat = selectedCategory === 'all' || p.category === selectedCategory
     const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? p.is_active !== false : p.is_active === false)
     const matchStock = stockFilter === 'all' ||
-      (stockFilter === 'low' && p.current_stock <= p.min_stock && p.min_stock > 0 && p.current_stock > 0) ||
+      (stockFilter === 'low' && isLowStock(p)) ||
       (stockFilter === 'empty' && p.current_stock === 0)
     return matchSearch && matchCat && matchStatus && matchStock
   })
@@ -1140,7 +1167,7 @@ export default function WarehouseDetailPage() {
       if (!grouped[cat]) grouped[cat] = []
       grouped[cat].push(p)
     })
-    const lowStock = products.filter(p => p.current_stock <= p.min_stock && p.min_stock > 0 && p.is_active !== false)
+    const lowStock = products.filter(p => isLowStock(p) && p.is_active !== false)
     const totalValue = products.reduce((s, p) => s + (p.current_stock * (p.last_purchase_price || 0)), 0)
 
     const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
@@ -1492,11 +1519,27 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
 
           {/* ── Low Stock Alert ── */}
           {lowStock.length > 0 && selectedCategory === 'all' && (
-            <div style={{ background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 12, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 10 }}>
-              <span>⚠️</span>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: S.amber, marginBottom: 4 }}>مخزون منخفض</div>
-                <div style={{ fontSize: 12, color: S.muted }}>{lowStock.map(p => p.name).join(' • ')}</div>
+            <div style={{ background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                <span>⚠️</span>
+                <div style={{ fontSize: 13, fontWeight: 700, color: S.amber }}>مخزون منخفض ({lowStock.length} صنف)</div>
+              </div>
+              {/* ✅ Fix: بدل القائمة النصية المتصلة بفاصلة، عرض كل صنف في مربع مستقل يوضّح الرصيد الحالي
+                  والحد الأدنى، عشان يبقى واضح فورًا أي الأصناف الأقرب للنفاد فعليًا */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8, maxHeight: 320, overflowY: 'auto', paddingLeft: 4 }}>
+                {lowStock.map(p => {
+                  const s = formatStock(p)
+                  const stockText = s.big !== null && s.small !== null && s.small !== undefined
+                    ? `${s.big} ${s.bigUnit} و ${s.small} ${s.smallUnit}`
+                    : `${s.small} ${s.smallUnit}`
+                  return (
+                    <div key={p.id} style={{ background: S.navy3, border: `1px solid ${S.amber}40`, borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: S.amber }}>المتاح: {stockText}</div>
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>الحد الأدنى: {fmtQty(p.min_stock)} {p.units?.symbol || ''}</div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1518,11 +1561,8 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                       {search ? `لا توجد نتائج لـ "${search}"` : 'لا توجد أصناف — اضغط "صنف جديد" للبدء'}
                     </td></tr>
                   ) : paginatedProducts.map(p => {
-                    // ✅ Fix: min_stock محفوظة بالوحدة الكبرى (مثل current_stock نفسه يستخدم الوحدة الصغرى عند وجود تحويل)
-                    // لازم نحوّل min_stock لنفس وحدة current_stock قبل المقارنة، وإلا المقارنة بتبقى بين وحدتين مختلفتين
-                    const convForLow = unitConversionsAll.find((c: any) => c.product_id === p.id)
-                    const minStockInBaseUnit = convForLow && convForLow.factor > 1 ? p.min_stock * convForLow.factor : p.min_stock
-                    const isLow = p.current_stock <= minStockInBaseUnit && p.min_stock > 0 && p.current_stock > 0
+                    // ✅ Fix: توحيد الحساب مع دالة isLowStock المشتركة بدل تكرار نفس منطق تحويل الوحدة محليًا
+                    const isLow = isLowStock(p)
                     const isEmpty = p.current_stock === 0
                     const isInactive = p.is_active === false
                     return (
@@ -1862,7 +1902,7 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
               {[
                 { label: 'الكود', value: selectedProduct.product_code || '—', color: S.gold },
                 { label: 'الفئة', value: selectedProduct.category || '—' },
-                { label: 'المخزون الحالي', value: `${fmtQty(selectedProduct.current_stock)} ${(selectedProduct as any).units?.symbol || ''}`, color: selectedProduct.current_stock <= selectedProduct.min_stock ? S.red : S.green },
+                { label: 'المخزون الحالي', value: `${fmtQty(selectedProduct.current_stock)} ${(selectedProduct as any).units?.symbol || ''}`, color: isLowStock(selectedProduct) ? S.red : S.green },
                 { label: 'الحد الأدنى', value: `${fmtQty(selectedProduct.min_stock)} ${(selectedProduct as any).units?.symbol || ''}` },
                 { label: 'آخر سعر شراء', value: selectedProduct.last_purchase_price ? `${selectedProduct.last_purchase_price} MYR` : 'لم يُحدد', color: S.gold },
                 { label: 'الحالة', value: selectedProduct.is_active === false ? '⏸ موقف' : '✅ نشط', color: selectedProduct.is_active === false ? S.muted : S.green },

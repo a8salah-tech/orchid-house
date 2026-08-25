@@ -667,7 +667,7 @@ export default function UniformRequestsPage() {
         <div>
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
             {/* ✅ فلتر الفرع — كل الفروع أو فرع محدد */}
-            <select value={lastReceivedBranchFilter} onChange={e => setLastReceivedBranchFilter(e.target.value)}
+            <select value={lastReceivedBranchFilter} onChange={e => { setLastReceivedBranchFilter(e.target.value); setHistoryForm(p => ({ ...p, employee_id: '' })) }}
               style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
               <option value="">🏪 كل الفروع</option>
               {branches.map(b => <option key={b.id} value={b.name} style={{ background: S.navy2 }}>{b.name}</option>)}
@@ -688,7 +688,9 @@ export default function UniformRequestsPage() {
                 <select value={historyForm.employee_id} onChange={e => setHistoryForm(p => ({ ...p, employee_id: e.target.value }))}
                   style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
                   <option value="" style={{ background: S.navy2 }}>-- اختر الموظف --</option>
-                  {allEmployees.map(e => <option key={e.id} value={e.id} style={{ background: S.navy2 }}>{e.name}{e.name_en ? ' ' + e.name_en : ''} ({e.employee_number || '—'})</option>)}
+                  {/* ✅ استخدمنا filteredAllEmployees (المفلترة حسب فلتر الفرع فوق) بدل allEmployees —
+                      كان يعرض موظفي كل الفروع دائماً بغض النظر عن اختيار الفرع بالأعلى */}
+                  {filteredAllEmployees.map(e => <option key={e.id} value={e.id} style={{ background: S.navy2 }}>{e.name}{e.name_en ? ' ' + e.name_en : ''} ({e.employee_number || '—'})</option>)}
                 </select>
               </div>
               <div>

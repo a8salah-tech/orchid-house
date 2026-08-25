@@ -14,7 +14,7 @@ const PENALTY_HOURS = 2
 // ✅ لا نعالج سجلات حضور أقدم من هذا العدد من الأيام (حماية من إعادة المعالجة اللانهائية لسجلات قديمة معلَّقة)
 const MAX_LOOKBACK_DAYS = 3
 // ✅ جديد: أي سجل حضور (مفتوح أو مقفول، بغض النظر مين قفله) مدته أطول من هذا العدد من الساعات
-// يُعتبر مشكوكاً فيه ويستحق مراجعة — يمسك حالة الموظف اللي بيقفل شيفته بنفسه متأخراً جداً (24 ساعة مثلاً)،
+// يُعتبر مشكوكاً فيه ويستحق مراجعة — يرصد حالة الموظف الذي يُغلق شيفته بنفسه متأخراً جداً (24 ساعة مثلاً)،
 // وهي حالة كانت تفلت تماماً من الفحص القديم لأن ذلك الفحص كان يعالج السجلات "المفتوحة" فقط
 const SUSPICIOUS_DURATION_HOURS = 16
 // ✅ علامة نضعها داخل notes بعد رصد سجل مشكوك فيه، لمنع رصده وإنشاء مخالفة له مرة أخرى في كل تشغيلة يومية تالية
@@ -104,7 +104,7 @@ async function handleAutoCheckout(req: NextRequest) {
       if (shiftEndUtc === null) continue // لا يوجد شيفت مجدول لهذا اليوم — لا يمكن تحديد وقت الإغلاق التلقائي
 
       const cutoff = shiftEndUtc + AUTO_CHECKOUT_GRACE_HOURS * 60 * 60 * 1000
-      if (now < cutoff) continue // لسه ما وصلناش لوقت الإغلاق التلقائي بعد
+      if (now < cutoff) continue // لم يحن بعد وقت الإغلاق التلقائي
 
       const checkoutIso = new Date(cutoff).toISOString()
 
@@ -127,7 +127,7 @@ async function handleAutoCheckout(req: NextRequest) {
 
       // 1) تسجيل الخروج التلقائي في وقت (نهاية الشيفت + ساعة السماح)، وليس وقت تشغيل الأداة نفسها
       // ✅ نسجّل ملاحظة واضحة على سجل الحضور نفسه — تظهر في عمود "الملاحظات" بصفحة الحضور والانصراف
-      // مباشرة، عشان الأدمن يقدر يميّز الخروج التلقائي عن الخروج اليدوي بنظرة واحدة
+      // مباشرة، لكي يتمكن الأدمن من تمييز الخروج التلقائي عن الخروج اليدوي بنظرة واحدة
       const { error: updErr } = await supabaseAdmin
         .from('attendance')
         .update({
@@ -142,8 +142,12 @@ async function handleAutoCheckout(req: NextRequest) {
       // يعمل أوفر تايم حقيقياً ونسي التطبيق سيُغلَق سجله تلقائياً بأمان، لكن الخصم المالي يبقى معلَّقاً
       // حتى يراجعه أدمن بشري ويوافق عليه يدوياً (بتحويل الحالة إلى 'active') — نفس مبدأ الأمان
       // المُتَّبع في أداة "كشف الغياب": لا خصم مالي تلقائي بالكامل بدون عين بشرية تراجعه أولاً
+      // ✅ نتحقق من نجاح الإدراج فعلياً (violInsertError) قبل ما نبعت أي إشعار — كان الإشعار يترسل دايماً
+      // بغض النظر عن نجاح تسجيل المخالفة من عدمه (حتى لو المبلغ صفر أو فشل الإدراج لأي سبب)، فيوصل
+      // للموظف إشعار "تم اقتراح خصم" رغم عدم وجود أي مخالفة فعلية في النظام — تناقض مباشر ومربك
+      let violationRecorded = false
       if (penaltyAmount > 0) {
-        await supabaseAdmin.from('violations').insert([{
+        const { error: violInsertError } = await supabaseAdmin.from('violations').insert([{
           employee_id: rec.employee_id,
           amount: penaltyAmount,
           reason: `خصم مقترح (قيد المراجعة): نسيان تسجيل الخروج بتاريخ ${dateStr} — تم تسجيل الخروج تلقائياً، ويُقترَح خصم ${PENALTY_HOURS} ساعة. راجع السجل قبل الاعتماد فقد يكون الموظف كان يعمل أوفر تايم فعلياً\nProposed deduction (pending review): forgot to check out on ${dateStr} — checkout was recorded automatically, ${PENALTY_HOURS} hours deduction suggested. Please review before approving, the employee may have genuinely worked overtime`,
@@ -153,18 +157,23 @@ async function handleAutoCheckout(req: NextRequest) {
           status: 'submitted',
           submitted_at: new Date().toISOString(),
         }])
+        violationRecorded = !violInsertError
+        if (violInsertError) console.error('violation insert error:', violInsertError.message)
       }
 
-      // 4) إشعار للموظف بالعربي والإنجليزي معاً — نوضّح إن الخصم مقترح ولسه محتاج موافقة، وليس نهائياً
-      await supabaseAdmin.from('notifications').insert([{
-        type: 'auto_checkout',
-        title: 'تسجيل خروج تلقائي / Automatic Checkout',
-        body:
-          `تم نسيان تسجيل الخروج بتاريخ ${dateStr}، فقام النظام بتسجيل الخروج تلقائياً. تم اقتراح خصم ${PENALTY_HOURS} ساعة وهو الآن قيد مراجعة الإدارة — لو كنت تعمل أوفر تايم فعلياً تواصل مع مديرك المباشر فوراً.\n\n` +
-          `You forgot to check out on ${dateStr}, so the system automatically checked you out. A ${PENALTY_HOURS}-hour deduction has been proposed and is now pending management review — if you were genuinely working overtime, please contact your manager right away.`,
-        target_employee_id: rec.employee_id,
-        is_read: false,
-      }])
+      // 4) إشعار للموظف بالعربي والإنجليزي معاً — يترسل الآن فقط لو المخالفة اتسجّلت فعلاً بنجاح،
+      // لضمان تطابق كامل بين ما يُقال للموظف وما هو مسجَّل فعلياً في قاعدة البيانات
+      if (violationRecorded) {
+        await supabaseAdmin.from('notifications').insert([{
+          type: 'auto_checkout',
+          title: 'تسجيل خروج تلقائي / Automatic Checkout',
+          body:
+            `تم نسيان تسجيل الخروج بتاريخ ${dateStr}، فقام النظام بتسجيل الخروج تلقائياً. تم اقتراح خصم ${PENALTY_HOURS} ساعة وهو الآن قيد مراجعة الإدارة — لو كنت تعمل أوفر تايم فعلياً تواصل مع مديرك المباشر فوراً.\n\n` +
+            `You forgot to check out on ${dateStr}, so the system automatically checked you out. A ${PENALTY_HOURS}-hour deduction has been proposed and is now pending management review — if you were genuinely working overtime, please contact your manager right away.`,
+          target_employee_id: rec.employee_id,
+          is_read: false,
+        }])
+      }
 
       processed++
       results.push({ employee_id: rec.employee_id, date: dateStr, checkout_time: checkoutIso, proposed_penalty_myr: penaltyAmount })
@@ -187,7 +196,7 @@ async function handleAutoCheckout(req: NextRequest) {
 
     if (!closedErr && closedRecords) {
       for (const rec of closedRecords as (AttendanceRow & { notes: string | null })[]) {
-        // ✅ تخطّي أي سجل اتفحص قبل كده (العلامة موجودة بالفعل في notes) — يمنع تكرار نفس المخالفة كل يوم
+        // ✅ تخطي أي سجل سبق فحصه (العلامة موجودة بالفعل في notes) — يمنع تكرار نفس المخالفة كل يوم
         if (rec.notes && rec.notes.includes(SUSPICIOUS_FLAG_MARKER)) continue
         if (!rec.check_out_time) continue
 
@@ -215,8 +224,10 @@ async function handleAutoCheckout(req: NextRequest) {
         const newNotes = rec.notes ? `${rec.notes}\n${SUSPICIOUS_FLAG_MARKER}` : SUSPICIOUS_FLAG_MARKER
         await supabaseAdmin.from('attendance').update({ notes: newNotes }).eq('id', rec.id)
 
+        // ✅ نفس إصلاح الخطوة 3/4 أعلاه: الإشعار يترسل فقط لو المخالفة اتسجّلت فعلاً بنجاح
+        let violationRecorded = false
         if (penaltyAmount > 0) {
-          await supabaseAdmin.from('violations').insert([{
+          const { error: violInsertError } = await supabaseAdmin.from('violations').insert([{
             employee_id: rec.employee_id,
             amount: penaltyAmount,
             reason: `خصم مقترح (قيد المراجعة): سجل حضور بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة — مدة غير منطقية لشيفت واحد. راجع السجل قبل الاعتماد، قد يكون خطأ في وقت التسجيل أو نسيان تسجيل الخروج في وقته الصحيح\nProposed deduction (pending review): attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours — unreasonable duration for a single shift. Please review before approving, this may be a check-in/out time error or a very late manual checkout`,
@@ -224,17 +235,21 @@ async function handleAutoCheckout(req: NextRequest) {
             status: 'submitted',
             submitted_at: new Date().toISOString(),
           }])
+          violationRecorded = !violInsertError
+          if (violInsertError) console.error('violation insert error:', violInsertError.message)
         }
 
-        await supabaseAdmin.from('notifications').insert([{
-          type: 'suspicious_duration',
-          title: 'مدة حضور غير منطقية / Unusual Attendance Duration',
-          body:
-            `سجل حضورك بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة، وهذا يُعتبر مدة غير منطقية لشيفت واحد. تم اقتراح خصم ${PENALTY_HOURS} ساعة وهو الآن قيد مراجعة الإدارة — لو كان هناك خطأ في التسجيل تواصل مع مديرك المباشر فوراً.\n\n` +
-            `Your attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours, which is considered an unreasonable duration for a single shift. A ${PENALTY_HOURS}-hour deduction has been proposed and is now pending management review — if there was a recording error, please contact your manager right away.`,
-          target_employee_id: rec.employee_id,
-          is_read: false,
-        }])
+        if (violationRecorded) {
+          await supabaseAdmin.from('notifications').insert([{
+            type: 'suspicious_duration',
+            title: 'مدة حضور غير منطقية / Unusual Attendance Duration',
+            body:
+              `سجل حضورك بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة، وهذا يُعتبر مدة غير منطقية لشيفت واحد. تم اقتراح خصم ${PENALTY_HOURS} ساعة وهو الآن قيد مراجعة الإدارة — لو كان هناك خطأ في التسجيل تواصل مع مديرك المباشر فوراً.\n\n` +
+              `Your attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours, which is considered an unreasonable duration for a single shift. A ${PENALTY_HOURS}-hour deduction has been proposed and is now pending management review — if there was a recording error, please contact your manager right away.`,
+            target_employee_id: rec.employee_id,
+            is_read: false,
+          }])
+        }
 
         suspiciousProcessed++
         suspiciousResults.push({ employee_id: rec.employee_id, date: dateStr, duration_hours: parseFloat(durationHours.toFixed(1)), proposed_penalty_myr: penaltyAmount })

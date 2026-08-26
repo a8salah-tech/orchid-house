@@ -261,6 +261,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const currentPageLabel = allMenuItems.find(i => i.path === pathname)
     || allMenuItems.find(i => i.path !== '/dashboard' && pathname.startsWith(i.path))
 
+  // ✅ حارس أمان مركزي: إخفاء الرابط من القايمة الجانبية لوحده كان مجرد تجميل — أي موظف يعرف الرابط
+  // مباشرة (أو حفظه Bookmark من قبل) كان يقدر يدخل الصفحة عادي بغض النظر عن صلاحياته الفعلية.
+  // هنا نتحقق فعلياً من نفس شرط الظهور في القايمة، لكن كحارس دخول حقيقي يمنع فتح الصفحة نفسها،
+  // مش بس يخفي الرابط عنها. يطبَّق على كل الصفحات مرة واحدة من مكان واحد، مش لكل صفحة على حدة
+  const isPageAllowed = !currentPageLabel || (
+    currentPageLabel.permission === 'admin_only' ? isAdmin :
+    currentPageLabel.permission === null || currentPageLabel.permission === 'all_employees' || isAdmin || hasPermission(currentPageLabel.permission)
+  )
+
+  useEffect(() => {
+    // ✅ ننتظر انتهاء تحميل بيانات الصلاحيات أولاً (loading) قبل أي قرار — وإلا كل صفحة كانت
+    // سترفض الدخول للحظة قصيرة قبل ما تتحمل الصلاحيات الحقيقية، حتى لو الموظف مخوَّل فعلاً
+    if (!loading && !isPageAllowed) {
+      router.replace('/dashboard')
+    }
+  }, [loading, isPageAllowed, pathname, router])
+
+  if (!loading && !isPageAllowed) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444', fontFamily: 'Tajawal, sans-serif', fontSize: 16, flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 40 }}>🚫</div>
+        <div>{isAr ? 'ليس لديك صلاحية للوصول إلى هذه الصفحة — جاري التحويل...' : "You don't have permission to access this page — redirecting..."}</div>
+      </div>
+    )
+  }
+
   return (
     <LanguageContext.Provider value={{ lang, isAr }}>
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr' }}>

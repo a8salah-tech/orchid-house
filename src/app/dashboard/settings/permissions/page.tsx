@@ -27,6 +27,9 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   kitchen_manager:     { label: 'مدير المطبخ',    icon: '🍳', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'المطبخ والبار والحلويات والموظفين' },
   hall_manager:        { label: 'مدير الصالة',    icon: '🏛️', color: '#06B6D4', bg: 'rgba(6,182,212,0.12)',          desc: 'الصالة والحجوزات والعملاء' },
   bar_manager:         { label: 'مدير البار',     icon: '🍹', color: '#6366F1', bg: 'rgba(99,102,241,0.12)',         desc: 'البار والمشروبات والموظفين' },
+  // ✅ أضيف هنا — كان غير موجود خالص رغم إنه دور فعلي معيَّن لموظفين حقيقيين، فكان مفيش أي واجهة لإدارة صلاحياته
+  kitchen_cleaner:     { label: 'عامل نظافة مطبخ', icon: '🧹', color: '#86EFAC', bg: 'rgba(134,239,172,0.12)',       desc: 'نظافة المطبخ — صلاحيات أساسية فقط' },
+  hall_cleaner:        { label: 'عامل نظافة صالة', icon: '🧽', color: '#6EE7B7', bg: 'rgba(110,231,183,0.12)',       desc: 'نظافة الصالة — صلاحيات أساسية فقط' },
   kitchen_supervisor:  { label: 'مشرف المطبخ',    icon: '👨‍🍳', color: S.red,     bg: S.redB,                         desc: 'المطبخ والمخزون وطلبات الفروع' },
   hall_supervisor:     { label: 'مشرف الصالة',    icon: '🍽️', color: S.blue,    bg: S.blueB,                        desc: 'الصالة والحجوزات وخدمة العملاء' },
   bar_supervisor:      { label: 'مشرف البار',     icon: '☕', color: S.teal,    bg: S.tealB,                        desc: 'البار والمشروبات والمخزون' },
@@ -50,6 +53,9 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   cashier:            { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
   // ✅ نفس صلاحيات الكاشير بالضبط كنقطة بداية معقولة — الأدمن يقدر يعدّلها لاحقاً من نفس الصفحة لو عايز يقيّدها أكتر
   assistant_cashier:  { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
+  // ✅ أضيف هنا — أدوار نظافة، مطابقة للقيم الفعلية المحفوظة بالفعل في roles_permissions
+  kitchen_cleaner:    { my_requests: true, attendance: true, menu: true },
+  hall_cleaner:       { my_requests: true, attendance: true, menu: true },
   warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   warehouse_manager:  { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true, marketing: true },

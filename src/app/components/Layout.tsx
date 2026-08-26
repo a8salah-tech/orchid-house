@@ -80,8 +80,8 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'طلبات المستودع الداخلي', label_en: 'Internal Warehouse Requests', icon: '🏭', path: '/dashboard/internal-warehouse-requests', permission: 'internal_warehouse_requests' },
     { label: 'الأصول الثابتة', label_en: 'Fixed Assets', icon: '🍽️', path: '/dashboard/fixed-assets', permission: 'fixed_assets' },
     { label: 'سجل الهدر',   label_en: 'Waste Log',       icon: '🗑️', path: '/dashboard/waste',           permission: 'waste' },
-    // ✅ جديد: رابط صفحة الصيانة - ظاهر لكل الموظفين (كل فرع يشوف صيانة فرعه بس داخل الصفحة نفسها)
-    { label: 'الصيانة', label_en: 'Maintenance', icon: '🔧', path: '/dashboard/maintenance', permission: 'all_employees' },
+    // ✅ مقصورة على المشرفين فما فوق — كانت 'all_employees' فتظهر للجميع بلا استثناء بالغلط
+    { label: 'الصيانة', label_en: 'Maintenance', icon: '🔧', path: '/dashboard/maintenance', permission: 'maintenance' },
 ]},
   { group: 'العمليات', items: [
     { label: 'المطبخ',   label_en: 'Kitchen',  icon: '👨‍🍳', path: '/dashboard/kitchen',  permission: 'kitchen' },
@@ -91,8 +91,8 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'sales' },
     { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'sales' },
     { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'admin_only' },
-    // ✅ جديد: رابط قسم البوفية - ظاهر لكل الموظفين (كل موظف يرى داخل الصفحة نفسها طلباته فقط)
-    { label: 'البوفية', label_en: 'Buffet', icon: '🍽️', path: '/dashboard/buffet', permission: 'all_employees' },
+    // ✅ مقصورة على المشرفين فما فوق — كانت 'all_employees' فتظهر للجميع بلا استثناء بالغلط
+    { label: 'البوفية', label_en: 'Buffet', icon: '🍽️', path: '/dashboard/buffet', permission: 'buffet' },
   ]},
   { group: 'قائمة الطعام', items: [
     { label: 'الأصناف (المنيو)', label_en: 'Menu Items', icon: '📖', path: '/dashboard/menu/items', permission: 'menu' },

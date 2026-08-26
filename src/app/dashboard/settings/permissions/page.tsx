@@ -40,13 +40,13 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
 
 const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   admin:              { all: true },
-  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, prep_warehouse: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, salary_increase_requests: true, salary_advance_requests: true, notifications: true, marketing: true },
-  kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
-  hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, market_purchases: true, my_requests: true, attendance: true, notifications: true, marketing: true },
-  bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
-  kitchen_supervisor: { kitchen: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true },
-  hall_supervisor:    { hall: true, bookings: true, market_purchases: true, my_requests: true, attendance: true, marketing: true },
-  bar_supervisor:     { bar: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true },
+  branch_manager:     { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, prep_warehouse: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, salary_increase_requests: true, salary_advance_requests: true, notifications: true, marketing: true, maintenance: true, buffet: true },
+  kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
+  hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, market_purchases: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
+  bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
+  kitchen_supervisor: { kitchen: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
+  hall_supervisor:    { hall: true, bookings: true, market_purchases: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
+  bar_supervisor:     { bar: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
   cashier:            { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
   // ✅ نفس صلاحيات الكاشير بالضبط كنقطة بداية معقولة — الأدمن يقدر يعدّلها لاحقاً من نفس الصفحة لو عايز يقيّدها أكتر
   assistant_cashier:  { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },
@@ -69,6 +69,9 @@ const ALL_PERMISSIONS = [
   { key: 'desserts',         label: 'الحلويات',             group: 'العمليات',      icon: '🍰' },
   { key: 'prep_warehouse',   label: 'مستودع التجهيزات',     group: 'العمليات',      icon: '🏭' },
   { key: 'sales',            label: 'المبيعات / الكاشير',  group: 'العمليات',      icon: '💳' },
+  // ✅ جديد: صلاحيتان مقصورتان على المشرفين فما فوق (بدل ما كانتا ظاهرتين لكل الموظفين بلا استثناء)
+  { key: 'maintenance',      label: 'الصيانة',              group: 'العمليات',      icon: '🔧' },
+  { key: 'buffet',           label: 'البوفية',              group: 'العمليات',      icon: '🍽️' },
   { key: 'menu',             label: 'قائمة الطعام',         group: 'المنيو',        icon: '📖' },
   { key: 'bookings',         label: 'الحجوزات',             group: 'العملاء',       icon: '📅' },
   { key: 'customers',        label: 'قاعدة العملاء',        group: 'العملاء',       icon: '👥' },

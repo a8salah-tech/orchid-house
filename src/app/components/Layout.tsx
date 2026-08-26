@@ -265,7 +265,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // مباشرة (أو حفظه Bookmark من قبل) كان يقدر يدخل الصفحة عادي بغض النظر عن صلاحياته الفعلية.
   // هنا نتحقق فعلياً من نفس شرط الظهور في القايمة، لكن كحارس دخول حقيقي يمنع فتح الصفحة نفسها،
   // مش بس يخفي الرابط عنها. يطبَّق على كل الصفحات مرة واحدة من مكان واحد، مش لكل صفحة على حدة
-  const isPageAllowed = !currentPageLabel || (
+  // ⛔ حارس أمان مركزي مُعطَّل مؤقتاً (GUARD_ENABLED = false) — كان يمنع موظفين حقيقيين من الدخول
+  // بسبب فجوة توقيت في تحميل الصلاحيات (permissions لسه ما وصلتش فعلياً وقت ما loading بيبقى false).
+  // هيتفعّل تاني بعد التأكد من إصلاح الفجوة دي في AuthProvider، بتغيير القيمة هنا لـ true فقط
+  const GUARD_ENABLED = false
+  const isPageAllowed = !GUARD_ENABLED || !currentPageLabel || (
     currentPageLabel.permission === 'admin_only' ? isAdmin :
     currentPageLabel.permission === null || currentPageLabel.permission === 'all_employees' || isAdmin || hasPermission(currentPageLabel.permission)
   )

@@ -268,7 +268,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // ⛔ حارس أمان مركزي مُعطَّل مؤقتاً (GUARD_ENABLED = false) — كان يمنع موظفين حقيقيين من الدخول
   // بسبب فجوة توقيت في تحميل الصلاحيات (permissions لسه ما وصلتش فعلياً وقت ما loading بيبقى false).
   // هيتفعّل تاني بعد التأكد من إصلاح الفجوة دي في AuthProvider، بتغيير القيمة هنا لـ true فقط
-  const GUARD_ENABLED = false
+  const GUARD_ENABLED = true
   const isPageAllowed = !GUARD_ENABLED || !currentPageLabel || (
     currentPageLabel.permission === 'admin_only' ? isAdmin :
     currentPageLabel.permission === null || currentPageLabel.permission === 'all_employees' || isAdmin || hasPermission(currentPageLabel.permission)

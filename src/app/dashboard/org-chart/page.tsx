@@ -47,7 +47,7 @@ const DEPTS: { key: string; label: string; icon: string; color: string }[] = [
   { key: 'other', label: 'أخرى', icon: '👥', color: S.muted },
 ]
 
-type Emp = { id: string; name: string; name_en?: string; employee_number?: string; role: string; branch_id: string; default_shift: 'morning' | 'evening'; photo_url?: string; org_chart_dept?: string | null }
+type Emp = { id: string; name: string; name_en?: string; employee_number?: string; role: string; branch_id: string; default_shift: 'morning' | 'evening'; photo_url?: string; org_chart_dept?: string | null; job_title?: string | null }
 
 function deptOf(e: Emp): string { return e.org_chart_dept || ROLE_DEPT[e.role]?.dept || 'other' }
 function tierOf(e: Emp): number { return ROLE_DEPT[e.role]?.tier ?? 3 }
@@ -78,15 +78,19 @@ export default function OrgChartPage() {
   const [activeBranch, setActiveBranch] = useState('')
   const [employees, setEmployees] = useState<Emp[]>([])
   const [moveMenuEmp, setMoveMenuEmp] = useState<Emp | null>(null)
+  // ✅ جديد: الموظف المعروضة تفاصيله في نافذة منفصلة (صورة كبيرة واضحة + رقمه + تفاصيله) عند الضغط على الكارت نفسه
+  const [detailEmp, setDetailEmp] = useState<Emp | null>(null)
+  // ✅ نص "المسمى/الفريق" أثناء الكتابة قبل الحفظ — منفصل عن قيمة الموظف الفعلية لكي لا يُحفظ حرفاً بحرف
+  const [jobTitleDraft, setJobTitleDraft] = useState('')
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const [branchesRes, empRes, adminRes] = await Promise.all([
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
       // ✅ فقط الموظفون النشطون حاليًا - الموقوفون مستبعدون تمامًا
-      sb.from('employees').select('id,name,name_en,employee_number,role,branch_id,default_shift,photo_url,org_chart_dept').eq('is_active', true).not('branch_id', 'is', null),
+      sb.from('employees').select('id,name,name_en,employee_number,role,branch_id,default_shift,photo_url,org_chart_dept,job_title').eq('is_active', true).not('branch_id', 'is', null),
       // ✅ مدراء النظام يُجلَبون بشكل منفصل بدون اشتراط وجود فرع
-      sb.from('employees').select('id,name,name_en,employee_number,role,branch_id,default_shift,photo_url,org_chart_dept').eq('is_active', true).eq('role', 'admin'),
+      sb.from('employees').select('id,name,name_en,employee_number,role,branch_id,default_shift,photo_url,org_chart_dept,job_title').eq('is_active', true).eq('role', 'admin'),
     ])
     setBranches(branchesRes.data || [])
     if (!activeBranch && branchesRes.data?.[0]) setActiveBranch(branchesRes.data[0].id)
@@ -108,19 +112,35 @@ export default function OrgChartPage() {
     setEmployees(prev => prev.map(e => e.id === empId ? { ...e, default_shift: shift } : e))
     setMoveMenuEmp(null)
   }
+  // ✅ جديد: تحديد "المسمى/الفريق" (job_title) — نفس الحقل المستخدَم لتجميع العمال في فرق فرعية داخل كل قسم
+  async function saveJobTitle(empId: string, title: string) {
+    const trimmed = title.trim()
+    // ✅ نلتقط أي خطأ فعلي من قاعدة البيانات (كان الكود بيتجاهله بصمت من قبل، فلو فشل الحفظ لأي سبب —
+    // مثل عدم وجود العمود job_title فعلياً بعد، أو قيد صلاحيات — كان يبدو للمستخدم وكأنه نجح رغم فشله)
+    const { error } = await sb.from('employees').update({ job_title: trimmed || null }).eq('id', empId)
+    if (error) {
+      alert('حدث خطأ أثناء الحفظ: ' + error.message)
+      return
+    }
+    setEmployees(prev => prev.map(e => e.id === empId ? { ...e, job_title: trimmed || null } : e))
+    alert('✅ تم الحفظ بنجاح')
+  }
 
   function Card({ e }: { e: Emp }) {
     return (
-      <div style={{ background: S.navy2, border: `1.5px solid ${roleColor(e.role)}50`, borderRadius: 10, padding: '6px 10px', minWidth: 130, maxWidth: 160, textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.2)' }}>
+      <div
+        onClick={() => setDetailEmp(e)}
+        style={{ background: S.navy2, border: `1.5px solid ${roleColor(e.role)}50`, borderRadius: 10, padding: '6px 10px', minWidth: 130, maxWidth: 160, textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.2)', cursor: 'pointer' }}>
         {e.photo_url ? (
           <img src={e.photo_url} alt={e.name} style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 3px', border: `2px solid ${roleColor(e.role)}` }} />
         ) : (
           <div style={{ width: 30, height: 30, borderRadius: '50%', background: S.card, margin: '0 auto 3px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: roleColor(e.role), border: `2px solid ${roleColor(e.role)}` }}>{e.name.charAt(0)}</div>
         )}
         <div style={{ fontSize: 11, fontWeight: 700, color: S.white, lineHeight: 1.25 }}>{e.name} {e.name_en || ''}</div>
-        <div style={{ fontSize: 8.5, color: roleColor(e.role), fontWeight: 700, marginTop: 1 }}>{ROLE_LABELS[e.role] || e.role}</div>
+        <div style={{ fontSize: 8.5, color: roleColor(e.role), fontWeight: 700, marginTop: 1 }}>{e.job_title || ROLE_LABELS[e.role] || e.role}</div>
         {e.employee_number && <div style={{ fontSize: 7.5, color: S.muted }}>{e.employee_number}</div>}
-        <button onClick={() => setMoveMenuEmp(e)} style={{ marginTop: 4, width: '100%', padding: '2px 0', borderRadius: 5, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 8 }}>🔗 نقل...</button>
+        {/* ✅ stopPropagation عشان الضغط على زرار "نقل..." ميفتحش نافذة التفاصيل كمان في نفس اللحظة */}
+        <button onClick={ev => { ev.stopPropagation(); setMoveMenuEmp(e); setJobTitleDraft(e.job_title || '') }} style={{ marginTop: 4, width: '100%', padding: '2px 0', borderRadius: 5, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 8 }}>🔗 نقل...</button>
       </div>
     )
   }
@@ -146,12 +166,40 @@ export default function OrgChartPage() {
               {DEPTS.map(d => {
                 const deptEmps = group.filter(e => deptOf(e) === d.key).sort((a, b) => tierOf(a) - tierOf(b))
                 if (deptEmps.length === 0) return null
+                // ✅ المدير والمشرف (تير 0/1/2) يظهروا فوق العمود بلا تجميع، زي ما كان بالظبط
+                const leaders = deptEmps.filter(e => tierOf(e) < 3)
+                // ✅ العمال (تير 3) يتجمعوا في فرق فرعية حسب "المسمى الوظيفي" (job_title) — نفس الحقل
+                // المستخدَم لعرض المسمى على الكارت، بيشتغل هنا كمان كمفتاح تجميع "فريق/محطة" (مشويات، معجنات، مغسلة...)
+                const workers = deptEmps.filter(e => tierOf(e) >= 3)
+                const stationGroups: Record<string, Emp[]> = {}
+                for (const w of workers) {
+                  const key = w.job_title?.trim() || 'أخرى'
+                  if (!stationGroups[key]) stationGroups[key] = []
+                  stationGroups[key].push(w)
+                }
+                // ✅ ترتيب المجموعات أبجديًا، مع إبقاء "أخرى" (بلا مسمى محدد) في الآخر دائمًا
+                const stationKeys = Object.keys(stationGroups).sort((a, b) => a === 'أخرى' ? 1 : b === 'أخرى' ? -1 : a.localeCompare(b, 'ar'))
                 return (
                   <div key={d.key} style={{ background: S.navy3, borderRadius: 12, border: `1px solid ${d.color}40`, padding: 10, minWidth: 160, flexShrink: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 800, color: d.color, textAlign: 'center', marginBottom: 8 }}>{d.icon} {d.label} ({deptEmps.length})</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-                      {deptEmps.map(e => <Card key={e.id} e={e} />)}
-                    </div>
+                    {leaders.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', marginBottom: workers.length > 0 ? 10 : 0, paddingBottom: workers.length > 0 ? 10 : 0, borderBottom: workers.length > 0 ? `1px dashed ${d.color}30` : 'none' }}>
+                        {leaders.map(e => <Card key={e.id} e={e} />)}
+                      </div>
+                    )}
+                    {stationKeys.map(stationKey => (
+                      <div key={stationKey} style={{ marginBottom: 10 }}>
+                        {/* ✅ عنوان فرعي للفريق/المحطة - يظهر بس لو فيه أكتر من مجموعة، أو المجموعة الوحيدة مش "أخرى" */}
+                        {(stationKeys.length > 1 || stationKey !== 'أخرى') && (
+                          <div style={{ fontSize: 10, fontWeight: 700, color: S.muted, textAlign: 'center', marginBottom: 5, borderBottom: `1px solid ${S.border}`, paddingBottom: 3 }}>
+                            {stationKey} ({stationGroups[stationKey].length})
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                          {stationGroups[stationKey].map(e => <Card key={e.id} e={e} />)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )
               })}
@@ -169,21 +217,41 @@ export default function OrgChartPage() {
     function cardHtml(e: Emp) {
       return `<div class="card" style="border-color:${roleColor(e.role)}">
         <div class="name">${e.name} ${e.name_en || ''}</div>
-        <div class="role" style="color:${roleColor(e.role)}">${ROLE_LABELS[e.role] || e.role}</div>
+        <div class="role" style="color:${roleColor(e.role)}">${e.job_title || ROLE_LABELS[e.role] || e.role}</div>
         ${e.employee_number ? `<div class="num">${e.employee_number}</div>` : ''}
       </div>`
     }
     function shiftHtml(shift: 'morning' | 'evening', label: string) {
       const group = employees.filter(e => (e.branch_id === activeBranch || e.role === 'admin') && e.default_shift === shift)
       const leadership = group.filter(e => deptOf(e) === 'leadership').sort((a, b) => tierOf(a) - tierOf(b))
-      const deptCols = DEPTS.map(d => ({ d, emps: group.filter(e => deptOf(e) === d.key).sort((a, b) => tierOf(a) - tierOf(b)) })).filter(c => c.emps.length > 0)
+      const deptCols = DEPTS.map(d => {
+        const emps = group.filter(e => deptOf(e) === d.key).sort((a, b) => tierOf(a) - tierOf(b))
+        const leaders = emps.filter(e => tierOf(e) < 3)
+        const workers = emps.filter(e => tierOf(e) >= 3)
+        // ✅ نفس منطق تجميع "الفريق/المحطة" حسب job_title المستخدَم في الشاشة، لتطابق الطباعة معها تمامًا
+        const stationGroups: Record<string, Emp[]> = {}
+        for (const w of workers) {
+          const key = w.job_title?.trim() || 'أخرى'
+          if (!stationGroups[key]) stationGroups[key] = []
+          stationGroups[key].push(w)
+        }
+        const stationKeys = Object.keys(stationGroups).sort((a, b) => a === 'أخرى' ? 1 : b === 'أخرى' ? -1 : a.localeCompare(b, 'ar'))
+        return { d, emps, leaders, stationGroups, stationKeys }
+      }).filter(c => c.emps.length > 0)
       return `<div class="page">
         <h1>🏢 الهيكل الوظيفي — ${branchName}</h1>
         <div class="sub">${new Date().toLocaleDateString('ar-MY')} — الموظفون النشطون فقط</div>
         <h2>${label} (${group.length})</h2>
         ${leadership.length > 0 ? `<div class="leadership">${leadership.map(cardHtml).join('')}</div>` : ''}
         <div class="cols">
-          ${deptCols.map(c => `<div class="col" style="border-color:${c.d.color}"><div class="col-title" style="color:${c.d.color}">${c.d.icon} ${c.d.label} (${c.emps.length})</div>${c.emps.map(cardHtml).join('')}</div>`).join('')}
+          ${deptCols.map(c => `<div class="col" style="border-color:${c.d.color}">
+            <div class="col-title" style="color:${c.d.color}">${c.d.icon} ${c.d.label} (${c.emps.length})</div>
+            ${c.leaders.map(cardHtml).join('')}
+            ${c.stationKeys.map(sk => `
+              ${(c.stationKeys.length > 1 || sk !== 'أخرى') ? `<div class="station-title">${sk} (${c.stationGroups[sk].length})</div>` : ''}
+              ${c.stationGroups[sk].map(cardHtml).join('')}
+            `).join('')}
+          </div>`).join('')}
         </div>
       </div>`
     }
@@ -202,6 +270,7 @@ export default function OrgChartPage() {
         .cols { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
         .col { border: 2px solid #999; border-radius: 10px; padding: 10px; min-width: 140px; }
         .col-title { text-align: center; font-size: 12px; font-weight: 800; margin-bottom: 8px; }
+        .station-title { text-align: center; font-size: 9px; font-weight: 700; color: #888; margin: 6px 0 4px; border-bottom: 1px solid #ddd; padding-bottom: 2px; }
         .card { border: 1.5px solid #999; border-radius: 8px; padding: 6px 8px; text-align: center; margin-bottom: 6px; background: #fff; }
         .name { font-size: 10px; font-weight: 700; }
         .role { font-size: 8px; font-weight: 700; }
@@ -284,7 +353,78 @@ export default function OrgChartPage() {
               <button onClick={() => saveShift(moveMenuEmp.id, 'evening')}
                 style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${S.blue}60`, background: moveMenuEmp.default_shift === 'evening' ? S.blueB : 'transparent', color: S.blue, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>🌆 مسائي</button>
             </div>
+
+            {/* ✅ جديد: تحديد "المسمى/الفريق" — نص حر يستخدَم لتجميع العامل مع زملائه في نفس الفريق الفرعي
+                (مشويات، معجنات، مغسلة...) داخل عمود القسم. متاح للأدمن فقط من هنا، ولا يظهر لأي مستخدم آخر */}
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>المسمى/الفريق (اختياري):</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              <input
+                type="text" value={jobTitleDraft} onChange={ev => setJobTitleDraft(ev.target.value)}
+                placeholder="مثال: مشويات، معجنات، مغسلة..."
+                style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', outline: 'none' }}
+              />
+              <button onClick={() => saveJobTitle(moveMenuEmp.id, jobTitleDraft)}
+                style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                💾 حفظ
+              </button>
+            </div>
+
             <button onClick={() => setMoveMenuEmp(null)} style={{ width: '100%', padding: '8px 0', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: نافذة تفاصيل الموظف — صورة كبيرة وواضحة + رقمه + بياناته، تفتح عند الضغط على الكارت نفسه */}
+      {detailEmp && (
+        <div onClick={() => setDetailEmp(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `2px solid ${roleColor(detailEmp.role)}`, borderRadius: 20, padding: 24, maxWidth: 360, width: '100%', textAlign: 'center', boxShadow: '0 10px 40px rgba(0,0,0,.5)' }}>
+            {detailEmp.photo_url ? (
+              <img src={detailEmp.photo_url} alt={detailEmp.name} style={{ width: 130, height: 130, borderRadius: '50%', objectFit: 'cover', margin: '0 auto 14px', border: `3px solid ${roleColor(detailEmp.role)}`, display: 'block' }} />
+            ) : (
+              <div style={{ width: 130, height: 130, borderRadius: '50%', background: S.card, margin: '0 auto 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, fontWeight: 800, color: roleColor(detailEmp.role), border: `3px solid ${roleColor(detailEmp.role)}` }}>{detailEmp.name.charAt(0)}</div>
+            )}
+            <div style={{ fontSize: 18, fontWeight: 800, color: S.white }}>{detailEmp.name}</div>
+            {detailEmp.name_en && <div style={{ fontSize: 13, color: S.muted, marginTop: 2 }}>{detailEmp.name_en}</div>}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16, textAlign: 'right' }}>
+              {detailEmp.employee_number && (
+                <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, color: S.muted }}>🪪 رقم الموظف</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.gold }}>{detailEmp.employee_number}</span>
+                </div>
+              )}
+              <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: S.muted }}>💼 الدور الوظيفي</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: roleColor(detailEmp.role) }}>{ROLE_LABELS[detailEmp.role] || detailEmp.role}</span>
+              </div>
+              {detailEmp.job_title && (
+                <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, color: S.muted }}>🏷️ المسمى/الفريق</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{detailEmp.job_title}</span>
+                </div>
+              )}
+              <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: S.muted }}>🏬 القسم</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{DEPTS.find(d => d.key === deptOf(detailEmp))?.label || (deptOf(detailEmp) === 'leadership' ? 'القيادة' : 'أخرى')}</span>
+              </div>
+              <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: S.muted }}>🏪 الفرع</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{branches.find(b => b.id === detailEmp.branch_id)?.name || (detailEmp.role === 'admin' ? 'كل الفروع' : '—')}</span>
+              </div>
+              <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: S.muted }}>⏰ الشيفت</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{detailEmp.default_shift === 'morning' ? '🌅 صباحي' : '🌆 مسائي'}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+              <button
+                onClick={() => { setMoveMenuEmp(detailEmp); setJobTitleDraft(detailEmp.job_title || ''); setDetailEmp(null) }}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                🔗 نقل...
+              </button>
+              <button onClick={() => setDetailEmp(null)} style={{ flex: 1, padding: '9px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+            </div>
           </div>
         </div>
       )}

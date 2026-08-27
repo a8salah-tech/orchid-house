@@ -52,7 +52,9 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, market_purchases: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
-  kitchen_supervisor: { kitchen: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
+  // ✅ Fix: أضفنا desserts هنا - مشرف المطبخ من المفروض يقدر يدخل قسم الحلويات (زي مدير المطبخ بالظبط،
+  // وزي ما لوحة "الوصول السريع" في الداشبورد أصلاً بتفترض إن الدور ده شايف الحلويات)، لكنها كانت ناقصة
+  kitchen_supervisor: { kitchen: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
   hall_supervisor:    { hall: true, bookings: true, market_purchases: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
   bar_supervisor:     { bar: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
   cashier:            { sales: true, invoices: true, my_requests: true, attendance: true, marketing: true },

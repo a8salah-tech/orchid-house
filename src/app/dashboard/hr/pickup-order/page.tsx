@@ -35,7 +35,7 @@ type Branch = { id: string; name: string }
 type RankedEmployee = {
   employee_id: string; name: string; role: string; department?: string | null
   employee_number?: string | null
-  lateHours: number; absenceDays: number; hasAbsenceDeduction: boolean
+  lateHours: number; absenceDays: number; hasAbsenceDeduction: boolean; hasAttended: boolean
   attendanceScore: number; evalScore: number; hasEval: boolean; combined: number
 }
 
@@ -79,7 +79,10 @@ export default function PickupOrderPage() {
       const empIds = (branchEmps || []).map(e => e.id)
       if (empIds.length === 0) { if (!cancelled) { setRanked([]); setLoadingRanked(false) }; return }
 
-      const [{ data: records }, { data: evalsData }] = await Promise.all([
+      const monthStart = `${selectedMonth.year}-${String(selectedMonth.month).padStart(2, '0')}-01`
+      const monthEnd = new Date(Date.UTC(selectedMonth.year, selectedMonth.month, 0)).toISOString().split('T')[0]
+
+      const [{ data: records }, { data: evalsData }, { data: attData }] = await Promise.all([
         sb.from('payroll_records').select('employee_id, late_hours, absence_days, deduction_2')
           .eq('payroll_month_id', selectedMonth.id)
           .in('employee_id', empIds),
@@ -88,6 +91,12 @@ export default function PickupOrderPage() {
           .eq('status', 'approved')
           .order('year', { ascending: false })
           .order('month', { ascending: false }),
+        // ✅ Fix حرج: absence_days/late_hours بيرجعوا صفر لموظف مفيش له شيفت مجدول ولا بصمة خالص هذا الشهر
+        // (مش بس اللي حضر بانضباط تام) - فكان بيطلع بدرجة حضور 100% كاملة رغم إنه ما بصمش يوم واحد.
+        // هنا نتحقق من وجود بصمة حقيقية على الأقل، ولو معندوش خالص نصفّر درجة حضوره بدل ما نفترض الأفضل
+        sb.from('attendance').select('employee_id, check_in_time')
+          .in('employee_id', empIds).not('check_in_time', 'is', null)
+          .gte('date', monthStart).lte('date', monthEnd),
       ])
       if (cancelled) return
 
@@ -95,6 +104,7 @@ export default function PickupOrderPage() {
       for (const ev of (evalsData || [])) {
         if (!(ev.employee_id in latestEvalByEmp)) latestEvalByEmp[ev.employee_id] = ev.total_score
       }
+      const employeesWithAnyAttendance = new Set((attData || []).map(a => a.employee_id))
       const empById = Object.fromEntries((branchEmps || []).map(e => [e.id, e]))
 
       const scored: RankedEmployee[] = (records || [])
@@ -103,7 +113,11 @@ export default function PickupOrderPage() {
           const lateHours = r.late_hours || 0
           const absenceDays = r.absence_days || 0
           const hasAbsenceDeduction = (r.deduction_2 || 0) > 0
-          const attendanceScore = Math.max(0, 100 - lateHours * 3 - absenceDays * 15 - (hasAbsenceDeduction ? 10 : 0))
+          const hasAttended = employeesWithAnyAttendance.has(r.employee_id)
+          // ✅ بدون أي بصمة حضور فعلية هذا الشهر، مفيش أساس نحسب عليه انضباط حضور - نعتبرها صفر، مش 100%
+          const attendanceScore = hasAttended
+            ? Math.max(0, 100 - lateHours * 3 - absenceDays * 15 - (hasAbsenceDeduction ? 10 : 0))
+            : 0
           const hasEval = r.employee_id in latestEvalByEmp
           const evalScore = latestEvalByEmp[r.employee_id] ?? 70
           const combined = attendanceScore * 0.5 + evalScore * 0.5
@@ -111,7 +125,7 @@ export default function PickupOrderPage() {
           return {
             employee_id: r.employee_id, name: getFullName(emp), role: emp?.role || '',
             department: emp?.department, employee_number: emp?.employee_number,
-            lateHours, absenceDays, hasAbsenceDeduction, attendanceScore, evalScore, hasEval, combined,
+            lateHours, absenceDays, hasAbsenceDeduction, hasAttended, attendanceScore, evalScore, hasEval, combined,
           }
         })
       scored.sort((a, b) => b.combined - a.combined)
@@ -132,7 +146,7 @@ export default function PickupOrderPage() {
         <td>${r.name}</td>
         <td>${r.employee_number || '—'}</td>
         <td>${r.department || '—'}</td>
-        <td>${r.attendanceScore.toFixed(0)}</td>
+        <td>${r.hasAttended ? r.attendanceScore.toFixed(0) : 'لا يوجد بصمة حضور'}</td>
         <td>${r.hasEval ? r.evalScore.toFixed(0) : '—'}</td>
         <td>${r.combined.toFixed(1)}</td>
       </tr>`).join('')
@@ -239,13 +253,21 @@ export default function PickupOrderPage() {
                     </td>
                     <td style={{ padding: '14px 16px', fontSize: 12, color: S.muted }}>{r.department || '—'}</td>
                     <td style={{ padding: '14px 16px' }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: r.attendanceScore >= 80 ? S.green : r.attendanceScore >= 50 ? S.amber : S.red }}>{r.attendanceScore.toFixed(0)}</span>
-                      {(r.lateHours > 0 || r.absenceDays > 0) && (
-                        <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
-                          {r.lateHours > 0 && `⏰ ${r.lateHours.toFixed(1)}${isAr ? 'س تأخير' : 'h late'}`}
-                          {r.lateHours > 0 && r.absenceDays > 0 && ' · '}
-                          {r.absenceDays > 0 && `🚫 ${r.absenceDays}${isAr ? 'ي غياب' : 'd absent'}`}
-                        </div>
+                      {r.hasAttended ? (
+                        <>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: r.attendanceScore >= 80 ? S.green : r.attendanceScore >= 50 ? S.amber : S.red }}>{r.attendanceScore.toFixed(0)}</span>
+                          {(r.lateHours > 0 || r.absenceDays > 0) && (
+                            <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
+                              {r.lateHours > 0 && `⏰ ${r.lateHours.toFixed(1)}${isAr ? 'س تأخير' : 'h late'}`}
+                              {r.lateHours > 0 && r.absenceDays > 0 && ' · '}
+                              {r.absenceDays > 0 && `🚫 ${r.absenceDays}${isAr ? 'ي غياب' : 'd absent'}`}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        // ✅ Fix حرج: بدون أي بصمة حضور فعلية، الدرجة صفر بمعنى "مفيش بيانات" - لازم نوضّح كده
+                        // بدل ما نعرض "0" مجردة ممكن تتفهم غلط، أو الأسوأ لو كانت بتتحسب زي قبل الإصلاح (100%)
+                        <span style={{ fontSize: 11, color: S.red, fontWeight: 700 }}>🚫 {isAr ? 'لا يوجد بصمة حضور' : 'No attendance recorded'}</span>
                       )}
                     </td>
                     <td style={{ padding: '14px 16px' }}>

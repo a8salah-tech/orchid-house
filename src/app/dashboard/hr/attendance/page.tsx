@@ -65,6 +65,9 @@ type AttendanceRecord = {
   check_in_time?: string; check_in_lat?: number; check_in_lng?: number; check_in_distance?: number
   check_out_time?: string; check_out_lat?: number; check_out_lng?: number; check_out_distance?: number
   status?: string; is_manual?: boolean; notes?: string; branch_id?: string
+  late_minutes?: number
+  // ✅ جديد: دقائق الخروج المبكر، نظير late_minutes تمامًا لكن لموعد نهاية الشيفت بدل بدايته
+  early_minutes?: number
 }
 type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
@@ -91,7 +94,7 @@ function MyAttendanceCard() {
   const [clock,     setClock]     = useState(new Date())
   const [hasShiftToday, setHasShiftToday] = useState(true) // افتراضي true لحد ما نتأكد، لكي مانوقفش الزرار بالغلط وقت التحميل
   // ✅ نافذة تأكيد "خروج سريع جداً" — تظهر في منتصف الشاشة بدل نافذة المتصفح الافتراضية (confirm)
-  const [shortShiftModal, setShortShiftModal] = useState<{ minutes: number; openRecordId: string; lat: number; lng: number; dist: number } | null>(null)
+  const [shortShiftModal, setShortShiftModal] = useState<{ minutes: number; openRecordId: string; lat: number; lng: number; dist: number; date: string } | null>(null)
   const [justCheckedIn, setJustCheckedIn] = useState(false) // فترة تأخير قصيرة بعد نجاح Check In لمنع ضغطة متتالية سريعة على نفس مكان الزر
 
   useEffect(() => {
@@ -373,26 +376,30 @@ function MyAttendanceCard() {
         : null
       if (minutesSinceCheckIn !== null && minutesSinceCheckIn < MIN_SHIFT_MINUTES) {
         // نوقف هنا وننتظر تأكيد الموظف من النافذة المنبثقة — التنفيذ الفعلي في finalizeCheckOut()
-        setShortShiftModal({ minutes: minutesSinceCheckIn, openRecordId: openRecord.id, lat, lng, dist })
+        setShortShiftModal({ minutes: minutesSinceCheckIn, openRecordId: openRecord.id, lat, lng, dist, date: openRecord.date })
         setChecking(false)
         return
       }
 
-      await finalizeCheckOut(openRecord.id, lat, lng, dist, null)
+      await finalizeCheckOut(openRecord.id, lat, lng, dist, null, employee.id, openRecord.date)
     } catch (e: any) { setLocError('Location error: ' + e.message) }
     setChecking(false)
   }
 
   // ✅ التنفيذ الفعلي لتسجيل الخروج — منفصل عن checkOut() لأنه يُستدعى إما مباشرة (خروج طبيعي)
   // أو بعد تأكيد الموظف من نافذة "خروج سريع جداً" المنبثقة
-  async function finalizeCheckOut(openRecordId: string, lat: number, lng: number, dist: number, shortShiftNote: string | null) {
+  async function finalizeCheckOut(openRecordId: string, lat: number, lng: number, dist: number, shortShiftNote: string | null, employeeId: string, dateStr: string) {
+    const now = new Date().toISOString()
+    // ✅ جديد: نفس منطق حساب التأخير بالظبط لكن للخروج المبكر - يقارن وقت الخروج الفعلي بموعد نهاية الشيفت
+    const { early_minutes } = await computeEarlyInfo(employeeId, dateStr, now)
     const { error } = await sb.from('attendance')
       .update({
-        check_out_time:     new Date().toISOString(),
+        check_out_time:     now,
         check_out_lat:      lat,
         check_out_lng:      lng,
         check_out_distance: Math.round(dist),
-        updated_at:         new Date().toISOString(),
+        early_minutes,
+        updated_at:         now,
         ...(shortShiftNote ? { notes: shortShiftNote } : {}),
       })
       .eq('id', openRecordId)
@@ -408,9 +415,9 @@ function MyAttendanceCard() {
   async function confirmShortShiftCheckOut() {
     if (!shortShiftModal || !employee?.id) return
     setChecking(true)
-    const { minutes, openRecordId, lat, lng, dist } = shortShiftModal
+    const { minutes, openRecordId, lat, lng, dist, date } = shortShiftModal
     const note = `⚠️ خروج سريع جداً (${minutes} دقيقة فقط بعد الدخول) — يحتاج مراجعة الإدارة / Very short shift (only ${minutes} min after check-in) — needs management review`
-    await finalizeCheckOut(openRecordId, lat, lng, dist, note)
+    await finalizeCheckOut(openRecordId, lat, lng, dist, note, employee.id, date)
     // ✅ رفع مخالفة مقترحة بحالة "submitted" (بانتظار الاعتماد) — لا تُخصم تلقائياً من الراتب
     // إلا بعد موافقة أدمن أو مدير فرع صريحة من صفحة إدارة المخالفات، نفس مبدأ الأمان المتّبع
     // في كل أدوات الخصم التلقائي الأخرى في هذا النظام
@@ -854,10 +861,40 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     return { status, late_minutes: status === 'late' ? diffMins : 0 }
   }
 
+  // ✅ جديد: نظير computeLateInfo تمامًا، لكن للخروج المبكر — يقارن وقت الخروج الفعلي بموعد نهاية الشيفت
+  // المجدول لنفس اليوم (grace period 10 دقائق أيضًا)، ويتعامل مع الشيفتات الليلية العابرة لمنتصف الليل
+  async function computeEarlyInfo(employeeId: string, dateStr: string, checkOutIso: string): Promise<{ early_minutes: number }> {
+    const { data: sch } = await sb.from('shift_schedules')
+      .select('*, shifts(start_time,end_time), custom_start, custom_end')
+      .eq('employee_id', employeeId)
+      .eq('date', dateStr)
+      .maybeSingle()
+
+    const startStr = sch?.custom_start || sch?.shifts?.start_time
+    const endStr = sch?.custom_end || sch?.shifts?.end_time
+    // بدون شيفت مجدول أو بدون موعد نهاية معروف، لا يمكن احتساب خروج مبكر بشكل موثوق
+    if (!endStr) return { early_minutes: 0 }
+
+    const [y, mo, d] = dateStr.split('-').map(Number)
+    const [eh, em] = endStr.split(':').map(Number)
+    let dayOffset = 0
+    if (startStr) {
+      const [sh] = startStr.split(':').map(Number)
+      // شيفت ليلي عابر لمنتصف الليل (موعد النهاية أبكر رقميًا من موعد البداية) — النهاية الفعلية في اليوم التالي
+      if (eh * 60 + (em || 0) <= sh * 60) dayOffset = 1
+    }
+    // ✅ نفس منطق تحويل التوقيت المحلي (ماليزيا UTC+8) المستخدم في باقي الصفحة
+    const shiftEndMs = Date.UTC(y, mo - 1, d + dayOffset, eh, em || 0, 0) - 8 * 60 * 60 * 1000
+
+    const diffMins = Math.floor((shiftEndMs - new Date(checkOutIso).getTime()) / 60000)
+    // grace period 10 دقائق — لو خرج قبل الموعد بأكثر من 10 دقائق يُحتسب خروجًا مبكرًا
+    return { early_minutes: diffMins > 10 ? diffMins : 0 }
+  }
+
   // ✅ إعادة حساب دقائق التأخير لكل موظفين الشركة في شهر كامل بأثر رجعي — لتصحيح سجلات قديمة (مثل يوليو) كانت
   // سُجِّلت أو عُدِّلت يدوياً قبل إضافة الحساب التلقائي، وكانت late_minutes فيها صفراً أو خاطئة رغم أن الموظف تأخر فعلياً
   async function recalcMonthLateMinutes() {
-    if (!confirm(`⚠️ هل أنت متأكد من إعادة حساب دقائق التأخير لكل الموظفين في شهر ${recalcMonth}؟\n\nسيتم تحديث كل سجل حضور مسجَّل به وقت دخول بمقارنته بموعد الشيفت المجدول.`)) return
+    if (!confirm(`⚠️ هل أنت متأكد من إعادة حساب دقائق التأخير والخروج المبكر لكل الموظفين في شهر ${recalcMonth}؟\n\nسيتم تحديث كل سجل حضور مسجَّل به وقت دخول أو خروج بمقارنته بموعد الشيفت المجدول.`)) return
     setRecalculating(true)
     setRecalcProgress(null)
     try {
@@ -869,11 +906,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       // ✅ Supabase بيحدّ أي select بـ 1000 صف كحد أقصى افتراضياً — لازم نسحب على دفعات (Pagination)
       // لكي نضمن إننا سنحضر كل السجلات فعلاً، ليس أول 1000 فقط (خطر جداً مع أكتر من 200 موظف × 31 يوم)
       const PAGE_SIZE = 1000
-      let monthRecords: { id: string; employee_id: string; date: string; check_in_time: string | null }[] = []
+      // ✅ جديد: نجيب check_out_time كمان عشان نقدر نعيد حساب دقائق الخروج المبكر بجانب التأخير
+      let monthRecords: { id: string; employee_id: string; date: string; check_in_time: string | null; check_out_time: string | null }[] = []
       let page = 0
       while (true) {
         const { data: batch, error: fetchErr } = await sb.from('attendance')
-          .select('id, employee_id, date, check_in_time')
+          .select('id, employee_id, date, check_in_time, check_out_time')
           .gte('date', startDate).lt('date', endDate)
           .not('check_in_time', 'is', null)
           .order('id')
@@ -893,7 +931,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       for (let i = 0; i < monthRecords.length; i++) {
         const rec = monthRecords[i]
         const { status, late_minutes } = await computeLateInfo(rec.employee_id, rec.date, rec.check_in_time!)
-        const { error: updErr } = await sb.from('attendance').update({ status, late_minutes }).eq('id', rec.id)
+        const updatePayload: { status: string; late_minutes: number; early_minutes?: number } = { status, late_minutes }
+        if (rec.check_out_time) {
+          const { early_minutes } = await computeEarlyInfo(rec.employee_id, rec.date, rec.check_out_time)
+          updatePayload.early_minutes = early_minutes
+        }
+        const { error: updErr } = await sb.from('attendance').update(updatePayload).eq('id', rec.id)
         if (!updErr) updated++
         setRecalcProgress({ done: i + 1, total: monthRecords.length })
       }
@@ -1156,6 +1199,14 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         updatePayload.late_minutes = late_minutes
       }
     }
+    // ✅ جديد: نفس المبدأ لوقت الخروج - نعيد حساب دقائق الخروج المبكر عند تعديله يدويًا
+    if (editingCell.field === 'check_out_time') {
+      const rec = records.find(r => r.id === editingCell.recordId)
+      if (rec) {
+        const { early_minutes } = await computeEarlyInfo(rec.employee_id, rec.date, utcIso)
+        updatePayload.early_minutes = early_minutes
+      }
+    }
     const { error } = await sb.from('attendance').update(updatePayload).eq('id', editingCell.recordId)
     if (error) { alert('حصل خطأ: ' + error.message); return }
     setEditingCell(null)
@@ -1205,8 +1256,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     }
     // ✅ نحسب حالة الحضور ودقائق التأخير للسجل اليدوي بنفس منطق تسجيل الدخول الذاتي، بدل ما تفضل صفر افتراضياً
     const { status, late_minutes } = await computeLateInfo(empId, date, checkInUtc)
+    // ✅ جديد: نفس المبدأ لدقائق الخروج المبكر، لو تم إدخال وقت خروج
+    const early_minutes = checkOutUtc ? (await computeEarlyInfo(empId, date, checkOutUtc)).early_minutes : 0
     const { error } = await sb.from('attendance').insert([{
-      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes,
+      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes, early_minutes,
     }])
     if (error) { alert('حصل خطأ: ' + error.message); return }
     setAddingAttendanceFor(null)
@@ -1233,6 +1286,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const lateDays       = reportData.filter(r => r.status === 'late').length
   // ✅ إجمالي دقائق التأخير الفعلية على مدار الشهر كله (ليس فقط عدد الأيام المتأخرة)
   const totalLateMins  = reportData.reduce((s, r) => s + (r.late_minutes || 0), 0)
+  // ✅ جديد: نظير totalLateMins تمامًا لكن للخروج المبكر
+  const totalEarlyMins = reportData.reduce((s, r) => s + (r.early_minutes || 0), 0)
+  const earlyDays       = reportData.filter(r => (r.early_minutes || 0) > 0).length
   const dailyRate      = reportEmployee?.salary ? reportEmployee.salary / 30 : 0
   const earnedSalary   = dailyRate * presentDays
   const deductions     = dailyRate * absentDays
@@ -1249,6 +1305,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <td>${r.check_out_distance != null ? r.check_out_distance + 'm' : '—'}</td>
       <td>${workHours(r)}</td>
       <td style="color:${r.late_minutes > 0 ? 'orange' : '#999'}">${r.late_minutes > 0 ? r.late_minutes + 'm' : '—'}</td>
+      <td style="color:${(r.early_minutes || 0) > 0 ? '#DC2626' : '#999'}">${(r.early_minutes || 0) > 0 ? r.early_minutes + 'm' : '—'}</td>
       <td style="color:${r.status === 'present' ? 'green' : r.status === 'late' ? 'orange' : r.status === 'leave' ? 'teal' : r.status === 'day_off' ? '#999' : 'red'}">${r.status === 'leave' ? 'إجازة' : r.status === 'day_off' ? 'يوم راحة' : r.status === 'absent' ? 'غياب' : (r.status || 'present')}</td>
     </tr>`).join('')
 
@@ -1278,9 +1335,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <div class="info-box"><div class="info-label" style="color:red">❌ Absent Days</div><div class="info-value" style="color:red">${absentDays}</div></div>
       <div class="info-box"><div class="info-label" style="color:orange">⏰ Late Days</div><div class="info-value" style="color:orange">${lateDays}</div></div>
       <div class="info-box"><div class="info-label" style="color:orange">🐢 Total Late Time</div><div class="info-value" style="color:orange">${Math.floor(totalLateMins/60)}h ${totalLateMins%60}m</div></div>
+      <div class="info-box"><div class="info-label" style="color:#DC2626">🚪 Early Leave Days</div><div class="info-value" style="color:#DC2626">${earlyDays}</div></div>
+      <div class="info-box"><div class="info-label" style="color:#DC2626">🚪 Total Early Leave Time</div><div class="info-value" style="color:#DC2626">${Math.floor(totalEarlyMins/60)}h ${totalEarlyMins%60}m</div></div>
     </div>
     <table>
-      <thead><tr><th>Date</th><th>${isAr ? 'تسجيل حضور' : 'Check In'}</th><th>${isAr ? 'تسجيل انصراف' : 'Check Out'}</th><th>In Distance</th><th>Out Distance</th><th>Duration</th><th>Late</th><th>Status</th></tr></thead>
+      <thead><tr><th>Date</th><th>${isAr ? 'تسجيل حضور' : 'Check In'}</th><th>${isAr ? 'تسجيل انصراف' : 'Check Out'}</th><th>In Distance</th><th>Out Distance</th><th>Duration</th><th>Late</th><th>Early Leave</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:24px;display:flex;justify-content:space-between;font-size:11px;color:#666">
@@ -1619,6 +1678,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   { label: 'Absent Days',  value: absentDays,   color: S.red,    bg: S.redB,    icon: '❌' },
                   { label: 'Late Days',    value: lateDays,     color: S.amber,  bg: S.amberB,  icon: '⏰' },
                   { label: 'Total Late Time', value: `${Math.floor(totalLateMins/60)}h ${totalLateMins%60}m`, color: S.amber, bg: S.amberB, icon: '🐢' },
+                  { label: 'Early Leave Days', value: earlyDays, color: S.red, bg: S.redB, icon: '🚪' },
+                  { label: 'Total Early Leave Time', value: `${Math.floor(totalEarlyMins/60)}h ${totalEarlyMins%60}m`, color: S.red, bg: S.redB, icon: '🚪' },
                   { label: 'Total Hours',  value: `${Math.floor(totalWorkMins/60)}h ${totalWorkMins%60}m`, color: S.blue, bg: S.blueB, icon: '⏱' },
                 ].map((s, i) => (
                   <div key={i} style={{ background: s.bg, borderRadius: 12, border: `1px solid ${s.color}30`, padding: '14px 16px' }}>
@@ -1644,7 +1705,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: S.navy3 }}>
-                        {['Date', 'Check In', 'In Distance', 'Check Out', 'Out Distance', 'Duration', 'Late', 'Status'].map(h => (
+                        {['Date', 'Check In', 'In Distance', 'Check Out', 'Out Distance', 'Duration', 'Late', 'Early Leave', 'Status'].map(h => (
                           <th key={h} style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
@@ -1664,6 +1725,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                           <td style={{ padding: '10px 14px', fontSize: 13, color: S.gold }}>{workHours(r)}</td>
                           <td style={{ padding: '10px 14px', fontSize: 13, color: r.late_minutes > 0 ? S.amber : S.muted }}>
                             {r.late_minutes > 0 ? `${r.late_minutes}m` : '—'}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: 13, color: (r.early_minutes || 0) > 0 ? S.red : S.muted }}>
+                            {(r.early_minutes || 0) > 0 ? `${r.early_minutes}m` : '—'}
                           </td>
                           <td style={{ padding: '10px 14px' }}>
                             <span style={{

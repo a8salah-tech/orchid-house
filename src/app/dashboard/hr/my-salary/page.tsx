@@ -105,9 +105,9 @@ export default function MySalaryPage() {
 
     Promise.all([
       sb.from('payroll_records').select('*').eq('payroll_month_id', selectedMonth.id).eq('employee_id', myId).maybeSingle(),
-      // ✅ نجلب late_minutes الجاهزة والمخزَّنة مباشرة بدل إعادة حسابها من الصفر هنا — نفس القيمة بالضبط اللي صفحة
-      // الرواتب الإدارية بتعتمد عليها، عشان الرقمين يتطابقا دائماً ولا يختلفا حسب مصدر الحساب (كانا يختلفان قبل هذا الإصلاح)
-      sb.from('attendance').select('check_in_time,date,late_minutes').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
+      // ✅ نجلب late_minutes و early_minutes الجاهزة والمخزَّنة مباشرة بدل إعادة حسابها من الصفر هنا — نفس القيمة
+      // بالضبط اللي صفحة الرواتب الإدارية بتعتمد عليها، عشان الأرقام تتطابق دائماً ولا تختلف حسب مصدر الحساب
+      sb.from('attendance').select('check_in_time,date,late_minutes,early_minutes').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
       sb.from('violations').select('amount').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
     ]).then(([recRes, attRes, violRes]) => {
       const record = recRes.data
@@ -119,15 +119,19 @@ export default function MySalaryPage() {
       // في صفحة الرواتب الإدارية وفي أداة "إعادة حساب التأخير") — وليس إعادة حساب مستقل هنا قد يعطي نتيجة مختلفة
       const totalLateMinutes = attData.reduce((s: number, a: any) => s + (a.late_minutes || 0), 0)
       const lateHours = parseFloat((totalLateMinutes / 60).toFixed(2))
+      // ✅ جديد: نظير حساب التأخير تمامًا لكن لدقائق الخروج المبكر — نفس مصدر الحقيقة الوحيد (early_minutes المخزَّنة)
+      const totalEarlyMinutes = attData.reduce((s: number, a: any) => s + (a.early_minutes || 0), 0)
+      const earlyHours = parseFloat((totalEarlyMinutes / 60).toFixed(2))
 
       // ✅ عدد أيام الحضور الفعلي الحقيقي (أيام مختلفة سُجِّل فيها دخول بالبصمة) — مختلف تماماً عن days_worked
       // المخزَّن في السجل (وهو رقم مرتبط بمناسبة الراتب/التناسب الشهري، وليس عدّاً حقيقياً لأيام الحضور)
       const realPresentDaysCount = new Set(attData.map((a: any) => String(a.date).slice(0, 10))).size
 
       if (record) {
-        setMyRecord({ 
-          ...record, 
+        setMyRecord({
+          ...record,
           late_hours: lateHours,
+          early_exit_hours: earlyHours,
           deduction_1: activeViolationsTotal,
           deduction_1_label: activeViolationsTotal > 0 ? `مخالفات (${activeViolationsTotal.toFixed(2)} MYR)` : 'Violations',
         })
@@ -201,6 +205,7 @@ export default function MySalaryPage() {
   const deductions = myRecord ? [
     { label: isAr ? 'خصم الغياب' : 'Absence Deduction', value: myRecord.absence_days > 0 ? (c?.absenceDed || 0) : 0, color: S.red },
     { label: isAr ? 'خصم التأخير' : 'Lateness Deduction', value: myRecord.late_hours > 0 ? (c?.lateDed || 0) : 0, color: S.red },
+    { label: isAr ? 'خصم الخروج المبكر' : 'Early Leave Deduction', value: myRecord.early_exit_hours > 0 ? (c?.earlyDed || 0) : 0, color: S.red },
     { label: isAr ? 'سلفة' : 'Advance', value: myRecord.advance || 0, color: S.amber },
     { label: myRecord.deduction_1_label || (isAr ? 'خصم 1' : 'Deduction 1'), value: myRecord.deduction_1 || 0, color: S.red },
     { label: myRecord.deduction_2_label || (isAr ? 'خصم 2' : 'Deduction 2'), value: myRecord.deduction_2 || 0, color: S.red },
@@ -313,6 +318,7 @@ export default function MySalaryPage() {
                 { label: isAr ? 'أيام الحضور الفعلي' : 'Actual Days Present', value: realPresentDays, color: S.green },
                 { label: isAr ? 'أيام الغياب' : 'Absence Days', value: autoAbsentDays, color: autoAbsentDays > 0 ? S.red : S.muted },
                 { label: isAr ? 'تأخير (ساعة) 20 MYR' : 'Lateness (hr) 20 MYR', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
+                { label: isAr ? 'خروج مبكر (ساعة)' : 'Early Leave (hr)', value: myRecord.early_exit_hours, color: myRecord.early_exit_hours > 0 ? S.red : S.muted },
                 { label: isAr ? 'أوفر تايم' : 'Overtime', value: (myRecord.overtime_days || 0) + (myRecord.overtime_hours ? myRecord.overtime_hours / 8 : 0), color: S.purple },
                 { label: isAr ? 'رصيد سلفة' : 'Advance Balance', value: myRecord.advance_balance || 0, color: S.amber },
               ]

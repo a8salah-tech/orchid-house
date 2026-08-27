@@ -695,14 +695,14 @@ export default function PayrollPage() {
 
     // ✅ جلب سجلات الحضور على دفعات (Pagination) — Supabase بيحدّ أي select بـ 1000 صف افتراضياً،
     // وممكن يتخطى الـ 1000 بسهولة مع أكتر من 200 موظف × 31 يوم، فكنا بنفوّت جزء كبير من البيانات من غير ما نلاحظ
-    async function fetchAllAttendanceRows(): Promise<{ employee_id: string; date: string; check_in_time: string | null; late_minutes: number }[]> {
+    async function fetchAllAttendanceRows(): Promise<{ employee_id: string; date: string; check_in_time: string | null; late_minutes: number; early_minutes: number }[]> {
       if (empIds.length === 0) return []
       const PAGE_SIZE = 1000
-      let all: { employee_id: string; date: string; check_in_time: string | null; late_minutes: number }[] = []
+      let all: { employee_id: string; date: string; check_in_time: string | null; late_minutes: number; early_minutes: number }[] = []
       let page = 0
       while (true) {
         const { data: batch } = await sb.from('attendance')
-          .select('employee_id,date,check_in_time,late_minutes')
+          .select('employee_id,date,check_in_time,late_minutes,early_minutes')
           .gte('date', monthStart).lte('date', monthEnd)
           .in('employee_id', empIds)
           .order('id')
@@ -762,6 +762,11 @@ export default function PayrollPage() {
     const lateMap: Record<string, number> = {}
     for (const a of attendanceRows) {
       lateMap[a.employee_id] = (lateMap[a.employee_id] || 0) + (a.late_minutes || 0)
+    }
+    // ✅ جديد: نظير إجمالي التأخير تمامًا لكن لدقائق الخروج المبكر — محوّلة لساعات، تُغذّي early_exit_hours تلقائيًا
+    const earlyMap: Record<string, number> = {}
+    for (const a of attendanceRows) {
+      earlyMap[a.employee_id] = (earlyMap[a.employee_id] || 0) + (a.early_minutes || 0)
     }
 
     // ✅ الغياب التلقائي: شيفت مجدول (بعد استبعاد أيام الإجازة) ولم يُسجَّل له حضور فعلي —
@@ -837,6 +842,8 @@ export default function PayrollPage() {
       const absDays = absMap[r.employee_id] || 0
       const absAmount = parseFloat((absDays * dailyRate).toFixed(2))
       const lateHrs = parseFloat(((lateMap[r.employee_id] || 0) / 60).toFixed(2))
+      // ✅ جديد: نظير lateHrs تمامًا لكن لساعات الخروج المبكر — تُحسب تلقائيًا من الحضور بدل انتظار إدخال يدوي
+      const earlyHrs = parseFloat(((earlyMap[r.employee_id] || 0) / 60).toFixed(2))
       return {
         ...r,
         basic_salary: baseSalary,
@@ -850,6 +857,7 @@ export default function PayrollPage() {
         // حتى بعد تصحيح تاريخ التعيين أو تاريخ الإيقاف، لأن الشرط لم يعد يتحقق فتفشل إعادة الحساب في مسح الرسالة القديمة
         notes: noScheduleWarning,
         late_hours: lateHrs,
+        early_exit_hours: earlyHrs,
         deduction_1: violAmount,
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toFixed(2)} MYR)` : 'Violations',
         deduction_2: absAmount,

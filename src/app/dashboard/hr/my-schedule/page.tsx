@@ -50,6 +50,23 @@ function calcLateMins(checkIn: string | null, shiftStart: string | null, checkIn
   return diff > 10 ? diff : 0
 }
 
+// ✅ جديد: نظير calcLateMins تمامًا لكن للخروج المبكر — يقارن وقت الخروج الفعلي بموعد نهاية الشيفت المجدول
+function calcEarlyMins(checkOut: string | null, shiftStart: string | null, shiftEnd: string | null, checkOutDate: string): number {
+  if (!checkOut || !shiftEnd) return 0
+  const co = new Date(checkOut).getTime()
+  const [eh, em] = shiftEnd.split(':').map(Number)
+  const [y, mo, d] = checkOutDate.split('-').map(Number)
+  let dayOffset = 0
+  if (shiftStart) {
+    const [sh] = shiftStart.split(':').map(Number)
+    // شيفت ليلي عابر لمنتصف الليل — موعد النهاية الفعلي يقع في اليوم التالي
+    if (eh * 60 + (em || 0) <= sh * 60) dayOffset = 1
+  }
+  const expected = Date.UTC(y, mo - 1, d + dayOffset, eh, em || 0, 0) - 8 * 60 * 60 * 1000
+  const diff = Math.floor((expected - co) / 60000)
+  return diff > 10 ? diff : 0
+}
+
 // ✅ يكتشف الشيفتات ذات المدة غير المنطقية (خطأ إدخال محتمل عند الجدولة، مثل 00:00–23:00 = 23 ساعة تقريباً)
 // حتى لا نعرض رقم "تأخير" خيالي (زي 700+ دقيقة) وكأنه تأخير حقيقي، بينما هو فعلياً خطأ في بيانات الشيفت نفسه
 function isSuspiciousShiftDuration(start: string | null, end: string | null): boolean {
@@ -147,6 +164,21 @@ export default function MySchedulePage() {
 
   const totalLateHours = Math.floor(totalLateMins / 60)
   const totalLateRemMins = totalLateMins % 60
+
+  // ✅ جديد: نظير إجمالي التأخير الشهري تمامًا لكن للخروج المبكر
+  const totalEarlyMins = useMemo(() => {
+    return attendance.reduce((total, att) => {
+      const sch = schedules.find(s => String(s.date).slice(0,10) === String(att.date).slice(0,10))
+      const shiftStart = sch?.custom_start || sch?.shifts?.start_time
+      const shiftEnd = sch?.custom_end || sch?.shifts?.end_time
+      if (isSuspiciousShiftDuration(shiftStart, shiftEnd)) return total
+      const early = calcEarlyMins(att.check_out_time, shiftStart, shiftEnd, String(att.date).slice(0,10))
+      return total + early
+    }, 0)
+  }, [attendance, schedules])
+
+  const totalEarlyHours = Math.floor(totalEarlyMins / 60)
+  const totalEarlyRemMins = totalEarlyMins % 60
   const totalViolationsAmount = violations.filter(v => v.status === 'active').reduce((s, v) => s + (v.amount || 0), 0)
 
   const MONTHS = isAr ? MONTHS_AR : MONTHS_EN
@@ -244,6 +276,9 @@ export default function MySchedulePage() {
             const suspiciousShift = hasShift && isSuspiciousShiftDuration(shiftStartStr, shiftEndStr)
             const lateMins = (att && !suspiciousShift) ? calcLateMins(att.check_in_time, shiftStartStr, d.date) : 0
             const isLate = lateMins > 0
+            // ✅ جديد: نظير حساب التأخير تمامًا لكن للخروج المبكر
+            const earlyMins = (att && !suspiciousShift) ? calcEarlyMins(att.check_out_time, shiftStartStr, shiftEndStr, d.date) : 0
+            const isEarly = earlyMins > 0
 
             if (!sch && !att) return (
               <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 14, opacity: 0.3, padding: '6px 16px' }}>
@@ -258,7 +293,7 @@ export default function MySchedulePage() {
             return (
               <div key={d.date} style={{
                 background: isToday ? S.gold3 : isLeave ? S.amberB : hasShift ? S.navy2 : S.card,
-                border: `1px solid ${isToday ? S.gold+'60' : isLate ? S.red+'40' : isLeave ? S.amber+'40' : hasShift ? S.border : S.border}`,
+                border: `1px solid ${isToday ? S.gold+'60' : (isLate || isEarly) ? S.red+'40' : isLeave ? S.amber+'40' : hasShift ? S.border : S.border}`,
                 borderRadius: 14, padding: '12px 16px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -269,7 +304,7 @@ export default function MySchedulePage() {
                   </div>
 
                   {/* Color bar */}
-                  <div style={{ width: 4, height: 44, borderRadius: 2, background: isLeave ? S.amber : isLate ? S.red : shiftColor, flexShrink: 0 }} />
+                  <div style={{ width: 4, height: 44, borderRadius: 2, background: isLeave ? S.amber : (isLate || isEarly) ? S.red : shiftColor, flexShrink: 0 }} />
 
                   {/* Shift info */}
                   <div style={{ flex: 1 }}>
@@ -280,7 +315,7 @@ export default function MySchedulePage() {
                           {isAr ? '📋 الدوام المخصص:' : '📋 Scheduled:'} <span style={{ color: S.white, fontWeight: 600 }}>{timeFrom} — {timeTo}</span>
                         </div>
                         {att?.check_in_time && (
-                          <div style={{ fontSize: 12, color: S.muted, marginBottom: isLate ? 4 : 0 }}>
+                          <div style={{ fontSize: 12, color: S.muted, marginBottom: (isLate || isEarly) ? 4 : 0 }}>
                             {isAr ? '✅ دخل:' : '✅ Check in:'} <span style={{ color: S.green, fontWeight: 600 }}>{fmtTime(att.check_in_time, isAr)}</span>
                             {att.check_out_time && (
                               <> · {isAr ? '🚪 خرج:' : '🚪 Check out:'} <span style={{ color: S.blue, fontWeight: 600 }}>{fmtTime(att.check_out_time, isAr)}</span></>
@@ -288,8 +323,13 @@ export default function MySchedulePage() {
                           </div>
                         )}
                         {isLate && (
-                          <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}>
+                          <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block', marginLeft: isEarly ? 6 : 0 }}>
                             ⏰ {isAr ? `متأخر ${lateMins} دقيقة` : `Late ${lateMins} min`}
+                          </div>
+                        )}
+                        {isEarly && (
+                          <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}>
+                            🚪 {isAr ? `خروج مبكر ${earlyMins} دقيقة` : `Early leave ${earlyMins} min`}
                           </div>
                         )}
                         {suspiciousShift && (
@@ -323,22 +363,42 @@ export default function MySchedulePage() {
             )
           })}
 
-          {/* Monthly Late Summary */}
-          {totalLateMins > 0 && (
+          {/* Monthly Late & Early-Leave Summary */}
+          {(totalLateMins > 0 || totalEarlyMins > 0) && (
             <div style={{ background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 14, padding: '16px 20px', marginTop: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 8 }}>
-                ⏰ {isAr ? 'ملخص التأخير الشهري' : 'Monthly Late Summary'}
+                ⏰ {isAr ? 'ملخص التأخير والخروج المبكر الشهري' : 'Monthly Late & Early-Leave Summary'}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalLateMins}</div>
-                  <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'إجمالي الدقائق' : 'Total Minutes'}</div>
-                </div>
-                <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalLateHours}:{String(totalLateRemMins).padStart(2,'0')}</div>
-                  <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'الساعات:الدقائق' : 'Hours:Minutes'}</div>
-                </div>
-              </div>
+              {totalLateMins > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{isAr ? 'التأخير عن موعد الحضور' : 'Late Arrival'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: totalEarlyMins > 0 ? 14 : 0 }}>
+                    <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalLateMins}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'إجمالي الدقائق' : 'Total Minutes'}</div>
+                    </div>
+                    <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalLateHours}:{String(totalLateRemMins).padStart(2,'0')}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'الساعات:الدقائق' : 'Hours:Minutes'}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+              {totalEarlyMins > 0 && (
+                <>
+                  <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{isAr ? 'الخروج المبكر عن موعد الانصراف' : 'Early Departure'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalEarlyMins}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'إجمالي الدقائق' : 'Total Minutes'}</div>
+                    </div>
+                    <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{totalEarlyHours}:{String(totalEarlyRemMins).padStart(2,'0')}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'الساعات:الدقائق' : 'Hours:Minutes'}</div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

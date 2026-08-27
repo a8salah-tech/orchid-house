@@ -1377,7 +1377,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       {/* ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل — للأدمن فقط */}
       {isAdmin && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(245,158,11,0.08)', border: `1px solid ${S.amber}40`, borderRadius: 12, padding: '10px 14px', marginBottom: 20, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: S.amber, fontWeight: 700, whiteSpace: 'nowrap' }}>🔄 إعادة حساب التأخير لشهر كامل (لتصحيح سجلات قديمة)</span>
+        <span style={{ fontSize: 12, color: S.amber, fontWeight: 700, whiteSpace: 'nowrap' }}>🔄 إعادة حساب التأخير والخروج المبكر لشهر كامل (لتصحيح سجلات قديمة)</span>
         <input type="month" style={{ ...inp2, width: 140 }} value={recalcMonth} onChange={e => setRecalcMonth(e.target.value)} disabled={recalculating} />
         <button
           onClick={recalcMonthLateMinutes}

@@ -44,6 +44,9 @@ type InventoryCountItem = {
   actual_stock: number
   difference: number
   notes: string | null
+  // ✅ Fix: unit_id بتاع الصنف وقت الجرد نفسه - محتاجينه في formatStockDisplay عشان نعرف هل الرقم
+  // المخزّن بالوحدة الكبيرة (كرتون) ولا الصغيرة، بدل ما نفترض دايمًا إنه بالوحدة الصغيرة
+  unit_id?: string | null
   warehouse_products?: { name: string; name_en?: string }
   units?: { symbol: string }
 }
@@ -172,9 +175,23 @@ export default function InventoryReportsPage() {
     fetchCounts()
   }
 
-  function formatStockDisplay(productId: string, stock: number, unitSymbol: string) {
+  // ✅ Fix حرج: نفس منطق "storedInBigUnit" المستخدم في صفحة الجرد نفسها (warehouse/[id]/page.tsx) وقت
+  // الحفظ — بعض الأصناف (زي "زيتون اخضر شرائح") مخزّنة أصلاً بوحدتها الكبيرة (كرتون) لأن unit_id بتاعها
+  // بيساوي from_unit_id بتاع تحويل الوحدة، مش بالوحدة الصغيرة زي الغالبية. الدالة هنا كانت بتفترض دايمًا
+  // إن الرقم المخزّن بالوحدة الصغيرة وتقسمه على factor غلط، فكانت تحوّل "11 كرتون" المُدخلة لـ"2 كرتون + 3 عبوة"
+  // بدل ما تعرضها زي ما هي. itemUnitId هنا هو inventory_count_items.unit_id المسجَّل وقت الجرد نفسه
+  function formatStockDisplay(productId: string, stock: number, unitSymbol: string, itemUnitId?: string | null) {
     const conv = unitConversions.find((c: any) => c.product_id === productId)
     if (!conv || !conv.factor || conv.factor <= 1) return `${stock} ${unitSymbol}`
+    if (itemUnitId && conv.from_unit_id === itemUnitId) {
+      // الرقم مخزّن بالفعل بالوحدة الكبيرة (كسر عشري = وحدات صغيرة/factor) - زي ما بيتحفظ في صفحة الجرد
+      const bigQty = Math.floor(stock)
+      const smallQty = Math.round((stock - bigQty) * conv.factor * 100) / 100
+      const parts = []
+      if (bigQty > 0) parts.push(`${bigQty} ${conv.from_unit?.symbol || unitSymbol}`)
+      if (smallQty > 0) parts.push(`${smallQty} ${conv.to_unit?.symbol || ''}`)
+      return parts.length > 0 ? parts.join(' + ') : `0 ${conv.from_unit?.symbol || unitSymbol}`
+    }
     const bigQty = Math.floor(stock / conv.factor)
     // ✅ Fix: تقريب لمنع أخطاء الفاصلة العائمة في JS (مثال: 6.899999999999999 بدل 6.9)
     const smallQty = Math.round((stock % conv.factor) * 100) / 100
@@ -206,9 +223,9 @@ export default function InventoryReportsPage() {
       const diffColor = diff < 0 ? '#EF4444' : diff > 0 ? '#22C55E' : '#8A9BB5'
       return `<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">
         <td>${item.warehouse_products?.name || '—'}</td>
-        <td>${formatStockDisplay(item.product_id, item.system_stock, item.units?.symbol || '')}</td>
-        <td style="font-weight:700">${formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '')}</td>
-        <td style="color:${diffColor};font-weight:700">${diff !== 0 ? (diff > 0 ? '+' : '−') : ''}${formatStockDisplay(item.product_id, Math.abs(diff), item.units?.symbol || '')}</td>
+        <td>${formatStockDisplay(item.product_id, item.system_stock, item.units?.symbol || '', item.unit_id)}</td>
+        <td style="font-weight:700">${formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '', item.unit_id)}</td>
+        <td style="color:${diffColor};font-weight:700">${diff !== 0 ? (diff > 0 ? '+' : '−') : ''}${formatStockDisplay(item.product_id, Math.abs(diff), item.units?.symbol || '', item.unit_id)}</td>
         <td style="color:${diffColor}">${diff < 0 ? '📉 عجز' : diff > 0 ? '📈 زيادة' : '✅ مطابق'}</td>
       </tr>`
     }).join('')
@@ -446,7 +463,7 @@ export default function InventoryReportsPage() {
                             <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{item.warehouse_products?.name}</div>
                             {item.warehouse_products?.name_en && <div style={{ fontSize: 10, color: S.muted }}>{item.warehouse_products.name_en}</div>}
                           </td>
-                          <td style={{ padding: '10px 14px', fontSize: 13, color: S.muted }}>{formatStockDisplay(item.product_id, item.system_stock, item.units?.symbol || '')}</td>
+                          <td style={{ padding: '10px 14px', fontSize: 13, color: S.muted }}>{formatStockDisplay(item.product_id, item.system_stock, item.units?.symbol || '', item.unit_id)}</td>
                           <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: S.white }}>
                             {isEditing ? (
                               <input type="number" min="0"
@@ -454,10 +471,10 @@ export default function InventoryReportsPage() {
                                 onChange={e => setEditingItems(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) || 0 }))}
                                 style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid ${S.amber}`, borderRadius: 6, padding: '4px 8px', fontSize: 12, color: S.white, outline: 'none', width: 80, textAlign: 'center' }}
                               />
-                            ) : formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '')}
+                            ) : formatStockDisplay(item.product_id, item.actual_stock, item.units?.symbol || '', item.unit_id)}
                           </td>
                           <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: diffColor }}>
-                            {diff !== 0 && (diff > 0 ? '+' : '−')}{formatStockDisplay(item.product_id, Math.abs(diff), item.units?.symbol || '')}
+                            {diff !== 0 && (diff > 0 ? '+' : '−')}{formatStockDisplay(item.product_id, Math.abs(diff), item.units?.symbol || '', item.unit_id)}
                           </td>
                           <td style={{ padding: '10px 14px' }}>
                             <span style={{ background: diff < 0 ? S.redB : diff > 0 ? S.greenB : S.card, color: diff < 0 ? S.red : diff > 0 ? S.green : S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>

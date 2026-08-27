@@ -28,8 +28,10 @@ const ROLES = [
   { value: 'kitchen_supervisor', label: 'Kitchen Supervisor', icon: '👨‍🍳' },
   { value: 'hall_supervisor',    label: 'Hall Supervisor',    icon: '🍽️' },
   { value: 'bar_supervisor',     label: 'Bar Supervisor',     icon: '☕' },
+  { value: 'general_supervisor', label: 'General Supervisor', icon: '🧭' },
   { value: 'cashier',            label: 'Cashier',            icon: '💰' },
   { value: 'assistant_cashier',  label: 'Assistant Cashier',  icon: '💳' },
+  { value: 'cashier_manager',    label: 'Cashier Manager',    icon: '🧾' },
   { value: 'employee',           label: 'Employee',           icon: '👤' },
 ]
 

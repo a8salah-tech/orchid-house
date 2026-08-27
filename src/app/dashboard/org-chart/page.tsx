@@ -23,20 +23,23 @@ const S = {
 const ROLE_LABELS: Record<string, string> = {
   admin: 'مدير النظام', branch_manager: 'مدير الفرع',
   kitchen_manager: 'مدير المطبخ', hall_manager: 'مدير الصالة', bar_manager: 'مدير البار', warehouse_manager: 'مدير المستودعات',
-  kitchen_supervisor: 'مشرف المطبخ', hall_supervisor: 'مشرف الصالة', bar_supervisor: 'مشرف البار',
-  warehouse_keeper: 'أمين المستودع', cashier: 'كاشير',
+  kitchen_supervisor: 'مشرف المطبخ', hall_supervisor: 'مشرف الصالة', bar_supervisor: 'مشرف البار', general_supervisor: 'مشرف عام',
+  warehouse_keeper: 'أمين المستودع', cashier: 'كاشير', cashier_manager: 'مدير كاشير',
   kitchen_cleaner: 'عامل نظافة المطبخ', hall_cleaner: 'عامل نظافة الصالة', hall_worker: 'عامل صالة',
+  maintenance_worker: 'عامل صيانة', delivery_worker: 'عامل توصيل',
   employee: 'موظف',
 }
 
 // ✅ تصنيف كل دور لقسمه الافتراضي + مستواه (0=قيادة، 1=مدير قسم، 2=مشرف، 3=موظف)
 const ROLE_DEPT: Record<string, { dept: string; tier: number }> = {
-  admin: { dept: 'leadership', tier: 0 }, branch_manager: { dept: 'leadership', tier: 0 },
+  admin: { dept: 'leadership', tier: 0 }, branch_manager: { dept: 'leadership', tier: 0 }, general_supervisor: { dept: 'leadership', tier: 1 },
   kitchen_manager: { dept: 'kitchen', tier: 1 }, kitchen_supervisor: { dept: 'kitchen', tier: 2 }, kitchen_cleaner: { dept: 'kitchen', tier: 3 },
   hall_manager: { dept: 'hall', tier: 1 }, hall_supervisor: { dept: 'hall', tier: 2 }, hall_cleaner: { dept: 'hall', tier: 3 }, hall_worker: { dept: 'hall', tier: 3 },
   bar_manager: { dept: 'bar', tier: 1 }, bar_supervisor: { dept: 'bar', tier: 2 },
   warehouse_manager: { dept: 'warehouse', tier: 1 }, warehouse_keeper: { dept: 'warehouse', tier: 3 },
-  cashier: { dept: 'other', tier: 3 }, employee: { dept: 'other', tier: 3 },
+  cashier: { dept: 'other', tier: 3 }, cashier_manager: { dept: 'other', tier: 1 },
+  maintenance_worker: { dept: 'other', tier: 3 }, delivery_worker: { dept: 'other', tier: 3 },
+  employee: { dept: 'other', tier: 3 },
 }
 
 const DEPTS: { key: string; label: string; icon: string; color: string }[] = [

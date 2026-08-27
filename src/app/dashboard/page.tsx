@@ -70,8 +70,12 @@ const ROLE_LABELS: Record<string, { label: string; label_en: string; icon: strin
   kitchen_supervisor: { label: 'مشرف المطبخ',  label_en: 'Kitchen Supervisor', icon: '👨‍🍳' },
   hall_supervisor:    { label: 'مشرف الصالة',  label_en: 'Hall Supervisor',    icon: '🍽️' },
   bar_supervisor:     { label: 'مشرف البار',   label_en: 'Bar Supervisor',     icon: '☕' },
+  general_supervisor: { label: 'مشرف عام',     label_en: 'General Supervisor', icon: '🧭' },
   cashier:            { label: 'كاشير',         label_en: 'Cashier',            icon: '💰' },
+  cashier_manager:    { label: 'مدير كاشير',    label_en: 'Cashier Manager',    icon: '🧾' },
   warehouse_manager:  { label: 'مدير المستودعات', label_en: 'Warehouse Manager', icon: '🏭' },
+  maintenance_worker: { label: 'عامل صيانة',    label_en: 'Maintenance Worker', icon: '🔧' },
+  delivery_worker:    { label: 'عامل توصيل',    label_en: 'Delivery Worker',    icon: '🛵' },
   employee:           { label: 'موظف',          label_en: 'Employee',           icon: '👤' },
 }
 
@@ -98,11 +102,12 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   // (دوامي، الحضور، طلباتي، راتبي)، مش بس الطاولات والكاشير
   // ✅ أضفنا branch_manager هنا كمان — كان مفقوداً تماماً من كل الروابط في هذه الصفحة (لا شخصية ولا إدارية)،
   // فكانت شاشة "وصول سريع" تظهر فارغة تماماً لمدير الفرع رغم أنه دور حقيقي معرَّف في النظام
-  const ALL_NON_ADMIN = ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','cashier','assistant_cashier','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner','hall_worker']
-  const KITCHEN_ROLES = ['kitchen_manager','kitchen_supervisor']
-  const HALL_ROLES = ['hall_manager','hall_supervisor']
-  const BAR_ROLES = ['bar_manager','bar_supervisor']
-  const SUPERVISOR_ROLES = ['kitchen_supervisor','hall_supervisor','bar_supervisor']
+  // ✅ أضفنا general_supervisor, cashier_manager, maintenance_worker, delivery_worker هنا — أدوار جديدة
+  const ALL_NON_ADMIN = ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','general_supervisor','cashier','assistant_cashier','cashier_manager','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner','hall_worker','maintenance_worker','delivery_worker']
+  const KITCHEN_ROLES = ['kitchen_manager','kitchen_supervisor','general_supervisor']
+  const HALL_ROLES = ['hall_manager','hall_supervisor','general_supervisor']
+  const BAR_ROLES = ['bar_manager','bar_supervisor','general_supervisor']
+  const SUPERVISOR_ROLES = ['kitchen_supervisor','hall_supervisor','bar_supervisor','general_supervisor']
   // ✅ مدير الفرع يشرف على الفرع بالكامل، فمن المنطقي يكون له نفس صلاحيات الوصول الإدارية
   // (الموظفون، الشيفتات، طلبات الفروع) المتاحة لمديري الأقسام الفرعية
   const MANAGER_ROLES = ['branch_manager','kitchen_manager','hall_manager','bar_manager']
@@ -114,11 +119,12 @@ function EmployeeDashboard({ employee }: { employee: any }) {
     { icon: '☕', label: isAr ? 'البار' : 'Bar',                       path: '/dashboard/bar',               show: [...BAR_ROLES] },
     // ✅ عامل الصالة (hall_worker) أضيف هنا وفي الكاشير — يقدر يشوف الطاولات ويضيف طلبات
     { icon: '🪑', label: isAr ? 'الطاولات' : 'Tables',                path: '/dashboard/tables',            show: [...HALL_ROLES,'cashier','assistant_cashier','hall_worker'] },
-    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',                path: '/dashboard/cashier',           show: ['cashier','assistant_cashier','hall_worker'] },
+    // ✅ أضفنا cashier_manager و delivery_worker هنا — بيستخدموا الكاشير/تيك أواي للتعامل مع المبيعات والتوصيل
+    { icon: '🏧', label: isAr ? 'الكاشير' : 'Cashier',                path: '/dashboard/cashier',           show: ['cashier','assistant_cashier','hall_worker','cashier_manager','delivery_worker'] },
     { icon: '🏭', label: isAr ? 'المستودع' : 'Warehouse',             path: '/dashboard/warehouse',         show: ['warehouse_keeper','warehouse_manager'] },
     // ── الإدارة (مديرين فقط) ──
-    { icon: '👷', label: isAr ? 'الموظفون' : 'Employees',             path: '/dashboard/hr/employees',      show: [...MANAGER_ROLES] },
-    { icon: '📅', label: isAr ? 'الشيفتات' : 'Shifts',                path: '/dashboard/hr/shifts',         show: [...MANAGER_ROLES] },
+    { icon: '👷', label: isAr ? 'الموظفون' : 'Employees',             path: '/dashboard/hr/employees',      show: [...MANAGER_ROLES,'cashier_manager'] },
+    { icon: '📅', label: isAr ? 'الشيفتات' : 'Shifts',                path: '/dashboard/hr/shifts',         show: [...MANAGER_ROLES,'cashier_manager'] },
     { icon: '📦', label: isAr ? 'طلبات الفروع' : 'Branch Requests',  path: '/dashboard/branch-requests',   show: [...SUPERVISOR_ROLES,...MANAGER_ROLES,'warehouse_keeper','warehouse_manager'] },
     // ── الشخصي (للجميع) ──
     { icon: '🗓️', label: isAr ? 'دوامي' : 'My Schedule',             path: '/dashboard/hr/my-schedule',    show: [...ALL_NON_ADMIN] },

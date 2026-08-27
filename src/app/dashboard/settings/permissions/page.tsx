@@ -30,6 +30,11 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   // ✅ أضيف هنا — كان غير موجود خالص رغم إنه دور فعلي معيَّن لموظفين حقيقيين، فكان مفيش أي واجهة لإدارة صلاحياته
   kitchen_cleaner:     { label: 'عامل نظافة مطبخ', icon: '🧹', color: '#86EFAC', bg: 'rgba(134,239,172,0.12)',       desc: 'نظافة المطبخ — صلاحيات أساسية فقط' },
   hall_cleaner:        { label: 'عامل نظافة صالة', icon: '🧽', color: '#6EE7B7', bg: 'rgba(110,231,183,0.12)',       desc: 'نظافة الصالة — صلاحيات أساسية فقط' },
+  // ✅ أضيف هنا — أدوار جديدة: مشرف عام، مدير كاشير، عامل صيانة، عامل توصيل
+  general_supervisor:  { label: 'مشرف عام',       icon: '🧭', color: '#0EA5E9', bg: 'rgba(14,165,233,0.12)',         desc: 'إشراف عام على المطبخ والصالة والبار وطلبات الفروع' },
+  cashier_manager:     { label: 'مدير كاشير',     icon: '🧾', color: '#059669', bg: 'rgba(5,150,105,0.12)',          desc: 'إدارة المبيعات والكاشير والتقارير والموظفين' },
+  maintenance_worker:  { label: 'عامل صيانة',     icon: '🔧', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)',         desc: 'الصيانة — صلاحيات أساسية فقط' },
+  delivery_worker:     { label: 'عامل توصيل',     icon: '🛵', color: '#EC4899', bg: 'rgba(236,72,153,0.12)',         desc: 'التوصيل والتيك أواي — صلاحيات أساسية فقط' },
   kitchen_supervisor:  { label: 'مشرف المطبخ',    icon: '👨‍🍳', color: S.red,     bg: S.redB,                         desc: 'المطبخ والمخزون وطلبات الفروع' },
   hall_supervisor:     { label: 'مشرف الصالة',    icon: '🍽️', color: S.blue,    bg: S.blueB,                        desc: 'الصالة والحجوزات وخدمة العملاء' },
   bar_supervisor:      { label: 'مشرف البار',     icon: '☕', color: S.teal,    bg: S.tealB,                        desc: 'البار والمشروبات والمخزون' },
@@ -56,6 +61,11 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   // ✅ أضيف هنا — أدوار نظافة، مطابقة للقيم الفعلية المحفوظة بالفعل في roles_permissions
   kitchen_cleaner:    { my_requests: true, attendance: true, menu: true },
   hall_cleaner:       { my_requests: true, attendance: true, menu: true },
+  // ✅ أضيف هنا — أدوار جديدة: مشرف عام، مدير كاشير، عامل صيانة، عامل توصيل
+  general_supervisor: { kitchen: true, hall: true, bar: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, my_requests: true, attendance: true, marketing: true, maintenance: true, buffet: true },
+  cashier_manager:    { sales: true, invoices: true, reports: true, hr: true, my_requests: true, attendance: true, marketing: true },
+  maintenance_worker: { maintenance: true, my_requests: true, attendance: true, marketing: true },
+  delivery_worker:    { sales: true, my_requests: true, attendance: true, marketing: true },
   warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   warehouse_manager:  { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true, marketing: true },

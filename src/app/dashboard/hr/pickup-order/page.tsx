@@ -155,7 +155,7 @@ export default function PickupOrderPage() {
         <td>${r.employee_number || '—'}</td>
         <td>${r.department || '—'}</td>
         <td>${r.hasAttended ? r.attendanceScore.toFixed(0) : 'لا يوجد بصمة حضور'}</td>
-        <td>${r.hasEval ? r.evalScore.toFixed(0) : '—'}</td>
+        <td>${r.hasEval ? r.evalScore.toFixed(0) : 'لا يوجد (70 افتراضي)'}</td>
         <td>${r.combined.toFixed(1)}</td>
       </tr>`).join('')
 
@@ -281,7 +281,9 @@ export default function PickupOrderPage() {
                     <td style={{ padding: '14px 16px' }}>
                       {r.hasEval
                         ? <span style={{ fontSize: 13, fontWeight: 700, color: S.teal }}>{r.evalScore.toFixed(0)}</span>
-                        : <span style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{isAr ? 'لا يوجد تقييم' : 'No evaluation'}</span>}
+                        // ✅ Fix: الدرجة الإجمالية بتحسب فعليًا بدرجة محايدة 70 لغياب التقييم، مش صفر - كانت "لا يوجد
+                        // تقييم" وحدها بتوهم إن الدرجة دخلت في الحساب بصفر، رغم إن الدرجة الإجمالية بتعكس 70 فعلاً
+                        : <span style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{isAr ? 'لا يوجد تقييم (70 افتراضي)' : 'No evaluation (default 70)'}</span>}
                     </td>
                     <td style={{ padding: '14px 16px', fontWeight: 800, color: S.gold, fontSize: 14 }}>{r.combined.toFixed(1)}</td>
                   </tr>

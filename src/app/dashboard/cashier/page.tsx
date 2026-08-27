@@ -2457,21 +2457,38 @@ export default function CashierPage() {
   // وشيت الرواتب في نفس اليوم - من غير أي اعتماد مطلوب من مدير/أدمن (نفس آلية مخالفة يسجلها مدير مباشرة)
   const [chargeItemTarget, setChargeItemTarget] = useState<{ orderId: string; itemId: string; itemName: string; unitPrice: number; totalQty: number } | null>(null)
   const [chargeQty, setChargeQty] = useState(1)
-  const [chargeStaffList, setChargeStaffList] = useState<{ id: string; name: string }[]>([])
+  const [chargeStaffList, setChargeStaffList] = useState<{ id: string; name: string; name_en: string | null; employee_number: string | null }[]>([])
   const [chargeEmployeeId, setChargeEmployeeId] = useState('')
+  const [chargeStaffSearch, setChargeStaffSearch] = useState('')
+  const [chargeStaffOpen, setChargeStaffOpen] = useState(false)
   const [chargeType, setChargeType] = useState<'mistake' | 'personal'>('mistake')
+  // ✅ جديد: نسبة الخصم من قيمة الصنف - مش كل الحالات لازم تتحمّل 100% (مثلاً وجبة شخصية ممكن تتحمّل بنص السعر بس)
+  const [chargePercent, setChargePercent] = useState(100)
   const [chargeNote, setChargeNote] = useState('')
   const [chargeSaving, setChargeSaving] = useState(false)
+
+  function chargeStaffLabel(s: { name: string; name_en: string | null; employee_number: string | null }) {
+    return `${s.name}${s.name_en ? ` (${s.name_en})` : ''}${s.employee_number ? ` — #${s.employee_number}` : ''}`
+  }
+  const filteredChargeStaff = chargeStaffSearch.trim()
+    ? chargeStaffList.filter(s => {
+        const q = chargeStaffSearch.trim().toLowerCase()
+        return s.name.toLowerCase().includes(q) || (s.name_en || '').toLowerCase().includes(q) || (s.employee_number || '').toLowerCase().includes(q)
+      })
+    : chargeStaffList
 
   async function openChargeToEmployee(orderId: string, itemId: string, itemName: string, unitPrice: number, totalQty: number) {
     setChargeItemTarget({ orderId, itemId, itemName, unitPrice, totalQty })
     setChargeQty(totalQty)
     setChargeEmployeeId('')
+    setChargeStaffSearch('')
     setChargeType('mistake')
+    setChargePercent(100)
     setChargeNote('')
     if (chargeStaffList.length === 0) {
       // ✅ كل موظفي الفرع النشطين - مش بس الكاشيرية، لأن الخطأ أو الوجبة الشخصية ممكن تكون لأي موظف (مطبخ، صالة، إلخ)
-      const { data } = await sb.from('employees').select('id,name')
+      // ✅ جديد: name_en + employee_number كمان عشان البحث/العرض يبان بيهم مش بس بالاسم العربي
+      const { data } = await sb.from('employees').select('id,name,name_en,employee_number')
         .eq('is_active', true).eq('branch_id', employee?.branch_id || '').order('name')
       setChargeStaffList(data || [])
     }
@@ -2483,8 +2500,9 @@ export default function CashierPage() {
     const label = chargeType === 'mistake'
       ? `🍽️ خصم كاشير - خطأ في الطلب: ${chargeItemTarget.itemName} ×${chargeQty}`
       : `🍽️ خصم كاشير - وجبة شخصية: ${chargeItemTarget.itemName} ×${chargeQty}`
-    const fullReason = chargeNote.trim() ? `${label} — ${chargeNote.trim()}` : label
-    const amount = chargeItemTarget.unitPrice * chargeQty
+    const percentNote = chargePercent < 100 ? ` (خصم ${chargePercent}% من السعر)` : ''
+    const fullReason = chargeNote.trim() ? `${label}${percentNote} — ${chargeNote.trim()}` : `${label}${percentNote}`
+    const amount = chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100)
     const actionBy = employee?.name || employee?.name_en || 'Unknown'
 
     // 1) نفس آلية إلغاء الصنف بالظبط - نشيله من فاتورة العميل (الكمية كلها أو جزء منها)
@@ -2509,7 +2527,7 @@ export default function CashierPage() {
     }])
     setChargeSaving(false)
     if (error) { alert('❌ ' + error.message); return }
-    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeType('mistake'); setChargeNote('')
+    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote('')
     fetchAll()
   }
 
@@ -3873,26 +3891,59 @@ export default function CashierPage() {
               </div>
             )}
 
-            <div style={{ marginBottom: 14, textAlign: 'right' }}>
+            <div style={{ marginBottom: 14, textAlign: 'right', position: 'relative' }}>
               <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Employee to charge</div>
-              <select value={chargeEmployeeId} onChange={e => setChargeEmployeeId(e.target.value)}
-                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${chargeEmployeeId ? S.border : S.amber}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-                <option value="">— Select employee —</option>
-                {chargeStaffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              {/* ✅ جديد: بحث حي بالاسم (عربي/إنجليزي) أو رقم الموظف بدل قائمة select عادية بالاسم بس */}
+              <input
+                value={chargeEmployeeId ? chargeStaffLabel(chargeStaffList.find(s => s.id === chargeEmployeeId)!) : chargeStaffSearch}
+                onChange={e => { setChargeEmployeeId(''); setChargeStaffSearch(e.target.value); setChargeStaffOpen(true) }}
+                onFocus={() => { setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(true) }}
+                onBlur={() => setTimeout(() => setChargeStaffOpen(false), 150)}
+                placeholder="Search by name or employee number..."
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${chargeEmployeeId ? S.border : S.amber}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}
+              />
+              {chargeStaffOpen && !chargeEmployeeId && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, maxHeight: 220, overflowY: 'auto', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+                  {filteredChargeStaff.length === 0 ? (
+                    <div style={{ padding: '10px 12px', fontSize: 12, color: S.muted }}>No matching employees</div>
+                  ) : filteredChargeStaff.map(s => (
+                    <button key={s.id} onClick={() => { setChargeEmployeeId(s.id); setChargeStaffOpen(false) }}
+                      style={{ display: 'block', width: '100%', textAlign: 'right', padding: '9px 12px', background: 'transparent', border: 'none', borderBottom: `1px solid ${S.border}`, color: S.white, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                      {chargeStaffLabel(s)}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: 14 }}>
               <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Reason</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setChargeType('mistake')}
+                <button onClick={() => { setChargeType('mistake'); setChargePercent(100) }}
                   style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${chargeType === 'mistake' ? S.red : S.border}`, background: chargeType === 'mistake' ? S.redB : 'transparent', color: chargeType === 'mistake' ? S.red : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                   ❌ Order Mistake
                 </button>
-                <button onClick={() => setChargeType('personal')}
+                <button onClick={() => { setChargeType('personal'); setChargePercent(50) }}
                   style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${chargeType === 'personal' ? S.blue : S.border}`, background: chargeType === 'personal' ? S.blueB : 'transparent', color: chargeType === 'personal' ? S.blue : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                   🍽️ Personal Meal
                 </button>
+              </div>
+            </div>
+
+            {/* ✅ جديد: نسبة الخصم من قيمة الصنف - مش لازم الموظف يتحمّل 100% دايمًا */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Deduction percentage</div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {[25, 50, 75, 100].map(p => (
+                  <button key={p} onClick={() => setChargePercent(p)}
+                    style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${chargePercent === p ? S.amber : S.border}`, background: chargePercent === p ? S.amberB : 'transparent', color: chargePercent === p ? S.amber : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    {p}%
+                  </button>
+                ))}
+                <input type="number" min={0} max={100} value={chargePercent}
+                  onChange={e => setChargePercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                  style={{ width: 64, boxSizing: 'border-box', padding: '7px 8px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', textAlign: 'center' }} />
+                <span style={{ color: S.muted, fontSize: 12 }}>%</span>
               </div>
             </div>
 
@@ -3905,11 +3956,12 @@ export default function CashierPage() {
             />
 
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18, textAlign: 'center', fontSize: 13, color: S.gold, fontWeight: 800 }}>
-              Deduction amount: MYR {(chargeItemTarget.unitPrice * chargeQty).toFixed(2)}
+              Deduction amount: MYR {(chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100)).toFixed(2)}
+              {chargePercent < 100 && <span style={{ color: S.muted, fontWeight: 400 }}> ({chargePercent}% of MYR {(chargeItemTarget.unitPrice * chargeQty).toFixed(2)})</span>}
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeType('mistake'); setChargeNote('') }}
+              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote('') }}
                 style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 Back
               </button>

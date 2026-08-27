@@ -527,6 +527,11 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
       let qty = requestedQty
       // ✅ إضافة: لو أمين المستودع صحّح الوحدة (لأن مقدّم الطلب أدخلها غلط)، نستخدم الوحدة المصحَّحة بدل الأصلية
       const itemUnitId = editedUnits[item.id] || (item as any).unit_id
+      // ✅ Fix: نحتفظ بمعامل التحويل واتجاهه عشان نقدر نعرض "المطلوب/المتاح" لأمين المستودع بنفس وحدة
+      // الطلب الأصلية (اللي كتبها مقدّم الطلب وشافها في الشاشة)، مش بوحدة التخزين الداخلية للمستودع
+      // (كان بيظهر مثلاً "0.17 طرد" بدل "2 علبة" رغم أن الرقمين يمثلان نفس الكمية بالظبط)
+      let convFactor: number | null = null
+      let convDirection: 'multiply' | 'divide' | null = null
       if (itemUnitId && wp.unit_id && itemUnitId !== wp.unit_id) {
         const { data: conv } = await sb.from('unit_conversions')
           .select('from_unit_id, to_unit_id, factor')
@@ -536,8 +541,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         if (conv) {
           if (conv.from_unit_id === itemUnitId && conv.to_unit_id === wp.unit_id) {
             qty = requestedQty * conv.factor
+            convFactor = conv.factor; convDirection = 'multiply'
           } else if (conv.to_unit_id === itemUnitId && conv.from_unit_id === wp.unit_id) {
             qty = requestedQty / conv.factor
+            convFactor = conv.factor; convDirection = 'divide'
           }
           // ✅ Fix: تقريب النتيجة لـ 6 خانات عشرية عشان نمنع تخزين بواقي دقة الفاصلة العشرية
           // في JavaScript (مثال: 1 ÷ 6 = 0.16666666666666666) مباشرة في قاعدة البيانات
@@ -550,12 +557,19 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
         }
       }
 
-      // ✅ جديد: التحقق من توفر الكمية فعليًا في المخزون قبل أي خصم - عشان نتجنب الأرصدة السالبة تمامًا
-      if (qty > (wp.current_stock || 0)) {
+      // ✅ Fix: نضيف هامش تسامح ضئيل (epsilon) قبل اعتبارها "نقص فعلي" — بدون هذا الهامش، فروق دقة
+      // الفاصلة العشرية البسيطة بين الكمية المحوَّلة (المقرَّبة لـ 6 خانات) والرصيد الفعلي المخزَّن
+      // (غير مقرَّب) كانت تُظهر تنبيه "الكمية غير متاحة" رغم أن المخزون كافٍ عمليًا (فرق أصغر من واحد على المليون)
+      const EPSILON = 0.000001
+      if (qty > (wp.current_stock || 0) + EPSILON) {
+        // ✅ نحوّل "المتاح فعليًا" بنفس اتجاه التحويل العكسي، عشان يظهر لأمين المستودع بنفس وحدة الطلب الأصلية
+        const availableInRequestUnit = convFactor === null ? (wp.current_stock || 0)
+          : convDirection === 'divide' ? (wp.current_stock || 0) * convFactor
+          : (wp.current_stock || 0) / convFactor
         newShortfalls.push({
           itemId: item.id, name: wp.name,
-          requestedInBase: qty, available: wp.current_stock || 0,
-          unitSymbol: wp.units?.symbol || '',
+          requestedInBase: requestedQty, available: Math.round(availableInRequestUnit * 1000000) / 1000000,
+          unitSymbol: units.find(u => u.id === itemUnitId)?.symbol || wp.units?.symbol || '',
         })
         continue
       }

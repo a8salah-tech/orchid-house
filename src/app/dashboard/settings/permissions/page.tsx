@@ -144,13 +144,18 @@ export default function PermissionsPage() {
     setSaving(role)
     const existing = roles.find(r => r.role === role)
     let error
+    // ✅ Fix: .select() بعد الـupdate/insert عشان نتأكد إن صف اتأثّر فعليًا — من غيرها Supabase
+    // مكانش بيرجّع error لو الـWHERE ماطابقش أي صف (تحديث 0 صفوف)، فكانت الواجهة تقول "✅ تم الحفظ"
+    // والصلاحية فعليًا ما اتغيّرتش في قاعدة البيانات، من غير أي تنبيه للمستخدم
+    let data
     if (existing) {
-      ;({ error } = await supabase.from('roles_permissions').update({ permissions: localPerms[role] }).eq('role', role))
+      ;({ data, error } = await supabase.from('roles_permissions').update({ permissions: localPerms[role] }).eq('role', role).select())
     } else {
-      ;({ error } = await supabase.from('roles_permissions').insert([{ role, role_name_ar: ROLES_INFO[role]?.label || role, permissions: localPerms[role], is_active: true }]))
+      ;({ data, error } = await supabase.from('roles_permissions').insert([{ role, role_name_ar: ROLES_INFO[role]?.label || role, permissions: localPerms[role], is_active: true }]).select())
     }
     setSaving(null)
     if (error) { alert('خطأ: ' + error.message); return }
+    if (!data || data.length === 0) { alert('⚠️ لم يتم حفظ أي تغيير — لم يتطابق أي صف في قاعدة البيانات مع هذا الدور. تواصل مع الدعم الفني.'); return }
     setSaved(role)
     setTimeout(() => setSaved(null), 2000)
     fetchAll()

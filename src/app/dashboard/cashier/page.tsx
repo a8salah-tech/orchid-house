@@ -2452,6 +2452,67 @@ export default function CashierPage() {
   const [cancelReason, setCancelReason] = useState('')
   const [cancelSaving, setCancelSaving] = useState(false)
 
+  // ✅ جديد: تحميل صنف على موظف (خطأ في الطلب أو وجبة شخصية) - الصنف يتشال من فاتورة العميل
+  // ويتسجل فورًا كمخالفة "active" على نفس جدول المخالفات، فينزل من راتب الموظف ويظهر في "راتبي"
+  // وشيت الرواتب في نفس اليوم - من غير أي اعتماد مطلوب من مدير/أدمن (نفس آلية مخالفة يسجلها مدير مباشرة)
+  const [chargeItemTarget, setChargeItemTarget] = useState<{ orderId: string; itemId: string; itemName: string; unitPrice: number; totalQty: number } | null>(null)
+  const [chargeQty, setChargeQty] = useState(1)
+  const [chargeStaffList, setChargeStaffList] = useState<{ id: string; name: string }[]>([])
+  const [chargeEmployeeId, setChargeEmployeeId] = useState('')
+  const [chargeType, setChargeType] = useState<'mistake' | 'personal'>('mistake')
+  const [chargeNote, setChargeNote] = useState('')
+  const [chargeSaving, setChargeSaving] = useState(false)
+
+  async function openChargeToEmployee(orderId: string, itemId: string, itemName: string, unitPrice: number, totalQty: number) {
+    setChargeItemTarget({ orderId, itemId, itemName, unitPrice, totalQty })
+    setChargeQty(totalQty)
+    setChargeEmployeeId('')
+    setChargeType('mistake')
+    setChargeNote('')
+    if (chargeStaffList.length === 0) {
+      // ✅ كل موظفي الفرع النشطين - مش بس الكاشيرية، لأن الخطأ أو الوجبة الشخصية ممكن تكون لأي موظف (مطبخ، صالة، إلخ)
+      const { data } = await sb.from('employees').select('id,name')
+        .eq('is_active', true).eq('branch_id', employee?.branch_id || '').order('name')
+      setChargeStaffList(data || [])
+    }
+  }
+
+  async function doChargeToEmployee() {
+    if (!chargeItemTarget || !chargeEmployeeId) return
+    setChargeSaving(true)
+    const label = chargeType === 'mistake'
+      ? `🍽️ خصم كاشير - خطأ في الطلب: ${chargeItemTarget.itemName} ×${chargeQty}`
+      : `🍽️ خصم كاشير - وجبة شخصية: ${chargeItemTarget.itemName} ×${chargeQty}`
+    const fullReason = chargeNote.trim() ? `${label} — ${chargeNote.trim()}` : label
+    const amount = chargeItemTarget.unitPrice * chargeQty
+    const actionBy = employee?.name || employee?.name_en || 'Unknown'
+
+    // 1) نفس آلية إلغاء الصنف بالظبط - نشيله من فاتورة العميل (الكمية كلها أو جزء منها)
+    if (chargeQty < chargeItemTarget.totalQty) {
+      const { data: originalItem } = await sb.from('order_items').select('*').eq('id', chargeItemTarget.itemId).maybeSingle()
+      if (originalItem) {
+        await sb.from('order_items').update({ quantity: chargeItemTarget.totalQty - chargeQty }).eq('id', chargeItemTarget.itemId)
+        const { id, ...rest } = originalItem as any
+        await sb.from('order_items').insert([{ ...rest, quantity: chargeQty, status: 'cancelled', cancel_reason: fullReason, cancelled_at: new Date().toISOString(), action_by: actionBy }])
+      }
+    } else {
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: fullReason, cancelled_at: new Date().toISOString(), action_by: actionBy }).eq('id', chargeItemTarget.itemId)
+    }
+    const { data: items } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', chargeItemTarget.orderId)
+    const newTotal = (items || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
+    await sb.from('orders').update({ total_amount: newTotal }).eq('id', chargeItemTarget.orderId)
+
+    // 2) خصم فوري من راتب الموظف - نفس جدول المخالفات وبحالة "active" مباشرة (بدون اعتماد)
+    const { error } = await sb.from('violations').insert([{
+      employee_id: chargeEmployeeId, amount, reason: fullReason,
+      date: new Date().toISOString().split('T')[0], created_by: employee?.id, status: 'active',
+    }])
+    setChargeSaving(false)
+    if (error) { alert('❌ ' + error.message); return }
+    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeType('mistake'); setChargeNote('')
+    fetchAll()
+  }
+
   async function doCancelOrder() {
     if (!cancelOrderTarget || !cancelReason.trim()) return
     setCancelSaving(true)
@@ -3279,9 +3340,15 @@ export default function CashierPage() {
                                     {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
                                   </span>
                                   {isCashierRole && i.status !== 'cancelled' && !['paid', 'cancelled'].includes(order.status) && (
-                                    <button onClick={() => { setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item', totalQty: i.quantity }); setCancelItemQty(i.quantity) }}
-                                      title="Cancel this item"
-                                      style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '2px 6px', flexShrink: 0 }}>✕</button>
+                                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                      {/* ✅ جديد: تحميل هذا الصنف على موظف (خطأ في الطلب أو وجبة شخصية) - يشيله من الفاتورة ويخصمه من راتبه */}
+                                      <button onClick={() => openChargeToEmployee(order.id, i.id, i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item', i.unit_price, i.quantity)}
+                                        title="Charge this item to an employee"
+                                        style={{ background: 'transparent', border: `1px solid ${S.amber}`, borderRadius: 6, color: S.amber, cursor: 'pointer', fontSize: 10, padding: '2px 6px' }}>👤</button>
+                                      <button onClick={() => { setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item', totalQty: i.quantity }); setCancelItemQty(i.quantity) }}
+                                        title="Cancel this item"
+                                        style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '2px 6px' }}>✕</button>
+                                    </div>
                                   )}
                                 </div>
                                 {i.notes && <div style={{ fontSize: 10, color: S.gold, marginTop: 1 }}>📝 {i.notes}</div>}
@@ -3777,6 +3844,80 @@ export default function CashierPage() {
                 disabled={!cancelReason.trim() || cancelSaving}
                 style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: cancelReason.trim() ? S.red : S.border, color: cancelReason.trim() ? '#fff' : S.muted, cursor: cancelReason.trim() ? 'pointer' : 'not-allowed', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: cancelSaving ? 0.7 : 1 }}>
                 {cancelSaving ? '⏳...' : '❌ Confirm Cancellation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: تحميل صنف على موظف - يُشال من فاتورة العميل وينزل خصمًا فوريًا من راتب الموظف المختار */}
+      {chargeItemTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, width: '100%', maxWidth: 420, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <div style={{ fontSize: 40, marginBottom: 14, textAlign: 'center' }}>👤</div>
+            <div style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 6, textAlign: 'center' }}>
+              Charge to Employee — {chargeItemTarget.itemName}
+            </div>
+            <div style={{ color: S.amber, fontSize: 11, marginBottom: 18, textAlign: 'center' }}>
+              This item will be removed from the customer&apos;s bill and deducted immediately from the selected employee&apos;s salary.
+            </div>
+
+            {chargeItemTarget.totalQty > 1 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>How many units? (of {chargeItemTarget.totalQty})</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
+                  <button onClick={() => setChargeQty(q => Math.max(1, q - 1))} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 16 }}>−</button>
+                  <span style={{ color: S.white, fontSize: 18, fontWeight: 800, minWidth: 30, textAlign: 'center' }}>{chargeQty}</span>
+                  <button onClick={() => setChargeQty(q => Math.min(chargeItemTarget.totalQty, q + 1))} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 16 }}>+</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom: 14, textAlign: 'right' }}>
+              <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Employee to charge</div>
+              <select value={chargeEmployeeId} onChange={e => setChargeEmployeeId(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${chargeEmployeeId ? S.border : S.amber}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+                <option value="">— Select employee —</option>
+                {chargeStaffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Reason</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setChargeType('mistake')}
+                  style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${chargeType === 'mistake' ? S.red : S.border}`, background: chargeType === 'mistake' ? S.redB : 'transparent', color: chargeType === 'mistake' ? S.red : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  ❌ Order Mistake
+                </button>
+                <button onClick={() => setChargeType('personal')}
+                  style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${chargeType === 'personal' ? S.blue : S.border}`, background: chargeType === 'personal' ? S.blueB : 'transparent', color: chargeType === 'personal' ? S.blue : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                  🍽️ Personal Meal
+                </button>
+              </div>
+            </div>
+
+            <textarea
+              value={chargeNote}
+              onChange={e => setChargeNote(e.target.value)}
+              placeholder="Additional note (optional)..."
+              rows={2}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 14, fontFamily: 'Tajawal, sans-serif', resize: 'vertical' }}
+            />
+
+            <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18, textAlign: 'center', fontSize: 13, color: S.gold, fontWeight: 800 }}>
+              Deduction amount: MYR {(chargeItemTarget.unitPrice * chargeQty).toFixed(2)}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeType('mistake'); setChargeNote('') }}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                Back
+              </button>
+              <button
+                onClick={doChargeToEmployee}
+                disabled={!chargeEmployeeId || chargeSaving}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: chargeEmployeeId ? S.amber : S.border, color: chargeEmployeeId ? '#1A1206' : S.muted, cursor: chargeEmployeeId ? 'pointer' : 'not-allowed', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: chargeSaving ? 0.7 : 1 }}>
+                {chargeSaving ? '⏳...' : '👤 Confirm Charge'}
               </button>
             </div>
           </div>

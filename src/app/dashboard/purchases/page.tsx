@@ -1917,6 +1917,8 @@ export default function PurchasesPage() {
   const [search, setSearch] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
   const [filterMonth, setFilterMonth] = useState('')
+  // ✅ جديد: فلتر مشتريات يوم واحد بعينه - مستقل عن فلتر الشهر، لعرض وطباعة مشتريات يوم محدد فقط
+  const [filterDate, setFilterDate] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [viewerImage, setViewerImage] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
@@ -2016,8 +2018,10 @@ export default function PurchasesPage() {
     const matchSearch = !search || inv.invoice_number?.includes(search) || inv.warehouse_suppliers?.name?.includes(search)
     const matchSupplier = !filterSupplier || inv.warehouse_suppliers?.name === filterSupplier
     const matchMonth = !filterMonth || inv.invoice_date?.startsWith(filterMonth)
-    return matchSearch && matchSupplier && matchMonth
-  }), [tabInvoices, search, filterSupplier, filterMonth])
+    // ✅ جديد: تطابق يوم واحد بالظبط (مش شهر كامل)
+    const matchDate = !filterDate || inv.invoice_date === filterDate
+    return matchSearch && matchSupplier && matchMonth && matchDate
+  }), [tabInvoices, search, filterSupplier, filterMonth, filterDate])
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginatedInvoices = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
@@ -2038,6 +2042,53 @@ export default function PurchasesPage() {
     }
   }), [allTabs, invoices, thisMonth, warehouseBranchMap])
   const grandTotal = useMemo(() => comparisonReport.reduce((s, r) => s + r.total, 0), [comparisonReport])
+
+  // ✅ جديد: طباعة قائمة المشتريات المعروضة حاليًا (يوم واحد عادةً بعد استخدام فلتر التاريخ) - كشف مطبوع
+  // بكل فواتير اليوم مع الإجمالي، بدل ما يضطر المستخدم يجمعها يدويًا من الشاشة
+  function printDailyPurchases() {
+    if (filtered.length === 0) { alert('لا توجد فواتير مطابقة للطباعة'); return }
+    const win = window.open('', '_blank')
+    if (!win) return
+    const total = filtered.reduce((s, i) => s + (i.total_amount || 0), 0)
+    const dateLabel = filterDate || 'كل الفترات'
+    const rows = filtered.map((inv, i) => `
+      <tr>
+        <td>${filtered.length - i}</td>
+        <td>${inv.invoice_number || '—'}</td>
+        <td>${inv.warehouse_suppliers?.name || '—'}</td>
+        <td>${inv.invoice_date}</td>
+        <td>${(inv as any).employees?.name || '—'}</td>
+        <td>${formatMYR(inv.total_amount)}</td>
+      </tr>`).join('')
+
+    win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
+    <title>تقرير المشتريات — ${dateLabel}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 24px; font-size: 12px; direction: rtl; }
+      h2 { color: #C9A84C; margin-bottom: 4px; }
+      h3 { color: #555; font-weight: 400; margin-bottom: 16px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th { background: #0A1628; color: white; padding: 8px; text-align: center; border: 1px solid #ddd; }
+      td { padding: 7px 8px; border: 1px solid #ddd; text-align: center; }
+      tr:nth-child(even) { background: #f9f9f9; }
+      .total-box { background: #fff8e1; border: 1px solid #C9A84C; border-radius: 8px; padding: 14px 18px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 16px; }
+      @media print { @page { size: A4; margin: 10mm; } }
+    </style></head><body>
+    <h2>🌸 Orchid House — تقرير المشتريات اليومية</h2>
+    <h3>${dateLabel} · ${filtered.length} فاتورة</h3>
+    <table>
+      <thead><tr><th>#</th><th>رقم الفاتورة</th><th>المورد</th><th>التاريخ</th><th>بواسطة</th><th>الإجمالي</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="total-box"><span>💰 إجمالي المشتريات</span><span>${formatMYR(total)}</span></div>
+    <div style="margin-top:24px;display:flex;justify-content:space-between;font-size:11px;color:#666">
+      <div>تم الطباعة بواسطة: _______________</div>
+      <div>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-EG')}</div>
+    </div>
+    <script>window.onload=function(){window.print()}<\/script>
+    </body></html>`)
+    win.document.close()
+  }
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
@@ -2114,8 +2165,18 @@ export default function PurchasesPage() {
           {invoiceSuppliers.map(s => <option key={s} value={s!}>{s}</option>)}
         </select>
         <input style={{ ...inp, width: 'auto' }} type="month" value={filterMonth} onChange={e => { setFilterMonth(e.target.value); setCurrentPage(1) }} />
-        {(search || filterSupplier || filterMonth) && (
-          <button onClick={() => { setSearch(''); setFilterSupplier(''); setFilterMonth(''); setCurrentPage(1) }} style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ مسح</button>
+        {/* ✅ جديد: فلتر يوم محدد - لعرض مشتريات يوم واحد بالظبط وطباعتها */}
+        <input style={{ ...inp, width: 'auto' }} type="date" value={filterDate} onChange={e => { setFilterDate(e.target.value); setCurrentPage(1) }} />
+        <button onClick={() => { setFilterDate(new Date().toISOString().split('T')[0]); setCurrentPage(1) }}
+          style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          📅 اليوم
+        </button>
+        <button onClick={printDailyPurchases}
+          style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          🖨️ طباعة
+        </button>
+        {(search || filterSupplier || filterMonth || filterDate) && (
+          <button onClick={() => { setSearch(''); setFilterSupplier(''); setFilterMonth(''); setFilterDate(''); setCurrentPage(1) }} style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ مسح</button>
         )}
       </div>
 

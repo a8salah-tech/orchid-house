@@ -62,6 +62,48 @@ function Stars({ value, size = 14 }: { value: number; size?: number }) {
   )
 }
 
+const PAGE_SIZE = 50
+
+// ══ Pagination ══ (نفس مكوّن الترقيم المستخدم في صفحة أصناف المنيو، بحجم صفحة ثابت 50)
+function Pagination({ page, total, totalPages, onChange, isAr }: {
+  page: number; total: number; totalPages: number; onChange: (p: number) => void; isAr: boolean
+}) {
+  if (totalPages <= 1) return null
+  const from = (page - 1) * PAGE_SIZE + 1
+  const to = Math.min(page * PAGE_SIZE, total)
+  const getPages = (): (number | '...')[] => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
+    const pages: (number | '...')[] = [1]
+    if (page > 3) pages.push('...')
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i)
+    if (page < totalPages - 2) pages.push('...')
+    pages.push(totalPages)
+    return pages
+  }
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ fontSize: 12, color: S.muted }}>{isAr ? `عرض ${from}–${to} من ${total} تعليق` : `Showing ${from}–${to} of ${total} reviews`}</div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button onClick={() => onChange(page - 1)} disabled={page === 1}
+          style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === 1 ? S.border : S.gold}`, background: page === 1 ? 'transparent' : S.gold3, color: page === 1 ? S.muted : S.gold, cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          {isAr ? '← السابق' : '← Prev'}
+        </button>
+        {getPages().map((p, i) => (
+          p === '...' ? <span key={`e${i}`} style={{ color: S.muted }}>...</span>
+          : <button key={p} onClick={() => onChange(p as number)}
+              style={{ width: 36, height: 36, borderRadius: 10, border: `1px solid ${p === page ? S.gold : S.border}`, background: p === page ? S.gold3 : 'transparent', color: p === page ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontWeight: p === page ? 800 : 400, fontFamily: 'Tajawal, sans-serif' }}>
+              {p}
+            </button>
+        ))}
+        <button onClick={() => onChange(page + 1)} disabled={page === totalPages}
+          style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === totalPages ? S.border : S.gold}`, background: page === totalPages ? 'transparent' : S.gold3, color: page === totalPages ? S.muted : S.gold, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          {isAr ? 'التالي →' : 'Next →'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function MenuReviewsPage() {
   const { isAr } = useLang()
   const t = T[isAr ? 'ar' : 'en']
@@ -73,6 +115,7 @@ export default function MenuReviewsPage() {
   const [starFilter, setStarFilter] = useState<number | 'all'>('all')
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const fetchReviews = useCallback(async () => {
     setLoading(true)
@@ -138,6 +181,14 @@ export default function MenuReviewsPage() {
     return list
   }, [reviews, search, starFilter, sortBy])
 
+  // ✅ الرجوع لصفحة 1 لما الفلتر/البحث/الترتيب يتغيّر - عشان ما نفضلش واقفين على صفحة بقت فاضية
+  useEffect(() => { setPage(1) }, [search, starFilter, sortBy])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  // ✅ لو حذفنا آخر تعليق في آخر صفحة (أو الفلتر قلّل النتائج)، نرجع لآخر صفحة صالحة بدل ما تفضل شاشة فاضية
+  useEffect(() => { if (page > totalPages) setPage(totalPages) }, [page, totalPages])
+  const paged = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page])
+
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');`}</style>
@@ -197,7 +248,7 @@ export default function MenuReviewsPage() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map(r => (
+          {paged.map(r => (
             <div key={r.id} style={{ display: 'flex', gap: 14, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 14, padding: 14, alignItems: 'flex-start' }}>
               {r.menu_items?.image_url ? (
                 <img src={r.menu_items.image_url} alt="" style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'cover', flexShrink: 0, border: `1px solid ${S.border}` }} />
@@ -226,6 +277,8 @@ export default function MenuReviewsPage() {
           ))}
         </div>
       )}
+
+      <Pagination page={page} total={filtered.length} totalPages={totalPages} onChange={setPage} isAr={isAr} />
     </div>
   )
 }

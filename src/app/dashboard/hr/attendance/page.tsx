@@ -681,6 +681,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [reportEmpSearch, setReportEmpSearch] = useState('')
   const [reportData,   setReportData]   = useState<any[]>([])
   const [loadingReport, setLoadingReport] = useState(false)
+  // ✅ Fix حرج جدًا: لو الأدمن غيّر اختيار الموظف في القائمة بعد ما ضغط "Load" (أو ضغط Load مرتين متتاليتين
+  // بسرعة لموظفين مختلفين)، طلبات الشبكة ممكن ترجع بترتيب مختلف عن ترتيب الإرسال - فيرجع رد الموظف الأول
+  // بعد رد الموظف الثاني، ويستبدل بياناته بالغلط رغم إن اسم الموظف المعروض في العنوان اتغيّر بالفعل للموظف
+  // الثاني. النتيجة: تقرير باسم موظف وبيانات حضور حقيقية لموظف تاني تمامًا - خطر جدًا لأنه تقرير رسمي قابل للطباعة
+  const reportEmpRef = useRef('')
+  useEffect(() => { reportEmpRef.current = reportEmp }, [reportEmp])
   // ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل (لتصحيح سجلات قديمة مثل شهر يوليو)
   const [recalcMonth, setRecalcMonth] = useState(new Date().toISOString().slice(0, 7))
   const [recalculating, setRecalculating] = useState(false)
@@ -749,6 +755,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
   async function loadReport() {
     if (!reportEmp) return
+    // ✅ نحفظ الموظف المطلوب وقت إرسال الطلب - نستخدمه في النهاية للتأكد إن الرد ده لسه خاص بنفس
+    // الموظف المختار حاليًا، مش موظف قديم اختار الأدمن غيره قبل ما الرد يوصل
+    const requestedEmp = reportEmp
     setLoadingReport(true)
     const startDate = `${reportMonth}-01`
     // ✅ Date.UTC بدل new Date() العادي — لكي الحساب لا يتأثر بتوقيت متصفح الأدمن المحلي (نفس باج monthEnd في صفحة الرواتب)
@@ -762,7 +771,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     const [{ data }, { data: schedules }] = await Promise.all([
       sb.from('attendance')
         .select('*')
-        .eq('employee_id', reportEmp)
+        .eq('employee_id', requestedEmp)
         .gte('date', startDate)
         .lt('date', endStr)
         .order('date'),
@@ -770,11 +779,15 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       // عن يوم الغياب الحقيقي عن يوم الراحة (بلا أي شيفت مجدول أصلاً)
       sb.from('shift_schedules')
         .select('date,shift_id,custom_start')
-        .eq('employee_id', reportEmp)
+        .eq('employee_id', requestedEmp)
         .eq('status', 'confirmed')
         .gte('date', startDate)
         .lt('date', endStr),
     ])
+
+    // ✅ لو الأدمن غيّر الموظف المختار وإحنا لسه بننتظر رد الشبكة، نتجاهل الرد ده تمامًا - مش هو المطلوب حاليًا
+    // (لازم نطفي مؤشر التحميل هنا كمان، وإلا لو معادش فيه طلب تاني شغال يفضل عالق "جاري التحميل" للأبد)
+    if (reportEmpRef.current !== requestedEmp) { setLoadingReport(false); return }
 
     const realRows = data || []
     const realRowByDate: Record<string, any> = {}
@@ -1644,7 +1657,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 12, alignItems: 'end' }}>
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>Employee</label>
-                <select style={inp2} value={reportEmp} onChange={e => setReportEmp(e.target.value)}>
+                {/* ✅ Fix: نمسح بيانات التقرير السابقة فورًا عند تغيير الموظف المختار - بدل ما تفضل ظاهرة (باسم
+                    الموظف الجديد في العنوان) لحد ما رد الشبكة الجديد يوصل، وهو بالظبط الموقف اللي سبب عرض
+                    حضور موظف تاني تحت اسم موظف مختلف تمامًا */}
+                <select style={inp2} value={reportEmp} onChange={e => { setReportEmp(e.target.value); setReportData([]) }}>
                   <option value="">Select Employee...</option>
                   {employees
                     .filter(e => (!reportBranchFilter || e.branch_id === reportBranchFilter) && (!reportDeptFilter || e.department === reportDeptFilter))

@@ -2466,6 +2466,26 @@ export default function CashierPage() {
   const [chargePercent, setChargePercent] = useState(100)
   const [chargeNote, setChargeNote] = useState('')
   const [chargeSaving, setChargeSaving] = useState(false)
+  // ✅ جديد: الموظف يقدر يدفع جزء (أو كل) المبلغ كاش/شبكة فورًا زي أي عميل عادي، والباقي بس هو اللي ينزل من راتبه
+  const [chargePaidNow, setChargePaidNow] = useState('')
+  const [chargePaidMethod, setChargePaidMethod] = useState<'cash' | 'visa' | 'online'>('cash')
+
+  const chargeTotalAmount = chargeItemTarget ? chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100) : 0
+  const chargePaidNowNum = chargeItemTarget ? Math.max(0, Math.min(chargeTotalAmount, Number(chargePaidNow) || 0)) : 0
+  const chargeRemaining = Math.max(0, chargeTotalAmount - chargePaidNowNum)
+
+  // ✅ جديد: طاولة افتراضية "مشتريات الموظفين" لكل فرع - عشان الجزء المدفوع كاش/شبكة يتسجل كبيعة حقيقية
+  // وييدخل في إجمالي الكاش/الفيزا بتاعت الشيفت عند القفل، بدل ما يضيع كرقم مكتوب في السبب بس
+  async function getOrCreateStaffTable(branchId: string): Promise<string | null> {
+    if (!branchId) return null
+    const { data: existing } = await sb.from('tables').select('id').eq('branch_id', branchId).eq('section', 'staff').limit(1).maybeSingle()
+    if (existing) return existing.id
+    const { data: created, error } = await sb.from('tables')
+      .insert([{ branch_id: branchId, name: 'مشتريات الموظفين', number: 999, section: 'staff', status: 'available', is_active: true }])
+      .select('id').maybeSingle()
+    if (error) { console.error('Failed to create staff purchases table:', error.message); return null }
+    return created?.id || null
+  }
 
   function chargeStaffLabel(s: { name: string; name_en: string | null; employee_number: string | null }) {
     return `${s.name}${s.name_en ? ` (${s.name_en})` : ''}${s.employee_number ? ` — #${s.employee_number}` : ''}`
@@ -2485,6 +2505,8 @@ export default function CashierPage() {
     setChargeType('mistake')
     setChargePercent(100)
     setChargeNote('')
+    setChargePaidNow('')
+    setChargePaidMethod('cash')
     if (chargeStaffList.length === 0) {
       // ✅ كل موظفي الفرع النشطين - مش بس الكاشيرية، لأن الخطأ أو الوجبة الشخصية ممكن تكون لأي موظف (مطبخ، صالة، إلخ)
       // ✅ جديد: name_en + employee_number كمان عشان البحث/العرض يبان بيهم مش بس بالاسم العربي
@@ -2501,8 +2523,9 @@ export default function CashierPage() {
       ? `🍽️ خصم كاشير - خطأ في الطلب: ${chargeItemTarget.itemName} ×${chargeQty}`
       : `🍽️ خصم كاشير - وجبة شخصية: ${chargeItemTarget.itemName} ×${chargeQty}`
     const percentNote = chargePercent < 100 ? ` (خصم ${chargePercent}% من السعر)` : ''
-    const fullReason = chargeNote.trim() ? `${label}${percentNote} — ${chargeNote.trim()}` : `${label}${percentNote}`
-    const amount = chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100)
+    // ✅ جديد: نوضّح في السبب لو الموظف دفع جزء كاش/شبكة فورًا، عشان يبان واضح في سجل المخالفات ليه المبلغ أقل من قيمة الصنف كاملة
+    const paidNoteText = chargePaidNowNum > 0 ? ` — دفع MYR ${chargePaidNowNum.toFixed(2)} ${chargePaidMethod === 'cash' ? 'كاش' : chargePaidMethod === 'visa' ? 'شبكة' : 'تحويل بنكي'} فورًا` : ''
+    const fullReason = chargeNote.trim() ? `${label}${percentNote}${paidNoteText} — ${chargeNote.trim()}` : `${label}${percentNote}${paidNoteText}`
     const actionBy = employee?.name || employee?.name_en || 'Unknown'
 
     // 1) نفس آلية إلغاء الصنف بالظبط - نشيله من فاتورة العميل (الكمية كلها أو جزء منها)
@@ -2520,14 +2543,29 @@ export default function CashierPage() {
     const newTotal = (items || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
     await sb.from('orders').update({ total_amount: newTotal }).eq('id', chargeItemTarget.orderId)
 
-    // 2) خصم فوري من راتب الموظف - نفس جدول المخالفات وبحالة "active" مباشرة (بدون اعتماد)
-    const { error } = await sb.from('violations').insert([{
-      employee_id: chargeEmployeeId, amount, reason: fullReason,
-      date: new Date().toISOString().split('T')[0], created_by: employee?.id, status: 'active',
-    }])
+    // 2) لو الموظف دافع جزء (أو كل) المبلغ كاش/شبكة دلوقتي - نسجّله كبيعة حقيقية على طاولة "مشتريات الموظفين"
+    // عشان يدخل في إجمالي الكاش/الفيزا بتاعت الشيفت عادي زي أي بيع تاني وقت القفل آخر الشيفت
+    if (chargePaidNowNum > 0) {
+      const staffTableId = await getOrCreateStaffTable(employee?.branch_id || '')
+      if (staffTableId) {
+        await sb.from('orders').insert([{
+          table_id: staffTableId, status: 'paid', payment_method: chargePaidMethod,
+          total_amount: chargePaidNowNum, paid_at: new Date().toISOString(), shift,
+          notes: `شراء موظف: ${chargeItemTarget.itemName} ×${chargeQty}`,
+        }])
+      }
+    }
+
+    // 3) الباقي بس (لو فيه) هو اللي ينزل خصم فوري من راتب الموظف - نفس جدول المخالفات وبحالة "active" مباشرة
+    if (chargeRemaining > 0) {
+      const { error } = await sb.from('violations').insert([{
+        employee_id: chargeEmployeeId, amount: chargeRemaining, reason: fullReason,
+        date: new Date().toISOString().split('T')[0], created_by: employee?.id, status: 'active',
+      }])
+      if (error) { setChargeSaving(false); alert('❌ ' + error.message); return }
+    }
     setChargeSaving(false)
-    if (error) { alert('❌ ' + error.message); return }
-    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote('')
+    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
     fetchAll()
   }
 
@@ -3947,6 +3985,27 @@ export default function CashierPage() {
               </div>
             </div>
 
+            {/* ✅ جديد: الموظف يقدر يدفع جزء (أو كل) المبلغ كاش/شبكة فورًا زي أي عميل، والباقي بس ينزل من راتبه */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Pay part of it now? (optional)</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: chargePaidNowNum > 0 ? 8 : 0 }}>
+                <input type="number" min={0} max={chargeTotalAmount} step="0.01" value={chargePaidNow}
+                  onChange={e => setChargePaidNow(e.target.value)}
+                  placeholder={`0.00 (max MYR ${chargeTotalAmount.toFixed(2)})`}
+                  style={{ flex: 1, boxSizing: 'border-box', padding: '9px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+              </div>
+              {chargePaidNowNum > 0 && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['cash', 'visa', 'online'] as const).map(m => (
+                    <button key={m} onClick={() => setChargePaidMethod(m)}
+                      style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${chargePaidMethod === m ? S.green : S.border}`, background: chargePaidMethod === m ? S.greenB : 'transparent', color: chargePaidMethod === m ? S.green : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                      {m === 'cash' ? '💵 Cash' : m === 'visa' ? '💳 Visa' : '📱 Bank Transfer'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <textarea
               value={chargeNote}
               onChange={e => setChargeNote(e.target.value)}
@@ -3955,13 +4014,25 @@ export default function CashierPage() {
               style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 14, fontFamily: 'Tajawal, sans-serif', resize: 'vertical' }}
             />
 
-            <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18, textAlign: 'center', fontSize: 13, color: S.gold, fontWeight: 800 }}>
-              Deduction amount: MYR {(chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100)).toFixed(2)}
-              {chargePercent < 100 && <span style={{ color: S.muted, fontWeight: 400 }}> ({chargePercent}% of MYR {(chargeItemTarget.unitPrice * chargeQty).toFixed(2)})</span>}
+            <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: S.white, fontWeight: 800 }}>
+                <span>Total value</span>
+                <span>MYR {chargeTotalAmount.toFixed(2)}</span>
+              </div>
+              {chargePaidNowNum > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: S.green, marginTop: 4 }}>
+                  <span>Paid now ({chargePaidMethod === 'cash' ? 'Cash' : chargePaidMethod === 'visa' ? 'Visa' : 'Bank Transfer'})</span>
+                  <span>MYR {chargePaidNowNum.toFixed(2)}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: S.amber, marginTop: 4, fontWeight: 800 }}>
+                <span>Deducted from salary</span>
+                <span>MYR {chargeRemaining.toFixed(2)}</span>
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote('') }}
+              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash') }}
                 style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 Back
               </button>

@@ -59,7 +59,15 @@ export default function PickupOrderPage() {
     ])
     setMonths(monthsData || [])
     setBranches(branchesData || [])
-    if (monthsData && monthsData.length > 0) setSelectedMonth(monthsData[0])
+    // ✅ Fix حرج: كان بيختار أحدث صف موجود في payroll_months (ترتيب تنازلي) كافتراضي - لو الأدمن أنشأ صف الشهر
+    // الجاد (مثلاً سبتمبر) مسبقًا كـ"مسودة" قبل ما الشهر يبدأ فعليًا، الصفحة كانت تفتح على شهر مفيش فيه
+    // بصمة حضور لحد الآن لأي حد (الشهر لسه ما بدأش)، فيظهر كل الموظفين "لا يوجد بصمة حضور" بالغلط.
+    // هنا نفضّل شهر التقويم الحالي فعليًا لو موجود له صف، وإلا نرجع لأحدث صف متاح
+    if (monthsData && monthsData.length > 0) {
+      const now = new Date()
+      const currentMonthRow = monthsData.find(m => m.year === now.getFullYear() && m.month === now.getMonth() + 1)
+      setSelectedMonth(currentMonthRow || monthsData[0])
+    }
     if (branchesData && branchesData.length > 0) setSelectedBranch(branchesData[0])
     setLoading(false)
   }, [])

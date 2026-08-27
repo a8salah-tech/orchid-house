@@ -35,7 +35,8 @@ type Branch = { id: string; name: string }
 type RankedEmployee = {
   employee_id: string; name: string; role: string; department?: string | null
   employee_number?: string | null
-  lateHours: number; absenceDays: number; hasAbsenceDeduction: boolean; hasAttended: boolean
+  // ✅ جديد: ساعات الخروج المبكر - تُعرض بجانب التأخير (نفس مصدر البيانات المستخدم في صفحة الرواتب)
+  lateHours: number; earlyHours: number; absenceDays: number; hasAbsenceDeduction: boolean; hasAttended: boolean
   attendanceScore: number; evalScore: number; hasEval: boolean; combined: number
 }
 
@@ -91,7 +92,7 @@ export default function PickupOrderPage() {
       const monthEnd = new Date(Date.UTC(selectedMonth.year, selectedMonth.month, 0)).toISOString().split('T')[0]
 
       const [{ data: records }, { data: evalsData }, { data: attData }] = await Promise.all([
-        sb.from('payroll_records').select('employee_id, late_hours, absence_days, deduction_2')
+        sb.from('payroll_records').select('employee_id, late_hours, early_exit_hours, absence_days, deduction_2')
           .eq('payroll_month_id', selectedMonth.id)
           .in('employee_id', empIds),
         sb.from('employee_evaluations').select('employee_id, total_score, month, year')
@@ -119,6 +120,7 @@ export default function PickupOrderPage() {
         .filter(r => empById[r.employee_id])
         .map(r => {
           const lateHours = r.late_hours || 0
+          const earlyHours = r.early_exit_hours || 0
           const absenceDays = r.absence_days || 0
           const hasAbsenceDeduction = (r.deduction_2 || 0) > 0
           const hasAttended = employeesWithAnyAttendance.has(r.employee_id)
@@ -133,7 +135,7 @@ export default function PickupOrderPage() {
           return {
             employee_id: r.employee_id, name: getFullName(emp), role: emp?.role || '',
             department: emp?.department, employee_number: emp?.employee_number,
-            lateHours, absenceDays, hasAbsenceDeduction, hasAttended, attendanceScore, evalScore, hasEval, combined,
+            lateHours, earlyHours, absenceDays, hasAbsenceDeduction, hasAttended, attendanceScore, evalScore, hasEval, combined,
           }
         })
       scored.sort((a, b) => b.combined - a.combined)
@@ -264,10 +266,13 @@ export default function PickupOrderPage() {
                       {r.hasAttended ? (
                         <>
                           <span style={{ fontSize: 13, fontWeight: 700, color: r.attendanceScore >= 80 ? S.green : r.attendanceScore >= 50 ? S.amber : S.red }}>{r.attendanceScore.toFixed(0)}</span>
-                          {(r.lateHours > 0 || r.absenceDays > 0) && (
+                          {(r.lateHours > 0 || r.earlyHours > 0 || r.absenceDays > 0) && (
                             <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
                               {r.lateHours > 0 && `⏰ ${r.lateHours.toFixed(1)}${isAr ? 'س تأخير' : 'h late'}`}
-                              {r.lateHours > 0 && r.absenceDays > 0 && ' · '}
+                              {r.lateHours > 0 && (r.earlyHours > 0 || r.absenceDays > 0) && ' · '}
+                              {/* ✅ جديد: الخروج المبكر جنب التأخير مباشرة */}
+                              {r.earlyHours > 0 && `🚪 ${r.earlyHours.toFixed(1)}${isAr ? 'س انصراف مبكر' : 'h early leave'}`}
+                              {r.earlyHours > 0 && r.absenceDays > 0 && ' · '}
                               {r.absenceDays > 0 && `🚫 ${r.absenceDays}${isAr ? 'ي غياب' : 'd absent'}`}
                             </div>
                           )}

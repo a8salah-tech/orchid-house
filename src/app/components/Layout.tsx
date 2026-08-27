@@ -130,7 +130,9 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'الهيكل الوظيفي',  label_en: 'Org Chart',     icon: '🏢', path: '/dashboard/org-chart',    permission: 'admin_only' },
     { label: 'المخالفات', label_en: 'Violations', icon: '⚠️', path: '/dashboard/hr/violations', permission: 'violations' },
     { label: 'طلبات الموظفين',  label_en: 'Staff Requests',icon: '📋', path: '/dashboard/hr/requests',  permission: 'my_requests' },
-    { label: 'طلب يونيفورم',    label_en: 'Uniform Request', icon: '👔', path: '/dashboard/hr/uniform-requests', permission: 'my_requests' },
+    // ✅ Fix: كانت مربوطة بصلاحية "my_requests" العامة (تظهر لكل الموظفين تلقائيًا) - بقت صلاحية مستقلة
+    // "uniform_requests" يقدر الأدمن يمنحها لموظفين محددين بس من صفحة إدارة الصلاحيات
+    { label: 'طلب يونيفورم',    label_en: 'Uniform Request', icon: '👔', path: '/dashboard/hr/uniform-requests', permission: 'uniform_requests' },
     { label: 'إدارة الشيفتات',  label_en: 'Shifts',        icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },
     { label: 'الرواتب والأجور', label_en: 'Payroll', icon: '💰', path: '/dashboard/hr/payroll', permission: 'payroll' },
     { label: 'الحضور والانصراف',label_en: 'Attendance',    icon: '⏰', path: '/dashboard/hr/attendance', permission: 'attendance' },

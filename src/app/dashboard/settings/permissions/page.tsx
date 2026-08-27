@@ -100,6 +100,8 @@ const ALL_PERMISSIONS = [
   { key: 'payroll',          label: 'الرواتب والأجور',       group: 'المالية',       icon: '💰' },
   { key: 'hr',               label: 'الموارد البشرية',      group: 'الموارد',       icon: '👷' },
   { key: 'my_requests',      label: 'طلباتي الشخصية',       group: 'الموارد',       icon: '📋' },
+  // ✅ أضيف هنا — كانت مربوطة بصلاحية "طلباتي الشخصية" العامة فمكانش ممكن التحكم فيها لموظفين محددين لوحدها
+  { key: 'uniform_requests', label: 'طلب يونيفورم',         group: 'الموارد',       icon: '👔' },
   { key: 'salary_increase_requests', label: '📈 طلبات زيادة الراتب', group: 'الموارد', icon: '📈' },
   { key: 'salary_advance_requests',  label: '💸 طلبات سلفة الراتب',  group: 'الموارد', icon: '💸' },
   { key: 'attendance',       label: 'الحضور والانصراف',     group: 'الموارد',       icon: '⏰' },

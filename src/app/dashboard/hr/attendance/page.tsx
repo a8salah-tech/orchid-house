@@ -11,6 +11,38 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// ✅ جديد: نظير computeLateInfo (المعرَّفة داخل AdminAttendanceView) تمامًا، لكن للخروج المبكر — يقارن
+// وقت الخروج الفعلي بموعد نهاية الشيفت المجدول لنفس اليوم (grace period 10 دقائق أيضًا)، ويتعامل مع
+// الشيفتات الليلية العابرة لمنتصف الليل. معرَّفة على مستوى الملف (مش جوه أي مكوّن) لأنها مستخدمة من
+// MyAttendanceCard (تسجيل الخروج الذاتي) و AdminAttendanceView (التعديل اليدوي) معًا - مكوّنان منفصلان
+async function computeEarlyInfo(sb: ReturnType<typeof createClient>, employeeId: string, dateStr: string, checkOutIso: string): Promise<{ early_minutes: number }> {
+  const { data: sch } = await sb.from('shift_schedules')
+    .select('*, shifts(start_time,end_time), custom_start, custom_end')
+    .eq('employee_id', employeeId)
+    .eq('date', dateStr)
+    .maybeSingle()
+
+  const startStr = sch?.custom_start || sch?.shifts?.start_time
+  const endStr = sch?.custom_end || sch?.shifts?.end_time
+  // بدون شيفت مجدول أو بدون موعد نهاية معروف، لا يمكن احتساب خروج مبكر بشكل موثوق
+  if (!endStr) return { early_minutes: 0 }
+
+  const [y, mo, d] = dateStr.split('-').map(Number)
+  const [eh, em] = endStr.split(':').map(Number)
+  let dayOffset = 0
+  if (startStr) {
+    const [sh] = startStr.split(':').map(Number)
+    // شيفت ليلي عابر لمنتصف الليل (موعد النهاية أبكر رقميًا من موعد البداية) — النهاية الفعلية في اليوم التالي
+    if (eh * 60 + (em || 0) <= sh * 60) dayOffset = 1
+  }
+  // ✅ نفس منطق تحويل التوقيت المحلي (ماليزيا UTC+8) المستخدم في باقي الصفحة
+  const shiftEndMs = Date.UTC(y, mo - 1, d + dayOffset, eh, em || 0, 0) - 8 * 60 * 60 * 1000
+
+  const diffMins = Math.floor((shiftEndMs - new Date(checkOutIso).getTime()) / 60000)
+  // grace period 10 دقائق — لو خرج قبل الموعد بأكثر من 10 دقائق يُحتسب خروجًا مبكرًا
+  return { early_minutes: diffMins > 10 ? diffMins : 0 }
+}
+
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
   gold: '#C9A84C', gold2: '#E8C97A', gold3: 'rgba(201,168,76,0.12)',
@@ -391,7 +423,7 @@ function MyAttendanceCard() {
   async function finalizeCheckOut(openRecordId: string, lat: number, lng: number, dist: number, shortShiftNote: string | null, employeeId: string, dateStr: string) {
     const now = new Date().toISOString()
     // ✅ جديد: نفس منطق حساب التأخير بالظبط لكن للخروج المبكر - يقارن وقت الخروج الفعلي بموعد نهاية الشيفت
-    const { early_minutes } = await computeEarlyInfo(employeeId, dateStr, now)
+    const { early_minutes } = await computeEarlyInfo(sb, employeeId, dateStr, now)
     const { error } = await sb.from('attendance')
       .update({
         check_out_time:     now,
@@ -861,36 +893,6 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     return { status, late_minutes: status === 'late' ? diffMins : 0 }
   }
 
-  // ✅ جديد: نظير computeLateInfo تمامًا، لكن للخروج المبكر — يقارن وقت الخروج الفعلي بموعد نهاية الشيفت
-  // المجدول لنفس اليوم (grace period 10 دقائق أيضًا)، ويتعامل مع الشيفتات الليلية العابرة لمنتصف الليل
-  async function computeEarlyInfo(employeeId: string, dateStr: string, checkOutIso: string): Promise<{ early_minutes: number }> {
-    const { data: sch } = await sb.from('shift_schedules')
-      .select('*, shifts(start_time,end_time), custom_start, custom_end')
-      .eq('employee_id', employeeId)
-      .eq('date', dateStr)
-      .maybeSingle()
-
-    const startStr = sch?.custom_start || sch?.shifts?.start_time
-    const endStr = sch?.custom_end || sch?.shifts?.end_time
-    // بدون شيفت مجدول أو بدون موعد نهاية معروف، لا يمكن احتساب خروج مبكر بشكل موثوق
-    if (!endStr) return { early_minutes: 0 }
-
-    const [y, mo, d] = dateStr.split('-').map(Number)
-    const [eh, em] = endStr.split(':').map(Number)
-    let dayOffset = 0
-    if (startStr) {
-      const [sh] = startStr.split(':').map(Number)
-      // شيفت ليلي عابر لمنتصف الليل (موعد النهاية أبكر رقميًا من موعد البداية) — النهاية الفعلية في اليوم التالي
-      if (eh * 60 + (em || 0) <= sh * 60) dayOffset = 1
-    }
-    // ✅ نفس منطق تحويل التوقيت المحلي (ماليزيا UTC+8) المستخدم في باقي الصفحة
-    const shiftEndMs = Date.UTC(y, mo - 1, d + dayOffset, eh, em || 0, 0) - 8 * 60 * 60 * 1000
-
-    const diffMins = Math.floor((shiftEndMs - new Date(checkOutIso).getTime()) / 60000)
-    // grace period 10 دقائق — لو خرج قبل الموعد بأكثر من 10 دقائق يُحتسب خروجًا مبكرًا
-    return { early_minutes: diffMins > 10 ? diffMins : 0 }
-  }
-
   // ✅ إعادة حساب دقائق التأخير لكل موظفين الشركة في شهر كامل بأثر رجعي — لتصحيح سجلات قديمة (مثل يوليو) كانت
   // سُجِّلت أو عُدِّلت يدوياً قبل إضافة الحساب التلقائي، وكانت late_minutes فيها صفراً أو خاطئة رغم أن الموظف تأخر فعلياً
   async function recalcMonthLateMinutes() {
@@ -933,7 +935,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         const { status, late_minutes } = await computeLateInfo(rec.employee_id, rec.date, rec.check_in_time!)
         const updatePayload: { status: string; late_minutes: number; early_minutes?: number } = { status, late_minutes }
         if (rec.check_out_time) {
-          const { early_minutes } = await computeEarlyInfo(rec.employee_id, rec.date, rec.check_out_time)
+          const { early_minutes } = await computeEarlyInfo(sb, rec.employee_id, rec.date, rec.check_out_time)
           updatePayload.early_minutes = early_minutes
         }
         const { error: updErr } = await sb.from('attendance').update(updatePayload).eq('id', rec.id)
@@ -1203,7 +1205,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (editingCell.field === 'check_out_time') {
       const rec = records.find(r => r.id === editingCell.recordId)
       if (rec) {
-        const { early_minutes } = await computeEarlyInfo(rec.employee_id, rec.date, utcIso)
+        const { early_minutes } = await computeEarlyInfo(sb, rec.employee_id, rec.date, utcIso)
         updatePayload.early_minutes = early_minutes
       }
     }
@@ -1257,7 +1259,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     // ✅ نحسب حالة الحضور ودقائق التأخير للسجل اليدوي بنفس منطق تسجيل الدخول الذاتي، بدل ما تفضل صفر افتراضياً
     const { status, late_minutes } = await computeLateInfo(empId, date, checkInUtc)
     // ✅ جديد: نفس المبدأ لدقائق الخروج المبكر، لو تم إدخال وقت خروج
-    const early_minutes = checkOutUtc ? (await computeEarlyInfo(empId, date, checkOutUtc)).early_minutes : 0
+    const early_minutes = checkOutUtc ? (await computeEarlyInfo(sb, empId, date, checkOutUtc)).early_minutes : 0
     const { error } = await sb.from('attendance').insert([{
       employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes, early_minutes,
     }])

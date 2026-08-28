@@ -286,7 +286,7 @@ export default function MySalaryPage() {
             </div>
             <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>{isAr ? 'صافي الراتب' : 'Net Salary'} — {(isAr ? MONTHS_AR : MONTHS_EN)[(selectedMonth.month || 1) - 1]} {selectedMonth.year}</div>
-              <div style={{ fontSize: 38, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+              <div style={{ fontSize: 38, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               <div style={{ marginTop: 10 }}>
                 <span style={{ background: selectedMonth.status === 'finalized' ? S.greenB : S.amberB, color: selectedMonth.status === 'finalized' ? S.green : S.amber, borderRadius: 20, padding: '4px 14px', fontSize: 12, fontWeight: 700 }}>
                   {selectedMonth.status === 'finalized' ? (isAr ? '✅ معتمد' : '✅ Finalized') : selectedMonth.status === 'paid' ? (isAr ? '💳 مدفوع' : '💳 Paid') : (isAr ? '📝 قيد المراجعة' : '📝 Under Review')}
@@ -349,12 +349,12 @@ export default function MySalaryPage() {
               {earnings.map((e, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < earnings.length - 1 ? `1px solid ${S.border}` : 'none' }}>
                   <span style={{ fontSize: 13, color: S.white }}>{e.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: e.color }}>MYR {e.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: e.color }}>MYR {e.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(34,197,94,0.06)' }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{isAr ? 'إجمالي الإضافات' : 'Total Earnings'}</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: S.green }}>MYR {grossSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: S.green }}>MYR {grossSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             </div>
           )}
@@ -366,12 +366,12 @@ export default function MySalaryPage() {
               {deductions.map((d, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < deductions.length - 1 ? `1px solid ${S.border}` : 'none' }}>
                   <span style={{ fontSize: 13, color: S.white }}>{d.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: d.color }}>- MYR {d.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: d.color }}>- MYR {d.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(239,68,68,0.06)' }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{isAr ? 'إجمالي الخصومات' : 'Total Deductions'}</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: S.red }}>- MYR {totalDeductions.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: S.red }}>- MYR {totalDeductions.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             </div>
           )}
@@ -385,12 +385,12 @@ export default function MySalaryPage() {
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: `1px solid ${S.border}` }}>
                 <span style={{ fontSize: 13, color: S.muted }}>{row.label}</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: row.color }}>{row.prefix || ''}MYR {row.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: row.color }}>{row.prefix || ''}MYR {row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', background: S.gold3 }}>
               <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>💰 {isAr ? 'صافي الراتب' : 'Net Salary'}</span>
-              <span style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              <span style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>MYR {netSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
 

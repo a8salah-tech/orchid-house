@@ -38,34 +38,12 @@ function fmtTime(timeStr: string | null | undefined, isAr: boolean) {
   return d.toLocaleTimeString(isAr ? 'ar-SA' : 'en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 
-function calcLateMins(checkIn: string | null, shiftStart: string | null, checkInDate: string): number {
-  if (!checkIn || !shiftStart) return 0
-  const ci = new Date(checkIn).getTime()
-  const [h, m] = shiftStart.split(':').map(Number)
-  const [y, mo, d] = checkInDate.split('-').map(Number)
-  // ✅ Date.UTC مع إزاحة -8 ساعات (ماليزيا UTC+8) بدل new Date().setHours() المحلي — لكي الحساب
-  // لا يتأثر بتوقيت جهاز الموظف نفسه، نفس التصحيح المطبَّق في باقي أماكن النظام
-  const expected = Date.UTC(y, mo - 1, d, h, m, 0) - 8 * 60 * 60 * 1000
-  const diff = Math.floor((ci - expected) / 60000)
-  return diff > 10 ? diff : 0
-}
-
-// ✅ جديد: نظير calcLateMins تمامًا لكن للخروج المبكر — يقارن وقت الخروج الفعلي بموعد نهاية الشيفت المجدول
-function calcEarlyMins(checkOut: string | null, shiftStart: string | null, shiftEnd: string | null, checkOutDate: string): number {
-  if (!checkOut || !shiftEnd) return 0
-  const co = new Date(checkOut).getTime()
-  const [eh, em] = shiftEnd.split(':').map(Number)
-  const [y, mo, d] = checkOutDate.split('-').map(Number)
-  let dayOffset = 0
-  if (shiftStart) {
-    const [sh] = shiftStart.split(':').map(Number)
-    // شيفت ليلي عابر لمنتصف الليل — موعد النهاية الفعلي يقع في اليوم التالي
-    if (eh * 60 + (em || 0) <= sh * 60) dayOffset = 1
-  }
-  const expected = Date.UTC(y, mo - 1, d + dayOffset, eh, em || 0, 0) - 8 * 60 * 60 * 1000
-  const diff = Math.floor((expected - co) / 60000)
-  return diff > 10 ? diff : 0
-}
+// ملاحظة: التأخير ودقائق الخروج المبكر لم تعد تُحسَب في هذه الصفحة إطلاقًا — نعتمد مباشرة على
+// القيم المخزَّنة (late_minutes / early_minutes) في جدول الحضور، وهي نفس مصدر الحقيقة الوحيد
+// المستخدم في صفحة الرواتب وصفحة "راتبي" وصفحة الحضور والانصراف. الحساب المستقل القديم هنا كان
+// يقارن البصمة بشيفت تاريخ الصف المخزَّن، فيُنتج أرقامًا وهمية ضخمة (10–24 ساعة) مع الشيفتات
+// الليلية العابرة لمنتصف الليل حين يكون تاريخ صف الحضور مزاحًا بيوم — وهو الباج اللي اتصلّح في صفحة
+// الحضور (resolveShiftWindow + صمام أمان مدة الشيفت). الاعتماد على القيمة المخزَّنة يورّث ذلك التصحيح تلقائيًا.
 
 // ✅ يكتشف الشيفتات ذات المدة غير المنطقية (خطأ إدخال محتمل عند الجدولة، مثل 00:00–23:00 = 23 ساعة تقريباً)
 // حتى لا نعرض رقم "تأخير" خيالي (زي 700+ دقيقة) وكأنه تأخير حقيقي، بينما هو فعلياً خطأ في بيانات الشيفت نفسه
@@ -148,34 +126,20 @@ export default function MySchedulePage() {
   }).length
   const todayShift = getShift(todayStr)
 
-  // إجمالي التأخير الشهري
-  const totalLateMins = useMemo(() => {
-    return attendance.reduce((total, att) => {
-      const sch = schedules.find(s => String(s.date).slice(0,10) === String(att.date).slice(0,10))
-      const shiftStart = sch?.custom_start || sch?.shifts?.start_time
-      const shiftEnd = sch?.custom_end || sch?.shifts?.end_time
-      // ✅ نستبعد الأيام اللي مدة شيفتها مشكوك فيها (خطأ جدولة محتمل) من إجمالي التأخير — عشان رقم غريب
-      // في يوم واحد ميضخّمش إجمالي الشهر كله بشكل مضلِّل
-      if (isSuspiciousShiftDuration(shiftStart, shiftEnd)) return total
-      const late = calcLateMins(att.check_in_time, shiftStart, String(att.date).slice(0,10))
-      return total + late
-    }, 0)
-  }, [attendance, schedules])
+  // إجمالي التأخير الشهري — مجموع القيم المخزَّنة فعليًا في جدول الحضور (نفس أرقام صفحة الرواتب)
+  const totalLateMins = useMemo(
+    () => attendance.reduce((total, att) => total + (att.late_minutes || 0), 0),
+    [attendance]
+  )
 
   const totalLateHours = Math.floor(totalLateMins / 60)
   const totalLateRemMins = totalLateMins % 60
 
-  // ✅ جديد: نظير إجمالي التأخير الشهري تمامًا لكن للخروج المبكر
-  const totalEarlyMins = useMemo(() => {
-    return attendance.reduce((total, att) => {
-      const sch = schedules.find(s => String(s.date).slice(0,10) === String(att.date).slice(0,10))
-      const shiftStart = sch?.custom_start || sch?.shifts?.start_time
-      const shiftEnd = sch?.custom_end || sch?.shifts?.end_time
-      if (isSuspiciousShiftDuration(shiftStart, shiftEnd)) return total
-      const early = calcEarlyMins(att.check_out_time, shiftStart, shiftEnd, String(att.date).slice(0,10))
-      return total + early
-    }, 0)
-  }, [attendance, schedules])
+  // ✅ نظير إجمالي التأخير الشهري تمامًا لكن للخروج المبكر — القيمة المخزَّنة مباشرة
+  const totalEarlyMins = useMemo(
+    () => attendance.reduce((total, att) => total + (att.early_minutes || 0), 0),
+    [attendance]
+  )
 
   const totalEarlyHours = Math.floor(totalEarlyMins / 60)
   const totalEarlyRemMins = totalEarlyMins % 60
@@ -269,15 +233,14 @@ export default function MySchedulePage() {
             const timeTo = sch?.custom_end ? sch.custom_end.slice(0,5) : sch?.shifts?.end_time?.slice(0,5)
             const shiftColor = sch?.shifts?.color || S.purple
 
-            // حساب التأخير
+            // التأخير / الخروج المبكر — القيم المخزَّنة في جدول الحضور مباشرة (لا إعادة حساب هنا)
             const shiftStartStr = sch?.custom_start || sch?.shifts?.start_time
             const shiftEndStr = sch?.custom_end || sch?.shifts?.end_time
-            // ✅ لو مدة الشيفت غير منطقية (خطأ جدولة محتمل)، لا نحسب "تأخير" له خالص — نعرض تحذيراً واضحاً بدلاً منه
+            // ✅ نعرض تحذير "مدة الشيفت غير منطقية" لو انطبق — للعلم فقط؛ الحساب المخزَّن يتعامل معه أصلًا
             const suspiciousShift = hasShift && isSuspiciousShiftDuration(shiftStartStr, shiftEndStr)
-            const lateMins = (att && !suspiciousShift) ? calcLateMins(att.check_in_time, shiftStartStr, d.date) : 0
+            const lateMins = att?.late_minutes || 0
             const isLate = lateMins > 0
-            // ✅ جديد: نظير حساب التأخير تمامًا لكن للخروج المبكر
-            const earlyMins = (att && !suspiciousShift) ? calcEarlyMins(att.check_out_time, shiftStartStr, shiftEndStr, d.date) : 0
+            const earlyMins = att?.early_minutes || 0
             const isEarly = earlyMins > 0
 
             if (!sch && !att) return (

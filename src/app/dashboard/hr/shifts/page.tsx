@@ -44,6 +44,7 @@ function todayStr() { return ld(new Date()) }
 // ══ Shift Modal ══
 function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => void; onSaved: () => void }) {
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [form, setForm] = useState({ name: shift?.name||'', start_time: shift?.start_time||'08:00', end_time: shift?.end_time||'16:00', color: shift?.color||'#C9A84C' })
 
   async function save() {
@@ -52,6 +53,18 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
     if (shift) await supabase.from('shifts').update(form).eq('id', shift.id)
     else await supabase.from('shifts').insert([form])
     setSaving(false)
+    setTimeout(() => onSaved(), 300)
+  }
+
+  // ✅ حذف الشيفت = إلغاء تفعيله فقط (is_active=false) — لا نحذف الصف فعلياً من قاعدة البيانات.
+  // بهذا يختفي الشيفت من قائمة الشيفتات ومن خيارات تعيين الجداول، بينما تبقى كل جداول الموظفين
+  // المعيَّنة على هذا الشيفت مسبقاً كما هي دون أي تأثير (اسمه وتوقيته ولونه يظلّون ظاهرين في جداولهم).
+  async function remove() {
+    if (!shift) return
+    setSaving(true)
+    const { error } = await supabase.from('shifts').update({ is_active: false }).eq('id', shift.id)
+    setSaving(false)
+    if (error) { alert('تعذّر حذف الشيفت: ' + error.message); return }
     setTimeout(() => onSaved(), 300)
   }
 
@@ -84,7 +97,25 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
             </div>
           </div>
         </div>
-        <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
+        {/* ✅ تأكيد حذف الشيفت — رسالة توضّح أن الجداول المعيَّنة مسبقاً لن تتأثر */}
+        {confirmDelete && (
+          <div style={{marginTop:16,background:S.redB,border:`1px solid ${S.red}`,borderRadius:12,padding:'14px 16px'}}>
+            <div style={{fontSize:13,fontWeight:800,color:S.red,marginBottom:6}}>حذف الشيفت "{shift?.name}"؟</div>
+            <div style={{fontSize:12,color:S.white,lineHeight:1.8,marginBottom:12}}>
+              سيُزال الشيفت من القائمة ومن خيارات تعيين الجداول الجديدة. أما جداول الموظفين المعيَّنة على هذا الشيفت في أي تاريخ فتبقى كما هي دون أي تغيير.
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={()=>setConfirmDelete(false)} style={{padding:'8px 16px',borderRadius:9,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif'}}>تراجع</button>
+              <button onClick={remove} disabled={saving} style={{padding:'8px 18px',borderRadius:9,border:`1px solid ${S.red}`,background:S.redB,color:S.red,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:800}}>
+                {saving?'⏳...':'🗑️ تأكيد الحذف'}
+              </button>
+            </div>
+          </div>
+        )}
+        <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end',alignItems:'center'}}>
+          {shift && !confirmDelete && (
+            <button onClick={()=>setConfirmDelete(true)} disabled={saving} style={{padding:'9px 16px',borderRadius:10,border:`1px solid ${S.red}`,background:'transparent',color:S.red,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700,marginInlineEnd:'auto'}}>🗑️ حذف</button>
+          )}
           <button onClick={onClose} style={{padding:'9px 18px',borderRadius:10,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif'}}>إلغاء</button>
           <button onClick={save} disabled={saving} style={{padding:'9px 22px',borderRadius:10,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
             {saving?'⏳...':shift?'💾 حفظ':'✅ إضافة'}

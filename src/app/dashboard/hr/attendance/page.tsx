@@ -11,6 +11,18 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// ✅ مدة الشيفت المجدول بالدقائق (يتعامل مع الشيفت الليلي العابر لمنتصف الليل)
+// نستخدمها كصمام أمان: أي "تأخير" أو "خروج مبكر" أكبر من مدة الشيفت كلها = خطأ بيانات
+// (تاريخ صف حضور غلط، أو بصمة مقترنة بشيفت اليوم الخطأ) وليس قيمة حقيقية، فنتجاهله بدل تغذية خصم وهمي
+function scheduledShiftMinutes(startStr: string | null | undefined, endStr: string | null | undefined): number | null {
+  if (!startStr || !endStr) return null
+  const [sh, sm] = startStr.split(':').map(Number)
+  const [eh, em] = endStr.split(':').map(Number)
+  let dur = (eh * 60 + (em || 0)) - (sh * 60 + (sm || 0))
+  if (dur <= 0) dur += 24 * 60
+  return dur
+}
+
 // ✅ جديد: نظير computeLateInfo (المعرَّفة داخل AdminAttendanceView) تمامًا، لكن للخروج المبكر — يقارن
 // وقت الخروج الفعلي بموعد نهاية الشيفت المجدول لنفس اليوم (grace period 10 دقائق أيضًا)، ويتعامل مع
 // الشيفتات الليلية العابرة لمنتصف الليل. معرَّفة على مستوى الملف (مش جوه أي مكوّن) لأنها مستخدمة من
@@ -39,6 +51,10 @@ async function computeEarlyInfo(sb: ReturnType<typeof createClient>, employeeId:
   const shiftEndMs = Date.UTC(y, mo - 1, d + dayOffset, eh, em || 0, 0) - 8 * 60 * 60 * 1000
 
   const diffMins = Math.floor((shiftEndMs - new Date(checkOutIso).getTime()) / 60000)
+  // ✅ صمام أمان: مستحيل يخرج مبكرًا أكثر من مدة الشيفت كلها — رقم زي ده يعني الصف مؤرّخ بيوم غلط
+  // (شائع مع الشيفتات الليلية والبصمة بعد منتصف الليل)، فنتجاهله بدل تغذية خصم خروج مبكر وهمي في الرواتب
+  const shiftMins = scheduledShiftMinutes(startStr, endStr)
+  if (shiftMins !== null && diffMins >= shiftMins) return { early_minutes: 0 }
   // grace period 10 دقائق — لو خرج قبل الموعد بأكثر من 10 دقائق يُحتسب خروجًا مبكرًا
   return { early_minutes: diffMins > 10 ? diffMins : 0 }
 }
@@ -255,9 +271,9 @@ function MyAttendanceCard() {
       const today_date = getMalaysiaDateString()
       const yesterday_date = getMalaysiaDateString(new Date(Date.now() - 86400000))
       const now        = new Date().toISOString()
+      const nowMs      = Date.now()
       // حساب التأخير بناءً على جدول الشيفت
-      const now_time = new Date()
-      let shiftStart = null
+      let shiftStartMs: number | null = null
       // نجلب شيفت الموظف من قاعدة البيانات — اليوم الحالي أو الأمس (لو شيفت ليلي عابر لمنتصف الليل ولا يزال في وقته)
       const { data: schToday } = await sb.from('shift_schedules')
         .select('*, shifts(start_time,end_time), custom_start, custom_end')
@@ -280,36 +296,47 @@ function MyAttendanceCard() {
           const [eh, em] = endStr.split(':').map(Number)
           const crossesMidnight = (eh * 60 + (em||0)) <= (sh * 60)
           if (crossesMidnight) {
-            const endToday = new Date(); endToday.setHours(eh, em || 0, 0, 0)
-            // ✅ الاعتماد على الوقت الفعلي فقط (هل لا زلنا داخل نطاق شيفت أمس الممتد لما بعد منتصف الليل)،
-            // وليس على وجود/عدم وجود شيفت مجدول لليوم — الجدولة الشهرية المسبقة تجعل "شيفت اليوم" موجوداً
-            // دائماً تقريباً، فكان شرط "!schToday" يمنع استخدام شيفت أمس أبداً، ويُحتسب أي دخول بعد منتصف
-            // الليل خطأً كأنه بداية شيفت اليوم الجديد (الذي لم يبدأ فعلياً بعد)، ويُسجَّل بتاريخ خاطئ
-            if (now_time.getTime() < endToday.getTime()) {
+            // ✅ نهاية شيفت أمس الممتد = "اليوم" عند ساعة النهاية، محسوبة بتوقيت ماليزيا الثابت (UTC+8)
+            // وليس new Date().setHours() اللي بيعتمد على توقيت جهاز الموظف — لو جهازه على توقيت تاني
+            // كان الفحص يفشل، فيتسجّل الدخول بتاريخ اليوم بدل يوم بداية الشيفت الليلي، وكل حسابات
+            // التأخير/الخروج المبكر بعدها تطلع غلط بفارق يوم كامل تقريبًا
+            const [ty, tm, td] = today_date.split('-').map(Number)
+            const endOfNightShiftMs = Date.UTC(ty, tm - 1, td, eh, em || 0, 0) - 8 * 60 * 60 * 1000
+            if (nowMs < endOfNightShiftMs) {
               schData = schYesterday
             }
           }
         }
       }
 
+      const usingYesterdayShift = schData === schYesterday
       if (schData) {
         const startStr = schData.custom_start || schData.shifts?.start_time
         if (startStr) {
           const [h, m] = startStr.split(':').map(Number)
-          shiftStart = new Date()
-          // لو استخدمنا شيفت الأمس، وقت البداية يكون أمس فعليًا
-          if (schData === schYesterday) shiftStart.setDate(shiftStart.getDate() - 1)
-          shiftStart.setHours(h, m, 0, 0)
+          const baseDate = usingYesterdayShift ? yesterday_date : today_date
+          const [by, bm, bd] = baseDate.split('-').map(Number)
+          // ✅ بداية الشيفت بتوقيت ماليزيا الثابت (نفس منطق باقي الصفحة)
+          shiftStartMs = Date.UTC(by, bm - 1, bd, h, m, 0) - 8 * 60 * 60 * 1000
         }
       }
-      // لو لا توجد شيفت، نستخدم 9 صباحاً كـ default
-      if (!shiftStart) { shiftStart = new Date(); shiftStart.setHours(9, 0, 0, 0) }
-      const diffMins = Math.floor((now_time.getTime() - shiftStart.getTime()) / 60000)
+      if (shiftStartMs === null) {
+        // لا توجد شيفت — الافتراضي 9 صباحاً بتوقيت ماليزيا لليوم الحالي
+        const [dy, dm, dd] = today_date.split('-').map(Number)
+        shiftStartMs = Date.UTC(dy, dm - 1, dd, 9, 0, 0) - 8 * 60 * 60 * 1000
+      }
+      let diffMins = Math.floor((nowMs - shiftStartMs) / 60000)
+      // ✅ صمام أمان: تأخير أكبر من مدة الشيفت كلها = خطأ بيانات، نتجاهله
+      const clampShiftMins = scheduledShiftMinutes(
+        schData?.custom_start || schData?.shifts?.start_time,
+        schData?.custom_end || schData?.shifts?.end_time,
+      )
+      if (clampShiftMins !== null && diffMins >= clampShiftMins) diffMins = 0
       // grace period 10 دقيقة — لو أتأخر أكتر من 10 دقائق يحتسب متأخر
       const status = diffMins > 10 ? 'late' : 'present'
       const late_minutes = status === 'late' ? diffMins : 0
       // لو استخدمنا شيفت الأمس، صف الحضور يُسجَّل بتاريخ الأمس (نفس منطق تسجيل الشيفتات الليلية في الجدول)
-      const attendance_date = (schData === schYesterday) ? yesterday_date : today_date
+      const attendance_date = usingYesterdayShift ? yesterday_date : today_date
 
       // ✅ نتحقق هل يوجد صف حضور مكتمل بالفعل (دخول وخروج) لنفس التاريخ — لو موجود، لازم نضيف صفاً جديداً
       // منفصلاً (شيفت ثانٍ لنفس اليوم التقويمي، شائع مع الشيفتات الليلية)، وليس نُحدِّث الصف المكتمل القديم،
@@ -889,6 +916,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       .maybeSingle()
 
     const startStr = sch?.custom_start || sch?.shifts?.start_time
+    const endStr = sch?.custom_end || sch?.shifts?.end_time
     const [y, mo, d] = dateStr.split('-').map(Number)
     let shiftStartMs: number
     if (startStr) {
@@ -902,6 +930,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     }
 
     const diffMins = Math.floor((new Date(checkInIso).getTime() - shiftStartMs) / 60000)
+    // ✅ صمام أمان: تأخير أكبر من مدة الشيفت كلها = خطأ بيانات (صف مؤرّخ بيوم غلط)، نتجاهله
+    const shiftMins = scheduledShiftMinutes(startStr, endStr)
+    if (shiftMins !== null && diffMins >= shiftMins) return { status: 'present', late_minutes: 0 }
     const status = diffMins > 10 ? 'late' : 'present'
     return { status, late_minutes: status === 'late' ? diffMins : 0 }
   }

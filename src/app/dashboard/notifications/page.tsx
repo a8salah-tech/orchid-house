@@ -50,6 +50,7 @@ const TYPE_CFG: Record<string, { icon: string; color: string; bg: string; label:
   attendance:  { icon: '⏰', color: S.amber,  bg: S.amberB,  label: 'حضور وانصراف' },
   shift:       { icon: '🕐', color: S.blue,   bg: S.blueB,   label: 'شيفت' },
   violation:   { icon: '⚠️', color: S.red,    bg: S.redB,    label: 'مخالفة' },
+  maintenance: { icon: '🔧', color: S.amber,  bg: S.amberB,  label: 'صيانة' },
   payroll:     { icon: '💵', color: S.gold,   bg: S.gold3,   label: 'رواتب' },
   // النظام
   system:      { icon: '⚙️', color: S.muted,  bg: S.card,    label: 'نظام' },

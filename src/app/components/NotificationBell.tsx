@@ -22,7 +22,7 @@ const S = {
 const TYPE_ICONS: Record<string, string> = {
   order: '🍽️', waiter_call: '🔔', kitchen: '👨‍🍳', booking: '📅',
   leave: '🏖️', leave_reply: '✅', stock: '📦', payroll: '💰',
-  shift: '🕐', system: '⚙️', request: '📋',
+  shift: '🕐', system: '⚙️', request: '📋', maintenance: '🔧',
 }
 
 function timeAgo(iso: string) {

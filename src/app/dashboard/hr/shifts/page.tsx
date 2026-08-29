@@ -146,8 +146,8 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   const [customEnd, setCustomEnd] = useState('16:00')
   // لتعديل يوم واحد بشكل مباشر
   const [editDay, setEditDay] = useState<string | null>(null)
-  // ✅ سجل التغييرات لهذا الموظف في هذا الشهر — عدد مرات التغيير، وآخر شخص قام بالتغيير
-  const [changeHistory, setChangeHistory] = useState<{ count: number; lastChangedByName: string | null; lastChangedAt: string | null } | null>(null)
+  // ✅ سجل التغييرات لهذا الموظف في هذا الشهر — عدد مرات التغيير + اسم كل من عدّل (مش آخر واحد فقط)
+  const [changeHistory, setChangeHistory] = useState<{ count: number; edits: { name: string; at: string | null }[] } | null>(null)
   // تحميل الجدول الموجود عند اختيار موظف
   const [loadedSchedule, setLoadedSchedule] = useState(false)
 
@@ -174,6 +174,27 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     return { day: i + 1, date: dateStr, dow: d.getDay() }
   })
 
+  // ✅ الدوامات المستخدمة فعليًا في هذا الشهر — كل دوام مع وقت حضوره وانصرافه وعدد أيامه.
+  // يحل محل قائمة "كل الشيفتات" القديمة (اللي كانت بأسماء فقط بلا مواعيد). لو أكثر من دوام → كلهم يظهروا.
+  const usedShifts = useMemo(() => {
+    const byKey = new Map<string, { label: string; start: string; end: string; color: string; days: number }>()
+    let leaveDays = 0
+    for (const v of Object.values(calendarMap)) {
+      if (v.type === 'leave') { leaveDays++; continue }
+      if (v.type === 'shift' && v.shiftId) {
+        const sh = shifts.find(s => s.id === v.shiftId)
+        if (!sh) continue
+        const cur = byKey.get(`s:${v.shiftId}`) || { label: sh.name, start: sh.start_time?.slice(0, 5) || '—', end: sh.end_time?.slice(0, 5) || '—', color: sh.color || S.blue, days: 0 }
+        cur.days++; byKey.set(`s:${v.shiftId}`, cur)
+      } else if (v.type === 'custom' && v.customStart) {
+        const k = `c:${v.customStart}-${v.customEnd}`
+        const cur = byKey.get(k) || { label: 'وقت مخصص', start: v.customStart, end: v.customEnd || '—', color: S.purple, days: 0 }
+        cur.days++; byKey.set(k, cur)
+      }
+    }
+    return { list: [...byKey.values()].sort((a, b) => a.start.localeCompare(b.start)), leaveDays }
+  }, [calendarMap, shifts])
+
   // تحميل الجدول الموجود للموظف لهذا الشهر
   async function loadExistingSchedule(eId: string) {
     if (!eId) return
@@ -198,19 +219,24 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
       })
       setCalendarMap(map)
       setLoadedSchedule(true)
-      // ✅ حساب "كام مرة اتغيّر الجدول هذا الشهر" — كل عملية حفظ جماعية تشترك في نفس created_at بالضبط
-      // (لأنها تُدرَج في نفس اللحظة)، فعدد الأوقات المميّزة (Distinct) = عدد مرات الحفظ الفعلية، وليس عدد الأيام
-      const distinctTimestamps = [...new Set(data.map((s: any) => s.created_at))].sort()
-      const mostRecentTimestamp = distinctTimestamps[distinctTimestamps.length - 1]
-      const mostRecentRow = data.find((s: any) => s.created_at === mostRecentTimestamp)
-      const lastChangedByEmp = mostRecentRow?.assigned_by ? employees.find(e => e.id === mostRecentRow.assigned_by) : null
-      setChangeHistory({
-        count: distinctTimestamps.length,
-        lastChangedByName: mostRecentRow?.assigned_by
-          ? (lastChangedByEmp ? `${lastChangedByEmp.name}${lastChangedByEmp.name_en ? ' ' + lastChangedByEmp.name_en : ''}` : 'غير معروف (موظف غير نشط)')
-          : 'غير مسجَّل (تغيير قديم قبل تفعيل هذه الميزة)',
-        lastChangedAt: mostRecentTimestamp || null,
-      })
+      // ✅ كل عملية حفظ جماعية تشترك في نفس created_at بالضبط + نفس assigned_by. نبني قائمة بكل دفعة
+      // حفظ (created_at مميّز) واسم من قام بها، مرتَّبة زمنيًا — عشان نعرض اسم كل من عدّل الجدول، مش الأخير فقط
+      const batchActor = new Map<string, string | null>()
+      for (const s of data as any[]) {
+        if (!batchActor.has(s.created_at)) batchActor.set(s.created_at, s.assigned_by ?? null)
+      }
+      const edits = [...batchActor.entries()]
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+        .map(([ts, byId]) => {
+          const emp = byId ? employees.find(e => e.id === byId) : null
+          return {
+            name: byId
+              ? (emp ? `${emp.name}${emp.name_en ? ' ' + emp.name_en : ''}` : 'غير معروف (موظف غير نشط)')
+              : 'غير مسجَّل (تغيير قديم قبل تفعيل هذه الميزة)',
+            at: ts || null,
+          }
+        })
+      setChangeHistory({ count: edits.length, edits })
     } else {
       setCalendarMap({})
       setLoadedSchedule(false)
@@ -415,15 +441,19 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               {employees.map(e => <option key={e.id} value={e.id}>{e.name}{e.name_en ? ' '+e.name_en : ''} — {e.department}</option>)}
             </select>
             {loadedSchedule && <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>⚠️ يوجد جدول محفوظ — سيتم استبداله عند الحفظ</div>}
-            {/* ✅ ملخص سجل التغييرات — كام مرة اتغيّر الجدول هذا الشهر، ومين آخر شخص غيّره */}
+            {/* ✅ ملخص سجل التغييرات — كام مرة اتغيّر الجدول هذا الشهر، واسم كل من عدّله (مش الأخير فقط) */}
             {changeHistory && (
-              <div style={{ fontSize: 11, color: S.teal, marginTop: 6, background: S.tealB, borderRadius: 8, padding: '6px 10px', lineHeight: 1.8 }}>
-                🔄 تم تعديل جدول هذا الموظف <b>{changeHistory.count}</b> مرة هذا الشهر
-                <br />
-                👤 آخر من قام بالتعديل: <b>{changeHistory.lastChangedByName}</b>
-                {changeHistory.lastChangedAt && (
-                  <> — {new Date(changeHistory.lastChangedAt).toLocaleString('ar-SA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</>
-                )}
+              <div style={{ fontSize: 11, color: S.teal, marginTop: 6, background: S.tealB, borderRadius: 8, padding: '8px 10px', lineHeight: 1.8 }}>
+                🔄 تم تعديل جدول هذا الموظف <b>{changeHistory.count}</b> {changeHistory.count === 1 ? 'مرة' : changeHistory.count === 2 ? 'مرتين' : 'مرات'} هذا الشهر
+                <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {changeHistory.edits.map((e, i) => (
+                    <div key={i} style={{ color: i === changeHistory.edits.length - 1 ? S.teal : S.muted }}>
+                      {changeHistory.edits.length === 1 ? '👤 ' : i === changeHistory.edits.length - 1 ? '👤 آخر تعديل: ' : `${i + 1}. `}
+                      <b>{e.name}</b>
+                      {e.at && <> — {new Date(e.at).toLocaleString('ar-SA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</>}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -626,23 +656,31 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
           ))}
         </div>
 
-        {/* Legend */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          {shifts.map(s => (
-            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 3, background: s.color }} />
-              <span style={{ fontSize: 11, color: S.muted }}>{s.name}</span>
+        {/* ✅ دوام هذا الشهر — بدل قائمة "كل الشيفتات" القديمة: نعرض الدوامات المستخدمة فعلياً فقط،
+            كل واحد بوقت حضوره وانصرافه وعدد أيامه. لو أكثر من دوام، كلهم يظهروا مميَّزين بلونهم */}
+        {(usedShifts.list.length > 0 || usedShifts.leaveDays > 0) && (
+          <div style={{ background: S.navy3, borderRadius: 10, padding: isMobile ? 10 : 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: S.gold, marginBottom: 8 }}>
+              📋 دوام {MONTHS_AR[month]} {year}
+              {usedShifts.list.length > 1 && <span style={{ color: S.amber, fontWeight: 700 }}> — أكثر من دوام هذا الشهر</span>}
             </div>
-          ))}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 3, background: S.purple }} />
-            <span style={{ fontSize: 11, color: S.muted }}>وقت مخصص</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {usedShifts.list.map((s, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flexWrap: 'wrap' }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                  <span style={{ color: S.white, fontWeight: 700 }}>{s.label}</span>
+                  <span style={{ color: S.muted }}>وقت الحضور <b style={{ color: S.white }}>{s.start}</b> · وقت الانصراف <b style={{ color: S.white }}>{s.end}</b></span>
+                  <span style={{ color: S.muted, marginInlineStart: 'auto' }}>({s.days} يوم)</span>
+                </div>
+              ))}
+              {usedShifts.leaveDays > 0 && (
+                <div style={{ fontSize: 12, color: S.amber, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>🏖️</span><span>إجازات: <b>{usedShifts.leaveDays}</b> يوم</span>
+                </div>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>🏖️</span>
-            <span style={{ fontSize: 11, color: S.muted }}>إجازة</span>
-          </div>
-        </div>
+        )}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
           {saving && <span style={{ fontSize: 12, color: S.muted }}>{progress}</span>}

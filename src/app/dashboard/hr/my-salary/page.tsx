@@ -51,9 +51,9 @@ function calcRecord(r: PayrollRecord) {
   const totalAllowances = r.allowance_1 + r.allowance_2 + r.allowance_3
   const totalEarnings   = earnedBase + overtimePay + totalAllowances
   const absenceDed  = dailyRate * r.absence_days
-  const lateRate    = 20 // 20 MYR per late hour
-  const lateDed     = lateRate * r.late_hours
-  const earlyDed    = hourlyRate * r.early_exit_hours
+  const hourPenalty = 20 // 20 MYR لكل ساعة تأخير أو خروج مبكر — مبلغ ثابت مستقل عن الراتب (نفس صفحة الرواتب)
+  const lateDed     = hourPenalty * r.late_hours
+  const earlyDed    = hourPenalty * r.early_exit_hours
   const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
   const amountDue   = netSalary > 0 ? netSalary : 0
@@ -329,7 +329,7 @@ export default function MySalaryPage() {
                 { label: isAr ? 'أيام الحضور الفعلي' : 'Actual Days Present', value: realPresentDays, color: S.green },
                 { label: isAr ? 'أيام الغياب' : 'Absence Days', value: autoAbsentDays, color: autoAbsentDays > 0 ? S.red : S.muted },
                 { label: isAr ? 'تأخير (ساعة) 20 MYR' : 'Lateness (hr) 20 MYR', value: myRecord.late_hours, color: myRecord.late_hours > 0 ? S.amber : S.muted },
-                { label: isAr ? 'خروج مبكر (ساعة)' : 'Early Leave (hr)', value: myRecord.early_exit_hours, color: myRecord.early_exit_hours > 0 ? S.red : S.muted },
+                { label: isAr ? 'خروج مبكر (ساعة) 20 MYR' : 'Early Leave (hr) 20 MYR', value: myRecord.early_exit_hours, color: myRecord.early_exit_hours > 0 ? S.red : S.muted },
                 { label: isAr ? 'أوفر تايم' : 'Overtime', value: (myRecord.overtime_days || 0) + (myRecord.overtime_hours ? myRecord.overtime_hours / 8 : 0), color: S.purple },
                 { label: isAr ? 'رصيد سلفة' : 'Advance Balance', value: myRecord.advance_balance || 0, color: S.amber },
               ]

@@ -28,7 +28,8 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 // ✅ عرض عمودي "الرقم الوظيفي" و"الاسم" المثبّتين (Sticky) في جدول الرواتب — يُستخدمان في الهيدر والصفوف معاً
 const ID_COL_W = 64
 const NAME_COL_W = 190
-// ✅ خصم ساعة التأخير: مبلغ ثابت لكل الموظفين (بالرينجت الماليزي) بدل ما يتحسب حسب راتب كل موظف
+// ✅ خصم ساعة التأخير وساعة الخروج المبكر: نفس المبلغ الثابت لكل الموظفين (بالرينجت الماليزي)،
+// بدل ما يتحسب حسب راتب كل موظف
 const LATE_HOUR_PENALTY = 20
 // ✅ لون خلفية الصف عند تحديده (يجب أن يكون صلباً/Opaque في الأعمدة المثبّتة حتى لا يظهر تداخل مع الأعمدة الأخرى أثناء التمرير الأفقي)
 const SELECTED_ROW_BG = '#152E59'
@@ -196,9 +197,9 @@ function calcRecord(r: PayrollRecord) {
   const totalAllowances = r.allowance_1 + r.allowance_2 + r.allowance_3
   const totalEarnings   = earnedBase + overtimePay + totalAllowances
   const absenceDed  = dailyRate * r.absence_days
-  // ✅ خصم التأخير: مبلغ ثابت (LATE_HOUR_PENALTY) لكل ساعة تأخير، بغض النظر عن راتب الموظف
+  // ✅ خصم التأخير والخروج المبكر: مبلغ ثابت (LATE_HOUR_PENALTY = 20) لكل ساعة، بغض النظر عن راتب الموظف
   const lateDed     = LATE_HOUR_PENALTY * r.late_hours
-  const earlyDed    = hourlyRate * r.early_exit_hours
+  const earlyDed    = LATE_HOUR_PENALTY * r.early_exit_hours
   const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
   const amountDue   = netSalary > 0 ? netSalary : 0

@@ -151,6 +151,15 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   // تحميل الجدول الموجود عند اختيار موظف
   const [loadedSchedule, setLoadedSchedule] = useState(false)
 
+  // ✅ عرض متجاوب مع الموبيل — نفس نمط باقي الصفحات (window.innerWidth < 860)
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 860)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstDow = new Date(year, month, 1).getDay()
   useEffect(() => {
@@ -387,8 +396,8 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
 
   return (
     <>
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
-      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 720, padding: 28, margin: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobile ? 6 : 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: isMobile ? 14 : 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 720, padding: isMobile ? 14 : 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
             <h3 style={{ color: S.white, fontSize: 16, fontWeight: 800, marginBottom: 4 }}>📅 تعيين جدول شهري</h3>
@@ -397,9 +406,9 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
-        {/* Row: Employee + Month + Year */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
-          <div>
+        {/* Row: Employee + Month + Year — على الموبيل: الموظف بعرض كامل، والشهر/السنة في صف تحته */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '2fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+          <div style={{ gridColumn: isMobile ? '1 / -1' : undefined }}>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الموظف *</label>
             <select style={inp} value={empId} onChange={e => { setEmpId(e.target.value); setCalendarMap({}); loadExistingSchedule(e.target.value) }}>
               <option value="">-- اختر الموظف --</option>
@@ -433,11 +442,11 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         </div>
 
         {/* Shift + Custom time selector */}
-        <div style={{ background: S.navy3, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+        <div style={{ background: S.navy3, borderRadius: 12, padding: isMobile ? 10 : 14, marginBottom: 14 }}>
           <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 10 }}>نوع اليوم للتطبيق</div>
 
           {/* Type buttons */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: isMobile ? 6 : 8, marginBottom: 12, flexWrap: 'wrap' }}>
             {[
               { key: 'shift', label: '⏰ شيفت', color: S.blue, bg: S.blueB },
               { key: 'custom', label: '🕐 وقت مخصص', color: S.purple, bg: S.purpleB },
@@ -445,7 +454,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               { key: 'off', label: '❌ مسح', color: S.red, bg: S.redB },
             ].map(t => (
               <button key={t.key} onClick={() => setBulkType(t.key as any)}
-                style={{ padding: '7px 16px', borderRadius: 8, border: `2px solid ${bulkType === t.key ? t.color : S.border}`, background: bulkType === t.key ? t.bg : 'transparent', color: bulkType === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                style={{ padding: isMobile ? '6px 11px' : '7px 16px', borderRadius: 8, border: `2px solid ${bulkType === t.key ? t.color : S.border}`, background: bulkType === t.key ? t.bg : 'transparent', color: bulkType === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 {t.label}
               </button>
             ))}
@@ -466,16 +475,16 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
           {/* Custom time */}
           {bulkType === 'custom' && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-              <div>
+              <div style={{ flex: isMobile ? 1 : undefined }}>
                 <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>من</label>
-                <input type="time" style={{ ...inp, width: 120, direction: 'ltr', textAlign: 'center' }} value={customStart} onChange={e => setCustomStart(e.target.value)} />
+                <input type="time" style={{ ...inp, width: isMobile ? '100%' : 120, direction: 'ltr', textAlign: 'center' }} value={customStart} onChange={e => setCustomStart(e.target.value)} />
               </div>
               <div style={{ color: S.muted, marginTop: 20 }}>→</div>
-              <div>
+              <div style={{ flex: isMobile ? 1 : undefined }}>
                 <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>إلى</label>
-                <input type="time" style={{ ...inp, width: 120, direction: 'ltr', textAlign: 'center' }} value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
+                <input type="time" style={{ ...inp, width: isMobile ? '100%' : 120, direction: 'ltr', textAlign: 'center' }} value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
               </div>
-              <div style={{ background: S.purpleB, borderRadius: 8, padding: '6px 12px', marginTop: 16, fontSize: 12, color: S.purple, fontWeight: 700 }}>
+              <div style={{ background: S.purpleB, borderRadius: 8, padding: '6px 12px', marginTop: isMobile ? 4 : 16, fontSize: 12, color: S.purple, fontWeight: 700, direction: 'ltr', width: isMobile ? '100%' : undefined, textAlign: 'center' }}>
                 {customStart} — {customEnd}
               </div>
             </div>
@@ -501,7 +510,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
 
         {/* Edit day popup */}
         {editDay && (
-          <div style={{ background: S.navy3, border: `1px solid ${S.gold}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+          <div style={{ background: S.navy3, border: `1px solid ${S.gold}`, borderRadius: 12, padding: isMobile ? 10 : 14, marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 10 }}>✏️ تعديل يوم {editDay}</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {shifts.map(s => (
@@ -531,13 +540,13 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         )}
 
         {/* Calendar */}
-        <div style={{ background: S.navy3, borderRadius: 14, padding: 14, marginBottom: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 6 }}>
+        <div style={{ background: S.navy3, borderRadius: 14, padding: isMobile ? 6 : 14, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: isMobile ? 2 : 4, marginBottom: 6 }}>
             {DAYS_HDR.map(d => (
-              <div key={d} style={{ textAlign: 'center', fontSize: 11, color: S.muted, fontWeight: 700, padding: '4px 0' }}>{d}</div>
+              <div key={d} style={{ textAlign: 'center', fontSize: isMobile ? 9 : 11, color: S.muted, fontWeight: 700, padding: '4px 0' }}>{d}</div>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: isMobile ? 2 : 4 }}>
             {Array.from({ length: firstDow }).map((_: unknown, i: number) => <div key={`e-${i}`} />)}
             {allDays.map(d => {
               const entry = calendarMap[d.date]
@@ -574,17 +583,21 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
                       : entry?.type === 'leave' ? '🏖️ إجازة · ' : '')
                     + (isPast ? 'يوم ماضٍ — مقفول تماماً، لا يمكن تعديله' : isRealPastDate ? 'يوم ماضٍ — يمكنك تعديله بصلاحيتك الإدارية، يُرجى الحذر' : 'اضغط للتحديد — اضغط مرتين للتعديل المباشر')
                   }
-                  style={{ background: bg, border, borderRadius: 8, padding: '4px 2px', cursor: isPast ? 'not-allowed' : 'pointer', textAlign: 'center', minHeight: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'all .1s', opacity: isPast ? 0.4 : 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}{isPast ? ' 🔒' : (isRealPastDate ? ' 🟠' : '')}</div>
-                  {/* ✅ نعرض وقت الحضور والانصراف معاً (كان يظهر وقت البداية فقط). direction:ltr لكي يقرأ 21:00—05:00 صح داخل التقويم RTL */}
+                  style={{ background: bg, border, borderRadius: isMobile ? 6 : 8, padding: isMobile ? '3px 1px' : '4px 2px', cursor: isPast ? 'not-allowed' : 'pointer', textAlign: 'center', minHeight: isMobile ? 44 : 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: isMobile ? 1 : 2, transition: 'all .1s', opacity: isPast ? 0.4 : 1 }}>
+                  <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white), whiteSpace: 'nowrap' }}>{d.day}{isPast ? ' 🔒' : (isRealPastDate ? ' 🟠' : '')}</div>
+                  {/* ✅ وقت الحضور والانصراف معاً (كان وقت البداية فقط). على الموبيل يتراصّوا فوق بعض عشان يسعوا الخانة الضيقة؛ على غيره سطر واحد بشرطة. direction:ltr للقراءة الصحيحة داخل تقويم RTL */}
                   {entry?.type === 'shift' && shift && (
-                    <div style={{ fontSize: 8, fontWeight: 700, color: shift.color, background: shift.color + '30', borderRadius: 4, padding: '1px 3px', direction: 'ltr', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {shift.start_time?.slice(0, 5)}—{shift.end_time?.slice(0, 5)}
+                    <div style={{ fontSize: 8, fontWeight: 700, color: shift.color, background: shift.color + '30', borderRadius: 4, padding: '1px 3px', direction: 'ltr', lineHeight: 1.15, maxWidth: '100%', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                      {isMobile
+                        ? <>{shift.start_time?.slice(0, 5)}<br />{shift.end_time?.slice(0, 5)}</>
+                        : <>{shift.start_time?.slice(0, 5)}—{shift.end_time?.slice(0, 5)}</>}
                     </div>
                   )}
                   {entry?.type === 'custom' && (
-                    <div style={{ fontSize: 8, fontWeight: 700, color: S.purple, background: S.purpleB, borderRadius: 4, padding: '1px 3px', direction: 'ltr', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {entry.customStart?.slice(0, 5)}—{entry.customEnd?.slice(0, 5)}
+                    <div style={{ fontSize: 8, fontWeight: 700, color: S.purple, background: S.purpleB, borderRadius: 4, padding: '1px 3px', direction: 'ltr', lineHeight: 1.15, maxWidth: '100%', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                      {isMobile
+                        ? <>{entry.customStart?.slice(0, 5)}<br />{entry.customEnd?.slice(0, 5)}</>
+                        : <>{entry.customStart?.slice(0, 5)}—{entry.customEnd?.slice(0, 5)}</>}
                     </div>
                   )}
                   {entry?.type === 'leave' && <div style={{ fontSize: 12 }}>🏖️</div>}
@@ -598,17 +611,17 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
         </div>
 
         {/* Summary */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: isMobile ? 'grid' : 'flex', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : undefined, gap: isMobile ? 8 : 10, marginBottom: 12, flexWrap: 'wrap' }}>
           {[
             { label: 'شيفتات', count: Object.values(calendarMap).filter(v => v.type === 'shift').length, color: S.blue, icon: '⏰' },
             { label: 'مخصصة', count: Object.values(calendarMap).filter(v => v.type === 'custom').length, color: S.purple, icon: '🕐' },
             { label: 'إجازات', count: Object.values(calendarMap).filter(v => v.type === 'leave').length, color: S.amber, icon: '🏖️' },
             { label: 'محددة', count: selectedDates.size, color: S.amber, icon: '🔶' },
           ].map((s, i) => (
-            <div key={i} style={{ background: S.card, borderRadius: 10, padding: '8px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div key={i} style={{ background: S.card, borderRadius: 10, padding: isMobile ? '7px 10px' : '8px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
               <span>{s.icon}</span>
-              <span style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.count}</span>
-              <span style={{ fontSize: 12, color: S.muted }}>{s.label}</span>
+              <span style={{ fontSize: isMobile ? 14 : 16, fontWeight: 800, color: s.color }}>{s.count}</span>
+              <span style={{ fontSize: isMobile ? 11 : 12, color: S.muted }}>{s.label}</span>
             </div>
           ))}
         </div>
@@ -631,10 +644,10 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
           {saving && <span style={{ fontSize: 12, color: S.muted }}>{progress}</span>}
-          <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
-          <button onClick={save} disabled={saving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', flex: isMobile ? 1 : undefined }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flex: isMobile ? 2 : undefined }}>
             {saving ? '⏳...' : '✅ حفظ الجدول'}
           </button>
         </div>

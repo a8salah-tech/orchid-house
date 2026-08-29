@@ -92,9 +92,13 @@ export default function MySchedulePage() {
         .eq('employee_id', employee.id)
         .gte('date', monthStart)
         .lte('date', monthEnd),
+      // ✅ الموظف يشوف المخالفات المعتمدة (active) فقط — مش المقترحة تلقائيًا واللي لسه "قيد المراجعة"
+      // (status='submitted'، زي خصم "مدة حضور غير منطقية" الآلي). دي تفضل عند الإدارة لحد ما تُعتمد يدويًا،
+      // وساعتها بس تبقى active وتظهر هنا. نفس فلتر صفحة "راتبي" والرواتب بالضبط.
       sb.from('violations')
         .select('*')
         .eq('employee_id', employee.id)
+        .eq('status', 'active')
         .gte('date', monthStart)
         .lte('date', monthEnd)
         .order('date', { ascending: false }),
@@ -308,10 +312,11 @@ export default function MySchedulePage() {
                         ⚠️ {isAr ? 'خطأ محتمل في جدولة هذا الشيفت — لن يُحتسب تأخير' : 'Possible shift scheduling error — no late time calculated'}
                       </div>
                     )}
+                    {/* المخالفات هنا كلها معتمدة (active) — الفلترة تمت عند الجلب */}
                     {getDayViolations(d.date).map((v, vi) => (
-                      <div key={vi} style={{ fontSize: 11, marginTop: 4, background: v.status === 'cancelled' ? 'rgba(255,255,255,0.04)' : S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${v.status === 'cancelled' ? 'rgba(255,255,255,0.1)' : S.red+'40'}`, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
-                        <span style={{ color: v.status === 'cancelled' ? S.muted : S.red, fontWeight: 700 }}>
-                          ⚠️ {v.status === 'cancelled' ? (isAr ? '(ملغاة) ' : '(Cancelled) ') : ''}{isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toFixed(2)}
+                      <div key={vi} style={{ fontSize: 11, marginTop: 4, background: S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${S.red+'40'}` }}>
+                        <span style={{ color: S.red, fontWeight: 700 }}>
+                          ⚠️ {isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toFixed(2)}
                         </span>
                         <span style={{ color: S.muted, marginRight: 6 }}> — {v.reason}</span>
                       </div>

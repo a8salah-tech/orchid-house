@@ -109,8 +109,10 @@ export default function MySchedulePage() {
   function getShift(dateStr: string) {
     return schedules.find(s => String(s.date).slice(0,10) === dateStr)
   }
-  function getAtt(dateStr: string) {
-    return attendance.find(a => String(a.date).slice(0,10) === dateStr)
+  // ✅ كل سجلات الحضور لنفس اليوم — قد يكون فيها أكثر من صف (شيفت ليلي ثانٍ، أو صف تصحيح منفصل).
+  // لازم نجمع التأخير/الخروج المبكر من كلهم عشان العرض اليومي يطابق الإجمالي الشهري بالضبط.
+  function getAttAll(dateStr: string) {
+    return attendance.filter(a => String(a.date).slice(0,10) === dateStr)
   }
   function getDayViolations(dateStr: string) {
     return violations.filter(v => String(v.date).slice(0,10) === dateStr)
@@ -225,7 +227,8 @@ export default function MySchedulePage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {monthDays.map(d => {
             const sch = getShift(d.date)
-            const att = getAtt(d.date)
+            const attRows = getAttAll(d.date)
+            const att = attRows[0]
             const isToday = d.date === todayStr
             const isLeave = !sch || (!sch.shift_id && !sch.custom_start)
             const hasShift = sch && (sch.shift_id || sch.custom_start)
@@ -238,9 +241,10 @@ export default function MySchedulePage() {
             const shiftEndStr = sch?.custom_end || sch?.shifts?.end_time
             // ✅ نعرض تحذير "مدة الشيفت غير منطقية" لو انطبق — للعلم فقط؛ الحساب المخزَّن يتعامل معه أصلًا
             const suspiciousShift = hasShift && isSuspiciousShiftDuration(shiftStartStr, shiftEndStr)
-            const lateMins = att?.late_minutes || 0
+            // ✅ نجمع من كل صفوف اليوم (مش أول صف فقط) — عشان يطابق الإجمالي الشهري
+            const lateMins = attRows.reduce((s, a) => s + (a.late_minutes || 0), 0)
             const isLate = lateMins > 0
-            const earlyMins = att?.early_minutes || 0
+            const earlyMins = attRows.reduce((s, a) => s + (a.early_minutes || 0), 0)
             const isEarly = earlyMins > 0
 
             if (!sch && !att) return (
@@ -273,46 +277,47 @@ export default function MySchedulePage() {
                   <div style={{ flex: 1 }}>
                     {isLeave && <div style={{ fontSize: 13, fontWeight: 700, color: S.amber }}>🏖️ {isAr ? 'إجازة' : 'Day Off'}</div>}
                     {hasShift && (
-                      <>
-                        <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
-                          {isAr ? '📋 الدوام المخصص:' : '📋 Scheduled:'} <span style={{ color: S.white, fontWeight: 600 }}>{timeFrom} — {timeTo}</span>
-                        </div>
-                        {att?.check_in_time && (
-                          <div style={{ fontSize: 12, color: S.muted, marginBottom: (isLate || isEarly) ? 4 : 0 }}>
-                            {isAr ? '✅ دخل:' : '✅ Check in:'} <span style={{ color: S.green, fontWeight: 600 }}>{fmtTime(att.check_in_time, isAr)}</span>
-                            {att.check_out_time && (
-                              <> · {isAr ? '🚪 خرج:' : '🚪 Check out:'} <span style={{ color: S.blue, fontWeight: 600 }}>{fmtTime(att.check_out_time, isAr)}</span></>
-                            )}
-                          </div>
+                      <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>
+                        {isAr ? '📋 الدوام المخصص:' : '📋 Scheduled:'} <span style={{ color: S.white, fontWeight: 600 }}>{timeFrom} — {timeTo}</span>
+                      </div>
+                    )}
+                    {/* ✅ الحضور/الانصراف والتأخير/الخروج المبكر يظهروا دايمًا (مش جوّه شرط hasShift) — وإلا
+                        يوم فيه بصمة بلا شيفت مجدول ما يظهرش تأخيره هنا بينما الإجمالي الشهري يحسبه، فيبان تضارب.
+                        وبنعرض كل صفوف اليوم لو أكثر من واحد (شيفت ليلي ثانٍ / صف تصحيح منفصل) */}
+                    {attRows.filter(a => a.check_in_time).map((a, ai) => (
+                      <div key={ai} style={{ fontSize: 12, color: S.muted, marginBottom: 2 }}>
+                        {isAr ? '✅ دخل:' : '✅ Check in:'} <span style={{ color: S.green, fontWeight: 600 }}>{fmtTime(a.check_in_time, isAr)}</span>
+                        {a.check_out_time && (
+                          <> · {isAr ? '🚪 خرج:' : '🚪 Check out:'} <span style={{ color: S.blue, fontWeight: 600 }}>{fmtTime(a.check_out_time, isAr)}</span></>
                         )}
-                        {isLate && (
-                          <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block', marginLeft: isEarly ? 6 : 0 }}>
-                            ⏰ {isAr ? `متأخر ${lateMins} دقيقة` : `Late ${lateMins} min`}
-                          </div>
-                        )}
-                        {isEarly && (
-                          <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}>
-                            🚪 {isAr ? `خروج مبكر ${earlyMins} دقيقة` : `Early leave ${earlyMins} min`}
-                          </div>
-                        )}
-                        {suspiciousShift && (
-                          <div style={{ fontSize: 11, color: S.amber, fontWeight: 700, background: S.amberB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}
-                            title={isAr ? 'مدة هذا الشيفت غير منطقية — يُرجى مراجعة الجدولة مع مديرك' : 'This shift duration looks incorrect — please ask your manager to review the schedule'}>
-                            ⚠️ {isAr ? 'خطأ محتمل في جدولة هذا الشيفت — لن يُحتسب تأخير' : 'Possible shift scheduling error — no late time calculated'}
-                          </div>
-                        )}
-                        {getDayViolations(d.date).map((v, vi) => (
-                          <div key={vi} style={{ fontSize: 11, marginTop: 4, background: v.status === 'cancelled' ? 'rgba(255,255,255,0.04)' : S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${v.status === 'cancelled' ? 'rgba(255,255,255,0.1)' : S.red+'40'}`, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
-                            <span style={{ color: v.status === 'cancelled' ? S.muted : S.red, fontWeight: 700 }}>
-                              ⚠️ {v.status === 'cancelled' ? (isAr ? '(ملغاة) ' : '(Cancelled) ') : ''}{isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toFixed(2)}
-                            </span>
-                            <span style={{ color: S.muted, marginRight: 6 }}> — {v.reason}</span>
-                          </div>
-                        ))}
-                        {!att?.check_in_time && d.date < todayStr && (
-                          <div style={{ fontSize: 11, color: S.red }}>❌ {isAr ? 'لم يتم تسجيل الحضور' : 'No check-in recorded'}</div>
-                        )}
-                      </>
+                      </div>
+                    ))}
+                    {isLate && (
+                      <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block', marginLeft: isEarly ? 6 : 0, marginTop: 3 }}>
+                        ⏰ {isAr ? `متأخر ${lateMins} دقيقة` : `Late ${lateMins} min`}
+                      </div>
+                    )}
+                    {isEarly && (
+                      <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block', marginTop: 3 }}>
+                        🚪 {isAr ? `خروج مبكر ${earlyMins} دقيقة` : `Early leave ${earlyMins} min`}
+                      </div>
+                    )}
+                    {suspiciousShift && (
+                      <div style={{ fontSize: 11, color: S.amber, fontWeight: 700, background: S.amberB, borderRadius: 8, padding: '3px 10px', display: 'inline-block' }}
+                        title={isAr ? 'مدة هذا الشيفت غير منطقية — يُرجى مراجعة الجدولة مع مديرك' : 'This shift duration looks incorrect — please ask your manager to review the schedule'}>
+                        ⚠️ {isAr ? 'خطأ محتمل في جدولة هذا الشيفت — لن يُحتسب تأخير' : 'Possible shift scheduling error — no late time calculated'}
+                      </div>
+                    )}
+                    {getDayViolations(d.date).map((v, vi) => (
+                      <div key={vi} style={{ fontSize: 11, marginTop: 4, background: v.status === 'cancelled' ? 'rgba(255,255,255,0.04)' : S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${v.status === 'cancelled' ? 'rgba(255,255,255,0.1)' : S.red+'40'}`, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
+                        <span style={{ color: v.status === 'cancelled' ? S.muted : S.red, fontWeight: 700 }}>
+                          ⚠️ {v.status === 'cancelled' ? (isAr ? '(ملغاة) ' : '(Cancelled) ') : ''}{isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toFixed(2)}
+                        </span>
+                        <span style={{ color: S.muted, marginRight: 6 }}> — {v.reason}</span>
+                      </div>
+                    ))}
+                    {hasShift && !att?.check_in_time && d.date < todayStr && (
+                      <div style={{ fontSize: 11, color: S.red }}>❌ {isAr ? 'لم يتم تسجيل الحضور' : 'No check-in recorded'}</div>
                     )}
                   </div>
 

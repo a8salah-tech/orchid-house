@@ -566,17 +566,25 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
                 <div key={d.date}
                   onClick={() => handleDaySingleClick(d.date)}
                   onDoubleClick={() => handleDayDoubleClick(d.date)}
-                  title={isPast ? 'يوم ماضٍ — مقفول تماماً، لا يمكن تعديله' : isRealPastDate ? 'يوم ماضٍ — يمكنك تعديله بصلاحيتك الإدارية، يُرجى الحذر' : 'اضغط للتحديد — اضغط مرتين للتعديل المباشر'}
+                  title={
+                    (entry?.type === 'shift' && shift
+                      ? `${shift.name}: ${shift.start_time?.slice(0, 5)}–${shift.end_time?.slice(0, 5)} · `
+                      : entry?.type === 'custom'
+                      ? `دوام مخصص: ${entry.customStart?.slice(0, 5)}–${entry.customEnd?.slice(0, 5)} · `
+                      : entry?.type === 'leave' ? '🏖️ إجازة · ' : '')
+                    + (isPast ? 'يوم ماضٍ — مقفول تماماً، لا يمكن تعديله' : isRealPastDate ? 'يوم ماضٍ — يمكنك تعديله بصلاحيتك الإدارية، يُرجى الحذر' : 'اضغط للتحديد — اضغط مرتين للتعديل المباشر')
+                  }
                   style={{ background: bg, border, borderRadius: 8, padding: '4px 2px', cursor: isPast ? 'not-allowed' : 'pointer', textAlign: 'center', minHeight: 52, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, transition: 'all .1s', opacity: isPast ? 0.4 : 1 }}>
                   <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? S.gold : (isWeekend ? S.muted : S.white) }}>{d.day}{isPast ? ' 🔒' : (isRealPastDate ? ' 🟠' : '')}</div>
+                  {/* ✅ نعرض وقت الحضور والانصراف معاً (كان يظهر وقت البداية فقط). direction:ltr لكي يقرأ 21:00—05:00 صح داخل التقويم RTL */}
                   {entry?.type === 'shift' && shift && (
-                    <div style={{ fontSize: 9, fontWeight: 700, color: shift.color, background: shift.color + '30', borderRadius: 4, padding: '1px 4px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {shift.name?.slice(0, 4)}
+                    <div style={{ fontSize: 8, fontWeight: 700, color: shift.color, background: shift.color + '30', borderRadius: 4, padding: '1px 3px', direction: 'ltr', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {shift.start_time?.slice(0, 5)}—{shift.end_time?.slice(0, 5)}
                     </div>
                   )}
                   {entry?.type === 'custom' && (
-                    <div style={{ fontSize: 8, fontWeight: 700, color: S.purple, background: S.purpleB, borderRadius: 4, padding: '1px 3px' }}>
-                      {entry.customStart?.slice(0,5)}
+                    <div style={{ fontSize: 8, fontWeight: 700, color: S.purple, background: S.purpleB, borderRadius: 4, padding: '1px 3px', direction: 'ltr', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {entry.customStart?.slice(0, 5)}—{entry.customEnd?.slice(0, 5)}
                     </div>
                   )}
                   {entry?.type === 'leave' && <div style={{ fontSize: 12 }}>🏖️</div>}
@@ -1384,7 +1392,9 @@ export default function ShiftsPage() {
 
       {/* Modals */}
       {(showAddShift||editShift)&&<ShiftModal shift={editShift} onClose={()=>{setShowAddShift(false);setEditShift(null)}} onSaved={()=>{setShowAddShift(false);setEditShift(null);refresh()}} />}
-      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} initialMonth={viewMonth} initialYear={viewYear} canEditPastDays={isManager} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
+      {/* ✅ تعديل الأيام الماضية مقصور على الأدمن فقط — مدير القسم/الفرع يقدر يعدّل الأيام القادمة بس، والأيام
+          السابقة تظهر مقفولة (🔒). كان قبل كده متاحًا لأي مدير (isManager). */}
+      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} initialMonth={viewMonth} initialYear={viewYear} canEditPastDays={isAdmin} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
       {showRequest&&employee?.id&&<RequestModal shifts={shifts} employeeId={employee.id} onClose={()=>setShowRequest(false)} onSaved={()=>{setShowRequest(false);refresh()}} />}
     </div>
   )

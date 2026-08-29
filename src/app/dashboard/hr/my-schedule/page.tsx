@@ -141,6 +141,17 @@ export default function MySchedulePage() {
   const totalLateHours = Math.floor(totalLateMins / 60)
   const totalLateRemMins = totalLateMins % 60
 
+  // ✅ سجلات حضور غير مكتملة/غير منطقية هذا الشهر (نسيان تسجيل خروج، أو مدة وهمية زي 24 ساعة)
+  const incompleteRecordsCount = useMemo(() => {
+    const H16 = 16 * 60 * 60 * 1000
+    return attendance.filter(a => {
+      if (a.check_in_time && !a.check_out_time) return String(a.date).slice(0, 10) < todayStr
+      if (a.check_in_time && a.check_out_time)
+        return (new Date(a.check_out_time).getTime() - new Date(a.check_in_time).getTime()) > H16
+      return false
+    }).length
+  }, [attendance, todayStr])
+
   // ✅ نظير إجمالي التأخير الشهري تمامًا لكن للخروج المبكر — القيمة المخزَّنة مباشرة
   const totalEarlyMins = useMemo(
     () => attendance.reduce((total, att) => total + (att.early_minutes || 0), 0),
@@ -251,6 +262,13 @@ export default function MySchedulePage() {
             const earlyMins = attRows.reduce((s, a) => s + (a.early_minutes || 0), 0)
             const isEarly = earlyMins > 0
 
+            // ✅ رصد سجل غير طبيعي — عشان اليوم ما يبانش سليم بينما فيه مشكلة (نسيان خروج / مدة وهمية زي 24 ساعة)
+            const HOURS_16_MS = 16 * 60 * 60 * 1000
+            const abnormalRow = attRows.find(a => a.check_in_time && a.check_out_time &&
+              (new Date(a.check_out_time).getTime() - new Date(a.check_in_time).getTime()) > HOURS_16_MS)
+            const forgotCheckout = attRows.some(a => a.check_in_time && !a.check_out_time) && d.date < todayStr
+            const attNote = attRows.map(a => a.notes).find(n => typeof n === 'string' && n.trim()) as string | undefined
+
             if (!sch && !att) return (
               <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 14, opacity: 0.3, padding: '6px 16px' }}>
                 <div style={{ width: 44, textAlign: 'center', flexShrink: 0 }}>
@@ -261,10 +279,12 @@ export default function MySchedulePage() {
               </div>
             )
 
+            const isAlert = isLate || isEarly || !!abnormalRow || forgotCheckout
+
             return (
               <div key={d.date} style={{
                 background: isToday ? S.gold3 : isLeave ? S.amberB : hasShift ? S.navy2 : S.card,
-                border: `1px solid ${isToday ? S.gold+'60' : (isLate || isEarly) ? S.red+'40' : isLeave ? S.amber+'40' : hasShift ? S.border : S.border}`,
+                border: `1px solid ${isToday ? S.gold+'60' : isAlert ? S.red+'40' : isLeave ? S.amber+'40' : hasShift ? S.border : S.border}`,
                 borderRadius: 14, padding: '12px 16px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -275,7 +295,7 @@ export default function MySchedulePage() {
                   </div>
 
                   {/* Color bar */}
-                  <div style={{ width: 4, height: 44, borderRadius: 2, background: isLeave ? S.amber : (isLate || isEarly) ? S.red : shiftColor, flexShrink: 0 }} />
+                  <div style={{ width: 4, height: 44, borderRadius: 2, background: isLeave ? S.amber : isAlert ? S.red : shiftColor, flexShrink: 0 }} />
 
                   {/* Shift info */}
                   <div style={{ flex: 1 }}>
@@ -312,6 +332,24 @@ export default function MySchedulePage() {
                         ⚠️ {isAr ? 'خطأ محتمل في جدولة هذا الشيفت — لن يُحتسب تأخير' : 'Possible shift scheduling error — no late time calculated'}
                       </div>
                     )}
+                    {/* ✅ يوم مداومه غير طبيعي — يبان بوضوح للموظف بدل ما يعدّي وكأنه سليم */}
+                    {abnormalRow && (
+                      <div style={{ fontSize: 11, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '4px 10px', marginTop: 4, border: `1px solid ${S.red}40` }}>
+                        ⚠️ {isAr
+                          ? `مدة تسجيل غير منطقية (${Math.round((new Date(abnormalRow.check_out_time).getTime() - new Date(abnormalRow.check_in_time).getTime()) / 3600000)} ساعة) — غالبًا نسيان تسجيل الخروج. راجع مع مديرك`
+                          : `Unreasonable record duration (${Math.round((new Date(abnormalRow.check_out_time).getTime() - new Date(abnormalRow.check_in_time).getTime()) / 3600000)}h) — likely a missed check-out. Please contact your manager`}
+                      </div>
+                    )}
+                    {forgotCheckout && (
+                      <div style={{ fontSize: 11, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '4px 10px', marginTop: 4, border: `1px solid ${S.red}40` }}>
+                        ⚠️ {isAr ? 'سجّلت الدخول ولم تسجّل الخروج — راجع مع مديرك' : 'Checked in but never checked out — please contact your manager'}
+                      </div>
+                    )}
+                    {attNote && (
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 4, lineHeight: 1.6 }}>
+                        ℹ️ {attNote}
+                      </div>
+                    )}
                     {/* المخالفات هنا كلها معتمدة (active) — الفلترة تمت عند الجلب */}
                     {getDayViolations(d.date).map((v, vi) => (
                       <div key={vi} style={{ fontSize: 11, marginTop: 4, background: S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${S.red+'40'}` }}>
@@ -335,6 +373,22 @@ export default function MySchedulePage() {
               </div>
             )
           })}
+
+          {/* ✅ تنبيه: سجلات حضور غير مكتملة/غير منطقية هذا الشهر — عشان الموظف يعرف ويبلّغ مديره */}
+          {incompleteRecordsCount > 0 && (
+            <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 14, padding: '14px 18px', marginTop: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 4 }}>
+                ⚠️ {isAr
+                  ? `${incompleteRecordsCount} ${incompleteRecordsCount === 1 ? 'يوم' : 'أيام'} سجلها غير مكتمل`
+                  : `${incompleteRecordsCount} day(s) with an incomplete record`}
+              </div>
+              <div style={{ fontSize: 11, color: S.white, lineHeight: 1.8 }}>
+                {isAr
+                  ? 'فيه أيام سجّلت فيها دخول ولم تسجّل خروج (أو مدة تسجيل غير منطقية). دي متعلَّمة أعلاه باللون الأحمر — راجعها مع مديرك المباشر لتصحيحها، فقد تؤثر على حساب راتبك.'
+                  : 'Some days have a check-in with no check-out (or an unreasonable duration). They are flagged in red above — please review them with your manager, as they may affect your payroll.'}
+              </div>
+            </div>
+          )}
 
           {/* Monthly Late & Early-Leave Summary */}
           {(totalLateMins > 0 || totalEarlyMins > 0) && (

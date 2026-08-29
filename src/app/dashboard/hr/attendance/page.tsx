@@ -7,7 +7,7 @@ import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
 // ✅ منطق حساب التأخير/الخروج المبكر انتقل لوحدة مشتركة — نفس الدوال تُستخدم في صفحة طلبات
 // الموظفين عند اعتماد "تصحيح الحضور"، فيبقى مصدر الحقيقة واحدًا لا يختلف حسب مكان الاستدعاء
-import { scheduledShiftMinutes, computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
+import { scheduledShiftMinutes, resolveShiftWindow, computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -403,20 +403,39 @@ function MyAttendanceCard() {
   // ✅ التنفيذ الفعلي لتسجيل الخروج — منفصل عن checkOut() لأنه يُستدعى إما مباشرة (خروج طبيعي)
   // أو بعد تأكيد الموظف من نافذة "خروج سريع جداً" المنبثقة
   async function finalizeCheckOut(openRecordId: string, lat: number, lng: number, dist: number, shortShiftNote: string | null, employeeId: string, dateStr: string) {
-    const now = new Date().toISOString()
+    const nowIso = new Date().toISOString()
+    const nowMs  = Date.now()
     // ✅ نجيب وقت الدخول لهذا الصف لنُثبّت عليه تحديد الشيفت (أدق من الاعتماد على وقت الخروج وحده)
     const { data: openRow } = await sb.from('attendance').select('check_in_time').eq('id', openRecordId).maybeSingle()
+
+    // ✅ حماية من "المدة الوهمية": الموظف نسي يسجّل خروج، وبعدين لما جه يسجّل دخول لشيفت جديد النظام
+    // منعه ("لازم تسجّل خروج الأول")، فاضطر يضغط خروج — فيتسجّل الخروج بوقت "دلوقتي" اللي ممكن يكون بعد
+    // الدخول بـ 24 ساعة. لو المدة المفتوحة أطول من 16 ساعة (مستحيلة لشيفت واحد + أوفر تايم)، نثبّت الخروج
+    // على (نهاية الشيفت المجدول + ساعة سماح) — نفس منطق أداة auto-checkout بالظبط — بدل "دلوقتي".
+    const FORGOT_THRESHOLD_MS = 16 * 60 * 60 * 1000
+    const GRACE_MS = 60 * 60 * 1000
+    const checkInMs = openRow?.check_in_time ? new Date(openRow.check_in_time).getTime() : null
+    let checkOutIso = nowIso
+    let forgotNote: string | null = null
+    if (checkInMs !== null && nowMs - checkInMs > FORGOT_THRESHOLD_MS) {
+      const win = await resolveShiftWindow(sb, employeeId, dateStr, openRow!.check_in_time!)
+      const clampedMs = win ? win.endMs + GRACE_MS : checkInMs + 10 * 60 * 60 * 1000
+      checkOutIso = new Date(Math.min(clampedMs, nowMs)).toISOString()
+      forgotNote = '⏰ نسيان تسجيل الخروج في وقته — تم ضبط وقت الخروج على نهاية الشيفت تقريباً / Forgot to check out — checkout set to approx. shift end'
+    }
+
     // ✅ نفس منطق حساب التأخير لكن للخروج المبكر - يقارن وقت الخروج الفعلي بموعد نهاية الشيفت
-    const { early_minutes } = await computeEarlyInfo(sb, employeeId, dateStr, now, openRow?.check_in_time)
+    const { early_minutes } = await computeEarlyInfo(sb, employeeId, dateStr, checkOutIso, openRow?.check_in_time)
+    const noteToSet = shortShiftNote ?? forgotNote
     const { error } = await sb.from('attendance')
       .update({
-        check_out_time:     now,
+        check_out_time:     checkOutIso,
         check_out_lat:      lat,
         check_out_lng:      lng,
         check_out_distance: Math.round(dist),
         early_minutes,
-        updated_at:         now,
-        ...(shortShiftNote ? { notes: shortShiftNote } : {}),
+        updated_at:         nowIso,
+        ...(noteToSet ? { notes: noteToSet } : {}),
       })
       .eq('id', openRecordId)
 

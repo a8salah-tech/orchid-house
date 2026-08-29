@@ -91,14 +91,14 @@ async function handleAutoCheckout(req: NextRequest) {
     if (fetchErr) {
       return NextResponse.json({ error: fetchErr.message }, { status: 500 })
     }
-    if (!openRecords || openRecords.length === 0) {
-      return NextResponse.json({ processed: 0, message: 'لا توجد سجلات حضور مفتوحة' })
-    }
 
     let processed = 0
     const results: { employee_id: string; date: string; checkout_time: string; proposed_penalty_myr: number }[] = []
 
-    for (const rec of openRecords as AttendanceRow[]) {
+    // ✅ Fix حرج: مكانش يخرج مبكراً هنا لو مفيش سجلات مفتوحة — وده كان بيتخطّى فحص "المدة غير المنطقية"
+    // للسجلات المقفولة (تحت) تماماً. أي ليلة كل الموظفين مقفلين فيها شيفتاتهم = أي سجل 24 ساعة وهمي
+    // ماكانش يترصد أبداً. دلوقتي بنكمّل دايماً للفحص التاني.
+    for (const rec of ((openRecords || []) as AttendanceRow[])) {
       const dateStr = String(rec.date).slice(0, 10)
       const shiftEndUtc = await getShiftEndUtc(rec.employee_id, dateStr)
       if (shiftEndUtc === null) continue // لا يوجد شيفت مجدول لهذا اليوم — لا يمكن تحديد وقت الإغلاق التلقائي

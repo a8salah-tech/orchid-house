@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import { formatMYR } from '../../../../lib/supabase'
+import { isLowStock as isLowStockCalc } from '../../../../lib/stock'
 import { useLang } from '../../../components/LanguageContext'
 import { useAuth } from '../../../components/AuthProvider'
 
@@ -353,12 +354,9 @@ function StockOutModal({ warehouseId, warehouseName, products, unitConversionsAl
     return directConv || fallbackConv
   }
 
-  // ✅ Fix: نفس إصلاح المخزون المنخفض الموحّد - مراعاة تحويل الوحدة بدل مقارنة خام بين وحدتين مختلفتين
+  // ✅ المخزون المنخفض — موحّد في src/lib/stock.ts (يميّز الأصناف المخزَّنة بالوحدة الكبرى عن الصغرى)
   function isLowStock(product: Product) {
-    if (!product.min_stock || product.min_stock <= 0 || product.current_stock <= 0) return false
-    const conv = getConv(product)
-    const minStockInBaseUnit = conv && conv.factor > 1 ? product.min_stock * conv.factor : product.min_stock
-    return product.current_stock <= minStockInBaseUnit
+    return isLowStockCalc(product, unitConversionsAll)
   }
 
   // ✅ Fix: تنسيق رصيد الصنف بالوحدة الرئيسية والفرعية بدل عرض current_stock الخام
@@ -547,12 +545,9 @@ function TransferModal({ warehouseId, warehouseName, products, unitConversionsAl
     return directConv || fallbackConv
   }
 
-  // ✅ Fix: نفس إصلاح المخزون المنخفض الموحّد - مراعاة تحويل الوحدة بدل مقارنة خام بين وحدتين مختلفتين
+  // ✅ المخزون المنخفض — موحّد في src/lib/stock.ts (يميّز الأصناف المخزَّنة بالوحدة الكبرى عن الصغرى)
   function isLowStock(product: Product) {
-    if (!product.min_stock || product.min_stock <= 0 || product.current_stock <= 0) return false
-    const conv = getConv(product)
-    const minStockInBaseUnit = conv && conv.factor > 1 ? product.min_stock * conv.factor : product.min_stock
-    return product.current_stock <= minStockInBaseUnit
+    return isLowStockCalc(product, unitConversionsAll)
   }
 
   // ✅ Fix: نفس منطق تنسيق الرصيد بالوحدة الرئيسية والفرعية المستخدم في نافذة خروج بضاعة
@@ -1104,15 +1099,11 @@ export default function WarehouseDetailPage() {
     fetchAll()
   }
 
-  // ✅ Fix حرج: min_stock محفوظة بالوحدة الكبرى (كرتون مثلًا)، بينما current_stock أحيانًا بيستخدم
-  // الوحدة الصغرى عند وجود تحويل وحدة مسجَّل للصنف. المقارنة الخام (current_stock <= min_stock) كانت
-  // تقارن بين وحدتين مختلفتين فعليًا، فكانت تُظهر "مخزون منخفض" حتى لو الكمية الفعلية أعلى من الحد
-  // الأدنى بكثير بعد التحويل الصحيح. هذه الدالة موحّدة الآن وتُستخدم في كل مكان بدل التكرار الخام
+  // ✅ Fix حرج: min_stock محفوظة بالوحدة الكبرى (كرتون مثلًا)، بينما current_stock أحيانًا بالوحدة
+  // الصغرى وأحيانًا بالوحدة الكبرى نفسها (زي "ببروني لحم"). المنطق موحّد الآن في src/lib/stock.ts —
+  // بيميّز الحالتين بنفس تمييز عرض الرصيد (from_unit_id === unit_id) قبل المقارنة.
   function isLowStock(p: Product) {
-    if (!p.min_stock || p.min_stock <= 0 || p.current_stock <= 0) return false
-    const conv = unitConversionsAll.find((c: any) => c.product_id === p.id)
-    const minStockInBaseUnit = conv && conv.factor > 1 ? p.min_stock * conv.factor : p.min_stock
-    return p.current_stock <= minStockInBaseUnit
+    return isLowStockCalc(p, unitConversionsAll)
   }
 
   // Stats

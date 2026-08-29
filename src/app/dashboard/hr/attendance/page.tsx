@@ -440,6 +440,25 @@ function MyAttendanceCard() {
       .eq('id', openRecordId)
 
     if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
+
+    // ✅ لو رصدنا نسيان تسجيل خروج (وضبطنا الوقت) — نرفع مخالفة "بانتظار الاعتماد" (submitted، لا تُخصم
+    // تلقائياً) بنفس منطق أداة auto-checkout بالظبط، عشان الحالة ما تفلتش لمجرد إن الموظف سجّل الخروج
+    // بنفسه قبل ما الأداة المجدولة تشتغل. مدير الفرع/الأدمن يراجعها من صفحة إدارة المخالفات.
+    if (forgotNote) {
+      const { data: emp } = await sb.from('employees').select('salary').eq('id', employeeId).maybeSingle()
+      const penalty = parseFloat(((((emp?.salary || 0) / 30) / 8) * 2).toFixed(2))
+      if (penalty > 0) {
+        await sb.from('violations').insert([{
+          employee_id: employeeId,
+          amount: penalty,
+          reason: `خصم مقترح (قيد المراجعة): نسيان تسجيل الخروج بتاريخ ${dateStr} — سجّل الموظف الخروج متأخراً جداً فتم ضبط الوقت على نهاية الشيفت، ويُقترَح خصم ساعتين. راجع السجل قبل الاعتماد فقد يكون أوفر تايم فعلي\nProposed deduction (pending review): forgot to check out on ${dateStr} — checked out very late so the time was clamped to shift end, 2-hour deduction suggested. Review before approving, may be genuine overtime`,
+          date: dateStr,
+          status: 'submitted',
+          submitted_at: nowIso,
+        }])
+      }
+    }
+
     setDistance(Math.round(dist))
     await fetchData()
     setChecking(false)

@@ -5,6 +5,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
 import { createBrowserClient } from '@supabase/ssr'
+// ✅ نفس دوال حساب التأخير/الخروج المبكر المستخدمة في صفحة الحضور — عشان اعتماد "تصحيح الحضور"
+// يثبّت في جدول الحضور نفس القيم اللي كانت هتطلع لو الموظف بصم بالأوقات الصحيحة من الأساس
+import { computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -612,6 +615,32 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     }
   }
 
+  // ✅ بعد ما اعتماد "تصحيح الحضور" يعدّل صف الحضور — نُحدِّث فورًا ساعات التأخير/الخروج المبكر في كشف
+  // راتب نفس الشهر (لو لسه مش معتمد)، بنفس معادلة صفحة الرواتب بالضبط: إجمالي دقائق الشهر ÷ 60 مقرَّبة
+  // لخانتين. كده المدير ما يحتاجش يفتح صفحة الرواتب ويعيد التوليد عشان الخصم يتظبط.
+  async function syncCorrectionToPayroll(employeeId: string, dateStr: string): Promise<'updated' | 'finalized' | 'skipped'> {
+    const [y, m] = dateStr.split('-').map(Number)
+    const { data: pm } = await supabase.from('payroll_months')
+      .select('id, status').eq('month', m).eq('year', y).maybeSingle()
+    if (!pm) return 'skipped'
+    if (pm.status === 'finalized') return 'finalized'
+    const { data: rec } = await supabase.from('payroll_records')
+      .select('id').eq('payroll_month_id', pm.id).eq('employee_id', employeeId).maybeSingle()
+    if (!rec) return 'skipped'
+    const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+    const { data: att } = await supabase.from('attendance')
+      .select('late_minutes, early_minutes').eq('employee_id', employeeId)
+      .gte('date', monthStart).lte('date', monthEnd)
+    const totalLate = (att || []).reduce((s: number, a: any) => s + (a.late_minutes || 0), 0)
+    const totalEarly = (att || []).reduce((s: number, a: any) => s + (a.early_minutes || 0), 0)
+    await supabase.from('payroll_records').update({
+      late_hours: parseFloat((totalLate / 60).toFixed(2)),
+      early_exit_hours: parseFloat((totalEarly / 60).toFixed(2)),
+    }).eq('id', rec.id)
+    return 'updated'
+  }
+
   async function deleteRequest() {
     if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return
     // ✅ لو الطلب كان "completed" (أي أن مبلغ السلفة أُضيف بالفعل للرواتب)، لازم نعكس الأثر قبل الحذف النهائي —
@@ -635,42 +664,69 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       rejection_reason: newStatus === 'rejected' ? rejectionReason : null,
     }).eq('id', request.id)
 
-    // ✅ تطبيق تصحيح الحضور تلقائياً عند الموافقة
+    // ✅ تطبيق تصحيح الحضور تلقائياً عند الموافقة — يُثبَّت في جدول الحضور، وتُعاد فيه قيم التأخير/الخروج
+    // المبكر بحسابها من الأوقات المصحَّحة مقابل الشيفت المجدول (نفس دوال صفحة الحضور)، ثم يتحدَّث كشف الراتب
     if (newStatus === 'approved' && request.request_type === 'attendance_correction' && request.start_date) {
       const desc = request.description || ''
       const checkinMatch  = desc.match(/وقت الدخول الصحيح:\s*(\d{2}:\d{2})/)
       const checkoutMatch = desc.match(/وقت الخروج الصحيح:\s*(\d{2}:\d{2})/)
-      const updateData: any = {}
-      // ✅ Fix: لازم نحدد إزاحة توقيت ماليزيا (+08:00) صراحة، وإلا الوقت المحلي بيتخزن كأنه UTC مباشرة
-      // (مثال: 10:06 صباحًا ماليزيا كانت بتتخزن 10:06 UTC بدل التحويل الصحيح لـ 02:06 UTC — فرق 8 ساعات)
-      if (checkinMatch?.[1]) updateData.check_in_time = `${request.start_date}T${checkinMatch[1]}:00+08:00`
-      if (checkoutMatch?.[1]) {
-        // ✅ معالجة الشيفتات الليلية: لو وقت الخروج أصغر من وقت الدخول رقميًا، فالخروج في اليوم التالي
-        let checkoutDate = request.start_date
-        if (checkinMatch?.[1] && checkoutMatch[1] <= checkinMatch[1]) {
-          const nextDay = new Date(request.start_date + 'T00:00:00')
-          nextDay.setDate(nextDay.getDate() + 1)
-          checkoutDate = nextDay.toISOString().split('T')[0]
-        }
-        updateData.check_out_time = `${checkoutDate}T${checkoutMatch[1]}:00+08:00`
-      }
-      updateData.is_manual = true
-      updateData.notes = `تم تصحيحه بموافقة ${approvedBy}`
-      // ✅ التصحيح اليدوي المعتمد من المدير يُعتبر حضورًا سليمًا (يلغي حالة "متأخر" القديمة)
-      if (checkinMatch?.[1]) { updateData.status = 'present'; updateData.late_minutes = 0 }
-      if (Object.keys(updateData).length > 2) {
-        // ✅ Fix حرج جدًا: كان يستخدم .update() فقط، وهذا يعمل فقط إذا كان يوجد سجل حضور بالفعل لنفس اليوم.
-        // لكن "تصحيح حضور" غالباً يعني أن الموظف نسي التسجيل من الأساس (لا يوجد سجل إطلاقاً)، فكان التحديث يفشل بصمت
-        // من غير أي خطأ ظاهر، والموافقة تتسجل فقط التصحيح الفعلي ميحصلش في أي مكان. الحل: نتحقق الأول هل
-        // السجل موجود، ولو ليس موجود ننشئ سجل حضور جديد بدل ما نحاول نحدّث شيء ليس موجودة أصلاً.
+
+      if (checkinMatch?.[1] || checkoutMatch?.[1]) {
+        // ✅ Fix حرج: كان يستخدم .update() فقط، وهذا يعمل فقط لو يوجد سجل حضور بالفعل. لكن "تصحيح حضور" غالباً
+        // يعني أن الموظف نسي التسجيل من الأساس (لا سجل إطلاقاً) — فكان التحديث يفشل بصمت. نجيب السجل الحالي
+        // (لو موجود) أول حاجة: نحتاج id لتحديثه، ونحتاج أوقاته لملء الطرف اللي التصحيح ماغطّاهوش.
         const { data: existingAttendance } = await supabase.from('attendance')
-          .select('id').eq('employee_id', request.employee_id).eq('date', request.start_date).maybeSingle()
+          .select('id, check_in_time, check_out_time')
+          .eq('employee_id', request.employee_id).eq('date', request.start_date).maybeSingle()
+
+        // ✅ إزاحة توقيت ماليزيا (+08:00) صراحة، وإلا الوقت يُخزَّن كأنه UTC مباشرة (فرق 8 ساعات)
+        const correctedCheckIn = checkinMatch?.[1]
+          ? `${request.start_date}T${checkinMatch[1]}:00+08:00`
+          : null
+        let correctedCheckOut: string | null = null
+        if (checkoutMatch?.[1]) {
+          // ✅ شيفت ليلي: لو الخروج أصغر من الدخول رقميًا، فالخروج في اليوم التالي
+          let checkoutDate = request.start_date
+          if (checkinMatch?.[1] && checkoutMatch[1] <= checkinMatch[1]) {
+            const nextDay = new Date(request.start_date + 'T00:00:00')
+            nextDay.setDate(nextDay.getDate() + 1)
+            checkoutDate = nextDay.toISOString().split('T')[0]
+          }
+          correctedCheckOut = `${checkoutDate}T${checkoutMatch[1]}:00+08:00`
+        }
+
+        // الأوقات النهائية = المصحَّح إن وُجد، وإلا الموجود مسبقًا في السجل
+        const finalCheckIn  = correctedCheckIn  || existingAttendance?.check_in_time  || null
+        const finalCheckOut = correctedCheckOut || existingAttendance?.check_out_time || null
+
+        const updateData: any = { is_manual: true, notes: `تم تصحيحه بموافقة ${approvedBy}` }
+        if (correctedCheckIn)  updateData.check_in_time  = correctedCheckIn
+        if (correctedCheckOut) updateData.check_out_time = correctedCheckOut
+
+        // ✅ إعادة حساب التأخير/الخروج المبكر من الأوقات النهائية مقابل الشيفت المجدول — لو الموظف فعلاً
+        // جه متأخر بعد التصحيح، يُحتسب عليه تأخير؛ ولو خرج مبكرًا يُحتسب خروج مبكر (بنفس سماح الـ10 دقائق)
+        if (finalCheckIn) {
+          const { status, late_minutes } = await computeLateInfo(supabase, request.employee_id, request.start_date, finalCheckIn)
+          updateData.status = status
+          updateData.late_minutes = late_minutes
+        }
+        if (finalCheckOut) {
+          const { early_minutes } = await computeEarlyInfo(supabase, request.employee_id, request.start_date, finalCheckOut, finalCheckIn)
+          updateData.early_minutes = early_minutes
+        }
+
         if (existingAttendance?.id) {
           await supabase.from('attendance').update(updateData).eq('id', existingAttendance.id)
         } else {
           await supabase.from('attendance').insert([{
             employee_id: request.employee_id, date: request.start_date, ...updateData,
           }])
+        }
+
+        // ✅ يحدّث ساعات التأخير/الخروج المبكر في كشف راتب نفس الشهر تلقائيًا (لو لسه مش معتمد)
+        const syncResult = await syncCorrectionToPayroll(request.employee_id, request.start_date)
+        if (syncResult === 'finalized') {
+          alert('⚠️ تم تصحيح الحضور وتثبيته، لكن كشف راتب هذا الشهر مُعتمَد (Finalized) — لن تتحدث ساعات التأخير/الخروج المبكر فيه تلقائيًا. يُرجى مراجعتها يدويًا في صفحة الرواتب.')
         }
       }
     }

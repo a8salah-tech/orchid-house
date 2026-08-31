@@ -109,7 +109,8 @@ export default function PLReportPage() {
     setLoading(true)
 
     const startDate = `${year}-${String(month).padStart(2,'0')}-01`
-    const endDate = new Date(year, month, 0).toISOString().split('T')[0]
+    // ✅ Date.UTC — new Date() المحلي يُزيح آخر يوم في الشهر ليوم قبله
+    const endDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
 
     // ✅ الاستعلام دايمًا بنفس الشكل الثابت (فيه الـ join مع tables/warehouses/employees)
     // عشان نظام الأنواع في Supabase مش بيقدر يحلل جملة select() شرطية (Ternary) صح

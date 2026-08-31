@@ -192,8 +192,9 @@ export default function ViolationsPage() {
     // دلوقتي بنعرض كل الموظفين دايمًا (نفس نمط المخالفة العادية)، ونميّز اللي حاضر فعليًا الآن بعلامة بصرية بس
     setEmployees(empData || [])
     const [year, month] = filterMonth.split('-').map(Number)
-    const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
-    const monthEnd = new Date(year, month, 0).toISOString().split('T')[0]
+    // ✅ Date.UTC وليس new Date() المحلي — وإلا آخر يوم في الشهر يُزاح ليوم قبله في المتصفحات المتقدّمة على UTC
+    const monthStart = new Date(Date.UTC(year, month-1, 1)).toISOString().split('T')[0]
+    const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
     let vQ = sb.from('violations').select('*').gte('date', monthStart).lte('date', monthEnd).order('created_at', { ascending: false })
     if (isAdmin) {
       // admin يشوف الكل، إلا لو اختار تاب فرع محدد (بدل "الإجمالي")
@@ -363,8 +364,9 @@ export default function ViolationsPage() {
   async function fetchDeptViolations() {
     setDeptViolLoading(true)
     const [year, month] = deptViolFilterMonth.split('-').map(Number)
-    const monthStart = new Date(year, month-1, 1).toISOString().split('T')[0]
-    const monthEnd   = new Date(year, month, 0).toISOString().split('T')[0]
+    // ✅ Date.UTC — نفس إصلاح باج آخر يوم في الشهر
+    const monthStart = new Date(Date.UTC(year, month-1, 1)).toISOString().split('T')[0]
+    const monthEnd   = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
     let dQ = sb.from('department_violations')
       .select('*').gte('date', monthStart).lte('date', monthEnd)
       .order('created_at', { ascending: false })

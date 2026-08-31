@@ -125,8 +125,8 @@ export default function WastePage() {
     if (!employee?.id) return
     setLoading(true)
     const [year, month] = filterMonth.split('-').map(Number)
-    const start = new Date(year, month - 1, 1).toISOString().split('T')[0]
-    const end   = new Date(year, month, 0).toISOString().split('T')[0]
+    const start = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0]
+    const end   = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
 
     let q = sb.from('waste_logs')
       .select('*, employees!waste_logs_recorded_by_fkey(name,name_en), approver:employees!waste_logs_approved_by_fkey(name), branches(name)')
@@ -212,8 +212,8 @@ export default function WastePage() {
   async function loadComparisonReport() {
     setLoadingReport(true)
     const [year, month] = filterMonth.split('-').map(Number)
-    const start = new Date(year, month - 1, 1).toISOString().split('T')[0]
-    const end   = new Date(year, month, 0).toISOString().split('T')[0]
+    const start = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0]
+    const end   = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
     const { data } = await sb.from('waste_logs').select('branch_id, cost').gte('waste_date', start).lte('waste_date', end)
     const rows = branches.map(b => {
       const branchLogs = (data || []).filter(l => l.branch_id === b.id)

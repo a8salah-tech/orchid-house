@@ -84,13 +84,17 @@ export default function BookingPage() {
       .eq('is_active', true)
       .order('number')
 
-    const { data: dayBookings } = await sb.from('bookings')
-      .select('table_id')
-      .eq('booking_date', bookingDate)
-      .eq('section', sec)
-      .in('status', ['pending', 'confirmed'])
-
-    const bookedTableIds = new Set((dayBookings || []).map((b: any) => b.table_id))
+    // ✅ توفّر الطاولات يمرّ من السيرفر — جدول bookings لم يعد مقروءاً للزائر المجهول
+    let bookedTableIds = new Set<string>()
+    try {
+      const res = await fetch('/api/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'availability', bookingDate, section: sec }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && Array.isArray(data?.reservedTableIds)) bookedTableIds = new Set<string>(data.reservedTableIds)
+    } catch { /* في حالة الفشل تُعرض كل الطاولات كمتاحة */ }
 
     const tablesWithStatus = (allTables || []).map(t => ({
       ...t,
@@ -123,23 +127,35 @@ export default function BookingPage() {
   async function submit() {
     if (!validate() || !selectedTable) return
     setSubmitting(true)
-    const { data, error } = await sb.from('bookings').insert([{
-      customer_name: form.name,
-      customer_email: form.email,
-      customer_phone: form.phone,
-      booking_date: form.date,
-      booking_time: form.time,
-      guests: parseInt(form.guests) || 2,
-      branch_id: selectedBranch?.id || null,
-      section,
-      table_id: selectedTable.id,
-      table_number: selectedTable.number,
-      notes: form.notes || null,
-      status: 'pending',
-    }]).select('id').single()
+    // ✅ إنشاء الحجز يمرّ من السيرفر (مفتاح service-role)
+    let newId: string | null = null
+    try {
+      const res = await fetch('/api/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'submit',
+          booking: {
+            customer_name: form.name,
+            customer_email: form.email,
+            customer_phone: form.phone,
+            booking_date: form.date,
+            booking_time: form.time,
+            guests: parseInt(form.guests) || 2,
+            branch_id: selectedBranch?.id || null,
+            section,
+            table_id: selectedTable.id,
+            table_number: selectedTable.number,
+            notes: form.notes || null,
+          },
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.id) newId = data.id
+    } catch { /* يعالَج أدناه */ }
 
-    if (error || !data) { setSubmitting(false); alert('Error submitting booking. Please try again.'); return }
-    setBookingRef(data.id.slice(-8).toUpperCase())
+    if (!newId) { setSubmitting(false); alert('Error submitting booking. Please try again.'); return }
+    setBookingRef(newId.slice(-8).toUpperCase())
     setPhase('done')
     setSubmitting(false)
   }

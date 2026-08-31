@@ -276,14 +276,6 @@ const filteredItems = items
     setTimeout(() => setReviewSubmitted(false), 2500)
   }
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
-  const cartTotal = cart.reduce((s, c) => {
-    const unitPrice = c.selectedSize
-      ? c.selectedSize.price
-      : c.item.discount_percent && c.item.discount_percent > 0
-        ? c.item.price * (1 - c.item.discount_percent / 100)
-        : c.item.price
-    return s + unitPrice * c.quantity
-  }, 0)
 
   // ✅ "Who's Paying the Bill?" game - real spinning wheel
   function updateGamePeopleCount(n: number) {
@@ -304,20 +296,16 @@ const filteredItems = items
     setRewardsSubmitting(true)
     setRewardsError('')
     try {
-      const { data: existing, error: findErr } = await sb.from('customers').select('id,name,loyalty_points').eq('phone', phone).maybeSingle()
-      if (findErr) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
-      if (existing) {
-        // ✅ Existing customer - show their current points
-        setRewardsResult({ customerId: existing.id, name: existing.name, points: existing.loyalty_points || 0, isNew: false })
-        setIdentifiedCustomerId(existing.id)
-      } else {
-        // ✅ New customer - register them with 50 welcome points
-        const name = rewardsName.trim() || 'Guest'
-        const { data: created, error: insertErr } = await sb.from('customers').insert([{ name, phone, loyalty_points: 50, notes: '🌸 Joined via Menu Welcome Screen' }]).select('id,name,loyalty_points').single()
-        if (insertErr || !created) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
-        setRewardsResult({ customerId: created.id, name: created.name, points: created.loyalty_points || 50, isNew: true })
-        setIdentifiedCustomerId(created.id)
-      }
+      // ✅ حماية: التسجيل ونقاط الولاء انتقلا إلى /api/menu-rewards — النقاط تُضبط في السيرفر
+      const res = await fetch('/api/menu-rewards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'join', phone, name: rewardsName.trim() || 'Guest' }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.customerId) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
+      setRewardsResult({ customerId: data.customerId, name: data.name, points: data.points || 0, isNew: !!data.isNew })
+      setIdentifiedCustomerId(data.customerId)
     } catch {
       setRewardsError('Something went wrong, please try again')
     }
@@ -337,20 +325,14 @@ const filteredItems = items
       } catch { /* ignore - this logging must never break the game itself */ }
     }
     try {
-      const { data: existing, error: findErr } = await sb.from('customers').select('id').eq('phone', phone).maybeSingle()
-      await log('find_customer', !findErr, findErr?.message || null, existing?.id)
-      let customerId = existing?.id
-      if (!customerId) {
-        const { data: created, error: insertErr } = await sb.from('customers').insert([{ name: firstName, phone, loyalty_points: 0, notes: '🎲 Added via "Who\'s Paying the Bill?" game' }]).select('id').single()
-        await log('insert_customer', !insertErr, insertErr?.message || null, created?.id)
-        customerId = created?.id
-      }
-      if (customerId && confirmedOrderId) {
-        const { error: linkErr } = await sb.from('orders').update({ customer_id: customerId }).eq('id', confirmedOrderId)
-        await log('link_order', !linkErr, linkErr?.message || null, customerId)
-      } else {
-        await log('skipped_link', false, `customerId=${customerId || 'null'} confirmedOrderId=${confirmedOrderId || 'null'}`, customerId)
-      }
+      // ✅ حماية: التسجيل وربط الطلب انتقلا إلى /api/menu-rewards (مفتاح service-role)
+      const res = await fetch('/api/menu-rewards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'game', phone, firstName, orderId: confirmedOrderId || null }),
+      })
+      const data = await res.json().catch(() => null)
+      await log(res.ok ? 'server_ok' : 'server_error', !!(res.ok && data?.customerId), data?.error || null, data?.customerId)
     } catch (e: any) {
       await log('exception', false, e?.message || String(e))
     }
@@ -472,133 +454,48 @@ const filteredItems = items
     if (isSubmittingRef.current) return
     isSubmittingRef.current = true
     setSubmitting(true)
-    const catMap = Object.fromEntries(categories.map(c => [c.id, c.destination]))
 
-    // ✅ Critical fix: removed the redirect check from here entirely - it used to run for any customer confirming an order (even a completely
-    // new customer opening an empty menu), so it would wrongly redirect the new customer's order to the old customer's order if the table had
-    // been redirected recently. Correctly following the old customer is now limited to "Order More" (checkAndFollowRedirect)
-    // which updates the table state before ever reaching the confirmation screen - so no second conflicting check is needed here
-    const effectiveTableId = table.id
-
-    // check whether an order already exists for the table
-    const { data: existingOrders } = await sb.from('orders')
-      .select('id,total_amount')
-      .eq('table_id', effectiveTableId)
-      .in('status', ['confirmed', 'preparing', 'ready'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    const existingOrder = existingOrders?.[0] || null
+    // ✅ حماية: إنشاء الطلب انتقل بالكامل إلى /api/submit-order. المتصفح يرسل الأصناف والكميات فقط،
+    // والسيرفر يجلب الأسعار من قاعدة البيانات ويحسب الإجمالي (لا يوثق بأي سعر من المتصفح).
+    // منطق الطلب القائم/الجديد + 3 محاولات إدراج + التراجع + حالة الطاولة كله داخل المسار.
     let orderId: string
-
-    if (existingOrder) {
-      // add to the existing order and update the total
-      orderId = existingOrder.id
-      await sb.from('orders').update({
-        total_amount: (existingOrder.total_amount || 0) + cartTotal
-      }).eq('id', orderId)
-    } else {
-      // create a new order
-      const { data: order, error } = await sb.from('orders').insert([{
-        table_id: effectiveTableId, status: 'confirmed',
-        total_amount: cartTotal, confirmed_at: new Date().toISOString(),
-        // ✅ New: link the customer registered in the Orchid Rewards system (if they entered their mobile number on the welcome screen) directly to the order
-        customer_id: identifiedCustomerId || null,
-      }]).select('id').single()
-      if (error || !order) { isSubmittingRef.current = false; setSubmitting(false); alert('Error, please try again'); return }
-      orderId = order.id
-    }
-
-    // ✅ Critical fix: as soon as an actual order (new or additional) is recorded for this table, clear any old redirect flag on it
-    // immediately - so that if a genuinely different new customer orders here and then taps
-    // "Order More", they will not wrongly follow an old redirect to another table. The table now has its own activity again
-    await sb.from('tables').update({ redirected_to_table_id: null, redirected_at: null }).eq('id', effectiveTableId)
-
-    // ✅ Fix: compute the correct actual price applied at order time (selected size or discount), instead of always using the base item price
-    function actualUnitPrice(c: CartItem) {
-      if (c.selectedSize) return c.selectedSize.price
-      if (c.item.discount_percent && c.item.discount_percent > 0) return c.item.price * (1 - c.item.discount_percent / 100)
-      return c.item.price
-    }
-
-    const itemsPayload = cart.map(c => ({
-      order_id: orderId, menu_item_id: c.item.id,
-      quantity: c.quantity, unit_price: actualUnitPrice(c),
-      notes: c.notes || null,
-      size_name: c.selectedSize ? (c.selectedSize.name_en || c.selectedSize.name) : null,
-      destination: catMap[c.item.category_id] || 'kitchen',
-      status: 'pending',
-    }))
-
-    // ✅ Fix: we must confirm the items were actually recorded before showing "Order Confirmed" to the customer.
-    // previously the code continued with no check at all, so if the insert failed (a momentary network drop, timeout...)
-    // the order would be recorded with the correct total but with no items at all, and the customer would still see "Order Confirmed".
-    let itemsError = (await sb.from('order_items').insert(itemsPayload)).error
-    let attemptCount = 1
-    // ✅ 3 attempts instead of two, with a short delay between them (half a second) to give the network a chance to recover from a momentary drop
-    while (itemsError && attemptCount < 3) {
-      console.error(`order_items insert failed (attempt ${attemptCount}):`, itemsError.message, itemsError.code, itemsError.details, itemsPayload)
-      await new Promise(res => setTimeout(res, 500))
-      attemptCount++
-      itemsError = (await sb.from('order_items').insert(itemsPayload)).error
-    }
-    if (itemsError) {
-      console.error(`order_items insert failed (attempt ${attemptCount}):`, itemsError.message, itemsError.code, itemsError.details, itemsPayload)
-      // ✅ log the real error to the database so it can be diagnosed later (console.error is trapped inside the customer's phone and never reaches us)
-      try {
-        await sb.from('order_submission_errors').insert([{
-          table_id: effectiveTableId,
-          attempt_count: attemptCount,
-          error_message: itemsError.message || null,
-          error_code: itemsError.code || null,
-          error_details: itemsError.details || null,
-          items_payload: itemsPayload,
-        }])
-      } catch (logErr) {
-        console.error('Failed to log order_submission_errors:', logErr)
+    try {
+      const res = await fetch('/api/submit-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tableId: table.id,
+          customerId: identifiedCustomerId || null,
+          items: cart.map(c => ({
+            menuItemId: c.item.id,
+            quantity: c.quantity,
+            sizeId: c.selectedSize?.id || null,
+            notes: c.notes || null,
+          })),
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.orderId) {
+        isSubmittingRef.current = false
+        setSubmitting(false)
+        alert('⚠️ Something went wrong sending your order. Please try again or call the waiter.')
+        return
       }
-    }
-    if (itemsError) {
-      // ✅ Fix: roll back the order update/creation so we don't leave an order with the wrong total and no items
-      let rollbackError
-      if (existingOrder) {
-        rollbackError = (await sb.from('orders').update({ total_amount: existingOrder.total_amount || 0 }).eq('id', orderId)).error
-      } else {
-        // ✅ Fix: use update to status 'cancelled' instead of delete — because the (anon) customer usually has no DELETE permission under RLS,
-        // and delete used to fail silently (without checking the result), leaving the empty order in place exactly like the original problem
-        rollbackError = (await sb.from('orders').update({ status: 'cancelled' }).eq('id', orderId)).error
-      }
-      if (rollbackError) console.error('order rollback failed:', rollbackError.message, rollbackError.code)
+      orderId = data.orderId
+      setOrderNumber(data.orderNumber || orderId.slice(-6).toUpperCase())
+      setConfirmedOrderId(orderId)
+      // ✅ الكارت يتفرغ بعد نجاح الطلب فقط
+      setCart([])
+      // ✅ البنود المتراكمة كاملة تجي من رد المسار مباشرة؛ وإلا نقرأها كالمعتاد
+      if (Array.isArray(data.items)) setLiveOrderItems(data.items)
+      else await fetchLiveOrderItems(orderId)
+    } catch {
       isSubmittingRef.current = false
       setSubmitting(false)
       alert('⚠️ Something went wrong sending your order. Please try again or call the waiter.')
       return
     }
 
-    // ✅ Critical fix: used to set the old table's (table.id) status to "occupied" for the new order, even if the order
-    // was actually recorded on the correct table after the redirect (effectiveTableId) - this was exactly why the old table
-    // appeared "occupied again" with a separate order after it had been cleared by the redirect
-    // ✅ Critical fix: occupied_since now only gets set when this is a genuinely new order, not on every additional
-    // round placed on an already-occupied table - otherwise the elapsed-time shown to the cashier kept resetting to
-    // zero with every new round instead of reflecting when the customer actually sat down
-    if (existingOrder) {
-      await sb.from('tables').update({ status: 'occupied', current_order_id: orderId }).eq('id', effectiveTableId)
-    } else {
-      await sb.from('tables').update({
-        status: 'occupied',
-        occupied_since: new Date().toISOString(),
-        current_order_id: orderId,
-      }).eq('id', effectiveTableId)
-    }
-
-    setOrderNumber(orderId.slice(-6).toUpperCase())
-    setConfirmedOrderId(orderId)
-    // ✅ Critical fix: the cart used to never fully reset after completing an order, so if the customer ordered again afterward,
-    // the entire old cart contents would be resent again along with the new one, actually duplicating the first round's items in the database
-    setCart([])
-    // ✅ New: fetch all accumulated order items (all rounds) from the database, so the confirmation screen shows the complete order
-    // not just the current round the customer just ordered - this way the first round's items never disappear from their screen
-    await fetchLiveOrderItems(orderId)
     // ✅ log IP, user-agent, and device model (if available - Android+Chrome only) for this order - in the background
     ;(async () => {
       let deviceModel: string | null = null

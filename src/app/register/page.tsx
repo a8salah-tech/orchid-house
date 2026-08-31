@@ -143,12 +143,21 @@ export default function RegisterPage() {
       return
     }
 
-    // Check duplicate
-    const { data: existingReg } = await supabase.from('employee_registrations').select('id').eq('email_account', emailAccount).in('status', ['pending', 'approved']).maybeSingle()
-    if (existingReg) { setErrors(p => ({ ...p, email_account: 'This email is already registered.' })); setError('This login email is already registered or approved.'); return }
-
-    const { data: existingEmp } = await supabase.from('employees').select('id').eq('email_account', emailAccount).maybeSingle()
-    if (existingEmp) { setErrors(p => ({ ...p, email_account: 'This email already exists in the system.' })); setError('This login email already exists.'); return }
+    // ✅ فحص التكرار انتقل إلى /api/register-check (مفتاح service-role) — الزائر المجهول
+    // لن يقدر يقرأ employees / employee_registrations مباشرة بعد إغلاق الصلاحيات
+    try {
+      const dupRes = await fetch('/api/register-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailAccount }),
+      })
+      const dup = await dupRes.json().catch(() => null)
+      if (dup?.duplicate) {
+        setErrors(p => ({ ...p, email_account: 'This email is already registered.' }))
+        setError(dup.where === 'employee' ? 'This login email already exists.' : 'This login email is already registered or approved.')
+        return
+      }
+    } catch { /* لو فشل الفحص لا نمنع التسجيل — قيد فريد في قاعدة البيانات هو خط الدفاع الأخير */ }
 
     // ✅ Fix جذري: بدل ما نعتمد على الرقم اللي اتحسب وقت اختيار الفرع (ممكن يكون فات عليه وقت طويل)،
     // نعيد حساب الرقم الحقيقي التالي من قاعدة البيانات مرة أخرى هنا مباشرة، لحظة الإرسال الفعلي بالظبط

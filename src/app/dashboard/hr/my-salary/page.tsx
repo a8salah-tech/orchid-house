@@ -184,19 +184,21 @@ export default function MySalaryPage() {
       }
       const employeesWithAnyAttendance = new Set((attData || []).map((a: any) => a.employee_id))
 
-      const peerRows = (records || []) as { employee_id: string; late_hours: number; absence_days: number; has_deduction_2: boolean }[]
+      const peerRows = (records || []) as { employee_id: string; late_hours: number; early_hours: number; absence_days: number; has_deduction_2: boolean }[]
       const scored = peerRows.map((r) => {
-        // ✅ درجة الالتزام بالحضور من 100 — تُخصَم حسب ساعات التأخير وأيام الغياب المسجَّلة فعلياً هذا الشهر
-        // بالفعل (من نفس أرقام صفحة الرواتب)، مش حساب منفصل جديد. بدون أي بصمة حضور فعلية، تُحتسَب صفر مباشرة
+        // ✅ نفس معادلة "دور استلام المرتب" بالظبط: خصم التأخير + الانصراف المبكر (×3) + الغياب (×15) + خصم غياب
         const attendanceScore = employeesWithAnyAttendance.has(r.employee_id)
-          ? Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.absence_days || 0) * 15 - (r.has_deduction_2 ? 10 : 0))
+          ? Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.early_hours || 0) * 3 - (r.absence_days || 0) * 15 - (r.has_deduction_2 ? 10 : 0))
           : 0
-        // ✅ درجة محايدة (70) لأي موظف لسه معندوش تقييم معتمد، عشان مايتظلمش بترتيب متأخر بسبب نقص بيانات فقط
-        const evalScore = latestEvalByEmp[r.employee_id] ?? 70
-        const combined = attendanceScore * 0.5 + evalScore * 0.5
-        return { employee_id: r.employee_id, combined }
+        // ✅ بلا تقييم معتمد = لا درجة افتراضية؛ الإجمالي = الانضباط، ويترتّب تحت كل من عنده تقييم
+        const hasEval = r.employee_id in latestEvalByEmp
+        const combined = hasEval ? attendanceScore * 0.5 + latestEvalByEmp[r.employee_id] * 0.5 : attendanceScore
+        return { employee_id: r.employee_id, hasEval, combined }
       })
-      scored.sort((a, b) => b.combined - a.combined)
+      scored.sort((a, b) => {
+        if (a.hasEval !== b.hasEval) return a.hasEval ? -1 : 1
+        return b.combined - a.combined
+      })
 
       const myIndex = scored.findIndex(s => s.employee_id === myId)
       setPickupInfo(myIndex === -1 ? null : { rank: myIndex + 1, total: scored.length })

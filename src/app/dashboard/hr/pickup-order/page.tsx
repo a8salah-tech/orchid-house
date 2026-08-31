@@ -37,7 +37,7 @@ type RankedEmployee = {
   employee_number?: string | null
   // ✅ جديد: ساعات الخروج المبكر - تُعرض بجانب التأخير (نفس مصدر البيانات المستخدم في صفحة الرواتب)
   lateHours: number; earlyHours: number; absenceDays: number; hasAbsenceDeduction: boolean; hasAttended: boolean
-  attendanceScore: number; evalScore: number; hasEval: boolean; combined: number
+  attendanceScore: number; evalScore: number | null; hasEval: boolean; combined: number
 }
 
 export default function PickupOrderPage() {
@@ -129,8 +129,11 @@ export default function PickupOrderPage() {
             ? Math.max(0, 100 - lateHours * 3 - absenceDays * 15 - (hasAbsenceDeduction ? 10 : 0))
             : 0
           const hasEval = r.employee_id in latestEvalByEmp
-          const evalScore = latestEvalByEmp[r.employee_id] ?? 70
-          const combined = attendanceScore * 0.5 + evalScore * 0.5
+          // ✅ بلا تقييم = لا نستبدله بدرجة افتراضية؛ الترتيب يعتمد على الانضباط فقط
+          const evalScore = hasEval ? latestEvalByEmp[r.employee_id] : null
+          const combined = hasEval
+            ? attendanceScore * 0.5 + (evalScore as number) * 0.5
+            : attendanceScore
           const emp = empById[r.employee_id]
           return {
             employee_id: r.employee_id, name: getFullName(emp), role: emp?.role || '',
@@ -157,7 +160,7 @@ export default function PickupOrderPage() {
         <td>${r.employee_number || '—'}</td>
         <td>${r.department || '—'}</td>
         <td>${r.hasAttended ? r.attendanceScore.toFixed(0) : 'لا يوجد بصمة حضور'}</td>
-        <td>${r.hasEval ? r.evalScore.toFixed(0) : 'لا يوجد (70 افتراضي)'}</td>
+        <td>${r.hasEval ? (r.evalScore as number).toFixed(0) : 'لا يوجد تقييم'}</td>
         <td>${r.combined.toFixed(1)}</td>
       </tr>`).join('')
 
@@ -285,10 +288,9 @@ export default function PickupOrderPage() {
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       {r.hasEval
-                        ? <span style={{ fontSize: 13, fontWeight: 700, color: S.teal }}>{r.evalScore.toFixed(0)}</span>
-                        // ✅ Fix: الدرجة الإجمالية بتحسب فعليًا بدرجة محايدة 70 لغياب التقييم، مش صفر - كانت "لا يوجد
-                        // تقييم" وحدها بتوهم إن الدرجة دخلت في الحساب بصفر، رغم إن الدرجة الإجمالية بتعكس 70 فعلاً
-                        : <span style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{isAr ? 'لا يوجد تقييم (70 افتراضي)' : 'No evaluation (default 70)'}</span>}
+                        ? <span style={{ fontSize: 13, fontWeight: 700, color: S.teal }}>{(r.evalScore as number).toFixed(0)}</span>
+                        // ✅ بلا تقييم: الترتيب يعتمد على الانضباط فقط (لا درجة افتراضية)
+                        : <span style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{isAr ? 'لا يوجد تقييم' : 'No evaluation'}</span>}
                     </td>
                     <td style={{ padding: '14px 16px', fontWeight: 800, color: S.gold, fontSize: 14 }}>{r.combined.toFixed(1)}</td>
                   </tr>

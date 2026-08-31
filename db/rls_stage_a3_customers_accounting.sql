@@ -46,8 +46,12 @@ end $$;
 
 -- ── chart_of_accounts: قراءة لغير الأساسي؛ تعديل للمحاسبة فقط ──
 drop policy if exists authenticated_all on chart_of_accounts;
+drop policy if exists coa_all on chart_of_accounts;
 drop policy if exists coa_sel on chart_of_accounts;
 drop policy if exists coa_write on chart_of_accounts;
+drop policy if exists coa_write_ins on chart_of_accounts;
+drop policy if exists coa_write_upd on chart_of_accounts;
+drop policy if exists coa_write_del on chart_of_accounts;
 create policy coa_sel on chart_of_accounts for select to authenticated
   using (not app_is_basic_employee());
 create policy coa_write_ins on chart_of_accounts for insert to authenticated

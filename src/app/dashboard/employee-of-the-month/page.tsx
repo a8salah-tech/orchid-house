@@ -47,10 +47,12 @@ export default function EmployeeOfTheMonthPage() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // الشهر المستهدف = الشهر السابق (لو نحن في يوليو، نعرض يونيو)، مع معالجة صحيحة لعبور السنة
+  // الشهر المستهدف = الشهر السابق — محسوب بتوقيت ماليزيا الثابت (مش توقيت الجهاز)
+  // ملاحظة: getMonth() صفري، فقيمته تساوي رقم الشهر السابق واحدي (أغسطس=7 → يوليو=7)
   const now = new Date()
-  const targetMonth = now.getMonth() === 0 ? 12 : now.getMonth()
-  const targetYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+  const klNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
+  const targetMonth = klNow.getMonth() === 0 ? 12 : klNow.getMonth()
+  const targetYear = klNow.getMonth() === 0 ? klNow.getFullYear() - 1 : klNow.getFullYear()
 
   const [loading, setLoading] = useState(true)
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -91,7 +93,7 @@ export default function EmployeeOfTheMonthPage() {
       sb.from('branches').select('id, name').eq('is_active', true).order('name'),
     ])
     setBranches(branchRes.data || [])
-    if (error) console.error('app_month_recognition error:', error)
+    if (error) console.error('app_month_recognition error:', error.message || error.hint || error.code || error)
 
     const list: Candidate[] = (rankData || []).map((r: any) => ({
       employeeId: r.employee_id,

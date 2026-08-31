@@ -113,7 +113,7 @@ export default function PLReportPage() {
 
     // ✅ الاستعلام دايمًا بنفس الشكل الثابت (فيه الـ join مع tables/warehouses/employees)
     // عشان نظام الأنواع في Supabase مش بيقدر يحلل جملة select() شرطية (Ternary) صح
-    const [orders, purchases, payrollRecs] = await Promise.all([
+    const [orders, purchases, payrollRes] = await Promise.all([
       fetchAllRows((from, to) => {
         let q = sb.from('orders')
           .select('total_amount,discount_amount,service_charge,sst_amount,payment_method,status,tables!inner(branch_id)')
@@ -133,15 +133,9 @@ export default function PLReportPage() {
         if (branchFilter) q = q.eq('warehouses.branch_id', branchFilter)
         return q
       }),
-      fetchAllRows((from, to) => {
-        let q = sb.from('payroll_records')
-          .select('amount_due, payroll_months!inner(month, year), employees!inner(branch_id)')
-          .eq('payroll_months.month', month)
-          .eq('payroll_months.year', year)
-          .range(from, to)
-        if (branchFilter) q = q.eq('employees.branch_id', branchFilter)
-        return q
-      }),
+      // ✅ سرّية الرواتب: لا نقرأ payroll_records الفردية هنا. دالة SECURITY DEFINER ترجّع
+      // إجمالي تكلفة الرواتب فقط (رقم واحد) — لأصحاب صلاحية التقارير.
+      sb.rpc('app_payroll_cost', { p_month: month, p_year: year, p_branch: branchFilter || null }),
     ])
 
     // Revenue calculations
@@ -168,8 +162,8 @@ export default function PLReportPage() {
     const gross_profit = total_revenue - purchasesTotal
     const gross_margin = total_revenue > 0 ? (gross_profit / total_revenue) * 100 : 0
 
-    // Payroll
-    const payroll = payrollRecs.reduce((s: number, p: any) => s + (p.amount_due || 0), 0)
+    // Payroll — إجمالي من الدالة (app_payroll_cost)
+    const payroll = Number(payrollRes?.data ?? 0)
 
     // Net Profit
     const net_profit = gross_profit - payroll

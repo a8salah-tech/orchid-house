@@ -660,13 +660,13 @@ export default function EmployeesPage() {
   const isManager = isAdmin || isBranchManager  // فقط admin و branch_manager
 
   // ── صلاحيات مفصّلة ──
-  // ── منع الوصول لغير المصرح لهم ──
-  if (currentUser && !isAdmin && !isBranchManager) {
+  // ── منع الوصول لغير المصرح لهم — صفحة الموظفين متاحة فقط لمدير النظام ──
+  if (currentUser && !isAdmin) {
     return (
       <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 64 }}>🔒</div>
         <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444' }}>غير مصرح بالوصول</div>
-        <div style={{ fontSize: 14, color: '#8A9BB5', textAlign: 'center' }}>هذه الصفحة متاحة فقط لمدير النظام ومدير الفرع</div>
+        <div style={{ fontSize: 14, color: '#8A9BB5', textAlign: 'center' }}>هذه الصفحة متاحة فقط لمدير النظام</div>
       </div>
     )
   }

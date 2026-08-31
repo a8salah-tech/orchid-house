@@ -1170,13 +1170,13 @@ export default function PayrollPage() {
   // DB security: Supabase RLS يجب أن يكون مفعّل
 
 
-  // ── منع الوصول لغير المصرح لهم ──
-  if (currentUser && !isSuperAdmin && !isBranchManager) {
+  // ── منع الوصول لغير المصرح لهم — صفحة الرواتب متاحة فقط لمدير النظام ──
+  if (currentUser && !isSuperAdmin) {
     return (
       <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 64 }}>🔒</div>
         <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444' }}>غير مصرح بالوصول</div>
-        <div style={{ fontSize: 14, color: '#8A9BB5', textAlign: 'center' }}>هذه الصفحة متاحة فقط لمدير النظام ومدير الفرع</div>
+        <div style={{ fontSize: 14, color: '#8A9BB5', textAlign: 'center' }}>هذه الصفحة متاحة فقط لمدير النظام</div>
       </div>
     )
   }

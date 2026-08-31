@@ -158,10 +158,10 @@ export default function MySalaryPage() {
       const monthStart = `${selectedMonth.year}-${String(selectedMonth.month).padStart(2, '0')}-01`
       const monthEnd = new Date(Date.UTC(selectedMonth.year, selectedMonth.month, 0)).toISOString().split('T')[0]
 
-      const [{ data: records }, { data: evalsData }, { data: attData }] = await Promise.all([
-        sb.from('payroll_records').select('employee_id, late_hours, absence_days, deduction_2')
-          .eq('payroll_month_id', selectedMonth.id)
-          .in('employee_id', empIds),
+      const [{ data: records, error: peersErr }, { data: evalsData }, { data: attData }] = await Promise.all([
+        // ✅ سرّية الرواتب: الموظف لا يقرأ payroll_records لغيره مباشرة. دالة SECURITY DEFINER
+        // ترجّع صفوف أقران الفرع المطلوبة لحساب الترتيب فقط (تقصر نفسها على فرع المستدعي).
+        sb.rpc('app_branch_payroll_peers', { p_month_id: selectedMonth.id }),
         // ✅ نجيب كل التقييمات المعتمدة (approved) لموظفي الفرع، ونستخدم الأحدث لكل موظف فقط
         sb.from('employee_evaluations').select('employee_id, total_score, month, year')
           .in('employee_id', empIds)
@@ -175,6 +175,8 @@ export default function MySalaryPage() {
           .gte('date', monthStart).lte('date', monthEnd),
       ])
       if (cancelled) return
+      // ✅ لو الدالة لسه مش منشورة أو رجعت خطأ — نخفي الترتيب بدل كسر الصفحة
+      if (peersErr || !records) { setPickupInfo(null); return }
 
       const latestEvalByEmp: Record<string, number> = {}
       for (const ev of (evalsData || [])) {
@@ -182,11 +184,12 @@ export default function MySalaryPage() {
       }
       const employeesWithAnyAttendance = new Set((attData || []).map((a: any) => a.employee_id))
 
-      const scored = (records || []).map((r: any) => {
+      const peerRows = (records || []) as { employee_id: string; late_hours: number; absence_days: number; has_deduction_2: boolean }[]
+      const scored = peerRows.map((r) => {
         // ✅ درجة الالتزام بالحضور من 100 — تُخصَم حسب ساعات التأخير وأيام الغياب المسجَّلة فعلياً هذا الشهر
         // بالفعل (من نفس أرقام صفحة الرواتب)، مش حساب منفصل جديد. بدون أي بصمة حضور فعلية، تُحتسَب صفر مباشرة
         const attendanceScore = employeesWithAnyAttendance.has(r.employee_id)
-          ? Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.absence_days || 0) * 15 - ((r.deduction_2 || 0) > 0 ? 10 : 0))
+          ? Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.absence_days || 0) * 15 - (r.has_deduction_2 ? 10 : 0))
           : 0
         // ✅ درجة محايدة (70) لأي موظف لسه معندوش تقييم معتمد، عشان مايتظلمش بترتيب متأخر بسبب نقص بيانات فقط
         const evalScore = latestEvalByEmp[r.employee_id] ?? 70

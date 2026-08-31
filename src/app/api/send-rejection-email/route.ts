@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCaller, callerHasPermission } from '../../../lib/apiAuth'
+
+// ✅ ترميز HTML — يمنع حقن وسوم/سكربتات عبر الاسم أو السبب داخل قالب الرسالة
+function escapeHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 export async function POST(req: NextRequest) {
   try {
+    // ✅ حماية: مُرحِّل البريد كان مفتوحاً للعالم من نطاق noreply@bidlx.com.
+    // الآن يتطلب موظفاً نشِطاً مسجَّلاً لديه صلاحية الموارد البشرية.
+    const emp = await getCaller()
+    if (!emp) return NextResponse.json({ error: 'غير مصرح — سجّل الدخول' }, { status: 401 })
+    if (!(await callerHasPermission(emp, 'hr'))) {
+      return NextResponse.json({ error: 'ليس لديك صلاحية الموارد البشرية' }, { status: 403 })
+    }
+
     const { name, email, reason } = await req.json()
     if (!email) return NextResponse.json({ error: 'No email' }, { status: 400 })
 
@@ -11,11 +30,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'RESEND_API_KEY not set' }, { status: 500 })
     }
 
-    console.log('Sending email to:', email, 'key starts with:', key.substring(0, 8))
+    const safeName = escapeHtml(name || 'Applicant')
+    const safeReason = reason ? escapeHtml(reason) : ''
 
     const registerUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://orchid.bidlx.com'}/register`
-    const reasonText = reason
-      ? `<p style="color:#EF4444;"><strong>Reason:</strong><br/>${reason}</p>`
+    const reasonText = safeReason
+      ? `<p style="color:#EF4444;"><strong>Reason:</strong><br/>${safeReason}</p>`
       : '<p style="color:#8A9BB5;">No specific reason was provided. Please contact management.</p>'
 
     const res = await fetch('https://api.resend.com/emails', {
@@ -34,7 +54,7 @@ export async function POST(req: NextRequest) {
               <div style="text-align: center; margin-bottom: 24px;">
                 <h2 style="color: #C9A84C; margin: 0; font-size: 22px;">🌸 Orchid Group</h2>
               </div>
-              <h3 style="color: #FAFAF8; margin-bottom: 16px;">Dear ${name},</h3>
+              <h3 style="color: #FAFAF8; margin-bottom: 16px;">Dear ${safeName},</h3>
               <p style="color: #8A9BB5; line-height: 1.8; margin-bottom: 20px;">
                 Thank you for your interest in joining <strong style="color: #C9A84C;">Orchid Group</strong>. We regret to inform you that your registration request has not been approved at this time.
               </p>
@@ -60,7 +80,6 @@ export async function POST(req: NextRequest) {
     })
 
     const data = await res.json()
-    console.log('Resend response status:', res.status, 'data:', JSON.stringify(data))
 
     if (!res.ok) {
       return NextResponse.json({ error: data.message || data.name || 'Resend error', details: data }, { status: 500 })

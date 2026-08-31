@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCaller, callerHasPermission } from '../../../lib/apiAuth'
 
 export async function POST(req: NextRequest) {
   try {
+    // ✅ حماية: كان أي شخص يقدر يستنزف مفتاح Gemini المدفوع. الآن يتطلب موظفاً نشِطاً
+    // مسجَّلاً لديه صلاحية "المشتريات".
+    const emp = await getCaller()
+    if (!emp) return NextResponse.json({ error: 'غير مصرح — سجّل الدخول' }, { status: 401 })
+    if (!(await callerHasPermission(emp, 'purchases'))) {
+      return NextResponse.json({ error: 'ليس لديك صلاحية المشتريات' }, { status: 403 })
+    }
+
     const { base64Image, products } = await req.json()
 
     if (!base64Image) {

@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 // ✅ سيرفر بس (مش من المتصفح) عشان نقدر نقرا هيدر الـ IP الحقيقي اللي Vercel بيحطه تلقائي
+// ✅ يستخدم مفتاح service-role — يبقى المسار يشتغل حتى بعد إغلاق صلاحيات الزائر المجهول (anon)
+// على جدول order_client_meta. المسار يُستدعى من صفحة المنيو العامة ويكتب صفاً واحداً غير حساس
+// (جهاز/متصفح/IP) مرتبطاً بـ order_id موجود فقط.
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { autoRefreshToken: false, persistSession: false } }
 )
 
 export async function POST(request: NextRequest) {

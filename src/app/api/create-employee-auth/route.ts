@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { getCaller, callerHasPermission } from '../../../lib/apiAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,8 +8,24 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 )
 
+// ✅ حماية: هذا المسار يستخدم مفتاح service-role (يتجاوز RLS)، فلا يُسمح باستدعائه إلا
+// لموظف نشِط مسجَّل دخول ولديه صلاحية "الموارد البشرية" (hr). بدون هذا كان أي شخص على
+// الإنترنت يقدر ينشئ حسابات أو يغيّر كلمة مرور أي مستخدم أو يحذف أي حساب.
+type Gate = { error: NextResponse; emp?: undefined } | { error?: undefined; emp: NonNullable<Awaited<ReturnType<typeof getCaller>>> }
+async function requireHr(): Promise<Gate> {
+  const emp = await getCaller()
+  if (!emp) return { error: NextResponse.json({ error: 'غير مصرح — سجّل الدخول' }, { status: 401 }) }
+  if (!(await callerHasPermission(emp, 'hr'))) {
+    return { error: NextResponse.json({ error: 'ليس لديك صلاحية الموارد البشرية' }, { status: 403 }) }
+  }
+  return { emp }
+}
+
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireHr()
+    if (gate.error) return gate.error
+
     const { employee_id, email, password } = await req.json()
 
     if (!employee_id || !email || !password) {
@@ -68,6 +85,9 @@ export async function POST(req: NextRequest) {
 // تغيير كلمة المرور
 export async function PATCH(req: NextRequest) {
   try {
+    const gate = await requireHr()
+    if (gate.error) return gate.error
+
     const { auth_user_id, new_password } = await req.json()
 
     if (!auth_user_id || !new_password) {
@@ -76,6 +96,19 @@ export async function PATCH(req: NextRequest) {
 
     if (new_password.length < 6) {
       return NextResponse.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' }, { status: 400 })
+    }
+
+    // ✅ منع تصعيد أفقي: موظف HR عادي لا يغيّر كلمة مرور حساب مرتبط بدور "مدير النظام".
+    // فقط مدير النظام نفسه يقدر يفعل ذلك.
+    if (gate.emp.role !== 'admin') {
+      const { data: target } = await supabaseAdmin
+        .from('employees')
+        .select('role')
+        .eq('auth_user_id', auth_user_id)
+        .maybeSingle()
+      if (target?.role === 'admin') {
+        return NextResponse.json({ error: 'لا يمكن تغيير كلمة مرور حساب مدير النظام إلا بواسطة مدير النظام' }, { status: 403 })
+      }
     }
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(auth_user_id, {
@@ -94,8 +127,23 @@ export async function PATCH(req: NextRequest) {
 // حذف حساب موظف
 export async function DELETE(req: NextRequest) {
   try {
+    const gate = await requireHr()
+    if (gate.error) return gate.error
+
     const { auth_user_id } = await req.json()
     if (!auth_user_id) return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 })
+
+    // ✅ منع تصعيد أفقي: لا يُحذف حساب مدير النظام إلا بواسطة مدير النظام نفسه
+    if (gate.emp.role !== 'admin') {
+      const { data: target } = await supabaseAdmin
+        .from('employees')
+        .select('role')
+        .eq('auth_user_id', auth_user_id)
+        .maybeSingle()
+      if (target?.role === 'admin') {
+        return NextResponse.json({ error: 'لا يمكن حذف حساب مدير النظام إلا بواسطة مدير النظام' }, { status: 403 })
+      }
+    }
 
     const { error } = await supabaseAdmin.auth.admin.deleteUser(auth_user_id)
     if (error) return NextResponse.json({ error: error.message }, { status: 400 })

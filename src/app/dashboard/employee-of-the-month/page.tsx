@@ -81,62 +81,27 @@ export default function EmployeeOfTheMonthPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const daysInMonth = new Date(targetYear, targetMonth, 0).getDate()
-    const monthStart = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`
-    const monthEnd = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
-
-    // ✅ Fix جذري أقوى: بدل الاعتماد على .limit() بس (اللي ممكن يتحدّ بإعداد على مستوى المشروع نفسه في
-    // Supabase، مش بس الكود)، بنجيب صفوف الحضور على دفعات (Pagination) حقيقية باستخدام .range() في حلقة
-    // مستمرة لحد ما نتأكد إننا جبنا كل الصفوف فعليًا، مهما كان عددها ومهما كان أي حد أقصى مضبوط في الإعدادات
-    async function fetchAllAttendanceRows() {
-      const PAGE_SIZE = 1000
-      let allRows: any[] = []
-      let from = 0
-      while (true) {
-        const { data, error } = await sb.from('attendance').select('employee_id, date, check_in_time')
-          .gte('date', monthStart).lte('date', monthEnd).range(from, from + PAGE_SIZE - 1)
-        if (error) { console.error('fetchAllAttendanceRows error:', error); break }
-        if (!data || data.length === 0) break
-        allRows = allRows.concat(data)
-        if (data.length < PAGE_SIZE) break // ✅ آخر صفحة (رجعت أقل من الحجم الكامل) - وصلنا للنهاية
-        from += PAGE_SIZE
-      }
-      return allRows
-    }
-
-    const [evalRes, attRows, branchRes] = await Promise.all([
-      sb.from('employee_evaluations')
-        // ✅ Fix: تحديد الرابط الصريح (employee_id_fkey) لتجنب التضارب مع رابط evaluator_id
-        .select('employee_id, total_score, employees!employee_evaluations_employee_id_fkey(name, name_en, photo_url, branch_id, department, is_active, branches(name))')
-        .eq('month', targetMonth).eq('year', targetYear).eq('status', 'approved'),
-      fetchAllAttendanceRows(),
+    // ✅ الترتيب يُحسب في السيرفر بنفس معادلة صفحة "دور استلام المرتب" بالظبط:
+    //    درجة الحضور = 100 − (ساعات التأخير×3 + أيام الغياب×15 + خصم غياب ? 10 : 0)
+    //    الإجمالي     = درجة الحضور×0.5 + درجة التقييم×0.5
+    // ويبقى مشروطاً بتقييم معتمد للشهر نفسه. الدالة SECURITY DEFINER فتعمل لأي موظف
+    // رغم أن payroll_records مقفول على الأدمن.
+    const [{ data: rankData, error }, branchRes] = await Promise.all([
+      sb.rpc('app_month_recognition', { p_month: targetMonth, p_year: targetYear }),
       sb.from('branches').select('id, name').eq('is_active', true).order('name'),
     ])
     setBranches(branchRes.data || [])
+    if (error) console.error('app_month_recognition error:', error)
 
-    // نسبة الحضور = عدد الأيام التي سجّل فيها دخولًا ÷ عدد أيام الشهر × 100
-    const attendanceByEmp: Record<string, Set<string>> = {}
-    for (const a of attRows) {
-      if (!a.check_in_time) continue
-      if (!attendanceByEmp[a.employee_id]) attendanceByEmp[a.employee_id] = new Set()
-      attendanceByEmp[a.employee_id].add(a.date)
-    }
-
-    const list: Candidate[] = []
-    for (const row of (evalRes.data as any[]) || []) {
-      const emp = row.employees
-      if (!emp || emp.is_active === false) continue
-      const daysPresent = attendanceByEmp[row.employee_id]?.size || 0
-      const attendanceRate = Math.min(100, Math.round((daysPresent / daysInMonth) * 1000) / 10)
-      const evaluationScore = Math.round((row.total_score || 0) * 10) / 10
-      const combinedScore = Math.round(((attendanceRate + evaluationScore) / 2) * 10) / 10
-      list.push({
-        employeeId: row.employee_id, name: emp.name, nameEn: emp.name_en, photoUrl: emp.photo_url,
-        branchName: emp.branches?.name || '—', department: emp.department,
-        evaluationScore, attendanceRate, combinedScore,
-      })
-    }
-    list.sort((a, b) => b.combinedScore - a.combinedScore)
+    const list: Candidate[] = (rankData || []).map((r: any) => ({
+      employeeId: r.employee_id,
+      name: r.name, nameEn: r.name_en, photoUrl: r.photo_url,
+      branchName: r.branch_name || '—', department: r.department,
+      evaluationScore: Math.round((Number(r.eval_score) || 0) * 10) / 10,
+      attendanceRate: Math.round((Number(r.attendance_score) || 0) * 10) / 10,
+      combinedScore: Math.round((Number(r.combined) || 0) * 10) / 10,
+    }))
+    // الدالة تُرجع مرتّباً تنازلياً حسب الإجمالي بالفعل
     setCandidates(list)
     setLoading(false)
   }, [sb, targetMonth, targetYear])
@@ -275,8 +240,8 @@ export default function EmployeeOfTheMonthPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, maxWidth: 480, margin: '0 auto 28px' }}>
               <div style={{ background: S.card, borderRadius: 14, padding: '14px 8px' }}>
                 <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 900, color: S.blue }}>{winner.attendanceRate}%</div>
-                <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>نسبة الحضور</div>
-                <div style={{ fontSize: 9, color: S.muted, fontFamily: 'system-ui, sans-serif' }}>Attendance Rate</div>
+                <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>درجة الانضباط</div>
+                <div style={{ fontSize: 9, color: S.muted, fontFamily: 'system-ui, sans-serif' }}>Discipline Score</div>
               </div>
               <div style={{ background: S.card, borderRadius: 14, padding: '14px 8px' }}>
                 <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 900, color: S.green }}>{winner.evaluationScore}%</div>

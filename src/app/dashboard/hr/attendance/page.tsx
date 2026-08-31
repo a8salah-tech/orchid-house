@@ -43,13 +43,16 @@ function getMalaysiaDateString(d: Date = new Date()): string {
   return malaysiaDate.toISOString().split('T')[0]
 }
 
+// ✅ كل العرض المرتبط بالوقت يُثبَّت على توقيت ماليزيا — لا يتأثر بتوقيت جهاز الموظف
+const KL_TZ = 'Asia/Kuala_Lumpur'
+
 function formatTime(iso?: string) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return new Date(iso).toLocaleTimeString('en-GB', { timeZone: KL_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('en-GB', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+  return new Date(d).toLocaleDateString('en-GB', { timeZone: KL_TZ, weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 function workDuration(checkIn?: string, checkOut?: string) {
@@ -496,10 +499,10 @@ function MyAttendanceCard() {
       {/* Clock */}
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: '24px', marginBottom: 16, textAlign: 'center' }}>
         <div style={{ fontSize: 42, fontWeight: 900, color: S.gold, fontVariantNumeric: 'tabular-nums', letterSpacing: 2 }}>
-          {clock.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          {clock.toLocaleTimeString('en-GB', { timeZone: KL_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         </div>
         <div style={{ fontSize: 14, color: S.muted, marginTop: 4 }}>
-          {clock.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          {clock.toLocaleDateString('en-GB', { timeZone: KL_TZ, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </div>
         {myBranch && <div style={{ fontSize: 12, color: S.blue, marginTop: 6 }}>🏪 {myBranch.name}</div>}
       </div>
@@ -1308,8 +1311,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (!win) return
     const rows = reportData.map(r => `<tr>
       <td>${r.date}</td>
-      <td>${r.check_in_time ? new Date(r.check_in_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-      <td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+      <td>${r.check_in_time ? new Date(r.check_in_time).toLocaleTimeString('en-GB', { timeZone: KL_TZ, hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+      <td>${r.check_out_time ? new Date(r.check_out_time).toLocaleTimeString('en-GB', { timeZone: KL_TZ, hour: '2-digit', minute: '2-digit' }) : '—'}</td>
       <td>${r.check_in_distance != null ? r.check_in_distance + 'm' : '—'}</td>
       <td>${r.check_out_distance != null ? r.check_out_distance + 'm' : '—'}</td>
       <td>${workHours(r)}</td>
@@ -1353,7 +1356,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     </table>
     <div style="margin-top:24px;display:flex;justify-content:space-between;font-size:11px;color:#666">
       <div>Prepared by: _______________</div>
-      <div>Date: ${new Date().toLocaleDateString()}</div>
+      <div>Date: ${new Date().toLocaleDateString('en-GB', { timeZone: KL_TZ })}</div>
     </div>
     <script>window.onload=function(){window.print()}<\/script>
     </body></html>`)

@@ -10,6 +10,17 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// ✅ نطاق الأقسام لكل دور — المطبخ والبار والحلويات مجموعة واحدة (مدير/مشرف المطبخ يرى الثلاثة)
+const KITCHEN_DEPTS = ['المطبخ', 'Kitchen', 'البار', 'Bar', 'الحلويات', 'Desserts']
+const HALL_DEPTS    = ['الصالة', 'Hall']
+const BAR_DEPTS     = ['البار', 'Bar']
+function deptsForRole(r: string): string[] | null {
+  if (r === 'kitchen_manager' || r === 'kitchen_supervisor') return KITCHEN_DEPTS
+  if (r === 'hall_manager'    || r === 'hall_supervisor')    return HALL_DEPTS
+  if (r === 'bar_manager'     || r === 'bar_supervisor')     return BAR_DEPTS
+  return null
+}
+
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
   gold: '#C9A84C', gold3: 'rgba(201,168,76,0.12)',
@@ -169,12 +180,10 @@ export default function ViolationsPage() {
     let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id,employee_number').eq('is_active', true).order('name')
     if (!isAdmin) {
       if (isBranchManager) empQ = empQ.eq('branch_id', employee?.branch_id || '')
-      else if (role === 'kitchen_manager') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['المطبخ','Kitchen','البار','Bar','الحلويات'])
-      else if (role === 'hall_manager') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['الصالة','Hall'])
-      else if (role === 'bar_manager') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['البار','Bar'])
-      else if (role === 'kitchen_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['المطبخ','Kitchen'])
-      else if (role === 'hall_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['الصالة','Hall'])
-      else if (role === 'bar_supervisor') empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', ['البار','Bar'])
+      else {
+        const d = deptsForRole(role)
+        if (d) empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', d)
+      }
     } else if (activeBranch) {
       // admin اختار تاب فرع محدد (بدل "الإجمالي") — فلترة إضافية بدون التأثير على باقي الأدوار
       empQ = empQ.eq('branch_id', activeBranch)
@@ -250,12 +259,10 @@ export default function ViolationsPage() {
     let q = sb.from('employees').select('id,name,name_en,department,employee_number').eq('is_active',true).order('name')
     if(!isAdmin){
       if(isBranchManager) q=q.eq('branch_id',employee?.branch_id||'')
-      else if(role==='kitchen_manager') q=q.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
-      else if(role==='hall_manager') q=q.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
-      else if(role==='bar_manager') q=q.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
-      else if(role==='kitchen_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
-      else if(role==='hall_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
-      else if(role==='bar_supervisor') q=q.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
+      else {
+        const d = deptsForRole(role)
+        if (d) q = q.eq('branch_id',employee?.branch_id||'').in('department', d)
+      }
     } else if (activeBranch) {
       q = q.eq('branch_id', activeBranch)
     }
@@ -297,12 +304,10 @@ export default function ViolationsPage() {
     let empQ = sb.from('employees').select('id,name,name_en,department,branch_id').eq('is_active',true).order('name')
     if(!isAdmin){
       if(isBranchManager) empQ=empQ.eq('branch_id',employee?.branch_id||'')
-      else if(role==='kitchen_manager') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
-      else if(role==='hall_manager') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
-      else if(role==='bar_manager') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
-      else if(role==='kitchen_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['المطبخ','Kitchen'])
-      else if(role==='hall_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['الصالة','Hall'])
-      else if(role==='bar_supervisor') empQ=empQ.eq('branch_id',employee?.branch_id||'').in('department',['البار','Bar'])
+      else {
+        const d = deptsForRole(role)
+        if (d) empQ = empQ.eq('branch_id',employee?.branch_id||'').in('department', d)
+      }
     } else if (activeBranch) {
       empQ = empQ.eq('branch_id', activeBranch)
     }

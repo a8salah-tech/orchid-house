@@ -42,3 +42,9 @@ next-env.d.ts
 
 # claude code local tooling
 .claude/
+
+# local source-code dumps / scratch exports — never commit these
+/*_export.txt
+/*_page.txt
+/public_menu.txt
+/*.dump.txt

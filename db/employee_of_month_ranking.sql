@@ -52,8 +52,9 @@ language sql stable security definer set search_path = public, pg_temp as $$
   ),
   pr as (
     select r.employee_id,
-           coalesce(r.late_hours, 0)::numeric      as late_hours,
-           coalesce(r.absence_days, 0)::numeric    as absence_days,
+           coalesce(r.late_hours, 0)::numeric        as late_hours,
+           coalesce(r.early_exit_hours, 0)::numeric  as early_hours,
+           coalesce(r.absence_days, 0)::numeric      as absence_days,
            (coalesce(r.deduction_2, 0)::numeric > 0) as has_ded2
     from payroll_records r
     join pm on pm.id = r.payroll_month_id
@@ -67,6 +68,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
         case when att.employee_id is not null then
           greatest(0::numeric, 100
             - coalesce(pr.late_hours, 0)   * 3
+            - coalesce(pr.early_hours, 0)  * 3
             - coalesce(pr.absence_days, 0) * 15
             - (case when coalesce(pr.has_ded2, false) then 10 else 0 end))
         else 0::numeric end

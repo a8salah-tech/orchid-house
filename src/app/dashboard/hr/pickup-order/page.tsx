@@ -125,11 +125,12 @@ export default function PickupOrderPage() {
           const hasAbsenceDeduction = (r.deduction_2 || 0) > 0
           const hasAttended = employeesWithAnyAttendance.has(r.employee_id)
           // ✅ بدون أي بصمة حضور فعلية هذا الشهر، مفيش أساس نحسب عليه انضباط حضور - نعتبرها صفر، مش 100%
+          // ✅ الانصراف المبكر يُخصم مثل التأخير تمامًا (×3)
           const attendanceScore = hasAttended
-            ? Math.max(0, 100 - lateHours * 3 - absenceDays * 15 - (hasAbsenceDeduction ? 10 : 0))
+            ? Math.max(0, 100 - lateHours * 3 - earlyHours * 3 - absenceDays * 15 - (hasAbsenceDeduction ? 10 : 0))
             : 0
           const hasEval = r.employee_id in latestEvalByEmp
-          // ✅ بلا تقييم = لا نستبدله بدرجة افتراضية؛ الترتيب يعتمد على الانضباط فقط
+          // ✅ بلا تقييم = لا درجة افتراضية؛ الإجمالي = الانضباط فقط، ويترتّب تحت كل من عنده تقييم
           const evalScore = hasEval ? latestEvalByEmp[r.employee_id] : null
           const combined = hasEval
             ? attendanceScore * 0.5 + (evalScore as number) * 0.5
@@ -141,7 +142,11 @@ export default function PickupOrderPage() {
             lateHours, earlyHours, absenceDays, hasAbsenceDeduction, hasAttended, attendanceScore, evalScore, hasEval, combined,
           }
         })
-      scored.sort((a, b) => b.combined - a.combined)
+      // ✅ من عنده تقييم أولاً (مرتّبين بالإجمالي)، ثم من بلا تقييم (مرتّبين بالانضباط)
+      scored.sort((a, b) => {
+        if (a.hasEval !== b.hasEval) return a.hasEval ? -1 : 1
+        return b.combined - a.combined
+      })
       if (!cancelled) { setRanked(scored); setLoadingRanked(false) }
     })()
     return () => { cancelled = true }

@@ -2136,12 +2136,14 @@ export default function CashierPage() {
     setArchiveResults(results)
 
     // ✅ جديد: لو فيه تاريخ محدد، نجيب مصروفات الكاش لليوم ده كمان — نفس جدول daily_cash_expenses
-    // اللي بيقرا منه تقرير الشيفت، وبنفس نطاق الفرع (الكاشير العادي: فرعه؛ الأدمن: الفرع المختار)
+    // اللي بيقرا منه تقرير الشيفت. نطاق الفرع: الكاشير العادي = فرعه؛ الأدمن = الفرع المختار.
+    // والكاشير العادي يشوف مصروفاته هو بس (نفس منطق "كل كاشير يشوف فواتيره") — مش مصروفات باقي الكاشيرية.
     if (archiveDate) {
       let xq = sb.from('daily_cash_expenses')
         .select('id,shift,cashier_name,description,amount,status,created_at,receipt_urls')
         .eq('expense_date', archiveDate).order('created_at', { ascending: false })
       if (!isAdmin && employee?.branch_id) xq = xq.eq('branch_id', employee.branch_id)
+      if (!isAdmin && employee?.name) xq = xq.eq('cashier_name', employee.name)
       if (isAdmin && adminBranchFilter) xq = xq.eq('branch_id', adminBranchFilter)
       const { data: xData } = await xq
       setArchiveExpenses((xData as any) || [])
@@ -2150,7 +2152,7 @@ export default function CashierPage() {
     }
 
     setArchiveLoading(false)
-  }, [sb, archiveDate, archiveTableSearch, isAdmin, adminBranchFilter, employee?.branch_id])
+  }, [sb, archiveDate, archiveTableSearch, isAdmin, adminBranchFilter, employee?.branch_id, employee?.name])
 
   const [fetchError, setFetchError] = useState<string | null>(null)
 

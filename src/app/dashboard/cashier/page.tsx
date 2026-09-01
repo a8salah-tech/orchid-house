@@ -2137,17 +2137,34 @@ export default function CashierPage() {
 
     // ✅ جديد: لو فيه تاريخ محدد، نجيب مصروفات الكاش لليوم ده كمان — نفس جدول daily_cash_expenses
     // اللي بيقرا منه تقرير الشيفت. نطاق الفرع: الكاشير العادي = فرعه؛ الأدمن = الفرع المختار.
-    // الحساب مشترك، فـ"كاشير المصروف" اللي اتسجّل هو اسم الشيفت المفتوح وقتها (activeShiftCashierName)
-    // مش اسم حساب الدخول. عشان كده الكاشير العادي يشوف مصروفات الكاشير الماسك الشيفت دلوقتي بس.
     if (archiveDate) {
       let xq = sb.from('daily_cash_expenses')
         .select('id,shift,cashier_name,description,amount,status,created_at,receipt_urls')
         .eq('expense_date', archiveDate).order('created_at', { ascending: false })
       if (!isAdmin && employee?.branch_id) xq = xq.eq('branch_id', employee.branch_id)
-      if (!isAdmin && activeShiftCashierName) xq = xq.eq('cashier_name', activeShiftCashierName)
       if (isAdmin && adminBranchFilter) xq = xq.eq('branch_id', adminBranchFilter)
       const { data: xData } = await xq
-      setArchiveExpenses((xData as any) || [])
+      let expenses = (xData as any[]) || []
+
+      // ✅ الكاشير العادي: الحساب مشترك، وعمود cashier_name في صف المصروف ممكن يطلع غلط لو جلسة شيفت
+      // قديمة اتنسيت مفتوحة. فبدل ما نعتمد عليه، بنطابق المصروف بنافذة وقت جلسة الشيفت — بالظبط زي
+      // ما تقرير الشيفت بيعمل — فيظهر تحت الكاشير الماسك الشيفت فعليًا وقت تسجيل المصروف.
+      if (!isAdmin && activeShiftCashierName) {
+        const { data: sessData } = await sb.from('cashier_shift_sessions')
+          .select('shift,started_at,ended_at')
+          .in('session_date', [archiveDate, new Date(new Date(archiveDate + 'T00:00:00+08:00').getTime() - 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })])
+          .eq('cashier_name', activeShiftCashierName)
+          .eq('branch_id', employee?.branch_id || '')
+        const sessions = (sessData as any[]) || []
+        expenses = sessions.length === 0 ? [] : expenses.filter(e => sessions.some(s => {
+          if (s.shift !== e.shift) return false
+          const t = new Date(e.created_at).getTime()
+          const st = new Date(s.started_at).getTime()
+          const en = s.ended_at ? new Date(s.ended_at).getTime() : Date.now()
+          return t >= st && t <= en
+        }))
+      }
+      setArchiveExpenses(expenses)
     } else {
       setArchiveExpenses([])
     }
@@ -2987,7 +3004,7 @@ export default function CashierPage() {
                       <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, flexWrap: 'wrap', gap: 6 }}>
                         <span style={{ color: S.white }}>
                           {exp.status === 'paid' ? '✅' : '⏳'} {exp.description}
-                          <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {exp.shift === 'shift1' ? 'Shift 1' : exp.shift === 'shift2' ? 'Shift 2' : 'Shift 3'} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span style={{ color: S.muted, fontSize: 10 }}> · {(!isAdmin && activeShiftCashierName) ? activeShiftCashierName : exp.cashier_name} · {exp.shift === 'shift1' ? 'Shift 1' : exp.shift === 'shift2' ? 'Shift 2' : 'Shift 3'} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {(exp.receipt_urls || []).map((url, i) => (

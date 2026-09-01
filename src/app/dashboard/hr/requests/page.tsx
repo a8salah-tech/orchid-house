@@ -582,6 +582,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   const approvedBy = currentUser?.name ? `${currentUser.name}${currentUser.name_en ? ' (' + currentUser.name_en + ')' : ''}` : ''
   const [rejectionReason, setRejectionReason] = useState('')
   const [showReject, setShowReject] = useState(false)
+  // ✅ سلفة الراتب: المعتمِد يقدر يعتمد مبلغاً أقل من المطلوب — يبدأ بالمبلغ المطلوب وقابل للتعديل
+  const [approvedAmount, setApprovedAmount] = useState(request.amount != null ? String(request.amount) : '')
   // ✅ الموظف لا يقدر يعتمد/يرفض طلبه الخاص (لأي نوع طلب)
   const isOwnRequest = currentUser?.id === request.employee_id
   // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط - مثل ما هي بالظبط، من غير أي تغيير
@@ -656,12 +658,35 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   async function updateStatus(newStatus: string) {
     if (newStatus === 'approved' && !approvedBy) { alert('يرجى إدخال اسم المعتمد'); return }
     if (newStatus === 'rejected' && !rejectionReason) { alert('يرجى إدخال سبب الرفض'); return }
+
+    // ✅ سلفة الراتب: عند "تأكيد التسليم/الاعتماد" المعتمِد يحدد المبلغ المعتمد فعلياً (يبدأ بالمطلوب،
+    // ويمكن تقليله). المبلغ المعتمد هو اللي يتثبت في الطلب ويُخصم من الراتب — مثال: طلب 400، اعتُمد 300
+    // → 300 هي اللي تُسجَّل وتُخصم. لا يُسمح باعتماد مبلغ أكبر من المطلوب.
+    let finalAdvance: number | null = null
+    if (request.request_type === 'salary_advance' && newStatus === 'completed') {
+      finalAdvance = parseFloat(approvedAmount)
+      if (!(finalAdvance > 0)) { alert('يرجى إدخال مبلغ معتمد صحيح'); return }
+      if (request.amount && finalAdvance > request.amount + 0.001) {
+        alert(`المبلغ المعتمد (MYR ${finalAdvance.toFixed(2)}) أكبر من المبلغ المطلوب (MYR ${request.amount.toFixed(2)}). لا يمكن اعتماد أكثر من المطلوب.`); return
+      }
+      finalAdvance = parseFloat(finalAdvance.toFixed(2))
+    }
+
+    // ✅ لو المبلغ المعتمد أقل من المطلوب، نضيف سطر توضيحي في وصف الطلب (يبان في الاستمارة المطبوعة)
+    let updatedDescription: string | null = null
+    if (finalAdvance != null && request.amount && finalAdvance < request.amount - 0.001) {
+      const note = `\n\n— اعتمد ${approvedBy || 'الإدارة'} مبلغ MYR ${finalAdvance.toFixed(2)} من أصل MYR ${request.amount.toFixed(2)} المطلوبة.`
+      if (!(request.description || '').includes('اعتمد ')) updatedDescription = (request.description || '') + note
+    }
+
     setUpdating(true)
     await supabase.from('employee_requests').update({
       status: newStatus,
       approved_by: approvedBy || null,
       approved_at: ['approved', 'completed'].includes(newStatus) ? new Date().toISOString() : null,
       rejection_reason: newStatus === 'rejected' ? rejectionReason : null,
+      ...(finalAdvance != null ? { amount: finalAdvance } : {}),
+      ...(updatedDescription != null ? { description: updatedDescription } : {}),
     }).eq('id', request.id)
 
     // ✅ تطبيق تصحيح الحضور تلقائياً عند الموافقة — يُثبَّت في جدول الحضور، وتُعاد فيه قيم التأخير/الخروج
@@ -735,6 +760,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     // مثال: السلفة تُعتمد 25 مايو → تُخصم من راتب شهر مايو (الذي يُسلَّم فعليًا في يونيو)
     // ✅ نحمي من الإضافة المزدوجة: لا نضيف المبلغ إلا إذا لم تكن حالة الطلب "completed" من قبل هذا التحديث
     if (newStatus === 'completed' && request.status !== 'completed' && request.request_type === 'salary_advance' && request.amount) {
+      // ✅ المبلغ المخصوم = المبلغ المعتمد (لو المعتمِد قلّله)، وإلا المبلغ المطلوب
+      const advanceAmt = finalAdvance != null ? finalAdvance : request.amount
       const now = new Date()
       const targetMonth = now.getMonth() + 1
       const targetYear = now.getFullYear()
@@ -757,7 +784,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
         if (existingRecord) {
           // ✅ نزيد على القيمة الحالية (لا نستبدلها) لحماية أي سلفة سابقة معتمدة لنفس الشهر
           await supabase.from('payroll_records').update({
-            advance: (existingRecord.advance || 0) + request.amount,
+            advance: (existingRecord.advance || 0) + advanceAmt,
           }).eq('id', existingRecord.id)
         } else {
           // جلب الراتب الأساسي والتأمين من بيانات الموظف نفسه لتعبئة السجل الجديد
@@ -776,7 +803,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
             deduction_1: 0, deduction_1_label: 'Deduction 1',
             deduction_2: 0, deduction_2_label: 'Deduction 2',
             deduction_3: 0, deduction_3_label: 'Deduction 3',
-            advance: request.amount, advance_balance: 0, carried_forward: 0,
+            advance: advanceAmt, advance_balance: 0, carried_forward: 0,
             amount_due: 0, amount_paid: 0,
             work_insurance: empData?.work_insurance || 0,
           }])
@@ -892,7 +919,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             { label: 'الفرع', value: request.employees?.branches?.name || '—', icon: '🏪' },
             { label: 'القسم', value: request.employees?.department || '—', icon: '🏷️' },
             { label: 'عنوان الطلب', value: request.title || '—', icon: '📋' },
-            request.amount ? { label: 'المبلغ المطلوب', value: `MYR ${request.amount.toFixed(2)}`, icon: '💰' } : null,
+            request.amount ? { label: (isSalaryAdvance && ['approved', 'completed'].includes(request.status)) ? 'المبلغ المعتمد' : 'المبلغ المطلوب', value: `MYR ${request.amount.toFixed(2)}`, icon: '💰' } : null,
             request.start_date ? { label: 'من تاريخ', value: request.start_date, icon: '📅' } : null,
             request.end_date ? { label: 'إلى تاريخ', value: request.end_date, icon: '📅' } : null,
             request.days_count ? { label: 'عدد الأيام', value: `${request.days_count} يوم`, icon: '⏳' } : null,
@@ -962,17 +989,26 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                   <input style={{ ...inp, marginBottom: 12, opacity: 0.8, cursor: 'not-allowed' }} value={approvedBy} readOnly placeholder="..." />
                   {isSalaryAdvance ? (
                     // ✅ سلفة الراتب: مرحلة واحدة مدمجة "تأكيد واعتماد التسليم" — تُسجَّل مباشرة كـ completed
-                    // لتمثيل لحظة تسليم السلفة فعليًا للموظف، والتي بعدها تُخصم من الراتب
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => updateStatus('completed')} disabled={updating}
-                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                        ✅ تأكيد واعتماد التسليم (تُخصم من الراتب)
-                      </button>
-                      <button onClick={() => setShowReject(true)}
-                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                        ❌ رفض
-                      </button>
-                    </div>
+                    // لتمثيل لحظة تسليم السلفة فعليًا للموظف، والتي بعدها تُخصم من الراتب.
+                    // المعتمِد يحدد المبلغ المعتمد (يبدأ بالمطلوب، ويمكن تقليله) — وهو ما يُثبَّت ويُخصم.
+                    <>
+                      <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>المبلغ المعتمد (MYR)</div>
+                      <input style={{ ...inp, marginBottom: 4 }} type="number" min={0} max={request.amount || undefined} step="0.01"
+                        value={approvedAmount} onChange={e => setApprovedAmount(e.target.value)} placeholder="0.00" />
+                      <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>
+                        المطلوب: MYR {(request.amount || 0).toFixed(2)} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت في الطلب ويُخصم من الراتب
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => updateStatus('completed')} disabled={updating}
+                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          ✅ اعتماد وخصم MYR {(parseFloat(approvedAmount) || 0).toFixed(2)}
+                        </button>
+                        <button onClick={() => setShowReject(true)}
+                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          ❌ رفض
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={() => updateStatus('approved')} disabled={updating}
@@ -1017,9 +1053,19 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
 
         {request.status === 'approved' && (
           <div style={{ marginBottom: 16 }}>
+            {isSalaryAdvance && canTakeAction && (
+              <>
+                <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>المبلغ المعتمد (MYR)</div>
+                <input style={{ ...inp, marginBottom: 4 }} type="number" min={0} max={request.amount || undefined} step="0.01"
+                  value={approvedAmount} onChange={e => setApprovedAmount(e.target.value)} placeholder="0.00" />
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 10 }}>
+                  المطلوب: MYR {(request.amount || 0).toFixed(2)} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت ويُخصم من الراتب
+                </div>
+              </>
+            )}
             <button onClick={() => updateStatus('completed')} disabled={updating}
               style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              🏁 تأكيد الاكتمال
+              {isSalaryAdvance ? `🏁 اعتماد وخصم MYR ${(parseFloat(approvedAmount) || 0).toFixed(2)}` : '🏁 تأكيد الاكتمال'}
             </button>
           </div>
         )}

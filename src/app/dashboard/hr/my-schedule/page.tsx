@@ -384,7 +384,7 @@ export default function MySchedulePage() {
               </div>
               <div style={{ fontSize: 11, color: S.white, lineHeight: 1.8 }}>
                 {isAr
-                  ? 'فيه أيام سجّلت فيها دخول ولم تسجّل خروج (أو مدة تسجيل غير منطقية). دي متعلَّمة أعلاه باللون الأحمر — راجعها مع مديرك المباشر لتصحيحها، فقد تؤثر على حساب راتبك.'
+                  ? 'هناك أيام سُجِّل فيها الدخول دون تسجيل الخروج (أو أنّ مدة التسجيل غير منطقية). وهي مُعلَّمة أعلاه باللون الأحمر — يُرجى مراجعتها مع مديرك المباشر لتصحيحها، فقد تؤثّر في احتساب راتبك.'
                   : 'Some days have a check-in with no check-out (or an unreasonable duration). They are flagged in red above — please review them with your manager, as they may affect your payroll.'}
               </div>
             </div>

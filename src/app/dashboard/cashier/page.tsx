@@ -261,10 +261,11 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const sb = createClient()
   const { employee, permissions } = useAuth()
   // ✅ Fix: مساعد الكاشير (assistant_cashier) بقى نفس مستوى موظف/مشرف الصالة بالظبط - مش صلاحيات كاشير كاملة
-  const isCashierRole = permissions?.all === true || employee?.role === 'cashier'
+  // ✅ المشرف العام: عرض كامل في صفحة الكاشير زي الأدمن (كل الفروع + تقرير الشيفت + الدفع)
+  const isCashierRole = permissions?.all === true || employee?.role === 'cashier' || employee?.role === 'general_supervisor'
   // ✅ جديد: الدور المحدود (مشرف/موظف الصالة + مساعد الكاشير) - بياخدوا "+" بس، مش الدفع/الدمج/التحويل
   const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'assistant_cashier'].includes(employee?.role || '')
-  const isAdminUser = permissions?.all === true
+  const isAdminUser = permissions?.all === true || employee?.role === 'general_supervisor'
   // ✅ Fix: حماية من تنفيذ الدفع مرتين لو حصل ضغط مزدوج سريع على "Confirm" (كان بيضاعف إحصائيات العميل)
   const isPayingRef = useRef(false)
   // ✅ اسم الفرع الحقيقي للطاولة - عشان الأدمن يفرّق بين طاولات نفس الاسم في فروع مختلفة (زي "Table 1" في House و KLCC)
@@ -1926,7 +1927,8 @@ export default function CashierPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   const { employee, permissions } = useAuth()
-  const isAdmin = permissions?.all === true
+  // ✅ المشرف العام: عرض كامل في صفحة الكاشير زي الأدمن (كل الفروع + تقرير الشيفت + الدفع)
+  const isAdmin = permissions?.all === true || employee?.role === 'general_supervisor'
   // ✅ Fix: مساعد الكاشير بقى نفس مستوى موظف/مشرف الصالة بالظبط - مش صلاحيات كاشير كاملة
   const isCashierRole = isAdmin || employee?.role === 'cashier'
   // ✅ جديد: حساب مشترك محدود لمشرفي/موظفي الصالة + مساعد الكاشير - يقدروا يشوفوا الطاولات ويضيفوا طلبات
@@ -2104,6 +2106,12 @@ export default function CashierPage() {
   const [archiveSearched, setArchiveSearched] = useState(false)
   // ✅ جديد: الفاتورة المختارة من الأرشيف لعرض تفاصيلها الكاملة في مودال بمنتصف الشاشة
   const [archiveDetailOrder, setArchiveDetailOrder] = useState<Order | null>(null)
+  // ✅ جديد: مصروفات الكاش لليوم المختار في الأرشيف — عشان الكاشير العادي (اللي مش عنده صفحة الشيفت) يشوف
+  // "💸 Expenses" وإجماليها لكل يوم، بنفس الطريقة اللي بتظهر بيها في صفحة الشيفت
+  const [archiveExpenses, setArchiveExpenses] = useState<{ id: string; shift: string; cashier_name: string; description: string; amount: number; status: string; created_at: string; receipt_urls: string[] | null }[]>([])
+  const [adminBranchFilter, setAdminBranchFilter] = useState<string>('')
+  // ✅ Fix: الأدمن يبدأ بـ"كل الفروع" افتراضيًا (بدل ما يتفلتر تلقائيًا على أول فرع في القايمة من غير ما يلاحظ)
+  // - ده كان سبب مباشر لمشاكل "الأوردر مش ظاهر" رغم إنه موجود فعليًا، لمجرد إن الأدمن كان شايف فرع تاني
 
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
@@ -2126,11 +2134,23 @@ export default function CashierPage() {
       })
     }
     setArchiveResults(results)
+
+    // ✅ جديد: لو فيه تاريخ محدد، نجيب مصروفات الكاش لليوم ده كمان — نفس جدول daily_cash_expenses
+    // اللي بيقرا منه تقرير الشيفت، وبنفس نطاق الفرع (الكاشير العادي: فرعه؛ الأدمن: الفرع المختار)
+    if (archiveDate) {
+      let xq = sb.from('daily_cash_expenses')
+        .select('id,shift,cashier_name,description,amount,status,created_at,receipt_urls')
+        .eq('expense_date', archiveDate).order('created_at', { ascending: false })
+      if (!isAdmin && employee?.branch_id) xq = xq.eq('branch_id', employee.branch_id)
+      if (isAdmin && adminBranchFilter) xq = xq.eq('branch_id', adminBranchFilter)
+      const { data: xData } = await xq
+      setArchiveExpenses((xData as any) || [])
+    } else {
+      setArchiveExpenses([])
+    }
+
     setArchiveLoading(false)
-  }, [sb, archiveDate, archiveTableSearch])
-  const [adminBranchFilter, setAdminBranchFilter] = useState<string>('')
-  // ✅ Fix: الأدمن يبدأ بـ"كل الفروع" افتراضيًا (بدل ما يتفلتر تلقائيًا على أول فرع في القايمة من غير ما يلاحظ)
-  // - ده كان سبب مباشر لمشاكل "الأوردر مش ظاهر" رغم إنه موجود فعليًا، لمجرد إن الأدمن كان شايف فرع تاني
+  }, [sb, archiveDate, archiveTableSearch, isAdmin, adminBranchFilter, employee?.branch_id])
 
   const [fetchError, setFetchError] = useState<string | null>(null)
 
@@ -2928,12 +2948,58 @@ export default function CashierPage() {
                 {archiveLoading ? '⏳...' : '🔍 Search'}
               </button>
               {(archiveDate || archiveTableSearch) && (
-                <button onClick={() => { setArchiveDate(''); setArchiveTableSearch(''); searchArchive() }}
+                <button onClick={() => { setArchiveDate(''); setArchiveTableSearch(''); setArchiveExpenses([]); searchArchive() }}
                   style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
                   ✕ Clear
                 </button>
               )}
             </div>
+
+            {/* ✅ جديد: بطاقة "💸 Expenses" لليوم المختار — عشان الكاشير يشوف مصروفات الكاش وإجماليها
+                من غير ما يحتاج صفحة الشيفت. تظهر بس لما يكون فيه تاريخ محدد ومصروفات مسجّلة فيه */}
+            {!archiveLoading && archiveDate && archiveExpenses.length > 0 && (() => {
+              const aExpPaid = archiveExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
+              const aExpPending = archiveExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
+              return (
+                <div style={{ background: S.redB, borderRadius: 16, border: `1px solid ${S.red}40`, padding: '16px 18px', marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 10 }}>💸 Expenses ({archiveDate})</div>
+                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses Paid</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {aExpPaid.toFixed(2)}</div>
+                    </div>
+                    {aExpPending > 0 && (
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 10, color: S.muted }}>⏳ Expenses Pending</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {aExpPending.toFixed(2)}</div>
+                      </div>
+                    )}
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: S.muted }}>Σ Total</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>MYR {(aExpPaid + aExpPending).toFixed(2)}</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${S.red}30`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {archiveExpenses.map(exp => (
+                      <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, flexWrap: 'wrap', gap: 6 }}>
+                        <span style={{ color: S.white }}>
+                          {exp.status === 'paid' ? '✅' : '⏳'} {exp.description}
+                          <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {exp.shift === 'shift1' ? 'Shift 1' : exp.shift === 'shift2' ? 'Shift 2' : 'Shift 3'} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {(exp.receipt_urls || []).map((url, i) => (
+                            <a key={i} href={url} onClick={e => { e.preventDefault(); e.stopPropagation(); setViewingReceiptUrl(url) }}>
+                              <img src={url} alt="receipt" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
+                            </a>
+                          ))}
+                          <span style={{ color: S.red, fontWeight: 800 }}>MYR {(exp.amount || 0).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
 
             {archiveLoading ? (
               <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>

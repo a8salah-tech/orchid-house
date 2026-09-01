@@ -52,7 +52,8 @@ interface StockEntry {
 export default function UniformRequestsPage() {
   const sb = createClient()
   const { employee: currentUser, permissions } = useAuth()
-  const isAdmin = permissions?.all === true
+  // ✅ المشرف العام له صلاحية كاملة على صفحة اليونيفورم زي الأدمن (كل الفروع + اعتماد + حذف + مخزون)
+  const isAdmin = permissions?.all === true || currentUser?.role === 'general_supervisor'
   // ✅ مدير الفرع يقدر يشوف ويعتمد طلبات يونيفورم موظفي فرعه بس (بنفس صلاحيات الأدمن، لكن محدودة بفرعه)
   const isBranchManager = currentUser?.role === 'branch_manager'
   const canManage = isAdmin || isBranchManager

@@ -3813,6 +3813,17 @@ export default function CashierPage() {
                 const now = new Date()
                 setShiftStarted(true); setShiftStart(now)
                 localStorage.setItem('cashier_shift_active', 'true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift)
+                // ✅ تسليم/استلام: نقفل أي جلسة مفتوحة *حديثة* لنفس الشيفت+الفرع قبل ما نفتح الجديدة — عشان
+                // ماتفضلش جلسة يتيمة مفتوحة (كاشير نسي End Shift) تلخبط اسم الكاشير الحالي ونسبة المصروفات.
+                // بنحصرها في آخر 36 ساعة بس: جلسة قديمة جدًا اتنسيت مفتوحة أصلًا مخفية من كل التقارير
+                // (بسبب حارس started_at في تقرير اليومية)، وقفلها بوقت "النهاردة" كان بيلغبطها هناك.
+                if (employee?.branch_id) {
+                  const recentCutoff = new Date(now.getTime() - 36 * 60 * 60 * 1000).toISOString()
+                  await sb.from('cashier_shift_sessions')
+                    .update({ ended_at: now.toISOString() })
+                    .eq('branch_id', employee.branch_id).eq('shift', shift)
+                    .is('ended_at', null).gte('started_at', recentCutoff)
+                }
                 // ✅ الاسم الحقيقي اللي اتحدد يدويًا هو اللي بيتسجل، مش اسم الحساب اللي داخل بيه
                 await sb.from('cashier_shift_sessions').insert([{ branch_id: employee?.branch_id || null, shift, cashier_name: finalName }])
                 fetchActiveShiftCashier()

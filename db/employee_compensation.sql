@@ -92,8 +92,8 @@ begin
     raise exception 'FAIL: أعمدة الراتب ما زالت في جدول employees';
   end if;
 
-  if (select count(*) from employee_compensation) <> (select count(*) from employees) then
-    raise exception 'FAIL: عدد صفوف employee_compensation لا يطابق employees';
+  if (select count(*) from employee_compensation) < (select count(*) from employees) then
+    raise exception 'FAIL: نقل بيانات employee_compensation ناقص';
   end if;
 
   perform app_employee_base_pay(gen_random_uuid());

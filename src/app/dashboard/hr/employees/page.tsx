@@ -56,6 +56,7 @@ const ROLES: Record<string, { label: string; color: string; bg: string; icon: st
   delivery_worker:      { label: 'عامل توصيل',     color: '#EC4899', bg: 'rgba(236,72,153,0.12)',   icon: '🛵' },
   warehouse_keeper: { label: 'أمين المستودع', color: '#F97316', bg: 'rgba(249,115,22,0.12)', icon: '🏭' },
   warehouse_manager: { label: 'مدير المستودعات', color: '#EA580C', bg: 'rgba(234,88,12,0.12)', icon: '🏭' },
+  kitchen_display:      { label: 'شاشة المطبخ',   color: '#F97316', bg: 'rgba(249,115,22,0.12)',   icon: '📺' },
   employee:             { label: 'موظف',           color: S.muted,   bg: S.card2,                  icon: '👤' },
 }
 

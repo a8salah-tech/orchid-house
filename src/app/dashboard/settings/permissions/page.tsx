@@ -43,6 +43,7 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   assistant_cashier:   { label: 'مساعد كاشير',     icon: '💳', color: S.green,   bg: S.greenB,                       desc: 'المبيعات والفواتير — نفس صلاحيات الكاشير' },
   warehouse_keeper:    { label: 'أمين المستودع',  icon: '🏭', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'إدارة المخزون والمشتريات وطلبات الفروع' },
   warehouse_manager:   { label: 'مدير المستودعات', icon: '🏭', color: '#EA580C', bg: 'rgba(234,88,12,0.12)',         desc: 'إدارة المستودعات لكل الفروع والموظفين' },
+  kitchen_display:     { label: 'شاشة المطبخ',    icon: '📺', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'آيباد مخصّص — يعرض صفحة المطبخ فقط بملء الشاشة' },
   employee:            { label: 'موظف',            icon: '👤', color: S.muted,   bg: S.card2,                        desc: 'طلباته الشخصية فقط' },
 }
 
@@ -70,6 +71,8 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   delivery_worker:    { sales: true, my_requests: true, attendance: true, marketing: true },
   warehouse_keeper:   { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, my_requests: true, attendance: true, notifications: true, marketing: true },
   warehouse_manager:  { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, suppliers: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true },
+  // ✅ شاشة المطبخ: المطبخ فقط — الواجهة تقفله على صفحة المطبخ بملء الشاشة (Layout)
+  kitchen_display:    { kitchen: true },
   employee:           { my_requests: true, attendance: true, menu: true, my_payroll: true, marketing: true },
 }
 

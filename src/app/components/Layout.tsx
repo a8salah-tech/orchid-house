@@ -64,6 +64,7 @@ const ROLE_LABELS: Record<string, { ar: string; en: string; icon: string; color:
   delivery_worker:     { ar: 'عامل توصيل',     en: 'Delivery Worker',    icon: '🛵', color: '#EC4899' },
   warehouse_keeper:    { ar: 'أمين المستودع', en: 'Warehouse Keeper',   icon: '🏭', color: '#F97316' },
   warehouse_manager:   { ar: 'مدير المستودعات', en: 'Warehouse Manager', icon: '🏭', color: '#EA580C' },
+  kitchen_display:     { ar: 'شاشة المطبخ',   en: 'Kitchen Display',    icon: '📺', color: '#F97316' },
   employee:            { ar: 'موظف',          en: 'Employee',           icon: '👤', color: S.muted },
 }
 
@@ -252,7 +253,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isAdmin = permissions?.all === true
   // ✅ صفحة تيك أواي: مدير النظام + أدوار الكاشير فقط (مش الصالة)
   const isCashierRole = ['cashier', 'cashier_manager'].includes(employee?.role || '')
+  // ✅ حساب "شاشة المطبخ" (آيباد مخصّص لطلبات المطبخ): يشوف صفحة المطبخ فقط، بلا هيدر/قائمة جانبية
+  const isKitchenDisplay = employee?.role === 'kitchen_display'
   const canSeeItem = (perm: string | null): boolean =>
+    isKitchenDisplay ? perm === 'kitchen' :
     perm === 'admin_only' ? isAdmin :
     perm === 'cashier_only' ? (isAdmin || isCashierRole) :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
@@ -290,9 +294,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     // ✅ ننتظر انتهاء تحميل بيانات الصلاحيات أولاً (loading) قبل أي قرار — وإلا كل صفحة كانت
     // سترفض الدخول للحظة قصيرة قبل ما تتحمل الصلاحيات الحقيقية، حتى لو الموظف مخوَّل فعلاً
     if (!loading && !isPageAllowed) {
-      router.replace('/dashboard')
+      router.replace(isKitchenDisplay ? '/dashboard/kitchen' : '/dashboard')
     }
-  }, [loading, isPageAllowed, pathname, router])
+  }, [loading, isPageAllowed, pathname, router, isKitchenDisplay])
 
   if (!loading && !isPageAllowed) {
     return (
@@ -300,6 +304,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div style={{ fontSize: 40 }}>🚫</div>
         <div>{isAr ? 'ليس لديك صلاحية للوصول إلى هذه الصفحة — جاري التحويل...' : "You don't have permission to access this page — redirecting..."}</div>
       </div>
+    )
+  }
+
+  // ✅ وضع "شاشة المطبخ": صفحة المطبخ بملء الشاشة، بلا هيدر ولا قائمة جانبية — للآيباد المخصّص
+  if (isKitchenDisplay) {
+    return (
+      <LanguageContext.Provider value={{ lang, isAr }}>
+        <div style={{ minHeight: '100vh', background: S.navy, fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', padding: 12 }}>
+          {children}
+        </div>
+      </LanguageContext.Provider>
     )
   }
 

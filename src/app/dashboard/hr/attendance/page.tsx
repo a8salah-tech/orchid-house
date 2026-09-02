@@ -1211,7 +1211,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     // ✅ الحقل datetime-local بيرجع وقت محلي (ماليزيا UTC+8)، لازم نحوله لـ UTC قبل الحفظ
     const localDate = new Date(editValue + ':00')
     const utcIso = new Date(localDate.getTime() - 8 * 60 * 60 * 1000).toISOString()
-    const updatePayload: Record<string, any> = { [editingCell.field]: utcIso }
+    // ✅ is_manual=true يعلّم التعديل كإجراء مدير مشروع — يمرّ من trigger توقيت السيرفر بلا استبدال
+    const updatePayload: Record<string, any> = { [editingCell.field]: utcIso, is_manual: true }
     // ✅ لو بنعدّل وقت الدخول تحديداً، لازم نعيد حساب التأخير كذلك — وإلا سيبقى الرقم القديم غلط حتى بعد التصحيح
     if (editingCell.field === 'check_in_time') {
       const rec = records.find(r => r.id === editingCell.recordId)
@@ -1239,7 +1240,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   async function clearAttendanceField(recordId: string, field: 'check_in_time' | 'check_out_time', empName: string) {
     const label = field === 'check_in_time' ? 'الدخول' : 'الخروج'
     if (!confirm(`⚠️ هل أنت متأكد من مسح وقت ${label} للموظف "${empName}"؟\n\nهذا الإجراء لا يمكن التراجع عنه.`)) return
-    const { error } = await sb.from('attendance').update({ [field]: null }).eq('id', recordId)
+    const { error } = await sb.from('attendance').update({ [field]: null, is_manual: true }).eq('id', recordId)
     if (error) { alert('حصل خطأ: ' + error.message); return }
     fetchData()
   }
@@ -1281,7 +1282,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     // ✅ جديد: نفس المبدأ لدقائق الخروج المبكر، لو تم إدخال وقت خروج
     const early_minutes = checkOutUtc ? (await computeEarlyInfo(sb, empId, date, checkOutUtc, checkInUtc)).early_minutes : 0
     const { error } = await sb.from('attendance').insert([{
-      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes, early_minutes,
+      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes, early_minutes, is_manual: true,
     }])
     if (error) { alert('حصل خطأ: ' + error.message); return }
     setAddingAttendanceFor(null)

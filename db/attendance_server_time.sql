@@ -165,18 +165,32 @@ to authenticated;
 create or replace function app_attendance_guard()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare
+  v_caller uuid;
   v_status text;
   v_late int;
   v_shift_end timestamptz;
+  v_is_checkin boolean;
+  v_is_checkout boolean;
+  v_date date;
 begin
-  -- يتصرّف فقط لكتابة موظف عادي مسجَّل دخول لنفسه
-  if auth.uid() is null or not app_is_basic_employee() then
-    return new;
-  end if;
+  -- service_role (أداة auto-checkout، الاستيراد بمفتاح الخدمة) → بلا تغيير
+  if auth.uid() is null then return new; end if;
 
-  -- ── تسجيل دخول (جديد) ──
-  if (tg_op = 'INSERT' and new.check_in_time is not null)
-     or (tg_op = 'UPDATE' and new.check_in_time is not null and old.check_in_time is null) then
+  select id into v_caller from employees where auth_user_id = auth.uid() limit 1;
+
+  -- "تسجيل دخول/خروج ذاتي حقيقي" = الموظف يكتب صفه هو + الصف يحمل إحداثيات GPS
+  -- (زر البصمة في صفحة الحضور دائمًا يرسل الإحداثيات). أي كتابة بلا إحداثيات = تعديل مدير
+  -- يدوي / إضافة سجل / تصحيح حضور / استيراد → تمرّ بلا تغيير. يشمل هذا كل الأدوار (مدير النظام أيضًا).
+  v_is_checkin := (v_caller is not null and new.employee_id = v_caller
+                   and new.check_in_lat is not null and new.check_in_time is not null
+                   and (tg_op = 'INSERT' or old.check_in_time is null));
+
+  v_is_checkout := (v_caller is not null and new.employee_id = v_caller
+                    and new.check_out_lat is not null and new.check_out_time is not null
+                    and (tg_op = 'INSERT' or old.check_out_time is null));
+
+  -- ── تسجيل دخول: وقت السيرفر يغلب وقت الجهاز ──
+  if v_is_checkin then
     new.client_check_in_time := new.check_in_time;
     new.check_in_time := now();
     new.date := app_attendance_date(new.employee_id, now());
@@ -186,32 +200,32 @@ begin
     new.late_minutes := v_late;
   end if;
 
-  -- منع موظف عادي من تعديل وقت دخول مثبَّت
-  if tg_op = 'UPDATE' and old.check_in_time is not null
-     and new.check_in_time is distinct from old.check_in_time then
-    new.check_in_time := old.check_in_time;
-  end if;
-
-  -- ── تسجيل خروج (لأول مرة) ──
-  if new.check_out_time is not null
-     and (tg_op = 'INSERT' or old.check_out_time is null) then
+  -- ── تسجيل خروج: وقت السيرفر (مع معالجة نسيان الخروج > 16 ساعة) ──
+  if v_is_checkout then
+    v_date := coalesce(new.date, app_my_date(now()));
     new.client_check_out_time := new.check_out_time;
     if new.check_in_time is not null and now() - new.check_in_time > interval '16 hours' then
       select w.end_ts into v_shift_end
-        from app_resolve_shift_window(new.employee_id, new.date, new.check_in_time) w;
+        from app_resolve_shift_window(new.employee_id, v_date, new.check_in_time) w;
       new.check_out_time := least(
         coalesce(v_shift_end + interval '1 hour', new.check_in_time + interval '10 hours'),
         now());
     else
       new.check_out_time := now();
     end if;
-    new.early_minutes := app_compute_early(new.employee_id, new.date, new.check_out_time, new.check_in_time);
+    new.early_minutes := app_compute_early(new.employee_id, v_date, new.check_out_time, new.check_in_time);
   end if;
 
-  -- منع تعديل وقت خروج مثبَّت
-  if tg_op = 'UPDATE' and old.check_out_time is not null
-     and new.check_out_time is distinct from old.check_out_time then
-    new.check_out_time := old.check_out_time;
+  -- ── منع الموظف من تعديل وقت مثبَّت لصفه هو لاحقًا (مثلاً من الـConsole) ──
+  -- تعديلات المدير المشروعة تُعلَّم is_manual=true من الواجهة فتمرّ.
+  if tg_op = 'UPDATE' and v_caller is not null and new.employee_id = v_caller
+     and coalesce(new.is_manual, false) = false then
+    if old.check_in_time is not null and new.check_in_time is distinct from old.check_in_time then
+      new.check_in_time := old.check_in_time;
+    end if;
+    if old.check_out_time is not null and new.check_out_time is distinct from old.check_out_time then
+      new.check_out_time := old.check_out_time;
+    end if;
   end if;
 
   return new;

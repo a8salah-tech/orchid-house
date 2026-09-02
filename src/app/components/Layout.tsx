@@ -251,7 +251,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const roleInfo = ROLE_LABELS[employee?.role || 'employee'] || ROLE_LABELS.employee
   const isAdmin = permissions?.all === true
   // ✅ صفحة تيك أواي: مدير النظام + أدوار الكاشير فقط (مش الصالة)
-  const isCashierRole = ['cashier', 'assistant_cashier', 'cashier_manager'].includes(employee?.role || '')
+  const isCashierRole = ['cashier', 'cashier_manager'].includes(employee?.role || '')
   const canSeeItem = (perm: string | null): boolean =>
     perm === 'admin_only' ? isAdmin :
     perm === 'cashier_only' ? (isAdmin || isCashierRole) :

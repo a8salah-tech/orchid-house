@@ -673,8 +673,8 @@ function MyAttendanceCard() {
           </div>
           <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.7, marginBottom: 10 }}>
             {isAr
-              ? 'فعّل بصمة الوجه (آيفون) أو بصمة الإصبع (أندرويد) على هذا الجهاز لتأكيد هويتك عند كل تسجيل دخول/خروج — لمنع تسجيل الحضور بالنيابة عنك. البصمة لا تغادر جهازك.'
-              : 'Enable Face ID (iPhone) or fingerprint (Android) on this device to confirm your identity at every check-in/out — prevents buddy-punching. Your biometric never leaves the device.'}
+              ? 'استخدم بصمة وجهك أو إصبعك على هذا الجهاز لتأكيد هويتك عند كل تسجيل دخول وخروج — حتى لا يسجّل أحد الحضور بالنيابة عنك. بيانات البصمة تبقى محفوظة داخل جهازك ولا يستلمها النظام.'
+              : 'Use your face or fingerprint on this device to confirm your identity at every check-in and check-out — so no one can check in on your behalf. Your biometric data stays on the device and is never sent to the system.'}
           </div>
 
           {bioFlag && myBioDevices.length === 0 && (

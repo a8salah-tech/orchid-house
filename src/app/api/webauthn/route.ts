@@ -48,17 +48,20 @@ export async function POST(req: NextRequest) {
         })),
         authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
       })
-      await admin.from('webauthn_challenges').upsert({
+      const { error: chErr } = await admin.from('webauthn_challenges').upsert({
         employee_id: caller.id, challenge: options.challenge, kind: 'register', expires_at: in5min(),
       })
+      if (chErr) return NextResponse.json({ error: 'تعذّر حفظ الطلب: ' + chErr.message }, { status: 500 })
       return NextResponse.json(options)
     }
 
     // ── تسجيل جهاز جديد: التحقق والحفظ ──
     if (action === 'register-verify') {
-      const { data: ch } = await admin.from('webauthn_challenges')
+      const { data: ch, error: chSelErr } = await admin.from('webauthn_challenges')
         .select('*').eq('employee_id', caller.id).eq('kind', 'register').maybeSingle()
-      if (!ch || new Date(ch.expires_at) < new Date()) {
+      if (chSelErr) return NextResponse.json({ error: 'تعذّر قراءة الطلب: ' + chSelErr.message }, { status: 500 })
+      if (!ch) return NextResponse.json({ error: 'لم يُعثر على طلب تسجيل — ابدأ من جديد' }, { status: 400 })
+      if (new Date(ch.expires_at) < new Date()) {
         return NextResponse.json({ error: 'انتهت صلاحية الطلب — حاول مرة أخرى' }, { status: 400 })
       }
       const verification = await verifyRegistrationResponse({
@@ -102,16 +105,18 @@ export async function POST(req: NextRequest) {
         })),
         userVerification: 'required',
       })
-      await admin.from('webauthn_challenges').upsert({
+      const { error: chErr } = await admin.from('webauthn_challenges').upsert({
         employee_id: caller.id, challenge: options.challenge, kind: 'auth', expires_at: in5min(),
       })
+      if (chErr) return NextResponse.json({ error: 'تعذّر حفظ الطلب: ' + chErr.message }, { status: 500 })
       return NextResponse.json(options)
     }
 
     // ── التحقق بالبصمة: التحقق ──
     if (action === 'auth-verify') {
-      const { data: ch } = await admin.from('webauthn_challenges')
+      const { data: ch, error: chSelErr } = await admin.from('webauthn_challenges')
         .select('*').eq('employee_id', caller.id).eq('kind', 'auth').maybeSingle()
+      if (chSelErr) return NextResponse.json({ error: 'تعذّر قراءة الطلب: ' + chSelErr.message }, { status: 500 })
       if (!ch || new Date(ch.expires_at) < new Date()) {
         return NextResponse.json({ error: 'انتهت صلاحية الطلب — حاول مرة أخرى' }, { status: 400 })
       }

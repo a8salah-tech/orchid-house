@@ -1054,7 +1054,7 @@ const filteredItems = items
               { name:'Instagram', action:t('act_follow'), href:'https://www.instagram.com/orchidofficial.my/', color:'#E1306C', type:'instagram' },
               { name:'Facebook', action:t('act_like'), href:'https://www.facebook.com/OrchidOfficial.my', color:'#1877F2', type:'facebook' },
               { name:'TripAdvisor', action:t('act_review'), href:'https://www.tripadvisor.com.eg/Restaurant_Review-g298570-d33055605-Reviews-Orchid_House_Restaurant-Kuala_Lumpur_Wilayah_Persekutuan.html', color:'#00AF87', type:'tripadvisor' },
-              { name:'TikTok', action:t('act_follow'), href:'https://www.tiktok.com/@orchidofficial.my', color:'#ffffff', type:'tiktok' },
+              { name:'TikTok', action:t('act_follow'), href:'https://www.tiktok.com/@orchidofficial.my', color:'#111111', type:'tiktok' },
               { name:'Website', action:t('act_visit'), href:'https://restaurantorchid.com/', color:C.blue1, type:'website' },
             ].map(link => (
               <a key={link.name} href={link.href} target="_blank" rel="noopener noreferrer"
@@ -1080,7 +1080,7 @@ const filteredItems = items
                     <circle cx="12" cy="5" r="3" stroke={link.color} strokeWidth="1.8"/>
                   </>)}
                   {link.type === 'tiktok' && (
-                    <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5" stroke={link.color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.3 0 .59.05.88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43V8.66a8.16 8.16 0 0 0 4.77 1.52V6.79a4.85 4.85 0 0 1-1.04-.1z" fill={link.color}/>
                   )}
                   {link.type === 'website' && (<>
                     <circle cx="12" cy="12" r="10" stroke={link.color} strokeWidth="1.8"/>

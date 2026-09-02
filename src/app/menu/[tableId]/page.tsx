@@ -320,6 +320,9 @@ export default function CustomerMenuPage() {
   const [reviewSubmitted, setReviewSubmitted] = useState(false)
   // ✅ تقييم واحد لكل طبق لكل جهاز (يُحفظ محليًا) — + التقييمات الجديدة تروح "قيد المراجعة" وما تظهرش إلا بعد اعتماد الإدارة
   const [reviewedItemIds, setReviewedItemIds] = useState<Set<string>>(new Set())
+  // ✅ تقييم شاشة "تم الطلب": اختيار النجوم يفتح خانة تعليق اختيارية قبل الإرسال
+  const [doneRating, setDoneRating] = useState<Record<string, { stars: number; text: string }>>({})
+  const [doneRatingSending, setDoneRatingSending] = useState<string | null>(null)
   useEffect(() => {
     try {
       const raw = localStorage.getItem('orchid_reviewed_items')
@@ -889,18 +892,39 @@ const filteredItems = items
               <div style={{ fontSize:11.5, color:C.silver2, marginBottom:14 }}>{t('rate_dishes_s')}</div>
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                 {uniq.map(it => {
-                  const done = reviewedItemIds.has(it.menu_item_id as string)
+                  const id = it.menu_item_id as string
+                  const done = reviewedItemIds.has(id)
+                  const sel = doneRating[id]
                   return (
-                    <div key={it.menu_item_id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background:'rgba(255,255,255,.03)', borderRadius:12, padding:'10px 12px' }}>
-                      <span style={{ fontSize:12.5, color:C.white, fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{it.name}</span>
-                      {done ? (
-                        <span style={{ fontSize:12, color:'#16A34A', fontWeight:700, flexShrink:0 }}>✅</span>
-                      ) : (
-                        <div style={{ display:'flex', gap:3, flexShrink:0 }}>
-                          {[1,2,3,4,5].map(n => (
-                            <button key={n} onClick={async () => { await postReview(it.menu_item_id as string, n) }}
-                              style={{ background:'none', border:'none', cursor:'pointer', fontSize:22, padding:0, lineHeight:1, filter:'grayscale(1) opacity(.45)' }}>⭐</button>
-                          ))}
+                    <div key={id} style={{ background:'rgba(255,255,255,.03)', borderRadius:12, padding:'10px 12px' }}>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+                        <span style={{ fontSize:12.5, color:C.white, fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{it.name}</span>
+                        {done ? (
+                          <span style={{ fontSize:12, color:'#16A34A', fontWeight:700, flexShrink:0 }}>✅</span>
+                        ) : (
+                          <div style={{ display:'flex', gap:3, flexShrink:0 }}>
+                            {[1,2,3,4,5].map(n => (
+                              <button key={n} onClick={() => setDoneRating(p => ({ ...p, [id]: { stars: n, text: p[id]?.text || '' } }))}
+                                style={{ background:'none', border:'none', cursor:'pointer', fontSize:22, padding:0, lineHeight:1, filter: sel && n <= sel.stars ? 'none' : 'grayscale(1) opacity(.45)' }}>⭐</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {!done && sel && (
+                        <div style={{ marginTop:10 }}>
+                          <textarea value={sel.text} onChange={e => setDoneRating(p => ({ ...p, [id]: { ...p[id], text: e.target.value } }))}
+                            placeholder={t('review_placeholder')} rows={2}
+                            style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:10, padding:'8px 10px', fontSize:12.5, color:C.white, outline:'none', resize:'none', fontFamily:'inherit', marginBottom:6 }} />
+                          <button disabled={doneRatingSending === id}
+                            onClick={async () => {
+                              setDoneRatingSending(id)
+                              const ok = await postReview(id, sel.stars, sel.text)
+                              setDoneRatingSending(null)
+                              if (ok) setDoneRating(p => { const n = { ...p }; delete n[id]; return n })
+                            }}
+                            style={{ width:'100%', background: doneRatingSending === id ? C.border2 : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:10, padding:'8px', color:C.white, fontWeight:800, fontSize:12, cursor: doneRatingSending === id ? 'not-allowed' : 'pointer' }}>
+                            {doneRatingSending === id ? t('submitting') : t('submit_review')}
+                          </button>
                         </div>
                       )}
                     </div>

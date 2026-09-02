@@ -893,7 +893,8 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                   <div style={{ fontSize: 11, color: S.muted }}>📌 لو الفاتورة في أكتر من صفحة، أضف باقي الصور بنفس الطريقة — كل صفحة هتتحلل وتُضاف أصنافها تلقائياً</div>
                 </div>
               )}
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple style={{ display: 'none' }} onChange={handleImageUpload} />
+              {/* ✅ بدون capture — الموبايل يعرض الاختيار: كاميرا أو الاستوديو/الملفات */}
+              <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleImageUpload} />
 
               {(scanning || scanProgress) && (
                 <div style={{ background: scanning ? S.purpleB : scanProgress.includes('✅') ? S.greenB : S.amberB, border: `1px solid ${scanning ? S.purple : scanProgress.includes('✅') ? S.green : S.amber}`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: scanning ? S.purple : scanProgress.includes('✅') ? S.green : S.amber, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>

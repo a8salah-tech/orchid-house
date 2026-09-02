@@ -116,7 +116,12 @@ export default function ViolationsPage() {
   const isBranchManager = role === 'branch_manager'
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
-  const canAdd = isAdmin || isBranchManager || isDeptManager || isSupervisor || permissions?.violations === true
+  const canManage = isAdmin || isBranchManager || isDeptManager || isSupervisor
+  // ✅ دور غير إداري له صلاحية "المخالفات" (زي أمين المستودعات) — يشوف مخالفاته هو فقط + إحصائياته هو،
+  // بدون قوائم باقي الموظفين/الفروع، وبدون إمكانية إضافة مخالفة. (المخالفات سرية — لا تُعرض لغير الإدارة)
+  const isSelfOnly = !canManage && permissions?.violations === true
+  const canAdd = canManage
+  const canAccessPage = canManage || isSelfOnly
   const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
   // ✅ بعد اعتماد التقييم، يظهر تفاصيله بس لمدير القسم والأدمن (حتى مدير الفرع مايشوفوش بعد الاعتماد)
   const canViewApprovedEvaluations = isAdmin || isDeptManager
@@ -178,7 +183,9 @@ export default function ViolationsPage() {
   async function fetchAll() {
     setLoading(true)
     let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id,employee_number').eq('is_active', true).order('name')
-    if (!isAdmin) {
+    if (isSelfOnly) {
+      empQ = empQ.eq('id', employee?.id || '')
+    } else if (!isAdmin) {
       if (isBranchManager) empQ = empQ.eq('branch_id', employee?.branch_id || '')
       else {
         const d = deptsForRole(role)
@@ -205,7 +212,10 @@ export default function ViolationsPage() {
     const monthStart = new Date(Date.UTC(year, month-1, 1)).toISOString().split('T')[0]
     const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0]
     let vQ = sb.from('violations').select('*').gte('date', monthStart).lte('date', monthEnd).order('created_at', { ascending: false })
-    if (isAdmin) {
+    if (isSelfOnly) {
+      // أمين المستودعات وغيره من الأدوار غير الإدارية: مخالفاته هو فقط
+      vQ = vQ.eq('employee_id', employee?.id || '')
+    } else if (isAdmin) {
       // admin يشوف الكل، إلا لو اختار تاب فرع محدد (بدل "الإجمالي")
       if (activeBranch) {
         const ids = (empData || []).map((e: any) => e.id)
@@ -302,7 +312,9 @@ export default function ViolationsPage() {
   async function fetchAbsences() {
     setAbsLoading(true)
     let empQ = sb.from('employees').select('id,name,name_en,department,branch_id').eq('is_active',true).order('name')
-    if(!isAdmin){
+    if (isSelfOnly) {
+      empQ = empQ.eq('id', employee?.id || '')
+    } else if(!isAdmin){
       if(isBranchManager) empQ=empQ.eq('branch_id',employee?.branch_id||'')
       else {
         const d = deptsForRole(role)
@@ -312,14 +324,16 @@ export default function ViolationsPage() {
       empQ = empQ.eq('branch_id', activeBranch)
     }
     const {data:empData}=await empQ
-    const list=(empData||[]).filter((e:any)=>e.id!==employee?.id)
+    // isSelfOnly: نعرض غياب المستخدم نفسه؛ غير كده نستبعد المستخدم من قائمة "تسجيل غياب"
+    const list = isSelfOnly ? [] : (empData||[]).filter((e:any)=>e.id!==employee?.id)
     setAbsEmps(list)
     const ids=list.map((e:any)=>e.id)
     const [year,month]=absFilterMonth.split('-').map(Number)
     const monthStart=new Date(year,month-1,1).toISOString().split('T')[0]
     const monthEnd=new Date(year,month,0).toISOString().split('T')[0]
     let q=sb.from('absences').select('*').gte('date',monthStart).lte('date',monthEnd).order('date',{ascending:false})
-    if(ids.length>0&&!isAdmin&&!isBranchManager) q=q.in('employee_id',ids)
+    if(isSelfOnly) q=q.eq('employee_id',employee?.id||'')
+    else if(ids.length>0&&!isAdmin&&!isBranchManager) q=q.in('employee_id',ids)
     else if(isBranchManager&&ids.length>0) q=q.in('employee_id',ids)
     else if(isAdmin&&activeBranch&&ids.length>0) q=q.in('employee_id',ids)
     const {data:absData}=await q
@@ -464,7 +478,7 @@ export default function ViolationsPage() {
     fetchAll()
   }
 
-  if (employee && !canAdd) return (
+  if (employee && !canAccessPage) return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
       <div style={{ fontSize: 64 }}>🔒</div>
       <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444' }}>غير مصرح بالوصول</div>
@@ -483,8 +497,8 @@ export default function ViolationsPage() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>⚠️ {isAr ? 'المخالفات والتقييمات' : 'Violations & Evaluations'}</h1>
-          <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'إدارة مخالفات وتقييمات الموظفين' : 'Manage violations and evaluations'}</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>⚠️ {isSelfOnly ? (isAr ? 'مخالفاتي' : 'My Violations') : (isAr ? 'المخالفات والتقييمات' : 'Violations & Evaluations')}</h1>
+          <p style={{ fontSize: 13, color: S.muted }}>{isSelfOnly ? (isAr ? 'مخالفاتك وسجل غيابك' : 'Your violations and absence record') : (isAr ? 'إدارة مخالفات وتقييمات الموظفين' : 'Manage violations and evaluations')}</p>
         </div>
         {canAdd && activeTab === 'violations' && (
           <button onClick={() => setShowAdd(true)} style={{ padding: '10px 20px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -494,7 +508,7 @@ export default function ViolationsPage() {
       </div>
 
       {/* Branch Tabs — مشتركة بين كل التابات الأربعة */}
-      {branches.length > 1 && (
+      {branches.length > 1 && !isSelfOnly && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {isAdmin && (
             <button onClick={() => setActiveBranch('')}
@@ -544,10 +558,12 @@ export default function ViolationsPage() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <input style={{ ...inp, width: 'auto' }} type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
-        <select style={{ ...inp, width: 'auto', minWidth: 160, cursor: 'pointer', background: S.navy2 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
-          <option value="all">{isAr ? 'كل الموظفين' : 'All Employees'}</option>
-          {employees.map(e => <option key={e.id} value={e.id}>{workingEmployeeIds.has(e.id) ? '🟢 ' : '⚪ '}{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''}</option>)}
-        </select>
+        {!isSelfOnly && (
+          <select style={{ ...inp, width: 'auto', minWidth: 160, cursor: 'pointer', background: S.navy2 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
+            <option value="all">{isAr ? 'كل الموظفين' : 'All Employees'}</option>
+            {employees.map(e => <option key={e.id} value={e.id}>{workingEmployeeIds.has(e.id) ? '🟢 ' : '⚪ '}{e.name} {e.name_en || ''}{(e as any).employee_number ? ` (#${(e as any).employee_number})` : ''}</option>)}
+          </select>
+        )}
       </div>
 
       {/* List */}
@@ -804,9 +820,11 @@ export default function ViolationsPage() {
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
             <input style={{...inp,width:'auto'}} type="month" value={absFilterMonth} onChange={e=>setAbsFilterMonth(e.target.value)} />
-            <button onClick={()=>setShowAbsAdd(true)} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #8B5CF6',background:'rgba(139,92,246,0.12)',color:'#8B5CF6',cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
-              ➕ {isAr?'تسجيل غياب':'Add Absence'}
-            </button>
+            {!isSelfOnly && (
+              <button onClick={()=>setShowAbsAdd(true)} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #8B5CF6',background:'rgba(139,92,246,0.12)',color:'#8B5CF6',cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
+                ➕ {isAr?'تسجيل غياب':'Add Absence'}
+              </button>
+            )}
           </div>
 
           {/* Stats */}

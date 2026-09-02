@@ -455,6 +455,16 @@ function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccou
   const [photoModal, setPhotoModal] = useState<string | null>(null)
   // ✅ آخر زيادة راتب مسجَّلة لهذا الموظف — تظهر واضحة تحت الراتب مباشرة
   const [lastIncrease, setLastIncrease] = useState<{ effective_date: string; amount: number } | null | undefined>(undefined)
+  // ✅ أجهزة البصمة المسجّلة لهذا الموظف — يقدر الأدمن يحذفها (إعادة تعيين عند فقدان الموبايل)
+  const [bioDevices, setBioDevices] = useState<{ id: string; device_label: string | null; created_at: string; last_used_at: string | null }[]>([])
+
+  const loadBioDevices = () => {
+    createClient().from('webauthn_credentials')
+      .select('id, device_label, created_at, last_used_at')
+      .eq('employee_id', employee.id)
+      .order('created_at')
+      .then(({ data }) => setBioDevices(data || []))
+  }
 
   useEffect(() => {
     const supabase = createClient()
@@ -465,7 +475,14 @@ function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccou
       .limit(1)
       .maybeSingle()
       .then(({ data }) => setLastIncrease(data))
+    loadBioDevices()
   }, [employee.id])
+
+  async function resetBioDevice(id: string) {
+    if (!confirm('حذف بصمة هذا الجهاز؟ سيحتاج الموظف لإعادة تسجيلها من جهازه.')) return
+    await createClient().from('webauthn_credentials').delete().eq('id', id)
+    loadBioDevices()
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
@@ -549,6 +566,30 @@ function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccou
             ? <button onClick={onChangePassword} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>🔄 تغيير كلمة المرور</button>
             : <button onClick={onCreateAccount} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600 }}>🔑 إنشاء حساب</button>
           }
+        </div>
+
+        {/* 🔐 أجهزة البصمة المسجّلة — إعادة تعيين عند فقدان الموبايل */}
+        <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>🔐 أجهزة البصمة المسجّلة</div>
+          {bioDevices.length === 0 ? (
+            <div style={{ fontSize: 12, color: S.muted }}>لا يوجد جهاز مسجَّل</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {bioDevices.map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: S.white }}>
+                    ✅ {d.device_label || 'جهاز'}
+                    <span style={{ color: S.muted, marginInlineStart: 6, fontSize: 11 }}>
+                      {d.last_used_at ? `آخر استخدام ${new Date(d.last_used_at).toLocaleDateString()}` : new Date(d.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <button onClick={() => resetBioDevice(d.id)} style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${S.red}55`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
+                    🗑️ إعادة تعيين
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {employee.notes && (

@@ -8,6 +8,7 @@ import { useLang } from '../../../components/LanguageContext'
 // ✅ منطق حساب التأخير/الخروج المبكر انتقل لوحدة مشتركة — نفس الدوال تُستخدم في صفحة طلبات
 // الموظفين عند اعتماد "تصحيح الحضور"، فيبقى مصدر الحقيقة واحدًا لا يختلف حسب مكان الاستدعاء
 import { scheduledShiftMinutes, resolveShiftWindow, computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
+import { biometricSupported, registerBiometric, verifyBiometric } from '../../../../lib/webauthn'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -102,6 +103,58 @@ function MyAttendanceCard() {
   // ✅ نافذة تأكيد "خروج سريع جداً" — تظهر في منتصف الشاشة بدل نافذة المتصفح الافتراضية (confirm)
   const [shortShiftModal, setShortShiftModal] = useState<{ minutes: number; openRecordId: string; lat: number; lng: number; dist: number; date: string } | null>(null)
   const [justCheckedIn, setJustCheckedIn] = useState(false) // فترة تأخير قصيرة بعد نجاح Check In لمنع ضغطة متتالية سريعة على نفس مكان الزر
+
+  // ✅ بصمة اليد / بصمة الوجه لتسجيل الحضور
+  const [bioFlag, setBioFlag] = useState(false)
+  const [myBioDevices, setMyBioDevices] = useState<{ id: string; device_label: string | null; created_at: string; last_used_at: string | null }[]>([])
+  const [bioBusy, setBioBusy] = useState(false)
+  const [bioMsg, setBioMsg] = useState('')
+  const bioSupported = biometricSupported()
+
+  const fetchBio = useCallback(async () => {
+    if (!employee?.id) return
+    const [flagRes, devRes] = await Promise.all([
+      sb.from('app_settings').select('value').eq('key', 'biometric_checkin').maybeSingle(),
+      sb.from('webauthn_credentials').select('id, device_label, created_at, last_used_at').eq('employee_id', employee.id).order('created_at'),
+    ])
+    setBioFlag((flagRes.data as any)?.value === true)
+    setMyBioDevices((devRes.data as any) || [])
+  }, [employee?.id, sb])
+  useEffect(() => { fetchBio() }, [fetchBio])
+
+  async function handleRegisterBio() {
+    setBioBusy(true); setBioMsg('')
+    try {
+      const label = /iphone|ipad/i.test(navigator.userAgent) ? 'iPhone / iPad'
+        : /android/i.test(navigator.userAgent) ? 'Android' : 'جهاز'
+      await registerBiometric(label)
+      setBioMsg(isAr ? '✅ تم تفعيل البصمة على هذا الجهاز' : '✅ Biometric enabled on this device')
+      await fetchBio()
+    } catch (e: any) {
+      setBioMsg('⚠️ ' + (e?.message || (isAr ? 'تعذّر تفعيل البصمة' : 'Could not enable biometric')))
+    }
+    setBioBusy(false)
+  }
+
+  async function handleRemoveBioDevice(id: string) {
+    if (!confirm(isAr ? 'حذف هذا الجهاز؟ لن تقدر تسجّل الحضور منه حتى تفعّله من جديد.' : 'Remove this device?')) return
+    await sb.from('webauthn_credentials').delete().eq('id', id)
+    fetchBio()
+  }
+
+  // يرجع true لو مسموح بالمتابعة (البصمة نجحت أو غير مطلوبة)
+  async function passBiometricGate(): Promise<boolean> {
+    if (!bioFlag) return true
+    if (myBioDevices.length === 0) return true // فترة انتقالية — التنبيه ظاهر في البطاقة
+    try {
+      const ok = await verifyBiometric()
+      if (!ok) { setLocError(isAr ? 'فشل التحقق بالبصمة — حاول مرة أخرى' : 'Biometric verification failed — try again'); return false }
+      return true
+    } catch (e: any) {
+      setLocError(e?.message || (isAr ? 'فشل التحقق بالبصمة' : 'Biometric failed'))
+      return false
+    }
+  }
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000)
@@ -211,6 +264,9 @@ function MyAttendanceCard() {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check in.`)
         setChecking(false); return
       }
+
+      // ✅ بوابة البصمة — تتحقق من هوية الموظف قبل تسجيل الدخول (منع تسجيل زميل بالنيابة)
+      if (!(await passBiometricGate())) { setChecking(false); return }
 
       // ✅ Fix v2: منع تسجيل دخول جديد لو بعد يوجد شيفت مفتوح (لم يسجل خروج منه)
       const { data: stillOpen } = await sb.from('attendance')
@@ -366,6 +422,9 @@ function MyAttendanceCard() {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check out.`)
         setChecking(false); return
       }
+
+      // ✅ بوابة البصمة — تتحقق من هوية الموظف قبل تسجيل الخروج
+      if (!(await passBiometricGate())) { setChecking(false); return }
 
       // ✅ Fix v2: البحث عن آخر صف حضور "مفتوح" (يوجد check_in بدون check_out)
       // بدل الاعتماد على تاريخ اليوم الحالي — ضروري للشيفتات التي تعبر منتصف الليل
@@ -605,6 +664,55 @@ function MyAttendanceCard() {
           </div>
         )}
       </div>
+
+      {/* 🔐 تفعيل البصمة (Face ID / بصمة اليد) لتأمين تسجيل الحضور */}
+      {bioSupported && (
+        <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${bioFlag && myBioDevices.length === 0 ? S.amber : S.border}`, padding: '16px 18px', marginTop: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: S.white, marginBottom: 4 }}>
+            🔐 {isAr ? 'التحقق بالبصمة' : 'Biometric verification'}
+          </div>
+          <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.7, marginBottom: 10 }}>
+            {isAr
+              ? 'فعّل بصمة الوجه (آيفون) أو بصمة الإصبع (أندرويد) على هذا الجهاز لتأكيد هويتك عند كل تسجيل دخول/خروج — لمنع تسجيل الحضور بالنيابة عنك. البصمة لا تغادر جهازك.'
+              : 'Enable Face ID (iPhone) or fingerprint (Android) on this device to confirm your identity at every check-in/out — prevents buddy-punching. Your biometric never leaves the device.'}
+          </div>
+
+          {bioFlag && myBioDevices.length === 0 && (
+            <div style={{ background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 10, padding: '8px 10px', fontSize: 11, color: S.amber, fontWeight: 700, marginBottom: 10 }}>
+              {isAr
+                ? '⚠️ التحقق بالبصمة مُفعَّل على النظام. سجّل جهازك الآن — بعد فترة قصيرة سيصبح إلزامياً.'
+                : '⚠️ Biometric verification is enabled. Register your device now — it will become mandatory shortly.'}
+            </div>
+          )}
+
+          {myBioDevices.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+              {myBioDevices.map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: S.navy, borderRadius: 10, padding: '8px 10px', border: `1px solid ${S.border}` }}>
+                  <div style={{ fontSize: 11, color: S.white }}>
+                    ✅ {d.device_label || (isAr ? 'جهاز' : 'Device')}
+                    <span style={{ color: S.muted, marginInlineStart: 6 }}>
+                      {d.last_used_at
+                        ? (isAr ? 'آخر استخدام ' : 'last used ') + new Date(d.last_used_at).toLocaleDateString()
+                        : new Date(d.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <button onClick={() => handleRemoveBioDevice(d.id)}
+                    style={{ background: 'none', border: `1px solid ${S.red}55`, color: S.red, borderRadius: 8, padding: '3px 8px', fontSize: 10, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
+                    {isAr ? 'حذف' : 'Remove'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button onClick={handleRegisterBio} disabled={bioBusy}
+            style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: bioBusy ? S.border : `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: bioBusy ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+            {bioBusy ? '⏳ ...' : (isAr ? '➕ تسجيل هذا الجهاز' : '➕ Register this device')}
+          </button>
+          {bioMsg && <div style={{ fontSize: 11, color: S.muted, marginTop: 8, textAlign: 'center' }}>{bioMsg}</div>}
+        </div>
+      )}
 
       {/* History */}
       {history.length > 0 && (

@@ -28,6 +28,7 @@ type Review = {
   review_text: string | null
   reviewer_name: string | null
   created_at: string
+  status: string
   menu_items: { name: string; name_en: string | null; image_url: string | null } | null
 }
 
@@ -40,6 +41,8 @@ const T = {
     sortNewest: 'الأحدث أولاً', sortOldest: 'الأقدم أولاً', sortHighest: 'الأعلى تقييمًا', sortLowest: 'الأقل تقييمًا',
     delete: 'حذف', deleteConfirm: 'هل أنت متأكد من حذف هذا التقييم نهائيًا؟ سيختفي فورًا من صفحة المنيو أيضًا.',
     deleting: 'جاري الحذف...', deleted: 'تم الحذف',
+    fAll: 'الكل', fPending: '⏳ قيد المراجعة', fApproved: '✅ معتمد', fRejected: '❌ مرفوض',
+    approve: 'اعتماد', reject: 'رفض', pendingHint: 'التقييمات قيد المراجعة لا تظهر للعملاء إلا بعد اعتمادها',
   },
   en: {
     title: '⭐ Customer Reviews', desc: 'All ratings and comments customers left on menu items',
@@ -49,6 +52,8 @@ const T = {
     sortNewest: 'Newest First', sortOldest: 'Oldest First', sortHighest: 'Highest Rated', sortLowest: 'Lowest Rated',
     delete: 'Delete', deleteConfirm: 'Delete this review permanently? It will also disappear from the menu page immediately.',
     deleting: 'Deleting...', deleted: 'Deleted',
+    fAll: 'All', fPending: '⏳ Pending', fApproved: '✅ Approved', fRejected: '❌ Rejected',
+    approve: 'Approve', reject: 'Reject', pendingHint: 'Pending reviews are not shown to customers until approved',
   },
 }
 
@@ -113,21 +118,31 @@ export default function MenuReviewsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [starFilter, setStarFilter] = useState<number | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [moderatingId, setModeratingId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
 
   const fetchReviews = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase
       .from('menu_item_reviews')
-      .select('id,menu_item_id,stars,review_text,reviewer_name,created_at,menu_items(name,name_en,image_url)')
+      .select('id,menu_item_id,stars,review_text,reviewer_name,created_at,status,menu_items(name,name_en,image_url)')
       .order('created_at', { ascending: false })
     setReviews((data as unknown as Review[]) || [])
     setLoading(false)
   }, [])
 
   useEffect(() => { fetchReviews() }, [fetchReviews])
+
+  async function moderate(id: string, status: 'approved' | 'rejected') {
+    setModeratingId(id)
+    const { error } = await supabase.from('menu_item_reviews').update({ status }).eq('id', id)
+    setModeratingId(null)
+    if (error) { alert('❌ ' + error.message); return }
+    setReviews(prev => prev.map(r => r.id === id ? { ...r, status } : r))
+  }
 
   async function deleteReview(id: string) {
     if (!confirm(t.deleteConfirm)) return
@@ -141,11 +156,13 @@ export default function MenuReviewsPage() {
   }
 
   const stats = useMemo(() => {
-    if (reviews.length === 0) return { total: 0, avg: 0, top: null as { name: string; avg: number; count: number } | null }
-    const total = reviews.length
-    const avg = reviews.reduce((s, r) => s + r.stars, 0) / total
+    // ✅ الإحصائيات على المعتمد فقط — نفس ما يراه العميل
+    const approved = reviews.filter(r => (r.status || 'approved') === 'approved')
+    if (approved.length === 0) return { total: 0, avg: 0, top: null as { name: string; avg: number; count: number } | null }
+    const total = approved.length
+    const avg = approved.reduce((s, r) => s + r.stars, 0) / total
     const byItem = new Map<string, { name: string; sum: number; count: number }>()
-    reviews.forEach(r => {
+    approved.forEach(r => {
       const name = isAr ? (r.menu_items?.name || '—') : (r.menu_items?.name_en || r.menu_items?.name || '—')
       const cur = byItem.get(r.menu_item_id) || { name, sum: 0, count: 0 }
       cur.sum += r.stars; cur.count += 1
@@ -160,8 +177,11 @@ export default function MenuReviewsPage() {
     return { total, avg, top }
   }, [reviews, isAr])
 
+  const pendingCount = useMemo(() => reviews.filter(r => r.status === 'pending').length, [reviews])
+
   const filtered = useMemo(() => {
     let list = [...reviews]
+    if (statusFilter !== 'all') list = list.filter(r => (r.status || 'approved') === statusFilter)
     if (starFilter !== 'all') list = list.filter(r => r.stars === starFilter)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -179,10 +199,10 @@ export default function MenuReviewsPage() {
       return a.stars - b.stars
     })
     return list
-  }, [reviews, search, starFilter, sortBy])
+  }, [reviews, search, starFilter, statusFilter, sortBy])
 
   // ✅ الرجوع لصفحة 1 لما الفلتر/البحث/الترتيب يتغيّر - عشان ما نفضلش واقفين على صفحة بقت فاضية
-  useEffect(() => { setPage(1) }, [search, starFilter, sortBy])
+  useEffect(() => { setPage(1) }, [search, starFilter, statusFilter, sortBy])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   // ✅ لو حذفنا آخر تعليق في آخر صفحة (أو الفلتر قلّل النتائج)، نرجع لآخر صفحة صالحة بدل ما تفضل شاشة فاضية
@@ -224,6 +244,13 @@ export default function MenuReviewsPage() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t.searchPh}
           style={{ flex: '1 1 260px', padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy2, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+          style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${pendingCount > 0 && statusFilter !== 'pending' ? S.amber : S.border}`, background: S.navy2, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          <option value="pending">{t.fPending}{pendingCount > 0 ? ` (${pendingCount})` : ''}</option>
+          <option value="approved">{t.fApproved}</option>
+          <option value="rejected">{t.fRejected}</option>
+          <option value="all">{t.fAll}</option>
+        </select>
         <select value={starFilter} onChange={e => setStarFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
           style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy2, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
           <option value="all">{t.allStars}</option>
@@ -237,6 +264,12 @@ export default function MenuReviewsPage() {
           <option value="lowest">{t.sortLowest}</option>
         </select>
       </div>
+
+      {pendingCount > 0 && (
+        <div style={{ background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 12, padding: '10px 16px', marginBottom: 14, fontSize: 12.5, color: S.amber, fontWeight: 700 }}>
+          ⏳ {pendingCount} {isAr ? 'تقييم بانتظار المراجعة' : 'review(s) awaiting moderation'} — {t.pendingHint}
+        </div>
+      )}
 
       {/* ── القائمة ── */}
       {loading ? (
@@ -265,14 +298,33 @@ export default function MenuReviewsPage() {
                 <div style={{ fontSize: 13, color: r.review_text ? S.white : S.muted, lineHeight: 1.6, marginBottom: 6, fontStyle: r.review_text ? 'normal' : 'italic' }}>
                   {r.review_text || t.noComment}
                 </div>
-                <div style={{ fontSize: 11, color: S.muted }}>
-                  👤 {r.reviewer_name || t.guest} · {new Date(r.created_at).toLocaleString(isAr ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                <div style={{ fontSize: 11, color: S.muted, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span>👤 {r.reviewer_name || t.guest} · {new Date(r.created_at).toLocaleString(isAr ? 'ar-EG' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  {(r.status || 'approved') !== 'approved' && (
+                    <span style={{ background: r.status === 'pending' ? S.amberB : S.redB, color: r.status === 'pending' ? S.amber : S.red, borderRadius: 20, padding: '2px 8px', fontWeight: 700 }}>
+                      {r.status === 'pending' ? t.fPending : t.fRejected}
+                    </span>
+                  )}
                 </div>
               </div>
-              <button onClick={() => deleteReview(r.id)} disabled={deletingId === r.id}
-                style={{ flexShrink: 0, padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: deletingId === r.id ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: deletingId === r.id ? 0.6 : 1 }}>
-                {deletingId === r.id ? '⏳' : `🗑️ ${t.delete}`}
-              </button>
+              <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {r.status !== 'approved' && (
+                  <button onClick={() => moderate(r.id, 'approved')} disabled={moderatingId === r.id}
+                    style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: moderatingId === r.id ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    {moderatingId === r.id ? '⏳' : `✅ ${t.approve}`}
+                  </button>
+                )}
+                {r.status !== 'rejected' && (
+                  <button onClick={() => moderate(r.id, 'rejected')} disabled={moderatingId === r.id}
+                    style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: moderatingId === r.id ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                    {moderatingId === r.id ? '⏳' : `🚫 ${t.reject}`}
+                  </button>
+                )}
+                <button onClick={() => deleteReview(r.id)} disabled={deletingId === r.id}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: deletingId === r.id ? 'not-allowed' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: deletingId === r.id ? 0.6 : 1 }}>
+                  {deletingId === r.id ? '⏳' : `🗑️ ${t.delete}`}
+                </button>
+              </div>
             </div>
           ))}
         </div>

@@ -87,10 +87,14 @@ const TR: Record<Lang, Record<string, string>> = {
     search_dishes: 'Search dishes…', cat_all: 'All', no_items: 'No items found',
     be_first_rate: '🆕 Be the first to rate', view_order: '🛒 View Order ({x} items)',
     add: 'Add', select_size: 'Select size:', pick_size_first: 'Please select a size first',
-    ratings: '⭐ Ratings', rate_this: 'Rate this dish:',
-    review_placeholder: 'Share your thoughts on this dish (optional)…',
+    ratings: '⭐ Reviews', rate_this: 'Rate this dish:',
+    review_hint: 'Your opinion on taste & quality — shown to guests after we review it. For special requests like "no onion", use the note field when you confirm your order.',
+    review_placeholder: 'Share your thoughts on taste & quality… (optional)',
     your_name_opt: 'Your name (optional)', pick_stars_first: 'Please select a star rating first',
-    review_thanks: '✅ Thank you, your review was submitted successfully',
+    review_thanks: '✅ Thanks! Your review is pending approval and will appear soon.',
+    already_reviewed: '✅ You already reviewed this dish — thank you!',
+    rate_dishes_t: '🌟 Rate your dishes', rate_dishes_s: 'How was your meal? Your rating helps us (shown after review).',
+    kitchen_note_label: '🍳 Note for the kitchen (optional)',
     submitting: 'Submitting…', submit_review: 'Submit Review', no_comments: 'No comments yet',
     guest: 'Guest', n_ratings: '{x} ratings', no_ratings_yet: '🆕 No ratings yet — be the first to rate this dish',
     err_order_send: '⚠️ Something went wrong sending your order. Please try again or call the waiter.',
@@ -142,10 +146,14 @@ const TR: Record<Lang, Record<string, string>> = {
     search_dishes: 'Cari hidangan…', cat_all: 'Semua', no_items: 'Tiada item dijumpai',
     be_first_rate: '🆕 Jadi yang pertama menilai', view_order: '🛒 Lihat Pesanan ({x} item)',
     add: 'Tambah', select_size: 'Pilih saiz:', pick_size_first: 'Sila pilih saiz dahulu',
-    ratings: '⭐ Penilaian', rate_this: 'Nilai hidangan ini:',
-    review_placeholder: 'Kongsi pendapat anda tentang hidangan ini (pilihan)…',
+    ratings: '⭐ Ulasan', rate_this: 'Nilai hidangan ini:',
+    review_hint: 'Pendapat anda tentang rasa & kualiti — dipaparkan kepada tetamu selepas kami semak. Untuk permintaan khas seperti "tanpa bawang", gunakan ruangan nota semasa mengesahkan pesanan.',
+    review_placeholder: 'Kongsi pendapat anda tentang rasa & kualiti… (pilihan)',
     your_name_opt: 'Nama anda (pilihan)', pick_stars_first: 'Sila pilih penilaian bintang dahulu',
-    review_thanks: '✅ Terima kasih, ulasan anda berjaya dihantar',
+    review_thanks: '✅ Terima kasih! Ulasan anda menunggu kelulusan dan akan dipaparkan tidak lama lagi.',
+    already_reviewed: '✅ Anda sudah menilai hidangan ini — terima kasih!',
+    rate_dishes_t: '🌟 Nilai hidangan anda', rate_dishes_s: 'Bagaimana hidangan anda? Penilaian anda membantu kami (dipaparkan selepas semakan).',
+    kitchen_note_label: '🍳 Nota untuk dapur (pilihan)',
     submitting: 'Menghantar…', submit_review: 'Hantar Ulasan', no_comments: 'Tiada komen lagi',
     guest: 'Tetamu', n_ratings: '{x} penilaian', no_ratings_yet: '🆕 Belum ada penilaian — jadi yang pertama menilai hidangan ini',
     err_order_send: '⚠️ Sesuatu tidak kena semasa menghantar pesanan anda. Sila cuba lagi atau panggil pelayan.',
@@ -197,10 +205,14 @@ const TR: Record<Lang, Record<string, string>> = {
     search_dishes: 'ابحث عن الأطباق…', cat_all: 'الكل', no_items: 'لا توجد أصناف',
     be_first_rate: '🆕 كن أول من يقيّم', view_order: '🛒 عرض الطلب ({x} صنف)',
     add: 'إضافة', select_size: 'اختر الحجم:', pick_size_first: 'يرجى اختيار الحجم أولاً',
-    ratings: '⭐ التقييمات', rate_this: 'قيّم هذا الطبق:',
-    review_placeholder: 'شاركنا رأيك في هذا الطبق (اختياري)…',
+    ratings: '⭐ آراء الزوّار', rate_this: 'قيّم هذا الطبق:',
+    review_hint: 'رأيك في الطعم والجودة — يظهر للزوّار بعد مراجعة الإدارة. للطلبات الخاصة مثل «بدون بصل» استخدم خانة الملاحظات عند تأكيد الطلب.',
+    review_placeholder: 'شاركنا رأيك في الطعم والجودة… (اختياري)',
     your_name_opt: 'اسمك (اختياري)', pick_stars_first: 'يرجى اختيار عدد النجوم أولاً',
-    review_thanks: '✅ شكراً لك، تم إرسال تقييمك بنجاح',
+    review_thanks: '✅ شكراً لك! تقييمك قيد المراجعة وسيظهر قريباً.',
+    already_reviewed: '✅ لقد قيّمت هذا الطبق — شكراً لك!',
+    rate_dishes_t: '🌟 قيّم أطباقك', rate_dishes_s: 'كيف كانت وجبتك؟ تقييمك يساعدنا (يظهر بعد المراجعة).',
+    kitchen_note_label: '🍳 ملاحظة للمطبخ (اختياري)',
     submitting: 'جارٍ الإرسال…', submit_review: 'إرسال التقييم', no_comments: 'لا توجد تعليقات بعد',
     guest: 'ضيف', n_ratings: '{x} تقييم', no_ratings_yet: '🆕 لا توجد تقييمات بعد — كن أول من يقيّم هذا الطبق',
     err_order_send: '⚠️ حدث خطأ أثناء إرسال طلبك. يرجى المحاولة مرة أخرى أو مناداة النادل.',
@@ -293,7 +305,7 @@ export default function CustomerMenuPage() {
   // ✅ Points threshold required to unlock a discount - a single constant so it only needs to change in one place
   const DISCOUNT_POINTS_TARGET = 1000
   // ✅ New: full accumulated order items (all rounds combined) from the database - instead of relying on the local cart, which resets with each new order
-  const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null }[]>([])
+  const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null; menu_item_id?: string | null }[]>([])
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
@@ -306,6 +318,14 @@ export default function CustomerMenuPage() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false)
   const [reviewError, setReviewError] = useState('')
   const [reviewSubmitted, setReviewSubmitted] = useState(false)
+  // ✅ تقييم واحد لكل طبق لكل جهاز (يُحفظ محليًا) — + التقييمات الجديدة تروح "قيد المراجعة" وما تظهرش إلا بعد اعتماد الإدارة
+  const [reviewedItemIds, setReviewedItemIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('orchid_reviewed_items')
+      if (raw) setReviewedItemIds(new Set(JSON.parse(raw)))
+    } catch {}
+  }, [])
 
   // ✅ New: floating "+1" animation when adding an item to the cart — the latest trend seen in food apps worldwide
   const [flyingPlusOnes, setFlyingPlusOnes] = useState<{ id: number; x: number; y: number }[]>([])
@@ -365,11 +385,11 @@ export default function CustomerMenuPage() {
   // ✅ New: fetch all items of a given order (all rounds) from the database, so they display in full no matter how many rounds the customer ordered
   async function fetchLiveOrderItems(orderId: string) {
     const { data } = await sb.from('order_items')
-      .select('id, quantity, unit_price, size_name, status, menu_items(name, name_en)')
+      .select('id, menu_item_id, quantity, unit_price, size_name, status, menu_items(name, name_en)')
       .eq('order_id', orderId)
       .neq('status', 'cancelled')
     setLiveOrderItems((data || []).map((i: any) => ({
-      id: i.id, quantity: i.quantity, unit_price: i.unit_price, size_name: i.size_name,
+      id: i.id, menu_item_id: i.menu_item_id, quantity: i.quantity, unit_price: i.unit_price, size_name: i.size_name,
       name: i.menu_items?.name_en || i.menu_items?.name || '',
     })))
   }
@@ -382,8 +402,8 @@ export default function CustomerMenuPage() {
       const [cats, itms, revs] = await Promise.all([
         sb.from('menu_categories').select('id,name,name_en,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
         sb.from('menu_items') .select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
-        // ✅ New: fetch all of the restaurant's reviews in one call (stars + comment) to compute the average and show comments for each item
-        sb.from('menu_item_reviews').select('id,menu_item_id,stars,review_text,reviewer_name,created_at').order('created_at', { ascending: false })
+        // ✅ التقييمات المعتمدة فقط — التقييمات الجديدة تظهر بعد مراجعة الإدارة (status='approved')
+        sb.from('menu_item_reviews').select('id,menu_item_id,stars,review_text,reviewer_name,created_at').eq('status', 'approved').order('created_at', { ascending: false })
       ])
       setCategories(cats.data || [])
       setItems(itms.data || [])
@@ -475,30 +495,40 @@ const filteredItems = items
   }
 
   // ✅ New: submit a rating (stars + optional written comment) for a given item and add it immediately to the displayed reviews list
+  // ✅ إرسال تقييم — يُسجَّل بحالة "pending" (لا يظهر للزوّار إلا بعد اعتماد الإدارة)، ويُحفَظ محليًا لمنع التكرار
+  async function postReview(itemId: string, stars: number, text?: string, name?: string): Promise<boolean> {
+    if (!itemId || stars < 1) return false
+    const { error } = await sb.from('menu_item_reviews').insert([{
+      menu_item_id: itemId,
+      stars,
+      review_text: (text || '').trim() || null,
+      reviewer_name: (name || '').trim() || null,
+      status: 'pending',
+    }])
+    if (error) {
+      console.error('menu_item_reviews insert failed:', error?.message, error?.code, error?.details, error?.hint)
+      return false
+    }
+    setReviewedItemIds(prev => {
+      const next = new Set(prev); next.add(itemId)
+      try { localStorage.setItem('orchid_reviewed_items', JSON.stringify([...next])) } catch {}
+      return next
+    })
+    return true
+  }
+
   async function submitReview() {
     if (!selectedItem || newReviewStars < 1) { setReviewError(t('pick_stars_first')); return }
     setReviewSubmitting(true)
     setReviewError('')
-    const { data, error } = await sb.from('menu_item_reviews').insert([{
-      menu_item_id: selectedItem.id,
-      stars: newReviewStars,
-      review_text: newReviewText.trim() || null,
-      reviewer_name: reviewerName.trim() || null,
-    }]).select('id,menu_item_id,stars,review_text,reviewer_name,created_at').single()
-    if (error || !data) {
-      // ✅ log the real Supabase error to the console so the exact cause can be diagnosed (RLS, missing table, missing extension, etc.)
-      console.error('menu_item_reviews insert failed:', error?.message, error?.code, error?.details, error?.hint)
-      setReviewError(t('err_generic'))
-      setReviewSubmitting(false)
-      return
-    }
-    setReviews(p => [data, ...p])
+    const ok = await postReview(selectedItem.id, newReviewStars, newReviewText, reviewerName)
+    setReviewSubmitting(false)
+    if (!ok) { setReviewError(t('err_generic')); return }
     setNewReviewStars(0)
     setNewReviewText('')
     setReviewerName('')
-    setReviewSubmitting(false)
     setReviewSubmitted(true)
-    setTimeout(() => setReviewSubmitted(false), 2500)
+    setTimeout(() => setReviewSubmitted(false), 4000)
   }
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
 
@@ -848,6 +878,39 @@ const filteredItems = items
           {t('order_more')}
         </button>
 
+        {/* ✅ تقييم الأطباق — لمسة واضحة بعد الطلب: نجوم سريعة لكل صنف طلبه العميل (تروح "قيد المراجعة") */}
+        {(() => {
+          const rateable = liveOrderItems.filter(i => i.menu_item_id)
+          const uniq = Array.from(new Map(rateable.map(i => [i.menu_item_id, i])).values())
+          if (uniq.length === 0) return null
+          return (
+            <div style={{ marginTop:24, background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:24, padding:'20px 18px' }}>
+              <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:4 }}>{t('rate_dishes_t')}</div>
+              <div style={{ fontSize:11.5, color:C.silver2, marginBottom:14 }}>{t('rate_dishes_s')}</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {uniq.map(it => {
+                  const done = reviewedItemIds.has(it.menu_item_id as string)
+                  return (
+                    <div key={it.menu_item_id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background:'rgba(255,255,255,.03)', borderRadius:12, padding:'10px 12px' }}>
+                      <span style={{ fontSize:12.5, color:C.white, fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{it.name}</span>
+                      {done ? (
+                        <span style={{ fontSize:12, color:'#16A34A', fontWeight:700, flexShrink:0 }}>✅</span>
+                      ) : (
+                        <div style={{ display:'flex', gap:3, flexShrink:0 }}>
+                          {[1,2,3,4,5].map(n => (
+                            <button key={n} onClick={async () => { await postReview(it.menu_item_id as string, n) }}
+                              style={{ background:'none', border:'none', cursor:'pointer', fontSize:22, padding:0, lineHeight:1, filter:'grayscale(1) opacity(.45)' }}>⭐</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* ── 🎲 Who's Paying the Bill? Roulette Game ── */}
         <div style={{ marginTop:24, background:`linear-gradient(135deg, ${C.bg2}, ${C.bg3})`, border:`1px solid ${C.border2}`, borderRadius:28, padding:'24px 20px', boxShadow:`0 0 40px ${C.glow}` }}>
           {!showPayGame ? (
@@ -1112,9 +1175,15 @@ const filteredItems = items
 
           {/* ✅ New: ratings section — star rating with written comment */}
           <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20 }}>
-            <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:14 }}>{t('ratings')}</div>
+            <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:6 }}>{t('ratings')}</div>
+            <div style={{ fontSize:11, color:C.silver2, lineHeight:1.6, marginBottom:14 }}>{t('review_hint')}</div>
 
-            {/* New rating submission form */}
+            {reviewedItemIds.has(selectedItem.id) || reviewSubmitted ? (
+              <div style={{ background:'#F0FDF4', border:`1px solid ${C.border2}`, borderRadius:14, padding:'14px', fontSize:12.5, color:'#16A34A', fontWeight:700, textAlign:'center', marginBottom:18 }}>
+                {reviewSubmitted ? t('review_thanks') : t('already_reviewed')}
+              </div>
+            ) : (
+            /* New rating submission form */
             <div style={{ background:'#FAFEFE', border:`1px dashed ${C.border2}`, borderRadius:16, padding:'16px 14px', marginBottom:18 }}>
               <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>{t('rate_this')}</div>
               <div style={{ display:'flex', gap:6, marginBottom:12 }}>
@@ -1133,12 +1202,12 @@ const filteredItems = items
                 placeholder={t('your_name_opt')}
                 style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'9px 12px', fontSize:13, color:C.white, outline:'none', marginBottom:10 }} />
               {reviewError && <div style={{ color:'#EF4444', fontSize:11.5, marginBottom:8 }}>{reviewError}</div>}
-              {reviewSubmitted && <div style={{ color:'#16A34A', fontSize:11.5, marginBottom:8, fontWeight:700 }}>{t('review_thanks')}</div>}
               <button onClick={submitReview} disabled={reviewSubmitting}
                 style={{ width:'100%', background: reviewSubmitting ? C.border2 : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:12, padding:'11px', color:C.white, fontWeight:800, fontSize:13, cursor: reviewSubmitting ? 'not-allowed' : 'pointer' }}>
                 {reviewSubmitting ? t('submitting') : t('submit_review')}
               </button>
             </div>
+            )}
 
             {/* List of written reviews */}
             {reviews.filter(r => r.menu_item_id === selectedItem.id).length === 0 ? (
@@ -1371,7 +1440,8 @@ const filteredItems = items
                 </div>
               </div>
             </div>
-            <input style={{ width:'100%', background:'rgba(255,255,255,.04)', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 14px', fontSize:12, color:C.white, outline:'none', marginTop:12, boxSizing:'border-box' as const }}
+            <div style={{ fontSize:10.5, color:C.blue2, fontWeight:700, marginTop:12, marginBottom:4 }}>{t('kitchen_note_label')}</div>
+            <input style={{ width:'100%', background:'rgba(255,255,255,.04)', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 14px', fontSize:12, color:C.white, outline:'none', boxSizing:'border-box' as const }}
               placeholder={t('special_request')}
               value={c.notes} onChange={e => setCart(p => p.map((ci, i) => i === idx ? { ...ci, notes: e.target.value } : ci))} />
           </div>

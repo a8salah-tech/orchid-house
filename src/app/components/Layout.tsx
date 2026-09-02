@@ -96,7 +96,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'البار',    label_en: 'Bar',      icon: '☕',  path: '/dashboard/bar',      permission: 'bar' },
     { label: 'مستودع التجهيزات', label_en: 'Prep Warehouse', icon: '🏭', path: '/dashboard/prep-warehouse', permission: 'prep_warehouse' },
     { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'sales' },
-    { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'sales' },
+    { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'cashier_only' },
     { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'admin_only' },
     // ✅ مقصورة على المشرفين فما فوق — كانت 'all_employees' فتظهر للجميع بلا استثناء بالغلط
     { label: 'البوفية', label_en: 'Buffet', icon: '🍽️', path: '/dashboard/buffet', permission: 'buffet' },
@@ -250,6 +250,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isAr = lang === 'ar'
   const roleInfo = ROLE_LABELS[employee?.role || 'employee'] || ROLE_LABELS.employee
   const isAdmin = permissions?.all === true
+  // ✅ صفحة تيك أواي: مدير النظام + أدوار الكاشير فقط (مش الصالة)
+  const isCashierRole = ['cashier', 'cashier_manager'].includes(employee?.role || '')
+  const canSeeItem = (perm: string | null): boolean =>
+    perm === 'admin_only' ? isAdmin :
+    perm === 'cashier_only' ? (isAdmin || isCashierRole) :
+    perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
 
   if (loading) return (
     <div style={{ minHeight: '100vh', background: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#C9A84C', fontFamily: 'Tajawal, sans-serif', fontSize: 18 }}>
@@ -260,11 +266,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const visibleMenu = useMemo(() =>
     ALL_MENU.map(group => ({
       ...group,
-      items: group.items.filter(item =>
-        // ✅ عناصر "admin_only" تظهر للأدمن بس، حتى لو الموظف عنده صلاحية hr أو marketing عامة
-        item.permission === 'admin_only' ? isAdmin :
-        item.permission === null || item.permission === 'all_employees' || isAdmin || hasPermission(item.permission)
-      )
+      items: group.items.filter(item => canSeeItem(item.permission))
     })).filter(group => group.items.length > 0)
   , [permissions, employee])
 
@@ -282,10 +284,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // بسبب فجوة توقيت في تحميل الصلاحيات (permissions لسه ما وصلتش فعلياً وقت ما loading بيبقى false).
   // هيتفعّل تاني بعد التأكد من إصلاح الفجوة دي في AuthProvider، بتغيير القيمة هنا لـ true فقط
   const GUARD_ENABLED = true
-  const isPageAllowed = !GUARD_ENABLED || !currentPageLabel || (
-    currentPageLabel.permission === 'admin_only' ? isAdmin :
-    currentPageLabel.permission === null || currentPageLabel.permission === 'all_employees' || isAdmin || hasPermission(currentPageLabel.permission)
-  )
+  const isPageAllowed = !GUARD_ENABLED || !currentPageLabel || canSeeItem(currentPageLabel.permission)
 
   useEffect(() => {
     // ✅ ننتظر انتهاء تحميل بيانات الصلاحيات أولاً (loading) قبل أي قرار — وإلا كل صفحة كانت

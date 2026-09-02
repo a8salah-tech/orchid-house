@@ -340,6 +340,28 @@ export default function CustomerMenuPage() {
     return () => clearInterval(id)
   }, [])
 
+  // ✅ زر الرجوع في الموبايل (خاصة سامسونج): بدل ما يخرج العميل من المنيو بالكامل، يقفل تفاصيل الوجبة
+  // أو اللعبة، أو يرجّع خطوة داخل التطبيق (سلة → منيو، إلخ). نحتفظ بحالة واحدة في تاريخ المتصفح
+  // ونعيد دفعها بعد كل رجوع نتعامل معه.
+  const navRef = useRef<{ selectedItem: unknown; showPayGame: boolean; phase: Phase }>({ selectedItem: null, showPayGame: false, phase: 'language' })
+  navRef.current = { selectedItem, showPayGame, phase }
+  useEffect(() => {
+    window.history.pushState({ menuGuard: true }, '')
+    const onPop = () => {
+      const s = navRef.current
+      const rearm = () => window.history.pushState({ menuGuard: true }, '')
+      if (s.selectedItem) { setSelectedItem(null); rearm(); return }
+      if (s.showPayGame)  { setShowPayGame(false); rearm(); return }
+      if (s.phase === 'cart')    { setPhase('menu'); rearm(); return }
+      if (s.phase === 'rewards') { setPhase('welcome'); rearm(); return }
+      if (s.phase === 'menu')    { setPhase('welcome'); rearm(); return }
+      // welcome / language / done → نسمح بالخروج الطبيعي
+      window.history.back()
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
   // ✅ New: fetch all items of a given order (all rounds) from the database, so they display in full no matter how many rounds the customer ordered
   async function fetchLiveOrderItems(orderId: string) {
     const { data } = await sb.from('order_items')
@@ -1018,6 +1040,11 @@ const filteredItems = items
       <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} />
       <div style={{ position:'absolute', bottom:0, left:0, right:0, background:C.bg2, borderRadius:'28px 28px 0 0', maxWidth:520, margin:'0 auto', overflow:'hidden', border:`1px solid ${C.border2}`, borderBottom:'none', animation:'slideUp .3s cubic-bezier(.34,1.56,.64,1)', maxHeight:'88dvh', display:'flex', flexDirection:'column' }}
         onClick={e => e.stopPropagation()}>
+        {/* ✅ زر إغلاق واضح فوق البطاقة */}
+        <button onClick={() => setSelectedItem(null)} aria-label="Close"
+          style={{ position:'absolute', top:12, insetInlineEnd:12, zIndex:6, width:34, height:34, borderRadius:'50%', border:'none', background:'rgba(0,0,0,.55)', color:'#fff', fontSize:18, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)', lineHeight:1 }}>
+          ✕
+        </button>
         <div style={{ overflowY:'auto' }}>
         {selectedItem.image_url && (
           <div style={{ width:'100%', height:260, overflow:'hidden', position:'relative' }}>

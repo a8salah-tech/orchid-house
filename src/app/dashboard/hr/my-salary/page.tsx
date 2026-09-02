@@ -87,10 +87,12 @@ export default function MySalaryPage() {
     if (!myId) return
     Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
-      sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,branch_id,branches(name)').eq('id', myId).single(),
-    ]).then(([mo, emp]) => {
+      sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,branches(name)').eq('id', myId).single(),
+      // ✅ الراتب اتنقل لجدول employee_compensation المقفول — الموظف يقرأ صفه هو فقط (RLS)
+      sb.from('employee_compensation').select('salary').eq('employee_id', myId).maybeSingle(),
+    ]).then(([mo, emp, comp]) => {
       setMonths(mo.data || [])
-      setMyEmp(emp.data)
+      setMyEmp(emp.data ? { ...emp.data, salary: (comp.data as any)?.salary } : emp.data)
       setLoading(false)
     })
   }, [myId])

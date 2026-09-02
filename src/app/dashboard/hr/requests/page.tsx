@@ -94,6 +94,11 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
     achievements: '',
     date_of_request: new Date().toISOString().split('T')[0],
   })
+  // ✅ الراتب اتنقل لجدول employee_compensation المقفول — الموظف يقرأ صفه هو فقط
+  useEffect(() => {
+    supabase.from('employee_compensation').select('salary').eq('employee_id', employee.id).maybeSingle()
+      .then(({ data }) => { if ((data as any)?.salary != null) setForm(p => ({ ...p, current_salary: String((data as any).salary) })) })
+  }, [employee.id])
 
   const inp2: React.CSSProperties = {
     width: '100%', background: 'rgba(255,255,255,0.04)',
@@ -787,9 +792,11 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
             advance: (existingRecord.advance || 0) + advanceAmt,
           }).eq('id', existingRecord.id)
         } else {
-          // جلب الراتب الأساسي والتأمين من بيانات الموظف نفسه لتعبئة السجل الجديد
-          const { data: empData } = await supabase.from('employees')
-            .select('salary, insurance, work_insurance').eq('id', request.employee_id).maybeSingle()
+          // ✅ الراتب اتنقل لجدول employee_compensation المقفول (مدير النظام فقط). لتعبئة السجل الجديد
+          // نستخدم دالة app_employee_base_pay — مقصورة على مدير النظام أو صاحب صلاحية "الرواتب".
+          // لو المعتمِد مدير فرع (بلا صلاحية رواتب): basic_salary=0 ويُصلَّح عند توليد الرواتب من صفحة الرواتب.
+          const { data: bp } = await supabase.rpc('app_employee_base_pay', { p_emp: request.employee_id })
+          const empData = Array.isArray(bp) ? bp[0] : bp
           await supabase.from('payroll_records').insert([{
             payroll_month_id: payrollMonth.id, employee_id: request.employee_id,
             basic_salary: empData?.salary || 0, insurance: empData?.insurance || 0,
@@ -1329,7 +1336,7 @@ export default function EmployeeRequestsPage() {
 
     const [req, emp, br] = await Promise.all([
       reqQuery,
-      supabase.from('employees').select('id,name,name_en,employee_number,role,department,salary,join_date,branch_id').eq('is_active', true).order('name'),
+      supabase.from('employees').select('id,name,name_en,employee_number,role,department,join_date,branch_id').eq('is_active', true).order('name'),
       supabase.from('branches').select('id,name').order('name'),
     ])
     setRequests(req.data || [])

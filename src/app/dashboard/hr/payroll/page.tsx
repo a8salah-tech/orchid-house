@@ -632,12 +632,23 @@ export default function PayrollPage() {
 
   const empMap = useMemo(() => Object.fromEntries(employees.map(e => [e.id, e])), [employees])
 
+  // ✅ الراتب/التأمينات اتنقلوا لجدول employee_compensation المقفول (مدير النظام فقط).
+  // نجيبهم ونضمّهم لقائمة الموظفين — صفحة الرواتب للأدمن فقط فيقدر يقراهم كلهم.
+  const withComp = useCallback(async (list: any[]) => {
+    if (!list || list.length === 0) return list
+    const ids = list.map(e => e.id)
+    const { data: comp } = await sb.from('employee_compensation')
+      .select('employee_id,salary,insurance,work_insurance').in('employee_id', ids)
+    const cm = Object.fromEntries((comp || []).map((c: any) => [c.employee_id, c]))
+    return list.map(e => ({ ...e, salary: cm[e.id]?.salary, insurance: cm[e.id]?.insurance, work_insurance: cm[e.id]?.work_insurance }))
+  }, [sb])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
       (() => {
-        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
         // فلتر حسب الدور
         if (!isSuperAdmin && isBranchManager) q = q.eq('branch_id', currentUser?.branch_id || '')
         else if (!isSuperAdmin && !isBranchManager) q = q.eq('id', myId)
@@ -646,10 +657,10 @@ export default function PayrollPage() {
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
     ])
     setMonths(mo.data || [])
-    setEmployees(em.data || [])
+    setEmployees(await withComp(em.data || []))
     setBranches(br.data || [])
     setLoading(false)
-  }, [sb])
+  }, [sb, withComp])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -659,11 +670,11 @@ export default function PayrollPage() {
 
     let emps = employees
     if (emps.length === 0) {
-      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
+      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
       if (!isSuperAdmin && isBranchManager) q2 = q2.eq('branch_id', currentUser?.branch_id || '')
       else if (!isSuperAdmin && !isBranchManager) q2 = q2.eq('id', myId)
       const { data } = await q2
-      emps = data || []
+      emps = await withComp(data || [])
       setEmployees(emps)
     }
 
@@ -689,7 +700,7 @@ export default function PayrollPage() {
     })
 
     const { data } = await sb.from('payroll_records')
-      .select('*, employees(id,name,name_en,employee_number,role,department,salary,insurance,work_insurance,branch_id,branches(name))')
+      .select('*, employees(id,name,name_en,employee_number,role,department,branch_id,branches(name))')
       .eq('payroll_month_id', month.id)
 
     const empIds = filteredEmps.map(e => e.id)

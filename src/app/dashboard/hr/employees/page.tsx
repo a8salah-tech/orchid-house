@@ -65,7 +65,7 @@ interface Employee {
   id: string; name: string; name_en: string; employee_number: string
   role: string; department: string; branch_id: string; phone: string
   email: string; email_account?: string  // ① إيميل شخصي + إيميل النظام
-  join_date: string; salary: number; is_active: boolean
+  join_date: string; salary?: number; insurance?: number; work_insurance?: number; is_active: boolean
   notes: string; photo_url?: string; national_id_url?: string
   auth_user_id?: string; branches?: { name: string }
   created_at?: string
@@ -253,10 +253,25 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
     let national_id_url = employee?.national_id_url || null
     if (photoFile) { const url = await uploadImage(supabase, photoFile, `photos/${employee?.id || Date.now()}_${Date.now()}.jpg`); if (url) photo_url = url }
     if (idFile) { const url = await uploadImage(supabase, idFile, `ids/${employee?.id || Date.now()}_${Date.now()}.jpg`); if (url) national_id_url = url }
-    const payload = { ...form, salary: parseFloat(form.salary) || 0, photo_url, national_id_url, branch_id: form.branch_id || null, }    
-    const { error } = employee ? await supabase.from('employees').update(payload).eq('id', employee.id) : await supabase.from('employees').insert([payload])
+    // ✅ الراتب اتنقل لجدول employee_compensation المقفول — نفصله عن payload جدول employees
+    const { salary: salaryStr, ...formRest } = form
+    const salaryNum = parseFloat(salaryStr) || 0
+    const payload = { ...formRest, photo_url, national_id_url, branch_id: form.branch_id || null }
+    let savedId = employee?.id || null
+    if (employee) {
+      const { error } = await supabase.from('employees').update(payload).eq('id', employee.id)
+      if (error) { setSaving(false); alert('خطأ: ' + error.message); return }
+    } else {
+      const { data: ins, error } = await supabase.from('employees').insert([payload]).select('id').single()
+      if (error) { setSaving(false); alert('خطأ: ' + error.message); return }
+      savedId = ins?.id || null
+    }
+    if (savedId) {
+      const { error: compErr } = await supabase.from('employee_compensation')
+        .upsert({ employee_id: savedId, salary: salaryNum, updated_at: new Date().toISOString() }, { onConflict: 'employee_id' })
+      if (compErr) { setSaving(false); alert('تم حفظ بيانات الموظف لكن فشل حفظ الراتب: ' + compErr.message); return }
+    }
     setSaving(false)
-    if (error) { alert('خطأ: ' + error.message); return }
     onSaved()
   }
 
@@ -367,7 +382,9 @@ function SalaryIncreaseModal({ employee, adminId, onClose, onSaved }: {
     }])
     if (insError) { alert('خطأ في تسجيل الزيادة: ' + insError.message); setSaving(false); return }
 
-    const { error: updError } = await supabase.from('employees').update({ salary: newSalary }).eq('id', employee.id)
+    // ✅ الراتب في جدول employee_compensation المقفول
+    const { error: updError } = await supabase.from('employee_compensation')
+      .upsert({ employee_id: employee.id, salary: newSalary, updated_at: new Date().toISOString() }, { onConflict: 'employee_id' })
     if (updError) { alert('خطأ في تحديث الراتب: ' + updError.message); setSaving(false); return }
 
     setSaving(false)
@@ -722,7 +739,16 @@ export default function EmployeesPage() {
       supabase.from('branches').select('id,name').eq('is_active', true),
       canSeeRegs ? supabase.from('employee_registrations').select('*').eq('status', 'pending').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
     ])
-    setEmployees(emp.data || [])
+    // ✅ الراتب اتنقل لجدول employee_compensation المقفول — مدير النظام فقط يقرأه.
+    // نضمّه لقائمة الموظفين؛ مدير الفرع يرجع صفر صفوف فالراتب يظهر فاضي عنده.
+    let empList = emp.data || []
+    if (empList.length > 0) {
+      const { data: comp } = await supabase.from('employee_compensation')
+        .select('employee_id,salary,insurance,work_insurance').in('employee_id', empList.map((e: any) => e.id))
+      const cm = Object.fromEntries((comp || []).map((c: any) => [c.employee_id, c]))
+      empList = empList.map((e: any) => ({ ...e, salary: cm[e.id]?.salary, insurance: cm[e.id]?.insurance, work_insurance: cm[e.id]?.work_insurance }))
+    }
+    setEmployees(empList)
     setBranches(br.data || [])
     setRegistrations(reg.data || [])
     if (currentUser?.id) {
@@ -792,12 +818,15 @@ async function activateRegistration(reg: Registration) {
     national_id_url: reg.national_id_url || null,
     notes: parsed.extra_notes || null,
     employee_number: finalEmployeeNumber || null,
-    salary: parsed.salary || null,
     join_date: parsed.join_date || new Date().toISOString().split('T')[0],
     branch_id: matchedBranch?.id || null,
     is_active: true,
   }]).select().single()
     if (error) { alert('خطأ: ' + error.message); return }
+    // ✅ الراتب في جدول employee_compensation المقفول
+    if (newEmp?.id && parsed.salary != null) {
+      await supabase.from('employee_compensation').upsert({ employee_id: newEmp.id, salary: parsed.salary }, { onConflict: 'employee_id' })
+    }
     if (reg.email_account && reg.password_hint && newEmp?.id) {
       try {
         const res = await fetch('/api/create-employee-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employee_id: newEmp.id, email: reg.email_account, password: reg.password_hint }) })

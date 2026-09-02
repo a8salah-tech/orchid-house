@@ -118,9 +118,9 @@ async function handleAutoCheckout(req: NextRequest) {
 
       // ✅ جلب راتب الموظف لحساب قيمة خصم الساعتين (نحتاجه في وضع التجربة أيضاً لعرض القيمة المتوقعة)
       const { data: emp } = await supabaseAdmin
-        .from('employees')
+        .from('employee_compensation')
         .select('salary')
-        .eq('id', rec.employee_id)
+        .eq('employee_id', rec.employee_id)
         .maybeSingle()
       const dailyRate = (emp?.salary || 0) / 30
       const hourlyRate = dailyRate / 8
@@ -220,9 +220,9 @@ async function handleAutoCheckout(req: NextRequest) {
         }
 
         const { data: emp } = await supabaseAdmin
-          .from('employees')
+          .from('employee_compensation')
           .select('salary')
-          .eq('id', rec.employee_id)
+          .eq('employee_id', rec.employee_id)
           .maybeSingle()
         const dailyRate = (emp?.salary || 0) / 30
         const hourlyRate = dailyRate / 8

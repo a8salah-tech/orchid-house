@@ -448,7 +448,7 @@ function MyAttendanceCard() {
     // تلقائياً) بنفس منطق أداة auto-checkout بالظبط، عشان الحالة ما تفلتش لمجرد إن الموظف سجّل الخروج
     // بنفسه قبل ما الأداة المجدولة تشتغل. مدير الفرع/الأدمن يراجعها من صفحة إدارة المخالفات.
     if (forgotNote) {
-      const { data: emp } = await sb.from('employees').select('salary').eq('id', employeeId).maybeSingle()
+      const { data: emp } = await sb.from('employee_compensation').select('salary').eq('employee_id', employeeId).maybeSingle()
       const penalty = parseFloat(((((emp?.salary || 0) / 30) / 8) * 2).toFixed(2))
       if (penalty > 0) {
         await sb.from('violations').insert([{
@@ -747,11 +747,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     setLoading(true)
     const [att, emps, brs, sched] = await Promise.all([
       sb.from('attendance')
-        .select('*, employees(id,name,name_en,employee_number,role,department,branch_id,salary,branches(name))')
+        .select('*, employees(id,name,name_en,employee_number,role,department,branch_id,branches(name))')
         .eq('date', date)
         .order('check_in_time'),
       (() => {
-        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,salary,branches(name)').eq('is_active', true).order('name')
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,branches(name)').eq('is_active', true).order('name')
         const role = empInfo?.role || ''
         const branchId = empInfo?.branch_id || ''
         if (role === 'branch_manager') q = q.eq('branch_id', branchId)
@@ -769,7 +769,17 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       sb.from('shift_schedules').select('employee_id,shift_id,custom_start').eq('date', date).eq('status', 'confirmed'),
     ])
     setRecords(att.data || [])
-    setEmployees(emps.data || [])
+    // ✅ الراتب اتنقل لجدول employee_compensation المقفول — مدير النظام فقط يقدر يقراه.
+    // نجيبه ونضمّه لقائمة الموظفين عشان صندوق "التكلفة اليومية" في التقرير يشتغل للأدمن؛
+    // غير الأدمن يرجع صفر صفوف فالتكلفة تظهر صفر.
+    let empList = emps.data || []
+    const empIds = empList.map((e: any) => e.id)
+    if (empIds.length > 0) {
+      const { data: comp } = await sb.from('employee_compensation').select('employee_id,salary').in('employee_id', empIds)
+      const compMap = Object.fromEntries((comp || []).map((c: any) => [c.employee_id, c.salary]))
+      empList = empList.map((e: any) => ({ ...e, salary: compMap[e.id] }))
+    }
+    setEmployees(empList)
     setBranches(brs.data || [])
     // ✅ نستبعد صفوف الإجازة (بلا shift_id وبلا custom_start) — نفس المنطق المستخدم في أدوات كشف الغياب
     setDaySchedules((sched.data || []).filter((s: any) => s.shift_id || s.custom_start))

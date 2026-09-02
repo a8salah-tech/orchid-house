@@ -35,7 +35,185 @@ type Category = {
 }
 type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[] }
 type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; price: number } | null }
-type Phase     = 'welcome' | 'rewards' | 'menu' | 'cart' | 'done'
+type Phase     = 'language' | 'welcome' | 'rewards' | 'menu' | 'cart' | 'done'
+
+// ══ اللغات المدعومة في واجهة العميل (المرحلة ١: ماليزي / إنجليزي / عربي) ══
+type Lang = 'ms' | 'en' | 'ar'
+const LANGS: { code: Lang; label: string; native: string; flag: string }[] = [
+  { code: 'ms', label: 'Malay',   native: 'Bahasa Melayu', flag: '🇲🇾' },
+  { code: 'en', label: 'English', native: 'English',        flag: '🇬🇧' },
+  { code: 'ar', label: 'Arabic',  native: 'العربية',         flag: '🇸🇦' },
+]
+
+// كل نصوص واجهة العميل × ٣ لغات. المفاتيح ثابتة، والقيم تُترجم.
+// {x} = عنصر نائب يُستبدل وقت العرض. أسماء الأطباق تبقى من قاعدة البيانات (name / name_en).
+const TR: Record<Lang, Record<string, string>> = {
+  en: {
+    lang_pick_title: 'Welcome to Orchid Group', lang_pick_sub: 'Please choose your language',
+    loading: 'Loading menu…', table_not_found: 'Table not found',
+    order_confirmed: '✨ Order Confirmed', order_being_prepared: 'Your order is being prepared!',
+    order_prep_sub: 'Our kitchen team is working on your delicious meal. Sit back and relax! 🍽️',
+    your_order_number: 'YOUR ORDER NUMBER', order_summary: 'ORDER SUMMARY',
+    served_shortly: 'A team member will serve you shortly 🙏', order_more: '➕ Order More Items',
+    restaurant_tag: 'ORCHID RESTAURANT', welcome_title: 'Welcome to Orchid',
+    welcome_sub: 'Great food. Unforgettable moments.',
+    perk_points_t: 'Earn Points', perk_points_s: 'with every visit',
+    perk_offers_t: 'Exclusive Offers', perk_offers_s: 'just for members',
+    perk_bday_t: 'Birthday Rewards', perk_bday_s: 'and more surprises',
+    join_benefits: 'Join Orchid Rewards and enjoy exclusive benefits.',
+    register_50: 'Register today and get 50 welcome points!',
+    how_continue: 'How would you like to continue?',
+    join_rewards: 'JOIN ORCHID REWARDS', join_rewards_s: 'Sign in or create an account',
+    check_points: 'CHECK MY POINTS', check_points_s: 'See your balance & discount progress',
+    continue_guest: 'CONTINUE AS GUEST', continue_guest_s: 'Browse menu and place your order',
+    guest_note: "You can browse the menu and place an order as a guest, but you won't earn points or enjoy member benefits.",
+    back: '‹ Back', rewards_title: 'Orchid Rewards', check_points_title: 'Check My Points',
+    rewards_check_sub: 'Enter your mobile number to see your points balance.',
+    rewards_join_sub: "Enter your mobile number — new or returning, we've got you covered.",
+    mobile_number: 'Mobile number', your_name_new: 'Your name (for new members)',
+    checking: 'Checking…', cont: 'Continue',
+    welcome_name: 'Welcome, {x}!', welcome_back_name: 'Welcome back, {x}!',
+    just_joined: "You've just joined Orchid Rewards", good_to_see: 'Great to see you again',
+    points_balance: 'YOUR POINTS BALANCE', welcome_50_added: '🎁 +50 welcome points added!',
+    discount_unlocked: "🎉 You've unlocked your discount! Show this to your waiter.",
+    progress_discount: 'Progress to discount',
+    earn_more_points: 'Earn {x} more points to unlock a special discount! 🎁',
+    browse_menu: 'Browse Menu →',
+    err_phone: 'Please enter a valid phone number', err_generic: 'Something went wrong, please try again',
+    your_order: '🛒 Your Order', each: 'MYR {x} each',
+    special_request: 'Special request… e.g. no onion',
+    placing_order: '⏳ Placing order…', confirm_order: '✅ Confirm Order — {x} items',
+    waiter_coming: '✅ On the way!', call_waiter: '🔔 Call Waiter',
+    search_dishes: 'Search dishes…', cat_all: 'All', no_items: 'No items found',
+    be_first_rate: '🆕 Be the first to rate', view_order: '🛒 View Order ({x} items)',
+    add: 'Add', select_size: 'Select size:', pick_size_first: 'Please select a size first',
+    ratings: '⭐ Ratings', rate_this: 'Rate this dish:',
+    review_placeholder: 'Share your thoughts on this dish (optional)…',
+    your_name_opt: 'Your name (optional)', pick_stars_first: 'Please select a star rating first',
+    review_thanks: '✅ Thank you, your review was submitted successfully',
+    submitting: 'Submitting…', submit_review: 'Submit Review', no_comments: 'No comments yet',
+    guest: 'Guest', n_ratings: '{x} ratings', no_ratings_yet: '🆕 No ratings yet — be the first to rate this dish',
+    err_order_send: '⚠️ Something went wrong sending your order. Please try again or call the waiter.',
+    game_teaser_t: "While you wait… Who's Paying the Bill?", game_teaser_s: 'Spin the wheel and let fate decide! 🎉',
+    game_play: '🎮 Play the Game', game_short_t: "🎲 Who's Paying?", game_bill_goes: 'And the bill goes to…',
+    game_share: '📤 Share the result', game_again: '🔄 Play Again', game_people: 'Number of People',
+    game_person_n: 'Person {x} name', game_phone: '📱 Mobile number (required) *',
+    game_spinning: '🎰 Spinning…', game_spin: '🎰 Spin the Wheel!',
+    game_fun_note: '🎉 Just for fun — not a real payment decision!', game_need_phone: 'Please enter a mobile number to play',
+    follow_t: 'Did we make your evening special? 🌸', follow_s: 'Follow us & share your experience',
+    act_rate: 'Rate us', act_follow: 'Follow', act_like: 'Like', act_review: 'Review', act_visit: 'Visit',
+  },
+  ms: {
+    lang_pick_title: 'Selamat Datang ke Orchid Group', lang_pick_sub: 'Sila pilih bahasa anda',
+    loading: 'Memuatkan menu…', table_not_found: 'Meja tidak dijumpai',
+    order_confirmed: '✨ Pesanan Disahkan', order_being_prepared: 'Pesanan anda sedang disediakan!',
+    order_prep_sub: 'Pasukan dapur kami sedang menyediakan hidangan anda. Duduk dan berehat! 🍽️',
+    your_order_number: 'NOMBOR PESANAN ANDA', order_summary: 'RINGKASAN PESANAN',
+    served_shortly: 'Ahli pasukan kami akan melayan anda sebentar lagi 🙏', order_more: '➕ Pesan Lagi',
+    restaurant_tag: 'RESTORAN ORCHID', welcome_title: 'Selamat Datang ke Orchid',
+    welcome_sub: 'Makanan hebat. Detik tidak terlupakan.',
+    perk_points_t: 'Kumpul Mata', perk_points_s: 'setiap kunjungan',
+    perk_offers_t: 'Tawaran Eksklusif', perk_offers_s: 'untuk ahli sahaja',
+    perk_bday_t: 'Ganjaran Hari Jadi', perk_bday_s: 'dan lebih banyak kejutan',
+    join_benefits: 'Sertai Orchid Rewards dan nikmati manfaat eksklusif.',
+    register_50: 'Daftar hari ini dan dapat 50 mata selamat datang!',
+    how_continue: 'Bagaimana anda ingin teruskan?',
+    join_rewards: 'SERTAI ORCHID REWARDS', join_rewards_s: 'Log masuk atau cipta akaun',
+    check_points: 'SEMAK MATA SAYA', check_points_s: 'Lihat baki & kemajuan diskaun anda',
+    continue_guest: 'TERUSKAN SEBAGAI TETAMU', continue_guest_s: 'Lihat menu dan buat pesanan',
+    guest_note: 'Anda boleh melihat menu dan membuat pesanan sebagai tetamu, tetapi anda tidak akan mengumpul mata atau menikmati manfaat ahli.',
+    back: '‹ Kembali', rewards_title: 'Orchid Rewards', check_points_title: 'Semak Mata Saya',
+    rewards_check_sub: 'Masukkan nombor telefon anda untuk melihat baki mata.',
+    rewards_join_sub: 'Masukkan nombor telefon anda — baharu atau sedia ada, kami uruskan.',
+    mobile_number: 'Nombor telefon', your_name_new: 'Nama anda (untuk ahli baharu)',
+    checking: 'Menyemak…', cont: 'Teruskan',
+    welcome_name: 'Selamat datang, {x}!', welcome_back_name: 'Selamat kembali, {x}!',
+    just_joined: 'Anda baru sahaja menyertai Orchid Rewards', good_to_see: 'Gembira berjumpa anda lagi',
+    points_balance: 'BAKI MATA ANDA', welcome_50_added: '🎁 +50 mata selamat datang ditambah!',
+    discount_unlocked: '🎉 Anda telah membuka diskaun! Tunjukkan ini kepada pelayan.',
+    progress_discount: 'Kemajuan ke diskaun',
+    earn_more_points: 'Kumpul {x} mata lagi untuk membuka diskaun istimewa! 🎁',
+    browse_menu: 'Lihat Menu →',
+    err_phone: 'Sila masukkan nombor telefon yang sah', err_generic: 'Sesuatu tidak kena, sila cuba lagi',
+    your_order: '🛒 Pesanan Anda', each: 'MYR {x} seunit',
+    special_request: 'Permintaan khas… cth. tanpa bawang',
+    placing_order: '⏳ Menghantar pesanan…', confirm_order: '✅ Sahkan Pesanan — {x} item',
+    waiter_coming: '✅ Dalam perjalanan!', call_waiter: '🔔 Panggil Pelayan',
+    search_dishes: 'Cari hidangan…', cat_all: 'Semua', no_items: 'Tiada item dijumpai',
+    be_first_rate: '🆕 Jadi yang pertama menilai', view_order: '🛒 Lihat Pesanan ({x} item)',
+    add: 'Tambah', select_size: 'Pilih saiz:', pick_size_first: 'Sila pilih saiz dahulu',
+    ratings: '⭐ Penilaian', rate_this: 'Nilai hidangan ini:',
+    review_placeholder: 'Kongsi pendapat anda tentang hidangan ini (pilihan)…',
+    your_name_opt: 'Nama anda (pilihan)', pick_stars_first: 'Sila pilih penilaian bintang dahulu',
+    review_thanks: '✅ Terima kasih, ulasan anda berjaya dihantar',
+    submitting: 'Menghantar…', submit_review: 'Hantar Ulasan', no_comments: 'Tiada komen lagi',
+    guest: 'Tetamu', n_ratings: '{x} penilaian', no_ratings_yet: '🆕 Belum ada penilaian — jadi yang pertama menilai hidangan ini',
+    err_order_send: '⚠️ Sesuatu tidak kena semasa menghantar pesanan anda. Sila cuba lagi atau panggil pelayan.',
+    game_teaser_t: 'Sementara menunggu… Siapa Bayar Bil?', game_teaser_s: 'Pusing roda dan biar takdir menentukan! 🎉',
+    game_play: '🎮 Main Permainan', game_short_t: '🎲 Siapa Bayar?', game_bill_goes: 'Dan bil jatuh kepada…',
+    game_share: '📤 Kongsi keputusan', game_again: '🔄 Main Lagi', game_people: 'Bilangan Orang',
+    game_person_n: 'Nama orang {x}', game_phone: '📱 Nombor telefon (wajib) *',
+    game_spinning: '🎰 Berpusing…', game_spin: '🎰 Pusing Roda!',
+    game_fun_note: '🎉 Sekadar seronok — bukan keputusan pembayaran sebenar!', game_need_phone: 'Sila masukkan nombor telefon untuk bermain',
+    follow_t: 'Adakah kami menjadikan malam anda istimewa? 🌸', follow_s: 'Ikuti kami & kongsi pengalaman anda',
+    act_rate: 'Nilai kami', act_follow: 'Ikuti', act_like: 'Suka', act_review: 'Ulas', act_visit: 'Lawati',
+  },
+  ar: {
+    lang_pick_title: 'أهلاً بكم في أوركيد جروب', lang_pick_sub: 'اختر لغتك',
+    loading: 'جارٍ تحميل المنيو…', table_not_found: 'الطاولة غير موجودة',
+    order_confirmed: '✨ تم تأكيد الطلب', order_being_prepared: 'يتم تجهيز طلبك الآن!',
+    order_prep_sub: 'فريق المطبخ يجهّز وجبتك اللذيذة. استرخِ واستمتع بوقتك! 🍽️',
+    your_order_number: 'رقم طلبك', order_summary: 'ملخص الطلب',
+    served_shortly: 'سيصلك أحد أفراد الفريق خلال لحظات 🙏', order_more: '➕ اطلب المزيد',
+    restaurant_tag: 'مطعم أوركيد', welcome_title: 'أهلاً بك في أوركيد',
+    welcome_sub: 'طعام رائع. لحظات لا تُنسى.',
+    perk_points_t: 'اجمع النقاط', perk_points_s: 'مع كل زيارة',
+    perk_offers_t: 'عروض حصرية', perk_offers_s: 'للأعضاء فقط',
+    perk_bday_t: 'هدايا عيد الميلاد', perk_bday_s: 'ومفاجآت أخرى',
+    join_benefits: 'انضم إلى Orchid Rewards واستمتع بمزايا حصرية.',
+    register_50: 'سجّل اليوم واحصل على 50 نقطة ترحيبية!',
+    how_continue: 'كيف تحب أن تكمل؟',
+    join_rewards: 'انضم إلى ORCHID REWARDS', join_rewards_s: 'سجّل الدخول أو أنشئ حساباً',
+    check_points: 'تحقق من نقاطي', check_points_s: 'اطّلع على رصيدك وتقدّمك نحو الخصم',
+    continue_guest: 'المتابعة كضيف', continue_guest_s: 'تصفّح المنيو وأرسل طلبك',
+    guest_note: 'يمكنك تصفّح المنيو وإرسال طلب كضيف، لكنك لن تجمع نقاطاً ولن تستفيد من مزايا الأعضاء.',
+    back: '‹ رجوع', rewards_title: 'Orchid Rewards', check_points_title: 'تحقق من نقاطي',
+    rewards_check_sub: 'أدخل رقم جوالك لعرض رصيد نقاطك.',
+    rewards_join_sub: 'أدخل رقم جوالك — عضو جديد أو حالي، سنتكفّل بالباقي.',
+    mobile_number: 'رقم الجوال', your_name_new: 'اسمك (للأعضاء الجدد)',
+    checking: 'جارٍ التحقق…', cont: 'متابعة',
+    welcome_name: 'أهلاً، {x}!', welcome_back_name: 'أهلاً بعودتك، {x}!',
+    just_joined: 'لقد انضممت للتو إلى Orchid Rewards', good_to_see: 'سعداء برؤيتك مجدداً',
+    points_balance: 'رصيد نقاطك', welcome_50_added: '🎁 تمت إضافة 50 نقطة ترحيبية!',
+    discount_unlocked: '🎉 لقد فتحت خصمك! أظهر هذا للنادل.',
+    progress_discount: 'التقدّم نحو الخصم',
+    earn_more_points: 'اجمع {x} نقطة إضافية لفتح خصم خاص! 🎁',
+    browse_menu: 'تصفّح المنيو ←',
+    err_phone: 'يرجى إدخال رقم جوال صحيح', err_generic: 'حدث خطأ، يرجى المحاولة مرة أخرى',
+    your_order: '🛒 طلبك', each: 'MYR {x} للوحدة',
+    special_request: 'طلب خاص… مثال: بدون بصل',
+    placing_order: '⏳ جارٍ إرسال الطلب…', confirm_order: '✅ تأكيد الطلب — {x} صنف',
+    waiter_coming: '✅ في الطريق!', call_waiter: '🔔 نادِ النادل',
+    search_dishes: 'ابحث عن الأطباق…', cat_all: 'الكل', no_items: 'لا توجد أصناف',
+    be_first_rate: '🆕 كن أول من يقيّم', view_order: '🛒 عرض الطلب ({x} صنف)',
+    add: 'إضافة', select_size: 'اختر الحجم:', pick_size_first: 'يرجى اختيار الحجم أولاً',
+    ratings: '⭐ التقييمات', rate_this: 'قيّم هذا الطبق:',
+    review_placeholder: 'شاركنا رأيك في هذا الطبق (اختياري)…',
+    your_name_opt: 'اسمك (اختياري)', pick_stars_first: 'يرجى اختيار عدد النجوم أولاً',
+    review_thanks: '✅ شكراً لك، تم إرسال تقييمك بنجاح',
+    submitting: 'جارٍ الإرسال…', submit_review: 'إرسال التقييم', no_comments: 'لا توجد تعليقات بعد',
+    guest: 'ضيف', n_ratings: '{x} تقييم', no_ratings_yet: '🆕 لا توجد تقييمات بعد — كن أول من يقيّم هذا الطبق',
+    err_order_send: '⚠️ حدث خطأ أثناء إرسال طلبك. يرجى المحاولة مرة أخرى أو مناداة النادل.',
+    game_teaser_t: 'في انتظار طلبك… مَن سيدفع الفاتورة؟', game_teaser_s: 'أدر العجلة ودَع الحظ يقرر! 🎉',
+    game_play: '🎮 العب اللعبة', game_short_t: '🎲 مَن سيدفع؟', game_bill_goes: 'والفاتورة على…',
+    game_share: '📤 شارك النتيجة', game_again: '🔄 العب مجدداً', game_people: 'عدد الأشخاص',
+    game_person_n: 'اسم الشخص {x}', game_phone: '📱 رقم الجوال (مطلوب) *',
+    game_spinning: '🎰 تدور…', game_spin: '🎰 أدر العجلة!',
+    game_fun_note: '🎉 للمتعة فقط — ليست وسيلة لتحديد من يدفع فعلاً!', game_need_phone: 'يرجى إدخال رقم جوال للعب',
+    follow_t: 'هل جعلنا أمسيتك مميزة؟ 🌸', follow_s: 'تابعنا وشاركنا تجربتك',
+    act_rate: 'قيّمنا', act_follow: 'تابع', act_like: 'أعجبني', act_review: 'راجعنا', act_visit: 'زيارة',
+  },
+}
 // ✅ New: dish review — star rating (1-5) with an optional written comment and optional reviewer name
 type Review    = { id: string; menu_item_id: string; stars: number; review_text: string | null; reviewer_name: string | null; created_at: string }
 
@@ -73,7 +251,32 @@ export default function CustomerMenuPage() {
   const [activeCat, setActiveCat]   = useState<string>('all')
   const [search, setSearch]         = useState('')
   const [cart, setCart]             = useState<CartItem[]>([])
-  const [phase, setPhase]           = useState<Phase>('welcome')
+  const [phase, setPhase]           = useState<Phase>('language')
+  // ✅ لغة واجهة العميل — تُقرأ من localStorage، وشاشة الاختيار تظهر أول مرة فقط
+  const [lang, setLangState]        = useState<Lang>('en')
+  const t = (key: string, x?: string | number) => {
+    const s = (TR[lang] && TR[lang][key]) || TR.en[key] || key
+    return x != null ? s.replace('{x}', String(x)) : s
+  }
+  const isRtl = lang === 'ar'
+  const dir: 'rtl' | 'ltr' = isRtl ? 'rtl' : 'ltr'
+  function chooseLang(l: Lang) {
+    setLangState(l)
+    try { localStorage.setItem('orchid_menu_lang', l) } catch {}
+    // من شاشة اختيار اللغة → ننتقل للترحيب. من المبدّل داخل الصفحات → نفضل مكاننا
+    setPhase(p => (p === 'language' ? 'welcome' : p))
+  }
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('orchid_menu_lang') as Lang | null
+      if (saved && (saved === 'ms' || saved === 'en' || saved === 'ar')) {
+        setLangState(saved)
+        setPhase(p => (p === 'language' ? 'welcome' : p))
+      }
+    } catch {}
+  }, [])
+  // اسم الطبق/الوصف حسب اللغة: العربي يعرض الاسم العربي أولاً، غير كده الإنجليزي أولاً
+  const dishName = (ar?: string, en?: string) => (lang === 'ar' ? (ar || en) : (en || ar)) || ''
   const [submitting, setSubmitting] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
@@ -251,7 +454,7 @@ const filteredItems = items
 
   // ✅ New: submit a rating (stars + optional written comment) for a given item and add it immediately to the displayed reviews list
   async function submitReview() {
-    if (!selectedItem || newReviewStars < 1) { setReviewError('Please select a star rating first'); return }
+    if (!selectedItem || newReviewStars < 1) { setReviewError(t('pick_stars_first')); return }
     setReviewSubmitting(true)
     setReviewError('')
     const { data, error } = await sb.from('menu_item_reviews').insert([{
@@ -263,7 +466,7 @@ const filteredItems = items
     if (error || !data) {
       // ✅ log the real Supabase error to the console so the exact cause can be diagnosed (RLS, missing table, missing extension, etc.)
       console.error('menu_item_reviews insert failed:', error?.message, error?.code, error?.details, error?.hint)
-      setReviewError('An error occurred while submitting the review, please try again')
+      setReviewError(t('err_generic'))
       setReviewSubmitting(false)
       return
     }
@@ -292,7 +495,7 @@ const filteredItems = items
   // ✅ New: Orchid Rewards - phone-only lookup (no password); if found, shows their points; if new, registers them and gives 50 welcome points
   async function handleRewardsSubmit() {
     const phone = rewardsPhone.trim()
-    if (!phone || phone.length < 8) { setRewardsError('Please enter a valid phone number'); return }
+    if (!phone || phone.length < 8) { setRewardsError(t('err_phone')); return }
     setRewardsSubmitting(true)
     setRewardsError('')
     try {
@@ -303,11 +506,11 @@ const filteredItems = items
         body: JSON.stringify({ action: 'join', phone, name: rewardsName.trim() || 'Guest' }),
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.customerId) { setRewardsError('Something went wrong, please try again'); setRewardsSubmitting(false); return }
+      if (!res.ok || !data?.customerId) { setRewardsError(t('err_generic')); setRewardsSubmitting(false); return }
       setRewardsResult({ customerId: data.customerId, name: data.name, points: data.points || 0, isNew: !!data.isNew })
       setIdentifiedCustomerId(data.customerId)
     } catch {
-      setRewardsError('Something went wrong, please try again')
+      setRewardsError(t('err_generic'))
     }
     setRewardsSubmitting(false)
   }
@@ -341,7 +544,7 @@ const filteredItems = items
   function playPayGame() {
     const validNames = gameNames.map(n => n.trim()).filter(Boolean)
     if (validNames.length < 2 || gameSpinning) return
-    if (!gamePhone.trim()) { alert('Please enter a mobile number to play'); return }
+    if (!gamePhone.trim()) { alert(t('game_need_phone')); return }
     saveGameOrganizerAsCustomer()
     setGameWinner(null)
     setGameSpinning(true)
@@ -478,7 +681,7 @@ const filteredItems = items
       if (!res.ok || !data?.orderId) {
         isSubmittingRef.current = false
         setSubmitting(false)
-        alert('⚠️ Something went wrong sending your order. Please try again or call the waiter.')
+        alert(t('err_order_send'))
         return
       }
       orderId = data.orderId
@@ -492,7 +695,7 @@ const filteredItems = items
     } catch {
       isSubmittingRef.current = false
       setSubmitting(false)
-      alert('⚠️ Something went wrong sending your order. Please try again or call the waiter.')
+      alert(t('err_order_send'))
       return
     }
 
@@ -542,7 +745,7 @@ const filteredItems = items
         <div style={{ width:80, height:80, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px', animation:'spin 2s linear infinite', boxShadow:`0 0 30px ${C.glow2}` }}>
           <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         </div>
-        <div style={{ color:C.blue2, fontSize:16, fontWeight:700 }}>Loading menu...</div>
+        <div style={{ color:C.blue2, fontSize:16, fontWeight:700 }}>{t('loading')}</div>
       </div>
     </div>
   )
@@ -551,27 +754,62 @@ const filteredItems = items
     <div style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12 }}>
       <style>{globalStyles}</style>
       <div style={{ fontSize:48 }}>❌</div>
-      <div style={{ color:C.white, fontSize:18, fontWeight:700 }}>Table not found</div>
+      <div style={{ color:C.white, fontSize:18, fontWeight:700 }}>{t('table_not_found')}</div>
+    </div>
+  )
+
+  // ══ Language selection — أول شاشة يشوفها العميل بعد مسح الكيو آر ══
+  if (phase === 'language') return (
+    <div dir="ltr" style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'40px 22px' }}>
+      <style>{globalStyles}</style>
+      <div style={{ maxWidth:380, width:'100%', textAlign:'center', animation:'fadeUp .6s ease' }}>
+        <div style={{ width:88, height:88, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 18px', boxShadow:`0 0 40px ${C.glow2}`, border:`1px solid ${C.border2}` }}>
+          <img src="/logo.png" alt="Orchid Group" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+        </div>
+        <div style={{ color:C.blue2, fontSize:12, fontWeight:800, letterSpacing:3, marginBottom:8 }}>ORCHID GROUP</div>
+        {/* رسالة الترحيب — تظهر بالثلاث لغات معًا لأن العميل لسه ماختارش */}
+        <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:20, padding:'18px 16px', marginBottom:24 }}>
+          <div style={{ fontSize:16, fontWeight:900, color:C.white, marginBottom:4 }}>{TR.en.lang_pick_title}</div>
+          <div style={{ fontSize:14, fontWeight:800, color:C.blue2, marginBottom:2 }}>{TR.ms.lang_pick_title}</div>
+          <div className="ar-text" style={{ fontSize:15, fontWeight:800, color:C.white2, direction:'rtl' }}>{TR.ar.lang_pick_title}</div>
+        </div>
+        <div style={{ fontSize:12.5, color:C.silver2, marginBottom:16 }}>
+          {TR.en.lang_pick_sub} · {TR.ms.lang_pick_sub} · <span className="ar-text">{TR.ar.lang_pick_sub}</span>
+        </div>
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {LANGS.map(l => (
+            <button key={l.code} onClick={() => chooseLang(l.code)}
+              style={{ width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', gap:14, cursor:'pointer', boxShadow:`0 4px 14px ${C.glow}` }}>
+              <span style={{ fontSize:26 }}>{l.flag}</span>
+              <div style={{ textAlign:'left', flex:1 }}>
+                <div style={{ fontSize:15, fontWeight:900, color:C.white }}>{l.native}</div>
+                <div style={{ fontSize:11, color:C.silver2 }}>{l.label}</div>
+              </div>
+              <span style={{ fontSize:20, color:C.blue2 }}>›</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 
   // ══ Done ══
   if (phase === 'done') return (
-    <div style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+    <div dir={dir} style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <style>{globalStyles}</style>
       <div style={{ maxWidth:400, width:'100%', textAlign:'center', animation:'fadeUp .6s ease' }}>
         <div style={{ fontSize:90, display:'inline-block', animation:'chefBounce 2s ease-in-out infinite', marginBottom:24, filter:`drop-shadow(0 8px 20px ${C.glow2})` }}>👨‍🍳</div>
         <div style={{ background:C.bg2, borderRadius:28, border:`1px solid ${C.border2}`, padding:'36px 24px', boxShadow:`0 0 40px ${C.glow}` }}>
-          <div style={{ color:C.blue2, fontSize:11, fontWeight:700, letterSpacing:4, textTransform:'uppercase', marginBottom:10 }}>✨ Order Confirmed</div>
-          <h2 style={{ color:C.white, fontSize:22, fontWeight:900, marginBottom:10 }}>Your order is being prepared!</h2>
-          <p style={{ color:C.silver2, fontSize:13, marginBottom:28, lineHeight:1.7 }}>Our kitchen team is working on your delicious meal. Sit back and relax! 🍽️</p>
+          <div style={{ color:C.blue2, fontSize:11, fontWeight:700, letterSpacing:4, textTransform:'uppercase', marginBottom:10 }}>{t('order_confirmed')}</div>
+          <h2 style={{ color:C.white, fontSize:22, fontWeight:900, marginBottom:10 }}>{t('order_being_prepared')}</h2>
+          <p style={{ color:C.silver2, fontSize:13, marginBottom:28, lineHeight:1.7 }}>{t('order_prep_sub')}</p>
           <div style={{ background:`linear-gradient(135deg,rgba(0,200,200,.15),rgba(0,150,150,.15))`, border:`1px solid ${C.border2}`, borderRadius:20, padding:'24px 20px', marginBottom:24, animation:'blueGlow 2s ease infinite' }}>
-            <div style={{ color:C.silver2, fontSize:10, letterSpacing:3, marginBottom:8 }}>YOUR ORDER NUMBER</div>
+            <div style={{ color:C.silver2, fontSize:10, letterSpacing:3, marginBottom:8 }}>{t('your_order_number')}</div>
             <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.silver})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontSize:52, fontWeight:900, letterSpacing:8 }}>#{orderNumber}</div>
             <div className="ar-text" style={{ color:C.silver2, fontSize:12, marginTop:8 }}>{table?.name || `Table ${table?.number}`}</div>
           </div>
           <div style={{ background:`rgba(255,255,255,.03)`, borderRadius:16, padding:16 }}>
-            <div style={{ color:C.silver2, fontSize:10, marginBottom:12, letterSpacing:2 }}>ORDER SUMMARY</div>
+            <div style={{ color:C.silver2, fontSize:10, marginBottom:12, letterSpacing:2 }}>{t('order_summary')}</div>
             {liveOrderItems.map(c => (
               <div key={c.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:`1px solid ${C.border}`, fontSize:13 }}>
                 <span style={{ color:C.white2 }}>{c.name}{c.size_name ? ` (${c.size_name})` : ''} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
@@ -579,13 +817,13 @@ const filteredItems = items
               </div>
             ))}
           </div>
-          <p style={{ color:C.silver2, fontSize:12, marginTop:20 }}>A team member will serve you shortly 🙏</p>
+          <p style={{ color:C.silver2, fontSize:12, marginTop:20 }}>{t('served_shortly')}</p>
         </div>
 
         {/* ✅ New: clear button to go back to the menu and order more - needed since we keep the order visible when the page is reopened */}
         <button onClick={async () => { await checkAndFollowRedirect(); setPhase('menu') }}
           style={{ width:'100%', marginTop:16, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:16, padding:'14px', color:C.white, fontWeight:800, fontSize:14, cursor:'pointer', boxShadow:`0 6px 20px ${C.glow2}` }}>
-          ➕ Order More Items
+          {t('order_more')}
         </button>
 
         {/* ── 🎲 Who's Paying the Bill? Roulette Game ── */}
@@ -593,17 +831,17 @@ const filteredItems = items
           {!showPayGame ? (
             <>
               <div style={{ fontSize:32, marginBottom:8 }}>🎲</div>
-              <div style={{ fontSize:16, fontWeight:900, color:C.white, marginBottom:6 }}>While you wait... Who's Paying the Bill?</div>
-              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>Spin the wheel and let fate decide! 🎉</div>
+              <div style={{ fontSize:16, fontWeight:900, color:C.white, marginBottom:6 }}>{t('game_teaser_t')}</div>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>{t('game_teaser_s')}</div>
               <button onClick={() => setShowPayGame(true)}
                 style={{ background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'12px 24px', color:C.white, fontWeight:800, fontSize:14, cursor:'pointer', boxShadow:`0 6px 20px ${C.glow2}` }}>
-                🎮 Play the Game
+                {t('game_play')}
               </button>
             </>
           ) : (
             <div>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-                <span style={{ fontSize:15, fontWeight:900, color:C.white }}>🎲 Who's Paying?</span>
+                <span style={{ fontSize:15, fontWeight:900, color:C.white }}>{t('game_short_t')}</span>
                 <button onClick={() => { setShowPayGame(false); resetPayGame() }} style={{ background:'transparent', border:'none', color:C.silver2, fontSize:20, cursor:'pointer' }}>✕</button>
               </div>
 
@@ -613,11 +851,11 @@ const filteredItems = items
                     <img src="/logo.png" alt="Orchid House" style={{ width:80, height:80, borderRadius:'50%', position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', border:`3px solid ${C.blue1}`, boxShadow:`0 0 30px ${C.glow2}`, zIndex:2, objectFit:'cover' }} />
                     <div style={{ fontSize:90, textAlign:'center', animation:'chefBounce 1.4s ease-in-out infinite' }}>🎉</div>
                   </div>
-                  <div style={{ fontSize:13, color:C.silver2, marginBottom:6 }}>And the bill goes to...</div>
+                  <div style={{ fontSize:13, color:C.silver2, marginBottom:6 }}>{t('game_bill_goes')}</div>
                   <div style={{ fontSize:26, fontWeight:900, color:C.blue2, marginBottom:20 }}>{gameWinner}! 💸</div>
 
                   {/* Share the result */}
-                  <div style={{ fontSize:11, color:C.silver2, marginBottom:10 }}>📤 Share the result</div>
+                  <div style={{ fontSize:11, color:C.silver2, marginBottom:10 }}>{t('game_share')}</div>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
                     <button onClick={shareToWhatsApp} style={{ padding:'10px', borderRadius:12, border:'1px solid rgba(37,211,102,.4)', background:'rgba(37,211,102,.12)', color:'#25D366', fontWeight:700, fontSize:12, cursor:'pointer' }}>💬 WhatsApp</button>
                     <button onClick={shareToFacebook} style={{ padding:'10px', borderRadius:12, border:'1px solid rgba(24,119,242,.4)', background:'rgba(24,119,242,.12)', color:'#1877F2', fontWeight:700, fontSize:12, cursor:'pointer' }}>📘 Facebook</button>
@@ -627,7 +865,7 @@ const filteredItems = items
 
                   <button onClick={resetPayGame}
                     style={{ width:'100%', background:'transparent', border:`1px solid ${C.border2}`, borderRadius:12, padding:'10px 20px', color:C.silver2, fontWeight:700, fontSize:13, cursor:'pointer' }}>
-                    🔄 Play Again
+                    {t('game_again')}
                   </button>
                 </div>
               ) : (
@@ -671,7 +909,7 @@ const filteredItems = items
                   )}
 
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:14 }}>
-                    <span style={{ fontSize:12, color:C.silver2 }}>Number of People</span>
+                    <span style={{ fontSize:12, color:C.silver2 }}>{t('game_people')}</span>
                     <button onClick={() => updateGamePeopleCount(gameNames.length - 1)} disabled={gameNames.length <= 2 || gameSpinning}
                       style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.border2}`, background:'transparent', color:C.white, cursor:gameNames.length <= 2 ? 'not-allowed':'pointer', fontSize:15, opacity:gameNames.length <= 2 ? 0.4:1 }}>−</button>
                     <span style={{ fontSize:14, fontWeight:800, color:C.blue2, minWidth:18, textAlign:'center' }}>{gameNames.length}</span>
@@ -688,7 +926,7 @@ const filteredItems = items
                           value={name}
                           disabled={gameSpinning}
                           onChange={e => setGameNames(prev => prev.map((n, ni) => ni === i ? e.target.value : n))}
-                          placeholder={`Person ${i + 1} name`}
+                          placeholder={t('game_person_n', i + 1)}
                           style={{ flex:1, background:'transparent', border:'none', outline:'none', color:C.white, fontSize:13, fontFamily:'inherit' }}
                         />
                       </div>
@@ -699,7 +937,7 @@ const filteredItems = items
                     value={gamePhone}
                     disabled={gameSpinning}
                     onChange={e => setGamePhone(e.target.value)}
-                    placeholder="📱 Mobile number (required) *"
+                    placeholder={t('game_phone')}
                     style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:12, border:`1px solid ${gamePhone.trim() ? C.border : 'rgba(239,68,68,.4)'}`, background:C.bg, color:C.white, fontSize:13, marginBottom:14, direction:'ltr', textAlign:'left' }}
                   />
 
@@ -712,9 +950,9 @@ const filteredItems = items
                       color:C.white, fontWeight:900, fontSize:14,
                       cursor: gameSpinning ? 'default' : 'pointer', opacity: gameSpinning ? 0.7 : 1,
                     }}>
-                    {gameSpinning ? '🎰 Spinning...' : '🎰 Spin the Wheel!'}
+                    {gameSpinning ? t('game_spinning') : t('game_spin')}
                   </button>
-                  <div style={{ fontSize:10, color:C.silver2, marginTop:10 }}>🎉 Just for fun — not a real payment decision!</div>
+                  <div style={{ fontSize:10, color:C.silver2, marginTop:10 }}>{t('game_fun_note')}</div>
                 </>
               )}
             </div>
@@ -723,16 +961,16 @@ const filteredItems = items
 
         {/* ── 📱 Follow Us — Social Links ── */}
         <div style={{ marginTop:24, background:`linear-gradient(135deg, ${C.bg2}, ${C.bg3})`, border:`1px solid ${C.border2}`, borderRadius:28, padding:'24px 20px', boxShadow:`0 0 40px ${C.glow}`, textAlign:'center' }}>
-          <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:4 }}>Did we make your evening special? 🌸</div>
-          <div style={{ fontSize:12, color:C.silver2, marginBottom:18 }}>Follow us & share your experience</div>
+          <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:4 }}>{t('follow_t')}</div>
+          <div style={{ fontSize:12, color:C.silver2, marginBottom:18 }}>{t('follow_s')}</div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             {[
-              { name:'Google', action:'Rate us', href:'https://www.google.com/maps/search/Orchid+House+Restaurant+Kuala+Lumpur', color:'#4285F4', type:'google' },
-              { name:'Instagram', action:'Follow', href:'https://www.instagram.com/orchidofficial.my/', color:'#E1306C', type:'instagram' },
-              { name:'Facebook', action:'Like', href:'https://www.facebook.com/OrchidOfficial.my', color:'#1877F2', type:'facebook' },
-              { name:'TripAdvisor', action:'Review', href:'https://www.tripadvisor.com.eg/Restaurant_Review-g298570-d33055605-Reviews-Orchid_House_Restaurant-Kuala_Lumpur_Wilayah_Persekutuan.html', color:'#00AF87', type:'tripadvisor' },
-              { name:'TikTok', action:'Follow', href:'https://www.tiktok.com/@orchidofficial.my', color:'#ffffff', type:'tiktok' },
-              { name:'Website', action:'Visit', href:'https://restaurantorchid.com/', color:C.blue1, type:'website' },
+              { name:'Google', action:t('act_rate'), href:'https://www.google.com/maps/search/Orchid+House+Restaurant+Kuala+Lumpur', color:'#4285F4', type:'google' },
+              { name:'Instagram', action:t('act_follow'), href:'https://www.instagram.com/orchidofficial.my/', color:'#E1306C', type:'instagram' },
+              { name:'Facebook', action:t('act_like'), href:'https://www.facebook.com/OrchidOfficial.my', color:'#1877F2', type:'facebook' },
+              { name:'TripAdvisor', action:t('act_review'), href:'https://www.tripadvisor.com.eg/Restaurant_Review-g298570-d33055605-Reviews-Orchid_House_Restaurant-Kuala_Lumpur_Wilayah_Persekutuan.html', color:'#00AF87', type:'tripadvisor' },
+              { name:'TikTok', action:t('act_follow'), href:'https://www.tiktok.com/@orchidofficial.my', color:'#ffffff', type:'tiktok' },
+              { name:'Website', action:t('act_visit'), href:'https://restaurantorchid.com/', color:C.blue1, type:'website' },
             ].map(link => (
               <a key={link.name} href={link.href} target="_blank" rel="noopener noreferrer"
                 style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, padding:'14px 6px', borderRadius:16, background:'rgba(255,255,255,.03)', border:`1px solid ${link.color}40`, textDecoration:'none' }}>
@@ -776,7 +1014,7 @@ const filteredItems = items
 
   // ══ Item Bottom Sheet ══
   const ItemSheet = selectedItem && (
-    <div style={{ position:'fixed', inset:0, zIndex:200 }} onClick={() => setSelectedItem(null)}>
+    <div dir={dir} style={{ position:'fixed', inset:0, zIndex:200 }} onClick={() => setSelectedItem(null)}>
       <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} />
       <div style={{ position:'absolute', bottom:0, left:0, right:0, background:C.bg2, borderRadius:'28px 28px 0 0', maxWidth:520, margin:'0 auto', overflow:'hidden', border:`1px solid ${C.border2}`, borderBottom:'none', animation:'slideUp .3s cubic-bezier(.34,1.56,.64,1)', maxHeight:'88dvh', display:'flex', flexDirection:'column' }}
         onClick={e => e.stopPropagation()}>
@@ -788,8 +1026,8 @@ const filteredItems = items
           </div>
         )}
         <div style={{ padding:'24px 24px 40px' }}>
-          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{selectedItem.name_en || selectedItem.name}</div>
-          <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{selectedItem.name}</div>
+          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en)}</div>
+          <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{lang === 'ar' ? selectedItem.name_en : selectedItem.name}</div>
 
           {/* ✅ New: average item rating above the sheet */}
           {(() => {
@@ -797,25 +1035,25 @@ const filteredItems = items
             return count > 0 ? (
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
                 <span style={{ fontSize:14, color:'#B8860B', fontWeight:800 }}>{'⭐'.repeat(Math.round(avg))}{'☆'.repeat(5 - Math.round(avg))}</span>
-                <span style={{ fontSize:12, color:C.silver2, fontWeight:700 }}>{avg.toFixed(1)} · {count} ratings</span>
+                <span style={{ fontSize:12, color:C.silver2, fontWeight:700 }}>{avg.toFixed(1)} · {t('n_ratings', count)}</span>
               </div>
             ) : (
-              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>🆕 No ratings yet — be the first to rate this dish</div>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>{t('no_ratings_yet')}</div>
             )
           })()}
 
           {(selectedItem.description_en || selectedItem.description) && (
-            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{selectedItem.description_en || selectedItem.description}</div>
+            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en)}</div>
           )}
           {/* Sizes */}
           {selectedItem.sizes && selectedItem.sizes.filter((s: any) => s.is_active).length > 0 && (
             <div style={{ marginBottom:16 }}>
-              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>Select size:</div>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>{t('select_size')}</div>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                 {selectedItem.sizes.filter((s: any) => s.is_active).map((size: any) => (
                   <button key={size.id} onClick={() => setSelectedSize(selectedSize?.id === size.id ? null : size)}
                     style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(0,200,200,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
-                    {size.name_en || size.name} — MYR {size.price.toFixed(2)}
+                    {dishName(size.name, size.name_en)} — MYR {size.price.toFixed(2)}
                   </button>
                 ))}
               </div>
@@ -826,7 +1064,7 @@ const filteredItems = items
               <div style={{ fontSize:26, fontWeight:900, color:C.blue2 }}>
                 MYR {selectedSize ? selectedSize.price.toFixed(2) : selectedItem.price.toFixed(2)}
               </div>
-              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{selectedSize.name_en || selectedSize.name}</div>}
+              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en)}</div>}
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:14 }}>
               {getQty(selectedItem.id, selectedSize?.id) > 0 && (
@@ -837,7 +1075,7 @@ const filteredItems = items
               )}
               <button onClick={e => {
                 const activeSizes = selectedItem.sizes?.filter((s: any) => s.is_active) || []
-                if (activeSizes.length > 0 && !selectedSize) { alert('Please select a size first'); return }
+                if (activeSizes.length > 0 && !selectedSize) { alert(t('pick_size_first')); return }
                 addToCart(selectedItem, selectedSize)
                 triggerFlyPlusOne(e)
                 bumpPulse(`sheet_${selectedItem.id}`)
@@ -847,11 +1085,11 @@ const filteredItems = items
 
           {/* ✅ New: ratings section — star rating with written comment */}
           <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20 }}>
-            <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:14 }}>⭐ Ratings</div>
+            <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:14 }}>{t('ratings')}</div>
 
             {/* New rating submission form */}
             <div style={{ background:'#FAFEFE', border:`1px dashed ${C.border2}`, borderRadius:16, padding:'16px 14px', marginBottom:18 }}>
-              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>Rate this dish:</div>
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>{t('rate_this')}</div>
               <div style={{ display:'flex', gap:6, marginBottom:12 }}>
                 {[1,2,3,4,5].map(n => (
                   <button key={n} onClick={() => setNewReviewStars(n)}
@@ -861,29 +1099,29 @@ const filteredItems = items
                 ))}
               </div>
               <textarea value={newReviewText} onChange={e => setNewReviewText(e.target.value)}
-                placeholder="Share your thoughts on this dish (optional)..."
+                placeholder={t('review_placeholder')}
                 rows={2}
                 style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px', fontSize:13, color:C.white, outline:'none', resize:'none', fontFamily:'inherit', marginBottom:8 }} />
               <input value={reviewerName} onChange={e => setReviewerName(e.target.value)}
-                placeholder="Your name (optional)"
+                placeholder={t('your_name_opt')}
                 style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'9px 12px', fontSize:13, color:C.white, outline:'none', marginBottom:10 }} />
               {reviewError && <div style={{ color:'#EF4444', fontSize:11.5, marginBottom:8 }}>{reviewError}</div>}
-              {reviewSubmitted && <div style={{ color:'#16A34A', fontSize:11.5, marginBottom:8, fontWeight:700 }}>✅ Thank you, your review was submitted successfully</div>}
+              {reviewSubmitted && <div style={{ color:'#16A34A', fontSize:11.5, marginBottom:8, fontWeight:700 }}>{t('review_thanks')}</div>}
               <button onClick={submitReview} disabled={reviewSubmitting}
                 style={{ width:'100%', background: reviewSubmitting ? C.border2 : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:12, padding:'11px', color:C.white, fontWeight:800, fontSize:13, cursor: reviewSubmitting ? 'not-allowed' : 'pointer' }}>
-                {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
+                {reviewSubmitting ? t('submitting') : t('submit_review')}
               </button>
             </div>
 
             {/* List of written reviews */}
             {reviews.filter(r => r.menu_item_id === selectedItem.id).length === 0 ? (
-              <div style={{ fontSize:12.5, color:C.silver2, textAlign:'center', padding:'10px 0' }}>No comments yet</div>
+              <div style={{ fontSize:12.5, color:C.silver2, textAlign:'center', padding:'10px 0' }}>{t('no_comments')}</div>
             ) : (
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                 {reviews.filter(r => r.menu_item_id === selectedItem.id).map(r => (
                   <div key={r.id} style={{ border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                      <span style={{ fontSize:12.5, fontWeight:800, color:C.white }}>{r.reviewer_name || 'Guest'}</span>
+                      <span style={{ fontSize:12.5, fontWeight:800, color:C.white }}>{r.reviewer_name || t('guest')}</span>
                       <span style={{ fontSize:12, color:'#B8860B' }}>{'⭐'.repeat(r.stars)}</span>
                     </div>
                     {r.review_text && <div style={{ fontSize:12.5, color:C.silver2, lineHeight:1.6 }}>{r.review_text}</div>}
@@ -900,23 +1138,33 @@ const filteredItems = items
 
   // ══ Welcome ══
   if (phase === 'welcome') return (
-    <div style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px', position:'relative', overflow:'hidden' }}>
+    <div dir={dir} style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px', position:'relative', overflow:'hidden' }}>
       <style>{globalStyles}</style>
       <div style={{ maxWidth:420, width:'100%', textAlign:'center', animation:'fadeUp .6s ease', position:'relative', zIndex:1 }}>
         {/* Logo */}
         <div style={{ width:90, height:90, borderRadius:'50%', overflow:'hidden', background:C.bg3, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', boxShadow:`0 0 40px ${C.glow2}`, border:`1px solid ${C.border2}` }}>
           <img src="/logo.png" alt="Orchid House" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         </div>
-        <div style={{ color:C.blue2, fontSize:12, fontWeight:800, letterSpacing:4, marginBottom:4 }}>ORCHID RESTAURANT</div>
+        <div style={{ color:C.blue2, fontSize:12, fontWeight:800, letterSpacing:4, marginBottom:4 }}>{t('restaurant_tag')}</div>
 
-        <h1 style={{ fontSize:32, fontWeight:900, margin:'18px 0 6px', color:C.white }}>Welcome to Orchid</h1>
+        <h1 className={isRtl ? 'ar-text' : ''} style={{ fontSize:32, fontWeight:900, margin:'18px 0 6px', color:C.white }}>{t('welcome_title')}</h1>
         <div style={{ width:60, height:1, background:C.border2, margin:'0 auto 10px' }} />
-        <p style={{ color:C.silver2, fontSize:14, marginBottom:26 }}>Great food. Unforgettable moments.</p>
+        <p style={{ color:C.silver2, fontSize:14, marginBottom:26 }}>{t('welcome_sub')}</p>
+
+        {/* اختيار لغة سريع */}
+        <div style={{ display:'flex', justifyContent:'center', gap:8, marginBottom:22 }}>
+          {LANGS.map(l => (
+            <button key={l.code} onClick={() => chooseLang(l.code)}
+              style={{ padding:'6px 12px', borderRadius:20, border:`1px solid ${lang === l.code ? C.blue1 : C.border2}`, background: lang === l.code ? 'rgba(0,200,200,0.12)' : 'transparent', color: lang === l.code ? C.blue2 : C.silver2, cursor:'pointer', fontSize:12, fontWeight:700 }}>
+              {l.flag} {l.native}
+            </button>
+          ))}
+        </div>
 
         {/* Membership perks */}
         <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:20, padding:'20px 16px', marginBottom:22 }}>
           <div style={{ display:'flex', justifyContent:'space-around', marginBottom:16 }}>
-            {[['⭐','Earn Points','with every visit'],['🎁','Exclusive Offers','just for members'],['🏷️','Birthday Rewards','and more surprises']].map(([icon,title,sub]) => (
+            {[['⭐',t('perk_points_t'),t('perk_points_s')],['🎁',t('perk_offers_t'),t('perk_offers_s')],['🏷️',t('perk_bday_t'),t('perk_bday_s')]].map(([icon,title,sub]) => (
               <div key={title} style={{ flex:1, padding:'0 4px' }}>
                 <div style={{ width:44, height:44, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, margin:'0 auto 8px' }}>{icon}</div>
                 <div style={{ fontSize:11.5, fontWeight:700, color:C.white2 }}>{title}</div>
@@ -924,63 +1172,63 @@ const filteredItems = items
               </div>
             ))}
           </div>
-          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, display:'flex', alignItems:'center', gap:10, textAlign:'left' }}>
+          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:14, display:'flex', alignItems:'center', gap:10, textAlign:isRtl ? 'right' : 'left' }}>
             <div style={{ width:34, height:34, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, flexShrink:0 }}>🎁</div>
             <div style={{ fontSize:12, color:C.silver }}>
-              Join Orchid Rewards and enjoy exclusive benefits.<br />
-              <span style={{ color:C.blue2, fontWeight:800 }}>Register today and get 50 welcome points!</span>
+              {t('join_benefits')}<br />
+              <span style={{ color:C.blue2, fontWeight:800 }}>{t('register_50')}</span>
             </div>
           </div>
         </div>
 
         <div style={{ display:'flex', alignItems:'center', gap:10, margin:'0 0 16px' }}>
           <div style={{ flex:1, height:1, background:C.border }} />
-          <span style={{ fontSize:12, color:C.silver2 }}>How would you like to continue?</span>
+          <span style={{ fontSize:12, color:C.silver2 }}>{t('how_continue')}</span>
           <div style={{ flex:1, height:1, background:C.border }} />
         </div>
 
         {/* Join Rewards button */}
         <button onClick={() => { setPhase('rewards'); setRewardsIntent('join'); setRewardsResult(null); setRewardsError('') }}
           style={{ width:'100%', background:`linear-gradient(135deg, ${C.blue1}, ${C.blue2})`, border:'none', borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:10, boxShadow:`0 6px 20px ${C.glow2}` }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:isRtl ? 'right' : 'left' }}>
             <div style={{ width:38, height:38, borderRadius:'50%', background:'rgba(0,0,0,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}>👤</div>
             <div>
-              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>JOIN ORCHID REWARDS</div>
-              <div style={{ fontSize:11, color:'rgba(255,255,255,.85)' }}>Sign in or create an account</div>
+              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>{t('join_rewards')}</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,.85)' }}>{t('join_rewards_s')}</div>
             </div>
           </div>
-          <span style={{ fontSize:20, color:C.white }}>›</span>
+          <span style={{ fontSize:20, color:C.white }}>{isRtl ? '‹' : '›'}</span>
         </button>
 
         {/* ✅ New: check-points-only button - between the join button and the continue-as-guest button */}
         <button onClick={() => { setPhase('rewards'); setRewardsIntent('check'); setRewardsResult(null); setRewardsError('') }}
           style={{ width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:10 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:isRtl ? 'right' : 'left' }}>
             <div style={{ width:38, height:38, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}>🔍</div>
             <div>
-              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>CHECK MY POINTS</div>
-              <div style={{ fontSize:11, color:C.silver2 }}>See your balance & discount progress</div>
+              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>{t('check_points')}</div>
+              <div style={{ fontSize:11, color:C.silver2 }}>{t('check_points_s')}</div>
             </div>
           </div>
-          <span style={{ fontSize:20, color:C.silver2 }}>›</span>
+          <span style={{ fontSize:20, color:C.silver2 }}>{isRtl ? '‹' : '›'}</span>
         </button>
 
         {/* Continue as guest button */}
         <button onClick={() => setPhase('menu')}
           style={{ width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:16, padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', marginBottom:14 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:'left' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, textAlign:isRtl ? 'right' : 'left' }}>
             <div style={{ width:38, height:38, borderRadius:'50%', border:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}>👤</div>
             <div>
-              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>CONTINUE AS GUEST</div>
-              <div style={{ fontSize:11, color:C.silver2 }}>Browse menu and place your order</div>
+              <div style={{ fontSize:14, fontWeight:900, color:C.white }}>{t('continue_guest')}</div>
+              <div style={{ fontSize:11, color:C.silver2 }}>{t('continue_guest_s')}</div>
             </div>
           </div>
-          <span style={{ fontSize:20, color:C.silver2 }}>›</span>
+          <span style={{ fontSize:20, color:C.silver2 }}>{isRtl ? '‹' : '›'}</span>
         </button>
 
-        <div style={{ display:'flex', alignItems:'flex-start', gap:8, textAlign:'left', color:C.silver2, fontSize:11, lineHeight:1.5 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', gap:8, textAlign:isRtl ? 'right' : 'left', color:C.silver2, fontSize:11, lineHeight:1.5 }}>
           <span>ⓘ</span>
-          <span>You can browse the menu and place an order as a guest, but you won't earn points or enjoy member benefits.</span>
+          <span>{t('guest_note')}</span>
         </div>
       </div>
     </div>
@@ -988,25 +1236,25 @@ const filteredItems = items
 
   // ══ Rewards - enter mobile number ══
   if (phase === 'rewards') return (
-    <div style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px' }}>
+    <div dir={dir} style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', padding:'40px 20px' }}>
       <style>{globalStyles}</style>
       <div style={{ maxWidth:380, width:'100%', animation:'fadeUp .5s ease' }}>
-        <button onClick={() => setPhase('welcome')} style={{ background:'none', border:'none', color:C.silver2, fontSize:13, cursor:'pointer', marginBottom:20, padding:0 }}>‹ Back</button>
+        <button onClick={() => setPhase('welcome')} style={{ background:'none', border:'none', color:C.silver2, fontSize:13, cursor:'pointer', marginBottom:20, padding:0 }}>{t('back')}</button>
 
         {!rewardsResult ? (
           <div style={{ textAlign:'center' }}>
             <div style={{ fontSize:40, marginBottom:12 }}>{rewardsIntent === 'check' ? '🔍' : '🌸'}</div>
-            <h2 style={{ fontSize:22, fontWeight:900, marginBottom:6 }}>{rewardsIntent === 'check' ? 'Check My Points' : 'Orchid Rewards'}</h2>
+            <h2 style={{ fontSize:22, fontWeight:900, marginBottom:6 }}>{rewardsIntent === 'check' ? t('check_points_title') : t('rewards_title')}</h2>
             <p style={{ color:C.silver2, fontSize:13, marginBottom:26 }}>
-              {rewardsIntent === 'check' ? 'Enter your mobile number to see your points balance.' : "Enter your mobile number — new or returning, we've got you covered."}
+              {rewardsIntent === 'check' ? t('rewards_check_sub') : t('rewards_join_sub')}
             </p>
 
-            <input type="tel" inputMode="tel" placeholder="Mobile number" value={rewardsPhone}
+            <input type="tel" inputMode="tel" placeholder={t('mobile_number')} value={rewardsPhone}
               onChange={e => setRewardsPhone(e.target.value.replace(/[^\d+]/g, ''))}
               style={{ width:'100%', boxSizing:'border-box', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:14, padding:'14px 16px', color:C.white, fontSize:15, outline:'none', marginBottom:12, textAlign:'center' }} />
 
             {/* ✅ Optional name - only used if the customer is actually new (ignored if they already exist) */}
-            <input type="text" placeholder="Your name (for new members)" value={rewardsName}
+            <input type="text" placeholder={t('your_name_new')} value={rewardsName}
               onChange={e => setRewardsName(e.target.value)}
               style={{ width:'100%', boxSizing:'border-box', background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, padding:'14px 16px', color:C.white, fontSize:14, outline:'none', marginBottom:16, textAlign:'center' }} />
 
@@ -1014,40 +1262,40 @@ const filteredItems = items
 
             <button onClick={handleRewardsSubmit} disabled={rewardsSubmitting}
               style={{ width:'100%', background:`linear-gradient(135deg, ${C.blue1}, ${C.blue2})`, border:'none', borderRadius:14, padding:'15px', color:C.white, fontSize:14, fontWeight:900, cursor:rewardsSubmitting?'not-allowed':'pointer', opacity:rewardsSubmitting?0.7:1 }}>
-              {rewardsSubmitting ? 'Checking...' : 'Continue'}
+              {rewardsSubmitting ? t('checking') : t('cont')}
             </button>
           </div>
         ) : (
           <div style={{ textAlign:'center', animation:'fadeUp .4s ease' }}>
             <div style={{ fontSize:52, marginBottom:14 }}>{rewardsResult.isNew ? '🎉' : '🌸'}</div>
             <h2 style={{ fontSize:20, fontWeight:900, marginBottom:6 }}>
-              {rewardsResult.isNew ? `Welcome, ${rewardsResult.name}!` : `Welcome back, ${rewardsResult.name}!`}
+              {rewardsResult.isNew ? t('welcome_name', rewardsResult.name) : t('welcome_back_name', rewardsResult.name)}
             </h2>
             <p style={{ color:C.silver2, fontSize:13, marginBottom:20 }}>
-              {rewardsResult.isNew ? "You've just joined Orchid Rewards" : "Great to see you again"}
+              {rewardsResult.isNew ? t('just_joined') : t('good_to_see')}
             </p>
             <div style={{ background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:18, padding:'22px', marginBottom:24 }}>
-              <div style={{ fontSize:11, color:C.silver2, letterSpacing:2, marginBottom:6 }}>YOUR POINTS BALANCE</div>
+              <div style={{ fontSize:11, color:C.silver2, letterSpacing:2, marginBottom:6 }}>{t('points_balance')}</div>
               <div style={{ fontSize:40, fontWeight:900, color:C.blue2 }}>{rewardsResult.points}</div>
-              {rewardsResult.isNew && <div style={{ fontSize:12, color:C.blue2, marginTop:6, fontWeight:700 }}>🎁 +50 welcome points added!</div>}
+              {rewardsResult.isNew && <div style={{ fontSize:12, color:C.blue2, marginTop:6, fontWeight:700 }}>{t('welcome_50_added')}</div>}
 
               {/* ✅ New: clear progress bar toward 1000 points to unlock a discount */}
-              <div style={{ marginTop:20, textAlign:'left' }}>
+              <div style={{ marginTop:20, textAlign:isRtl ? 'right' : 'left' }}>
                 {rewardsResult.points >= DISCOUNT_POINTS_TARGET ? (
                   <div style={{ background:'rgba(34,197,94,.12)', border:'1px solid rgba(34,197,94,.4)', borderRadius:12, padding:'10px 14px', fontSize:12.5, color:'#4ADE80', fontWeight:700, textAlign:'center' }}>
-                    🎉 You've unlocked your discount! Show this to your waiter.
+                    {t('discount_unlocked')}
                   </div>
                 ) : (
                   <>
                     <div style={{ display:'flex', justifyContent:'space-between', fontSize:11.5, color:C.silver2, marginBottom:6 }}>
-                      <span>Progress to discount</span>
+                      <span>{t('progress_discount')}</span>
                       <span style={{ color:C.blue2, fontWeight:800 }}>{rewardsResult.points} / {DISCOUNT_POINTS_TARGET}</span>
                     </div>
                     <div style={{ width:'100%', height:8, background:'rgba(255,255,255,.08)', borderRadius:20, overflow:'hidden' }}>
                       <div style={{ width:`${Math.min(100, (rewardsResult.points / DISCOUNT_POINTS_TARGET) * 100)}%`, height:'100%', background:`linear-gradient(90deg, ${C.blue2}, ${C.blue1})`, borderRadius:20, transition:'width .6s ease' }} />
                     </div>
                     <div style={{ fontSize:11.5, color:C.silver2, marginTop:8, textAlign:'center' }}>
-                      Earn <span style={{ color:C.blue2, fontWeight:800 }}>{DISCOUNT_POINTS_TARGET - rewardsResult.points}</span> more points to unlock a special discount! 🎁
+                      {t('earn_more_points', DISCOUNT_POINTS_TARGET - rewardsResult.points)}
                     </div>
                   </>
                 )}
@@ -1055,7 +1303,7 @@ const filteredItems = items
             </div>
             <button onClick={() => setPhase('menu')}
               style={{ width:'100%', background:`linear-gradient(135deg, ${C.blue1}, ${C.blue2})`, border:'none', borderRadius:14, padding:'15px', color:C.white, fontSize:14, fontWeight:900, cursor:'pointer' }}>
-              Browse Menu →
+              {t('browse_menu')}
             </button>
           </div>
         )}
@@ -1065,12 +1313,12 @@ const filteredItems = items
 
   // ══ Cart ══
   if (phase === 'cart') return (
-    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white }}>
+    <div dir={dir} style={{ minHeight:'100dvh', background:C.bg, color:C.white }}>
       <style>{globalStyles}</style>
       <div style={{ background:C.bg3, padding:'16px 20px', display:'flex', alignItems:'center', gap:12, borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>
-        <button onClick={() => setPhase('menu')} style={{ background:`rgba(0,200,200,.1)`, border:`1px solid ${C.border}`, color:C.blue2, width:38, height:38, borderRadius:'50%', cursor:'pointer', fontSize:18 }}>←</button>
-        <h1 style={{ color:C.white, fontSize:17, fontWeight:900, margin:0 }}>🛒 Your Order</h1>
-        <div className="ar-text" style={{ marginLeft:'auto', color:C.blue2, fontWeight:600, fontSize:13 }}>{table?.name || `Table ${table?.number}`}</div>
+        <button onClick={() => setPhase('menu')} style={{ background:`rgba(0,200,200,.1)`, border:`1px solid ${C.border}`, color:C.blue2, width:38, height:38, borderRadius:'50%', cursor:'pointer', fontSize:18 }}>{isRtl ? '→' : '←'}</button>
+        <h1 style={{ color:C.white, fontSize:17, fontWeight:900, margin:0 }}>{t('your_order')}</h1>
+        <div className="ar-text" style={{ marginInlineStart:'auto', color:C.blue2, fontWeight:600, fontSize:13 }}>{table?.name || `Table ${table?.number}`}</div>
       </div>
       <div style={{ padding:20, maxWidth:520, margin:'0 auto' }}>
         {cart.map((c, idx) => {
@@ -1083,9 +1331,9 @@ const filteredItems = items
             <div style={{ display:'flex', gap:12, alignItems:'center' }}>
               {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0, border:`1px solid ${C.border}` }} />}
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{c.item.name_en || c.item.name}</div>
-                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{c.selectedSize.name_en || c.selectedSize.name}</div>}
-                <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>MYR {unitPrice.toFixed(2)} each</div>
+                <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en)}</div>
+                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en)}</div>}
+                <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>{t('each', unitPrice.toFixed(2))}</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
                     <button onClick={() => removeFromCart(c.item.id, c.selectedSize?.id || null)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:20, cursor:'pointer', fontWeight:700 }}>−</button>
@@ -1097,14 +1345,14 @@ const filteredItems = items
               </div>
             </div>
             <input style={{ width:'100%', background:'rgba(255,255,255,.04)', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 14px', fontSize:12, color:C.white, outline:'none', marginTop:12, boxSizing:'border-box' as const }}
-              placeholder="Special request... e.g. no onion"
+              placeholder={t('special_request')}
               value={c.notes} onChange={e => setCart(p => p.map((ci, i) => i === idx ? { ...ci, notes: e.target.value } : ci))} />
           </div>
           )
         })}
         <button onClick={confirmOrder} disabled={submitting}
           style={{ width:'100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'17px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight:900, fontSize:16, color:C.white, boxShadow: submitting ? 'none' : `0 8px 32px ${C.glow2}` }}>
-          {submitting ? '⏳ Placing order...' : `✅ Confirm Order — ${cartCount} items`}
+          {submitting ? t('placing_order') : t('confirm_order', cartCount)}
         </button>
       </div>
     </div>
@@ -1112,7 +1360,7 @@ const filteredItems = items
 
   // ══ Menu ══
   return (
-    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 100 : 24 }}>
+    <div dir={dir} style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 100 : 24 }}>
       <style>{globalStyles}</style>
 
       {/* ── Header ── */}
@@ -1128,27 +1376,34 @@ const filteredItems = items
               <div className="ar-text" style={{ display:'inline-block', marginTop:5, padding:'3px 10px', borderRadius:8, border:`1.5px solid ${C.blue1}`, background:'rgba(0,200,200,.1)', fontSize:12, fontWeight:800, color:C.blue2 }}>{table?.name || `Table ${table?.number}`}</div>
             </div>
           </div>
-          <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
-            style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(0,200,200,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 16px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s' }}>
-            {waiterCalled ? '✅ On the way!' : '🔔 Call Waiter'}
-          </button>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            {/* مبدّل اللغة */}
+            <select value={lang} onChange={e => chooseLang(e.target.value as Lang)}
+              style={{ background:'rgba(0,200,200,.1)', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 6px', fontSize:12, color:C.silver, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+              {LANGS.map(l => <option key={l.code} value={l.code}>{l.flag} {l.native}</option>)}
+            </select>
+            <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
+              style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(0,200,200,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 14px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s', whiteSpace:'nowrap' }}>
+              {waiterCalled ? t('waiter_coming') : t('call_waiter')}
+            </button>
+          </div>
         </div>
 
         {/* Search */}
         <div style={{ position:'relative', marginBottom:14 }}>
-          <input style={{ width:'100%', background:'rgba(255,255,255,.05)', border:`1px solid ${C.border}`, borderRadius:14, padding:'11px 18px 11px 44px', fontSize:14, color:C.white, outline:'none', caretColor:C.blue1 }}
-            placeholder="Search dishes..." value={search} onChange={e => setSearch(e.target.value)} />
-          <span style={{ position:'absolute', left:16, top:'50%', transform:'translateY(-50%)', fontSize:16, color:C.silver2 }}>🔍</span>
+          <input style={{ width:'100%', background:'rgba(255,255,255,.05)', border:`1px solid ${C.border}`, borderRadius:14, padding: isRtl ? '11px 44px 11px 18px' : '11px 18px 11px 44px', fontSize:14, color:C.white, outline:'none', caretColor:C.blue1 }}
+            placeholder={t('search_dishes')} value={search} onChange={e => setSearch(e.target.value)} />
+          <span style={{ position:'absolute', insetInlineStart:16, top:'50%', transform:'translateY(-50%)', fontSize:16, color:C.silver2 }}>🔍</span>
         </div>
 
         {/* Categories */}
         <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:14 }}>
-          {[{ id:'all', name_en:'All', name:'All' }, ...visibleCategories].map(c => {
+          {[{ id:'all', name_en: t('cat_all'), name: t('cat_all') }, ...visibleCategories].map(c => {
             const timeBadge = (c as Category).time_badge_en || (c as Category).time_badge_ar
             return (
               <button key={c.id} onClick={() => setActiveCat(c.id)}
                 style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s', display:'flex', alignItems:'center', gap:6 }}>
-                {c.name_en || c.name}
+                {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en)}
                 {timeBadge && (
                   <span style={{ fontSize:9, background: activeCat === c.id ? 'rgba(255,255,255,.25)' : 'rgba(245,158,11,.15)', color: activeCat === c.id ? C.white : '#F59E0B', border: activeCat === c.id ? 'none' : '1px solid rgba(245,158,11,.4)', borderRadius:8, padding:'2px 6px', fontWeight:800 }}>
                     🍽️ {timeBadge}
@@ -1165,7 +1420,7 @@ const filteredItems = items
         {filteredItems.length === 0 ? (
           <div style={{ gridColumn:'1 / -1', textAlign:'center', padding:60, color:C.silver2 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
-            <div>No items found</div>
+            <div>{t('no_items')}</div>
           </div>
         ) : filteredItems.map(item => {
           const qty = getQty(item.id)
@@ -1203,13 +1458,13 @@ const filteredItems = items
 
                 {/* Name plate overlapping the bottom of the image */}
                 <div style={{ position:'absolute', left:8, right:8, bottom:-12, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:9, padding:'6px 9px', boxShadow:`0 4px 10px ${C.glow2}` }}>
-                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{item.name_en || item.name}</div>
+                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{dishName(item.name, item.name_en)}</div>
                 </div>
               </div>
 
               {/* ── Content ── */}
               <div style={{ flex:1, padding:'18px 11px 11px', display:'flex', flexDirection:'column', gap:6 }}>
-                <div className="ar-text" style={{ fontSize:10, color:C.blue2, fontWeight:600 }}>{item.name}</div>
+                <div className="ar-text" style={{ fontSize:10, color:C.blue2, fontWeight:600 }}>{lang === 'ar' ? item.name_en : item.name}</div>
 
                 {/* ✅ New: average item rating badge (stars + review count) */}
                 {(() => {
@@ -1220,12 +1475,12 @@ const filteredItems = items
                       <span style={{ color:C.silver2, fontWeight:600 }}>({count})</span>
                     </div>
                   ) : (
-                    <div style={{ fontSize:9.5, color:C.silver2 }}>🆕 Be the first to rate</div>
+                    <div style={{ fontSize:9.5, color:C.silver2 }}>{t('be_first_rate')}</div>
                   )
                 })()}
 
-                {item.description_en && (
-                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{item.description_en}</div>
+                {(item.description_en || item.description) && (
+                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en)}</div>
                 )}
 
                 {hasSizes ? (
@@ -1243,7 +1498,7 @@ const filteredItems = items
                             border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
                             borderRadius:10, padding:'5px 8px', gap:6,
                           }}>
-                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{size.name_en || size.name}</span>
+                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en)}</span>
                           <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toFixed(2)}</span>
                           {sizeQty > 0 ? (
                             <div style={{ display:'flex', alignItems:'center', gap:3 }}>
@@ -1272,7 +1527,7 @@ const filteredItems = items
                     <div onClick={e => { e.stopPropagation(); addToCart(item); triggerFlyPlusOne(e); bumpPulse(item.id) }}
                       style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : '#FFFFFF', border: qty > 0 ? 'none' : `2px solid ${C.blue1}`, borderRadius:20, padding:'5px 11px', cursor:'pointer', fontSize:11, fontWeight:800, color: qty > 0 ? C.white : C.blue2, display:'flex', alignItems:'center', gap:3, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : `0 2px 6px rgba(0,180,180,.15)`, animation: pulseKey === item.id ? 'addBounce .4s ease' : undefined }}>
                       <span style={{ fontSize:13 }}>+</span>
-                      <span>{qty > 0 ? qty : 'Add'}</span>
+                      <span>{qty > 0 ? qty : t('add')}</span>
                     </div>
                   </div>
                 )}
@@ -1298,7 +1553,7 @@ const filteredItems = items
           <div style={{ maxWidth:520, margin:'0 auto' }}>
             <button onClick={() => setPhase('cart')}
               style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'15px 20px', cursor:'pointer', fontWeight:900, fontSize:15, color:C.white, display:'flex', justifyContent:'center', alignItems:'center', boxShadow:`0 8px 28px ${C.glow2}` }}>
-              <span>🛒 View Order ({cartCount} items)</span>
+              <span>{t('view_order', cartCount)}</span>
             </button>
           </div>
         </div>

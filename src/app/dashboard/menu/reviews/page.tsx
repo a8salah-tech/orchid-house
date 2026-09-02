@@ -118,7 +118,7 @@ export default function MenuReviewsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [starFilter, setStarFilter] = useState<number | 'all'>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [moderatingId, setModeratingId] = useState<string | null>(null)
@@ -246,10 +246,10 @@ export default function MenuReviewsPage() {
           style={{ flex: '1 1 260px', padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy2, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
           style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${pendingCount > 0 && statusFilter !== 'pending' ? S.amber : S.border}`, background: S.navy2, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          <option value="all">{t.fAll}</option>
           <option value="pending">{t.fPending}{pendingCount > 0 ? ` (${pendingCount})` : ''}</option>
           <option value="approved">{t.fApproved}</option>
           <option value="rejected">{t.fRejected}</option>
-          <option value="all">{t.fAll}</option>
         </select>
         <select value={starFilter} onChange={e => setStarFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
           style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy2, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>

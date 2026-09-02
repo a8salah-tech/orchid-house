@@ -136,12 +136,6 @@ function MyAttendanceCard() {
     setBioBusy(false)
   }
 
-  async function handleRemoveBioDevice(id: string) {
-    if (!confirm(isAr ? 'حذف هذا الجهاز؟ لن تقدر تسجّل الحضور منه حتى تفعّله من جديد.' : 'Remove this device?')) return
-    await sb.from('webauthn_credentials').delete().eq('id', id)
-    fetchBio()
-  }
-
   // يرجع true لو مسموح بالمتابعة (البصمة نجحت أو غير مطلوبة)
   async function passBiometricGate(): Promise<boolean> {
     if (!bioFlag) return true
@@ -673,8 +667,8 @@ function MyAttendanceCard() {
           </div>
           <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.7, marginBottom: 10 }}>
             {isAr
-              ? 'استخدم بصمة وجهك أو إصبعك على هذا الجهاز لتأكيد هويتك عند كل تسجيل دخول وخروج — حتى لا يسجّل أحد الحضور بالنيابة عنك. بيانات البصمة تبقى محفوظة داخل جهازك ولا يستلمها النظام.'
-              : 'Use your face or fingerprint on this device to confirm your identity at every check-in and check-out — so no one can check in on your behalf. Your biometric data stays on the device and is never sent to the system.'}
+              ? 'استخدم بصمة وجهك أو إصبعك على هذا الجهاز لتأكيد هويتك عند كل تسجيل دخول وخروج.'
+              : 'Use your face or fingerprint on this device to confirm your identity at every check-in and check-out.'}
           </div>
 
           {bioFlag && myBioDevices.length === 0 && (
@@ -688,21 +682,20 @@ function MyAttendanceCard() {
           {myBioDevices.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
               {myBioDevices.map(d => (
-                <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: S.navy, borderRadius: 10, padding: '8px 10px', border: `1px solid ${S.border}` }}>
+                <div key={d.id} style={{ background: S.navy, borderRadius: 10, padding: '8px 10px', border: `1px solid ${S.border}` }}>
                   <div style={{ fontSize: 11, color: S.white }}>
                     ✅ {d.device_label || (isAr ? 'جهاز' : 'Device')}
                     <span style={{ color: S.muted, marginInlineStart: 6 }}>
-                      {d.last_used_at
-                        ? (isAr ? 'آخر استخدام ' : 'last used ') + new Date(d.last_used_at).toLocaleDateString()
-                        : new Date(d.created_at).toLocaleDateString()}
+                      {isAr ? 'سُجِّل ' : 'registered '}{new Date(d.created_at).toLocaleDateString('en-CA')}
                     </span>
                   </div>
-                  <button onClick={() => handleRemoveBioDevice(d.id)}
-                    style={{ background: 'none', border: `1px solid ${S.red}55`, color: S.red, borderRadius: 8, padding: '3px 8px', fontSize: 10, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
-                    {isAr ? 'حذف' : 'Remove'}
-                  </button>
                 </div>
               ))}
+              <div style={{ fontSize: 10, color: S.muted, lineHeight: 1.6 }}>
+                {isAr
+                  ? 'ℹ️ لإزالة جهاز أو تغييره، راجع الإدارة — لا يمكنك حذف البصمة بنفسك.'
+                  : 'ℹ️ To remove or change a device, contact management — you cannot delete your biometric yourself.'}
+              </div>
             </div>
           )}
 
@@ -803,7 +796,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [loading,      setLoading]      = useState(true)
   const [saving,       setSaving]       = useState(false)
   const [filterBranch, setFilterBranch] = useState(() => empInfo?.branch_id || 'all')
-  const [tab,          setTab]          = useState<'day' | 'report' | 'absence' | 'health'>('day')
+  const [tab,          setTab]          = useState<'day' | 'report' | 'absence' | 'health' | 'biometric'>('day')
+  // ✅ قائمة أجهزة البصمة المسجّلة — عرض فقط (الحذف من صفحة الموظفين، للأدمن)
+  const [bioRoster, setBioRoster] = useState<{ id: string; device_label: string | null; created_at: string; last_used_at: string | null; name: string; employee_number: string | null; is_active: boolean }[]>([])
+  const [bioRosterLoaded, setBioRosterLoaded] = useState(false)
   const [reportEmp,    setReportEmp]    = useState('')
   const [reportMonth,  setReportMonth]  = useState(new Date().toISOString().slice(0, 7))
   // ✅ فلتر الفرع والقسم لتاب "Employee Report" — بدل استخدام optgroup داخل select
@@ -820,6 +816,24 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   // الثاني. النتيجة: تقرير باسم موظف وبيانات حضور حقيقية لموظف تاني تمامًا - خطر جدًا لأنه تقرير رسمي قابل للطباعة
   const reportEmpRef = useRef('')
   useEffect(() => { reportEmpRef.current = reportEmp }, [reportEmp])
+
+  // ✅ تحميل قائمة أجهزة البصمة المسجّلة عند فتح التاب
+  const loadBioRoster = useCallback(async () => {
+    const { data } = await sb.from('webauthn_credentials')
+      .select('id, device_label, created_at, last_used_at, employees(name, name_en, employee_number, is_active)')
+      .order('created_at', { ascending: false })
+    setBioRoster((data || []).map((r: any) => ({
+      id: r.id,
+      device_label: r.device_label,
+      created_at: r.created_at,
+      last_used_at: r.last_used_at,
+      name: r.employees?.name || r.employees?.name_en || '—',
+      employee_number: r.employees?.employee_number ?? null,
+      is_active: r.employees?.is_active ?? true,
+    })))
+    setBioRosterLoaded(true)
+  }, [sb])
+  useEffect(() => { if (tab === 'biometric') loadBioRoster() }, [tab, loadBioRoster])
   // ✅ أداة إعادة حساب التأخير بأثر رجعي لشهر كامل (لتصحيح سجلات قديمة مثل شهر يوليو)
   const [recalcMonth, setRecalcMonth] = useState(new Date().toISOString().slice(0, 7))
   const [recalculating, setRecalculating] = useState(false)
@@ -1495,7 +1509,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         {([
           ['day', '📅 Daily View'],
           ['report', '📊 Employee Report'],
-          ...(isAdmin ? ([['absence', '🔍 Absence Detection'], ['health', '🩺 Attendance Health']] as [typeof tab, string][]) : []),
+          ...(isAdmin ? ([['absence', '🔍 Absence Detection'], ['health', '🩺 Attendance Health'], ['biometric', '🔐 البصمة']] as [typeof tab, string][]) : []),
         ] as [typeof tab, string][]).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '9px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === t ? 800 : 400, background: tab === t ? S.gold3 : 'transparent', color: tab === t ? S.gold : S.muted }}>
             {label}
@@ -2084,6 +2098,59 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
               </>
             )
           })()}
+        </div>
+      )}
+
+      {/* 🔐 Biometric Tab — Admin only: who has registered a device (view only) */}
+      {tab === 'biometric' && isAdmin && (
+        <div>
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 20, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🔐 أجهزة البصمة المسجّلة</div>
+            <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.7 }}>
+              الموظفون الذين فعّلوا التحقق بالبصمة على أجهزتهم. الحذف/إعادة التعيين من صفحة الموظفين (الأدمن فقط) — الموظف لا يمكنه حذف بصمته بنفسه.
+            </div>
+            <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: S.white, flexWrap: 'wrap' }}>
+              <span>✅ مسجَّل: <b style={{ color: S.green }}>{new Set(bioRoster.map(r => r.name)).size}</b> موظف</span>
+              <span>📱 أجهزة: <b>{bioRoster.length}</b></span>
+            </div>
+          </div>
+
+          {!bioRosterLoaded ? (
+            <div style={{ color: S.muted, fontSize: 12, padding: 20 }}>⏳ جاري التحميل...</div>
+          ) : bioRoster.length === 0 ? (
+            <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 24, textAlign: 'center', color: S.muted, fontSize: 13 }}>
+              📭 لا يوجد أي موظف سجّل بصمته بعد
+            </div>
+          ) : (
+            <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255,255,255,0.03)', color: S.muted, textAlign: 'right' }}>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الموظف</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الرقم</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الجهاز</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>تاريخ التسجيل</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>آخر استخدام</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bioRoster.map(r => (
+                      <tr key={r.id} style={{ borderTop: `1px solid ${S.border}`, opacity: r.is_active ? 1 : 0.5 }}>
+                        <td style={{ padding: '10px 14px', color: S.white, fontWeight: 600 }}>
+                          {r.name}{!r.is_active && <span style={{ color: S.muted, fontWeight: 400 }}> (موقوف)</span>}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: S.muted }}>{r.employee_number || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: S.white }}>{r.device_label || 'جهاز'}</td>
+                        <td style={{ padding: '10px 14px', color: S.muted }}>{new Date(r.created_at).toLocaleDateString('en-CA')}</td>
+                        <td style={{ padding: '10px 14px', color: S.muted }}>{r.last_used_at ? new Date(r.last_used_at).toLocaleDateString('en-CA') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

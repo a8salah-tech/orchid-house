@@ -55,10 +55,10 @@ drop policy if exists wc_select on webauthn_credentials;
 create policy wc_select on webauthn_credentials for select to authenticated
   using (employee_id = app_current_employee_id() or not app_is_basic_employee());
 
--- حذف: الموظف لأجهزته؛ مدير النظام / صلاحية hr لأي حد (إعادة تعيين عند فقدان الموبايل)
+-- حذف: الأدمن فقط (مدير النظام / صلاحية hr) — الموظف لا يمكنه حذف بصمته بنفسه، يراجع الإدارة
 drop policy if exists wc_delete on webauthn_credentials;
 create policy wc_delete on webauthn_credentials for delete to authenticated
-  using (employee_id = app_current_employee_id() or app_is_super_admin() or app_has_perm('hr'));
+  using (app_is_super_admin() or app_has_perm('hr'));
 -- لا سياسة insert/update للعميل — الكتابة عبر service_role فقط
 
 drop policy if exists as_read  on app_settings;

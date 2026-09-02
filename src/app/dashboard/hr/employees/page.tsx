@@ -568,7 +568,8 @@ function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccou
           }
         </div>
 
-        {/* 🔐 أجهزة البصمة المسجّلة — إعادة تعيين عند فقدان الموبايل */}
+        {/* 🔐 أجهزة البصمة المسجّلة — إعادة تعيين عند فقدان الموبايل (الأدمن فقط) */}
+        {isAdmin && (
         <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>🔐 أجهزة البصمة المسجّلة</div>
           {bioDevices.length === 0 ? (
@@ -591,6 +592,7 @@ function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccou
             </div>
           )}
         </div>
+        )}
 
         {employee.notes && (
           <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>

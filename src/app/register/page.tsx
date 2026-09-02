@@ -19,8 +19,9 @@ const S = {
 }
 
 const DEPARTMENTS = ['Kitchen', 'Bar', 'Hall', 'Desserts', 'Cashier', 'Management', 'Delivery', 'Cleaning']
+// ✅ أمان: "System Admin" غير متاح في التسجيل الذاتي العام — يمنحه مدير النظام يدوياً بعد الاعتماد.
+// (مدعوم كمان بشرط RLS على anon_insert يرفض role = 'admin')
 const ROLES = [
-  { value: 'admin',              label: 'System Admin',       icon: '👑' },
   { value: 'branch_manager',     label: 'Branch Manager',     icon: '🏪' },
   { value: 'kitchen_manager',    label: 'Kitchen Manager',    icon: '🍳' },
   { value: 'hall_manager',       label: 'Hall Manager',       icon: '🏛️' },

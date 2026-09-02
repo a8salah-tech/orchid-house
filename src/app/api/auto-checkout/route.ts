@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { getCaller, callerHasPermission } from '../../../lib/apiAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,10 +67,17 @@ export async function POST(req: NextRequest) {
 
 async function handleAutoCheckout(req: NextRequest) {
   try {
-    // ✅ حماية بسيطة: التأكد إن الطلب جاي من Vercel Cron نفسه (موجود تلقائياً في هيدر الطلبات المجدولة)
+    // ✅ حماية (fail-closed): الطلب لازم يكون إما من Vercel Cron (يحمل Bearer CRON_SECRET —
+    // تحطّه Vercel تلقائياً لو المتغيّر معرَّف في إعدادات المشروع)، أو من موظف مسجَّل معه صلاحية
+    // الموارد البشرية (للتشغيل اليدوي / dryRun). غير كده → 401. لو CRON_SECRET مش معرَّف، الكرون
+    // نفسه هيرجع 401 لحد ما يتضاف في Vercel.
     const authHeader = req.headers.get('authorization')
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      return NextResponse.json({ error: 'غير مصرح' }, { status: 401 })
+    const cronOk = !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`
+    if (!cronOk) {
+      const caller = await getCaller()
+      if (!caller || !(await callerHasPermission(caller, 'hr'))) {
+        return NextResponse.json({ error: 'غير مصرح' }, { status: 401 })
+      }
     }
 
     // ✅ وضع تجربة آمن تماماً: يوضّح كل حالة كانت ستُعالَج بالضبط (الموظف، التاريخ، وقت الإغلاق المقترح،

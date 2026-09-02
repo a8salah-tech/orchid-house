@@ -806,7 +806,8 @@ async function activateRegistration(reg: Registration) {
         else alert('✅ تم تفعيل الموظف ' + reg.name + ' وإنشاء حسابه بنجاح!')
       } catch { alert('✅ تم إضافة الموظف لكن فشل إنشاء الحساب') }
     } else { alert('✅ تم تفعيل الموظف ' + reg.name + ' بنجاح!') }
-    await supabase.from('employee_registrations').update({ status: 'approved' }).eq('id', reg.id)
+    // ✅ أمان: نمسح كلمة السر النصية بعد استخدامها في إنشاء الحساب — ماتفضلش مخزَّنة صريحة
+    await supabase.from('employee_registrations').update({ status: 'approved', password_hint: null }).eq('id', reg.id)
     fetchAll()
   }
 
@@ -825,6 +826,7 @@ async function activateRegistration(reg: Registration) {
     await supabase.from('employee_registrations').update({
       status: 'rejected',
       rejection_reason: rejectReason || null,
+      password_hint: null, // ✅ أمان: مسح كلمة السر النصية عند الرفض أيضاً
     }).eq('id', rejectModal.id)
 
     // Send rejection email via API

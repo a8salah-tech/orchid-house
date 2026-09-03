@@ -828,7 +828,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       device_label: r.device_label,
       created_at: r.created_at,
       last_used_at: r.last_used_at,
-      name: r.employees?.name || r.employees?.name_en || '—',
+      name: [r.employees?.name, r.employees?.name_en].filter(Boolean).join(' ').trim() || '—',
       employee_number: r.employees?.employee_number ?? null,
       is_active: r.employees?.is_active ?? true,
     })))

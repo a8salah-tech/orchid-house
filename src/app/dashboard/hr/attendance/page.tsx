@@ -798,7 +798,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   const [filterBranch, setFilterBranch] = useState(() => empInfo?.branch_id || 'all')
   const [tab,          setTab]          = useState<'day' | 'report' | 'absence' | 'health' | 'biometric'>('day')
   // ✅ قائمة أجهزة البصمة المسجّلة — عرض فقط (الحذف من صفحة الموظفين، للأدمن)
-  const [bioRoster, setBioRoster] = useState<{ id: string; device_label: string | null; created_at: string; last_used_at: string | null; name: string; employee_number: string | null; is_active: boolean }[]>([])
+  const [bioRoster, setBioRoster] = useState<{ id: string; employee_id: string; device_label: string | null; created_at: string; last_used_at: string | null; name: string; employee_number: string | null; is_active: boolean }[]>([])
   const [bioRosterLoaded, setBioRosterLoaded] = useState(false)
   const [reportEmp,    setReportEmp]    = useState('')
   const [reportMonth,  setReportMonth]  = useState(new Date().toISOString().slice(0, 7))
@@ -820,10 +820,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   // ✅ تحميل قائمة أجهزة البصمة المسجّلة عند فتح التاب
   const loadBioRoster = useCallback(async () => {
     const { data } = await sb.from('webauthn_credentials')
-      .select('id, device_label, created_at, last_used_at, employees(name, name_en, employee_number, is_active)')
+      .select('id, employee_id, device_label, created_at, last_used_at, employees(name, name_en, employee_number, is_active)')
       .order('created_at', { ascending: false })
     setBioRoster((data || []).map((r: any) => ({
       id: r.id,
+      employee_id: r.employee_id,
       device_label: r.device_label,
       created_at: r.created_at,
       last_used_at: r.last_used_at,
@@ -2110,7 +2111,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
               الموظفون الذين فعّلوا التحقق بالبصمة على أجهزتهم. الحذف/إعادة التعيين من صفحة الموظفين (الأدمن فقط) — الموظف لا يمكنه حذف بصمته بنفسه.
             </div>
             <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: S.white, flexWrap: 'wrap' }}>
-              <span>✅ مسجَّل: <b style={{ color: S.green }}>{new Set(bioRoster.map(r => r.name)).size}</b> موظف</span>
+              <span>✅ مسجَّل: <b style={{ color: S.green }}>{new Set(bioRoster.map(r => r.employee_id)).size}</b> موظف</span>
               <span>📱 أجهزة: <b>{bioRoster.length}</b></span>
             </div>
           </div>

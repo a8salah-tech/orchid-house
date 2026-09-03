@@ -618,7 +618,8 @@ export default function ViolationsPage() {
                     <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                   </div>
                 )}
-                {v.status === 'submitted' && !sysV && (isAdmin || isBranchManager) && (
+                {/* الأدمن يقدر يعتمد أي مخالفة معلّقة (بما فيها مخالفات نظام قديمة سُجّلت قبل تفعيل الخصم التلقائي)؛ مدير الفرع للمخالفات البشرية فقط */}
+                {v.status === 'submitted' && (isAdmin || (!sysV && isBranchManager)) && (
                   <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                 )}
                 {(v.status === 'active' || v.status === 'submitted') && (sysV ? isAdmin : (isAdmin || isBranchManager || isDeptManager)) && (

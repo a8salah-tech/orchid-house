@@ -1927,14 +1927,29 @@ export default function PurchasesPage() {
 
   const [fetchError, setFetchError] = useState<string | null>(null)
 
+  // ✅ نجيب كل الفواتير على صفحات 1000 — قبل كده كان في .limit(200) فالإجمالي وعدد الفواتير
+  // كانا يتجمّدان عند 200 مع إن الفواتير تزيد كل يوم
+  const fetchAllInvoices = async () => {
+    const PAGE = 1000
+    const cols = 'id, created_at, invoice_number, invoice_date, supplier_id, warehouse_id, total_amount, sst_percent, sst_amount, notes, status, created_by, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)'
+    const all: any[] = []
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase.from('purchase_invoices')
+        .select(cols)
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE - 1)
+      if (error) return { data: all, error }
+      all.push(...(data || []))
+      if (!data || data.length < PAGE) break
+    }
+    return { data: all, error: null as any }
+  }
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     setFetchError(null)
     const [inv, sup, un, wh, brs, uc] = await Promise.all([
-      supabase.from('purchase_invoices')
-        .select('id, created_at, invoice_number, invoice_date, supplier_id, warehouse_id, total_amount, sst_percent, sst_amount, notes, status, created_by, warehouse_suppliers(name), warehouses(name,branch_id), employees(name)')
-        .order('created_at', { ascending: false })
-        .limit(200),
+      fetchAllInvoices(),
       supabase.from('warehouse_suppliers').select('id,name').order('name'),
       supabase.from('units').select('id,name,symbol').order('name'),
       supabase.from('warehouses').select('id,name,branch_id').eq('is_active', true),

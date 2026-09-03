@@ -576,14 +576,19 @@ export default function ViolationsPage() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {paginated.map(v => (
+          {paginated.map(v => {
+            const sysV = !v.created_by   // مخالفة من النظام (خصم تلقائي) — إلغاؤها لمدير النظام فقط
+            return (
             <div key={v.id} style={{ background: v.status === 'cancelled' ? S.card : S.navy2, borderRadius: 14, border: `1px solid ${v.status === 'cancelled' ? S.border : S.red+'30'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flex: 1 }}>
                 <div style={{ width: 44, height: 44, borderRadius: '50%', background: S.redB, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>⚠️</div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn}{v.empNumber ? ` (#${v.empNumber})` : ''} — {v.empDept}</div>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{v.reason}</div>
-                  <div style={{ fontSize: 13, color: S.muted }}>📅 {v.date} · <span style={{ color: S.white, fontWeight: 600 }}>{isAr ? 'بواسطة' : 'by'}: {v.creatorName}</span></div>
+                  <div style={{ fontSize: 13, color: S.muted }}>📅 {v.date} · <span style={{ color: S.white, fontWeight: 600 }}>{isAr ? 'بواسطة' : 'by'}: {sysV ? (isAr ? '🤖 النظام (خصم تلقائي)' : '🤖 System (auto)') : v.creatorName}</span></div>
+                  {sysV && !isAdmin && (v.status === 'active' || v.status === 'submitted') && (
+                    <div style={{ fontSize: 11, color: S.amber, marginTop: 3 }}>{isAr ? 'ℹ️ إلغاء مخالفات النظام لمدير النظام فقط' : 'ℹ️ Only the system admin can cancel system violations'}</div>
+                  )}
                   {/* ✅ جديد: اسم من اعتمد المخالفة فعلياً (منفصل عن "بواسطة" اللي بيسجّلها) — يظهر بس لو اتعتمدت */}
                   {v.approverName && (
                     <div style={{ fontSize: 13, color: S.green, marginTop: 2 }}>✅ {isAr ? 'اعتمدها' : 'Approved by'}: <span style={{ fontWeight: 600 }}>{v.approverName}</span></div>
@@ -606,22 +611,23 @@ export default function ViolationsPage() {
                     {v.status==='active'?(isAr?'نشطة':'Active'):v.status==='submitted'?(isAr?'بانتظار الاعتماد':'Pending Approval'):(isAr?'ملغاة':'Cancelled')}
                   </span>
                 </div>
-                {/* Submitted - waiting manager approval */}
-                {v.status === 'submitted' && isDeptManager && (
+                {/* Submitted - waiting manager approval (مخالفات النظام لا تمرّ بهذا المسار) */}
+                {v.status === 'submitted' && !sysV && isDeptManager && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => returnViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ {isAr?'إعادة':'Return'}</button>
                     <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                   </div>
                 )}
-                {v.status === 'submitted' && (isAdmin || isBranchManager) && (
+                {v.status === 'submitted' && !sysV && (isAdmin || isBranchManager) && (
                   <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                 )}
-                {(isAdmin || isBranchManager || isDeptManager) && (v.status === 'active' || v.status === 'submitted') && (
+                {(v.status === 'active' || v.status === 'submitted') && (sysV ? isAdmin : (isAdmin || isBranchManager || isDeptManager)) && (
                   <button onClick={() => cancelViolation(v.id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

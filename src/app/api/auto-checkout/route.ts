@@ -155,15 +155,16 @@ async function handleAutoCheckout(req: NextRequest) {
       // للموظف إشعار "تم اقتراح خصم" رغم عدم وجود أي مخالفة فعلية في النظام — تناقض مباشر ومربك
       let violationRecorded = false
       if (penaltyAmount > 0) {
+        const nowIso = new Date().toISOString()
         const { error: violInsertError } = await supabaseAdmin.from('violations').insert([{
           employee_id: rec.employee_id,
           amount: penaltyAmount,
-          reason: `خصم مقترح (قيد المراجعة): نسيان تسجيل الخروج بتاريخ ${dateStr} — تم تسجيل الخروج تلقائياً، ويُقترَح خصم ${PENALTY_HOURS} ساعة. راجع السجل قبل الاعتماد فقد يكون الموظف كان يعمل أوفر تايم فعلياً\nProposed deduction (pending review): forgot to check out on ${dateStr} — checkout was recorded automatically, ${PENALTY_HOURS} hours deduction suggested. Please review before approving, the employee may have genuinely worked overtime`,
+          reason: `خصم تلقائي من النظام: نسيان تسجيل الخروج بتاريخ ${dateStr} — تم تسجيل الخروج تلقائياً وخُصمت ${PENALTY_HOURS} ساعة. إن كان الموظف يعمل أوفر تايم فعلياً يراجع الإدارة لإلغاء الخصم\nAutomatic system deduction: forgot to check out on ${dateStr} — checkout was recorded automatically and ${PENALTY_HOURS} hours were deducted. If the employee genuinely worked overtime, contact management to cancel it`,
           date: dateStr,
-          // ✅ 'submitted' هي حالة "بانتظار الاعتماد" المستخدمة فعلياً في صفحة إدارة المخالفات الحالية
-          // (وليس 'pending' كما كتبنا سابقاً بالخطأ — تلك القيمة غير معروفة للصفحة ولن تظهر فيها إطلاقاً)
-          status: 'submitted',
-          submitted_at: new Date().toISOString(),
+          // ✅ مخالفات النظام تُعتمد وتُخصم مباشرة — إلغاؤها لمدير النظام فقط من صفحة المخالفات
+          status: 'active',
+          submitted_at: nowIso,
+          manager_approved_at: nowIso,
         }])
         violationRecorded = !violInsertError
         if (violInsertError) console.error('violation insert error:', violInsertError.message)
@@ -176,8 +177,8 @@ async function handleAutoCheckout(req: NextRequest) {
           type: 'auto_checkout',
           title: 'تسجيل خروج تلقائي / Automatic Checkout',
           body:
-            `تم نسيان تسجيل الخروج بتاريخ ${dateStr}، فقام النظام بتسجيل الخروج تلقائياً. تم اقتراح خصم ${PENALTY_HOURS} ساعة وهو الآن قيد مراجعة الإدارة — لو كنت تعمل أوفر تايم فعلياً تواصل مع مديرك المباشر فوراً.\n\n` +
-            `You forgot to check out on ${dateStr}, so the system automatically checked you out. A ${PENALTY_HOURS}-hour deduction has been proposed and is now pending management review — if you were genuinely working overtime, please contact your manager right away.`,
+            `تم نسيان تسجيل الخروج بتاريخ ${dateStr}، فقام النظام بتسجيل الخروج تلقائياً وخصم ${PENALTY_HOURS} ساعة من راتبك. لو كنت تعمل أوفر تايم فعلياً تواصل مع مديرك المباشر فوراً لمراجعة الخصم وإلغائه.\n\n` +
+            `You forgot to check out on ${dateStr}, so the system automatically checked you out and deducted ${PENALTY_HOURS} hours from your pay. If you were genuinely working overtime, contact your manager right away to review and cancel the deduction.`,
           target_employee_id: rec.employee_id,
           is_read: false,
         }])
@@ -235,13 +236,15 @@ async function handleAutoCheckout(req: NextRequest) {
         // ✅ نفس إصلاح الخطوة 3/4 أعلاه: الإشعار يترسل فقط لو المخالفة اتسجّلت فعلاً بنجاح
         let violationRecorded = false
         if (penaltyAmount > 0) {
+          const nowIso2 = new Date().toISOString()
           const { error: violInsertError } = await supabaseAdmin.from('violations').insert([{
             employee_id: rec.employee_id,
             amount: penaltyAmount,
-            reason: `خصم مقترح (قيد المراجعة): سجل حضور بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة — مدة غير منطقية لشيفت واحد. راجع السجل قبل الاعتماد، قد يكون خطأ في وقت التسجيل أو نسيان تسجيل الخروج في وقته الصحيح\nProposed deduction (pending review): attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours — unreasonable duration for a single shift. Please review before approving, this may be a check-in/out time error or a very late manual checkout`,
+            reason: `خصم تلقائي من النظام: سجل حضور بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة — مدة غير منطقية لشيفت واحد، وخُصمت ${PENALTY_HOURS} ساعة. إن كان هناك خطأ في التسجيل راجع الإدارة لإلغاء الخصم\nAutomatic system deduction: attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours — unreasonable for a single shift, ${PENALTY_HOURS} hours deducted. If this was a recording error, contact management to cancel it`,
             date: dateStr,
-            status: 'submitted',
-            submitted_at: new Date().toISOString(),
+            status: 'active',
+            submitted_at: nowIso2,
+            manager_approved_at: nowIso2,
           }])
           violationRecorded = !violInsertError
           if (violInsertError) console.error('violation insert error:', violInsertError.message)
@@ -252,8 +255,8 @@ async function handleAutoCheckout(req: NextRequest) {
             type: 'suspicious_duration',
             title: 'مدة حضور غير منطقية / Unusual Attendance Duration',
             body:
-              `سجل حضورك بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة، وهذا يُعتبر مدة غير منطقية لشيفت واحد. تم اقتراح خصم ${PENALTY_HOURS} ساعة وهو الآن قيد مراجعة الإدارة — لو كان هناك خطأ في التسجيل تواصل مع مديرك المباشر فوراً.\n\n` +
-              `Your attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours, which is considered an unreasonable duration for a single shift. A ${PENALTY_HOURS}-hour deduction has been proposed and is now pending management review — if there was a recording error, please contact your manager right away.`,
+              `سجل حضورك بتاريخ ${dateStr} مدته ${durationHours.toFixed(1)} ساعة، وهذا يُعتبر مدة غير منطقية لشيفت واحد. خُصمت ${PENALTY_HOURS} ساعة من راتبك — لو كان هناك خطأ في التسجيل تواصل مع مديرك المباشر فوراً لمراجعة الخصم وإلغائه.\n\n` +
+              `Your attendance record on ${dateStr} lasted ${durationHours.toFixed(1)} hours, which is unreasonable for a single shift. ${PENALTY_HOURS} hours were deducted from your pay — if there was a recording error, contact your manager right away to review and cancel it.`,
             target_employee_id: rec.employee_id,
             is_read: false,
           }])

@@ -497,9 +497,9 @@ function MyAttendanceCard() {
 
     if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
 
-    // ✅ لو رصدنا نسيان تسجيل خروج (وضبطنا الوقت) — نرفع مخالفة "بانتظار الاعتماد" (submitted، لا تُخصم
-    // تلقائياً) بنفس منطق أداة auto-checkout بالظبط، عشان الحالة ما تفلتش لمجرد إن الموظف سجّل الخروج
-    // بنفسه قبل ما الأداة المجدولة تشتغل. مدير الفرع/الأدمن يراجعها من صفحة إدارة المخالفات.
+    // ✅ لو رصدنا نسيان تسجيل خروج (وضبطنا الوقت) — نرفع مخالفة نظام تُعتمد وتُخصم مباشرة (status='active').
+    // مخالفات النظام لا تحتاج مراجعة؛ إلغاؤها من صفحة المخالفات لمدير النظام فقط. لو كان أوفر تايم فعلي
+    // يتواصل الموظف مع الإدارة لإلغائها.
     if (forgotNote) {
       const { data: emp } = await sb.from('employee_compensation').select('salary').eq('employee_id', employeeId).maybeSingle()
       const penalty = parseFloat(((((emp?.salary || 0) / 30) / 8) * 2).toFixed(2))
@@ -507,10 +507,11 @@ function MyAttendanceCard() {
         await sb.from('violations').insert([{
           employee_id: employeeId,
           amount: penalty,
-          reason: `خصم مقترح (قيد المراجعة): نسيان تسجيل الخروج بتاريخ ${dateStr} — سجّل الموظف الخروج متأخراً جداً فتم ضبط الوقت على نهاية الشيفت، ويُقترَح خصم ساعتين. راجع السجل قبل الاعتماد فقد يكون أوفر تايم فعلي\nProposed deduction (pending review): forgot to check out on ${dateStr} — checked out very late so the time was clamped to shift end, 2-hour deduction suggested. Review before approving, may be genuine overtime`,
+          reason: `خصم تلقائي من النظام: نسيان تسجيل الخروج بتاريخ ${dateStr} — سجّل الموظف الخروج متأخراً جداً فتم ضبط الوقت على نهاية الشيفت، وخُصمت ساعتان. إن كان أوفر تايم فعلياً راجع الإدارة لإلغاء الخصم\nAutomatic system deduction: forgot to check out on ${dateStr} — checked out very late so the time was clamped to shift end, 2 hours deducted. If this was genuine overtime, contact management to cancel it`,
           date: dateStr,
-          status: 'submitted',
+          status: 'active',
           submitted_at: nowIso,
+          manager_approved_at: nowIso,
         }])
       }
     }
@@ -528,16 +529,15 @@ function MyAttendanceCard() {
     const { minutes, openRecordId, lat, lng, dist, date } = shortShiftModal
     const note = `⚠️ خروج سريع جداً (${minutes} دقيقة فقط بعد الدخول) — يحتاج مراجعة الإدارة / Very short shift (only ${minutes} min after check-in) — needs management review`
     await finalizeCheckOut(openRecordId, lat, lng, dist, note, employee.id, date)
-    // ✅ رفع مخالفة مقترحة بحالة "submitted" (بانتظار الاعتماد) — لا تُخصم تلقائياً من الراتب
-    // إلا بعد موافقة أدمن أو مدير فرع صريحة من صفحة إدارة المخالفات، نفس مبدأ الأمان المتّبع
-    // في كل أدوات الخصم التلقائي الأخرى في هذا النظام
+    // ✅ مخالفة نظام تُعتمد وتُخصم مباشرة (status='active') — إلغاؤها لمدير النظام فقط
     await sb.from('violations').insert([{
       employee_id: employee.id,
       amount: 100,
-      reason: `مؤشر تلاعب محتمل بنظام الحضور: تسجيل خروج بعد ${minutes} دقيقة فقط من الدخول — خصم مقترح 100 MYR، بانتظار مراجعة الإدارة\nPotential attendance system abuse: checked out only ${minutes} minute(s) after checking in — proposed 100 MYR deduction, pending management review`,
+      reason: `خصم تلقائي من النظام — مؤشر تلاعب بنظام الحضور: تسجيل خروج بعد ${minutes} دقيقة فقط من الدخول. خُصم 100 MYR. إن كان هناك خطأ راجع الإدارة\nAutomatic system deduction — attendance system abuse indicator: checked out only ${minutes} minute(s) after checking in. 100 MYR deducted. If this was an error, contact management`,
       date: new Date().toISOString().slice(0, 10),
-      status: 'submitted',
+      status: 'active',
       submitted_at: new Date().toISOString(),
+      manager_approved_at: new Date().toISOString(),
     }])
     setShortShiftModal(null)
   }

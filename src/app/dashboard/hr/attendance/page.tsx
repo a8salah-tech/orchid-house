@@ -136,10 +136,21 @@ function MyAttendanceCard() {
     setBioBusy(false)
   }
 
-  // يرجع true لو مسموح بالمتابعة (البصمة نجحت أو غير مطلوبة)
+  // يرجع true لو مسموح بالمتابعة. لما المفتاح مفعّل: البصمة إجبارية — ومن غير جهاز مسجّل ممنوع الحضور
   async function passBiometricGate(): Promise<boolean> {
     if (!bioFlag) return true
-    if (myBioDevices.length === 0) return true // فترة انتقالية — التنبيه ظاهر في البطاقة
+    if (!bioSupported) {
+      setLocError(isAr
+        ? 'هذا الجهاز لا يدعم التحقق بالبصمة. سجّل الحضور من هاتفك، أو راجع مديرك لتسجيله يدوياً.'
+        : 'This device does not support biometric verification. Use your phone, or ask your manager to record it manually.')
+      return false
+    }
+    if (myBioDevices.length === 0) {
+      setLocError(isAr
+        ? '⚠️ لازم تسجّل بصمتك أولاً من قسم «التحقق بالبصمة» بالأسفل قبل تسجيل الدخول أو الخروج.'
+        : '⚠️ You must first register your biometric (see "Biometric verification" below) before checking in or out.')
+      return false
+    }
     try {
       const ok = await verifyBiometric()
       if (!ok) { setLocError(isAr ? 'فشل التحقق بالبصمة — حاول مرة أخرى' : 'Biometric verification failed — try again'); return false }
@@ -672,10 +683,10 @@ function MyAttendanceCard() {
           </div>
 
           {bioFlag && myBioDevices.length === 0 && (
-            <div style={{ background: S.amberB, border: `1px solid ${S.amber}`, borderRadius: 10, padding: '8px 10px', fontSize: 11, color: S.amber, fontWeight: 700, marginBottom: 10 }}>
+            <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '8px 10px', fontSize: 11, color: S.red, fontWeight: 700, marginBottom: 10 }}>
               {isAr
-                ? '⚠️ التحقق بالبصمة مُفعَّل على النظام. سجّل جهازك الآن — بعد فترة قصيرة سيصبح إلزامياً.'
-                : '⚠️ Biometric verification is enabled. Register your device now — it will become mandatory shortly.'}
+                ? '⛔ التحقق بالبصمة إلزامي الآن. لن تتمكّن من تسجيل الدخول أو الخروج حتى تسجّل جهازك من الزر بالأسفل.'
+                : '⛔ Biometric verification is now mandatory. You cannot check in or out until you register your device using the button below.'}
             </div>
           )}
 

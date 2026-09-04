@@ -29,12 +29,12 @@ const C = {
 }
 
 type Category = {
-  id: string; name: string; name_en: string; destination: string
+  id: string; name: string; name_en: string; name_ms?: string | null; destination: string
   available_days?: number[] | null; available_from?: string | null; available_to?: string | null
   time_badge_ar?: string | null; time_badge_en?: string | null
 }
-type MenuItem  = { id: string; name: string; name_en: string; price: number; discount_percent?: number; description: string; description_en: string; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[] }
-type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; price: number } | null }
+type MenuItem  = { id: string; name: string; name_en: string; name_ms?: string | null; price: number; discount_percent?: number; description: string; description_en: string; description_ms?: string | null; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; name_ms?: string | null; price: number; is_active: boolean }[] }
+type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; name_ms?: string | null; price: number } | null }
 type Phase     = 'language' | 'welcome' | 'rewards' | 'menu' | 'cart' | 'done'
 
 // ══ اللغات المدعومة في واجهة العميل (المرحلة ١: ماليزي / إنجليزي / عربي) ══
@@ -287,8 +287,13 @@ export default function CustomerMenuPage() {
       }
     } catch {}
   }, [])
-  // اسم الطبق/الوصف حسب اللغة: العربي يعرض الاسم العربي أولاً، غير كده الإنجليزي أولاً
-  const dishName = (ar?: string, en?: string) => (lang === 'ar' ? (ar || en) : (en || ar)) || ''
+  // اسم الطبق/الوصف حسب اللغة. الماليزي يرجع للإنجليزي ثم العربي لو مش مترجم.
+  // العربي يعرض العربي أولاً؛ الإنجليزي (والافتراضي) يعرض الإنجليزي أولاً.
+  const dishName = (ar?: string | null, en?: string | null, ms?: string | null) => (
+    lang === 'ar' ? (ar || en || ms)
+    : lang === 'ms' ? (ms || en || ar)
+    : (en || ar || ms)
+  ) || ''
   const [submitting, setSubmitting] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
@@ -308,7 +313,7 @@ export default function CustomerMenuPage() {
   const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null; menu_item_id?: string | null }[]>([])
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
-  const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; price: number } | null>(null)
+  const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; name_ms?: string | null; price: number } | null>(null)
 
   // ✅ New: dish rating system — stars and written comment for each item
   const [reviews, setReviews] = useState<Review[]>([])
@@ -388,12 +393,12 @@ export default function CustomerMenuPage() {
   // ✅ New: fetch all items of a given order (all rounds) from the database, so they display in full no matter how many rounds the customer ordered
   async function fetchLiveOrderItems(orderId: string) {
     const { data } = await sb.from('order_items')
-      .select('id, menu_item_id, quantity, unit_price, size_name, status, menu_items(name, name_en)')
+      .select('id, menu_item_id, quantity, unit_price, size_name, status, menu_items(name, name_en, name_ms)')
       .eq('order_id', orderId)
       .neq('status', 'cancelled')
     setLiveOrderItems((data || []).map((i: any) => ({
       id: i.id, menu_item_id: i.menu_item_id, quantity: i.quantity, unit_price: i.unit_price, size_name: i.size_name,
-      name: i.menu_items?.name_en || i.menu_items?.name || '',
+      name: dishName(i.menu_items?.name, i.menu_items?.name_en, i.menu_items?.name_ms),
     })))
   }
 
@@ -403,8 +408,8 @@ export default function CustomerMenuPage() {
       if (!tbl) { setNotFound(true); setLoading(false); return }
       setTable(tbl)
       const [cats, itms, revs] = await Promise.all([
-        sb.from('menu_categories').select('id,name,name_en,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items') .select('id,name,name_en,price,discount_percent,description,description_en,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
+        sb.from('menu_categories').select('id,name,name_en,name_ms,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
+        sb.from('menu_items') .select('id,name,name_en,name_ms,price,discount_percent,description,description_en,description_ms,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,name_ms,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
         // ✅ التقييمات المعتمدة فقط — التقييمات الجديدة تظهر بعد مراجعة الإدارة (status='approved')
         sb.from('menu_item_reviews').select('id,menu_item_id,stars,review_text,reviewer_name,created_at').eq('status', 'approved').order('created_at', { ascending: false })
       ])
@@ -1140,7 +1145,7 @@ const filteredItems = items
           </div>
         )}
         <div style={{ padding:'24px 24px 40px' }}>
-          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en)}</div>
+          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en, selectedItem.name_ms)}</div>
           <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{lang === 'ar' ? selectedItem.name_en : selectedItem.name}</div>
 
           {/* ✅ New: average item rating above the sheet */}
@@ -1157,7 +1162,7 @@ const filteredItems = items
           })()}
 
           {(selectedItem.description_en || selectedItem.description) && (
-            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en)}</div>
+            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en, selectedItem.description_ms)}</div>
           )}
           {/* Sizes */}
           {selectedItem.sizes && selectedItem.sizes.filter((s: any) => s.is_active).length > 0 && (
@@ -1167,7 +1172,7 @@ const filteredItems = items
                 {selectedItem.sizes.filter((s: any) => s.is_active).map((size: any) => (
                   <button key={size.id} onClick={() => setSelectedSize(selectedSize?.id === size.id ? null : size)}
                     style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(0,200,200,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
-                    {dishName(size.name, size.name_en)} — MYR {size.price.toFixed(2)}
+                    {dishName(size.name, size.name_en, size.name_ms)} — MYR {size.price.toFixed(2)}
                   </button>
                 ))}
               </div>
@@ -1178,7 +1183,7 @@ const filteredItems = items
               <div style={{ fontSize:26, fontWeight:900, color:C.blue2 }}>
                 MYR {selectedSize ? selectedSize.price.toFixed(2) : selectedItem.price.toFixed(2)}
               </div>
-              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en)}</div>}
+              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en, selectedSize.name_ms)}</div>}
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:14 }}>
               {getQty(selectedItem.id, selectedSize?.id) > 0 && (
@@ -1451,8 +1456,8 @@ const filteredItems = items
             <div style={{ display:'flex', gap:12, alignItems:'center' }}>
               {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0, border:`1px solid ${C.border}` }} />}
               <div style={{ flex:1 }}>
-                <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en)}</div>
-                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en)}</div>}
+                <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en, c.item.name_ms)}</div>
+                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en, c.selectedSize.name_ms)}</div>}
                 <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>{t('each', unitPrice.toFixed(2))}</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1524,7 +1529,7 @@ const filteredItems = items
             return (
               <button key={c.id} onClick={() => setActiveCat(c.id)}
                 style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s', display:'flex', alignItems:'center', gap:6 }}>
-                {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en)}
+                {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en, (c as any).name_ms)}
                 {timeBadge && (
                   <span style={{ fontSize:9, background: activeCat === c.id ? 'rgba(255,255,255,.25)' : 'rgba(245,158,11,.15)', color: activeCat === c.id ? C.white : '#F59E0B', border: activeCat === c.id ? 'none' : '1px solid rgba(245,158,11,.4)', borderRadius:8, padding:'2px 6px', fontWeight:800 }}>
                     🍽️ {timeBadge}
@@ -1579,7 +1584,7 @@ const filteredItems = items
 
                 {/* Name plate overlapping the bottom of the image */}
                 <div style={{ position:'absolute', left:8, right:8, bottom:-12, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:9, padding:'6px 9px', boxShadow:`0 4px 10px ${C.glow2}` }}>
-                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{dishName(item.name, item.name_en)}</div>
+                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{dishName(item.name, item.name_en, item.name_ms)}</div>
                 </div>
               </div>
 
@@ -1601,7 +1606,7 @@ const filteredItems = items
                 })()}
 
                 {(item.description_en || item.description) && (
-                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en)}</div>
+                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en, item.description_ms)}</div>
                 )}
 
                 {hasSizes ? (
@@ -1619,7 +1624,7 @@ const filteredItems = items
                             border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
                             borderRadius:10, padding:'5px 8px', gap:6,
                           }}>
-                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en)}</span>
+                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms)}</span>
                           <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toFixed(2)}</span>
                           {sizeQty > 0 ? (
                             <div style={{ display:'flex', alignItems:'center', gap:3 }}>

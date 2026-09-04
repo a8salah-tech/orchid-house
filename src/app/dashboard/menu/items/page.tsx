@@ -87,17 +87,17 @@ function Pagination({ page, total, totalPages, onChange, pageSize, onPageSizeCha
 
 
 interface Category {
-  id: string; name: string; name_en: string; icon: string
+  id: string; name: string; name_en: string; name_ms?: string | null; icon: string
   sort_order: number; is_active: boolean; item_count?: number
 }
 
 interface MenuItem {
-  id: string; category_id: string; name: string; name_en: string
-  or_code: string; description: string; description_en: string
+  id: string; category_id: string; name: string; name_en: string; name_ms?: string | null
+  or_code: string; description: string; description_en: string; description_ms?: string | null
   price: number; cost_price: number; image_url?: string
   is_active: boolean; is_available: boolean; sort_order: number
   discount_percent?: number
-  sizes?: { id: string; name: string; name_en: string; price: number; is_active: boolean }[]
+  sizes?: { id: string; name: string; name_en: string; name_ms?: string | null; price: number; is_active: boolean }[]
   menu_categories?: { name: string; name_en: string; icon: string } | any
 }
 
@@ -124,9 +124,11 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     category_id: item?.category_id || '',
     name: item?.name || '',
     name_en: item?.name_en || '',
+    name_ms: item?.name_ms || '',
     or_code: item?.or_code || '',
     description: item?.description || '',
     description_en: item?.description_en || '',
+    description_ms: item?.description_ms || '',
     price: item?.price?.toString() || '',
     cost_price: item?.cost_price?.toString() || '',
     discount_percent: item?.discount_percent != null && item.discount_percent > 0 ? String(item.discount_percent) : '',
@@ -135,7 +137,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
   })
 
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [sizes, setSizes] = useState<{id?:string;name:string;name_en:string;price:string;is_active:boolean}[]>([])
+  const [sizes, setSizes] = useState<{id?:string;name:string;name_en:string;name_ms?:string;price:string;is_active:boolean}[]>([])
   const { isAr } = useLang()
   const [modalTab, setModalTab] = useState<'info'|'sizes'>('info')
   useEffect(() => {
@@ -192,9 +194,11 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     const payload = {
       name: form.name,
       name_en: form.name_en || null,
+      name_ms: form.name_ms || null,
       or_code: trimmedCode || null,
       description: form.description || null,
       description_en: form.description_en || null,
+      description_ms: form.description_ms || null,
       category_id: form.category_id || null,
       price: parseFloat(form.price) || 0,
       cost_price: parseFloat(form.cost_price) || 0,
@@ -230,7 +234,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     if (savedId) {
       await supabase.from('menu_item_sizes').delete().eq('menu_item_id', savedId)
       const valid = sizes.filter((s) => s.name && s.price)
-      if (valid.length > 0) await supabase.from('menu_item_sizes').insert(valid.map((s, i) => ({ menu_item_id: savedId, name: s.name, name_en: s.name_en || null, price: parseFloat(s.price), is_active: s.is_active !== false, sort_order: i })))
+      if (valid.length > 0) await supabase.from('menu_item_sizes').insert(valid.map((s, i) => ({ menu_item_id: savedId, name: s.name, name_en: s.name_en || null, name_ms: s.name_ms || null, price: parseFloat(s.price), is_active: s.is_active !== false, sort_order: i })))
     }
     onSaved()
   }
@@ -325,6 +329,10 @@ function ItemModal({ item, categories, onClose, onSaved }: {
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Item Name (English)</label>
                 <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="e.g. Lentil Soup" />
               </div>
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Item Name (Bahasa Malaysia)</label>
+                <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_ms} onChange={e => setForm(p => ({ ...p, name_ms: e.target.value }))} placeholder="cth. Sup Lentil" />
+              </div>
             </div>
 
             {/* OR Code */}
@@ -365,6 +373,10 @@ function ItemModal({ item, categories, onClose, onSaved }: {
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Description (English)</label>
               <textarea style={{ ...inp, direction: 'ltr', textAlign: 'left', minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={form.description_en} onChange={e => setForm(p => ({ ...p, description_en: e.target.value }))} placeholder="Brief description..." />
             </div>
+            <div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Description (Bahasa Malaysia)</label>
+              <textarea style={{ ...inp, direction: 'ltr', textAlign: 'left', minHeight: 70, resize: 'vertical' } as React.CSSProperties} value={form.description_ms} onChange={e => setForm(p => ({ ...p, description_ms: e.target.value }))} placeholder="Penerangan ringkas..." />
+            </div>
 
             {/* الحالة */}
             <div style={{ display: 'flex', gap: 12 }}>
@@ -402,9 +414,10 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {sizes.map((size, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px auto', gap: 8, alignItems: 'center', background: S.card, borderRadius: 10, padding: '8px 10px' }}>
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 100px auto', gap: 8, alignItems: 'center', background: S.card, borderRadius: 10, padding: '8px 10px' }}>
                     <input style={{ ...inp, padding: '7px 10px' }} placeholder="الاسم عربي" value={size.name} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name: e.target.value } : s))} />
                     <input style={{ ...inp, padding: '7px 10px', direction: 'ltr' as const }} placeholder="English name" value={size.name_en} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name_en: e.target.value } : s))} />
+                    <input style={{ ...inp, padding: '7px 10px', direction: 'ltr' as const }} placeholder="Nama Melayu" value={size.name_ms || ''} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name_ms: e.target.value } : s))} />
                     <input style={{ ...inp, padding: '7px 10px', direction: isAr ? 'rtl' : 'ltr' }} type="number" step="0.01" placeholder={isAr ? 'السعر' : 'Price'} value={size.price} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, price: e.target.value } : s))} />
                     <button onClick={() => setSizes(p => p.filter((_, si) => si !== i))} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13 }}>🗑️</button>
                   </div>
@@ -430,7 +443,7 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   const supabase = createClient()
   const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name: '', name_en: '', icon: '🍽️' })
+  const [form, setForm] = useState({ name: '', name_en: '', name_ms: '', icon: '🍽️' })
   const icons = ['🍲', '🥗', '🫙', '🔥', '🥙', '🍛', '🥩', '🍚', '☕', '🧃', '🍮', '🫓', '🥘', '🍜', '🫕', '🥪', '🍱', '🧆']
 
   async function save() {
@@ -445,7 +458,7 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       .limit(1)
       .maybeSingle()
     const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
-    const { error } = await supabase.from('menu_categories').insert([{ ...form, is_active: true, sort_order: nextSortOrder }])
+    const { error } = await supabase.from('menu_categories').insert([{ ...form, name_en: form.name_en || null, name_ms: form.name_ms || null, is_active: true, sort_order: nextSortOrder }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
     onSaved()
@@ -468,6 +481,10 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Category Name (English)</label>
               <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="e.g. Appetizers" />
             </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Category Name (Bahasa Malaysia)</label>
+            <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_ms} onChange={e => setForm(p => ({ ...p, name_ms: e.target.value }))} placeholder="cth. Pembuka Selera" />
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>الأيقونة</label>
@@ -838,7 +855,7 @@ export default function MenuItemsPage() {
     setLoading(true)
     const [cats, itms] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('id, category_id, name, name_en, or_code, description, description_en, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_items').select('id, category_id, name, name_en, name_ms, or_code, description, description_en, description_ms, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,

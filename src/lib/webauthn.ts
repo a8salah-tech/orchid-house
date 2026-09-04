@@ -9,7 +9,7 @@ async function call(action: string, extra: Record<string, unknown> = {}) {
     body: JSON.stringify({ action, ...extra }),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error || 'تعذّر التحقق بالبصمة')
+  if (!res.ok) throw new Error(data?.error || 'تعذّر التحقّق بالبصمة\nBiometric verification failed')
   return data
 }
 
@@ -24,9 +24,9 @@ export async function registerBiometric(deviceLabel: string): Promise<void> {
   try {
     attResp = await startRegistration({ optionsJSON: options })
   } catch (e: any) {
-    if (e?.name === 'InvalidStateError') throw new Error('هذا الجهاز مسجَّل بالفعل')
-    if (e?.name === 'NotAllowedError') throw new Error('أُلغيت العملية أو انتهى الوقت')
-    throw new Error('تعذّر قراءة البصمة من الجهاز')
+    if (e?.name === 'InvalidStateError') throw new Error('هذا الجهاز مسجَّل بالفعل\nThis device is already registered')
+    if (e?.name === 'NotAllowedError') throw new Error('أُلغيت العملية أو انتهت مهلة الوقت\nThe operation was cancelled or timed out')
+    throw new Error('تعذّر قراءة البصمة من الجهاز\nCould not read the biometric from this device')
   }
   await call('register-verify', { response: attResp, deviceLabel })
 }
@@ -38,8 +38,8 @@ export async function verifyBiometric(): Promise<boolean> {
   try {
     asrResp = await startAuthentication({ optionsJSON: options })
   } catch (e: any) {
-    if (e?.name === 'NotAllowedError') throw new Error('أُلغيت البصمة أو انتهى الوقت')
-    throw new Error('تعذّر قراءة البصمة من الجهاز')
+    if (e?.name === 'NotAllowedError') throw new Error('أُلغِي التحقّق بالبصمة أو انتهت مهلة الوقت\nBiometric verification was cancelled or timed out')
+    throw new Error('تعذّر قراءة البصمة من الجهاز\nCould not read the biometric from this device')
   }
   const r = await call('auth-verify', { response: asrResp })
   return !!r.verified

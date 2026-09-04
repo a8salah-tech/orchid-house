@@ -479,7 +479,7 @@ function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccou
   }, [employee.id])
 
   async function resetBioDevice(id: string) {
-    if (!confirm('حذف بصمة هذا الجهاز؟ سيحتاج الموظف لإعادة تسجيلها من جهازه.')) return
+    if (!confirm('حذف بصمة هذا الجهاز؟ سيحتاج الموظف إلى إعادة تسجيلها من جهازه.\nDelete this device’s biometric? The employee will need to register again from their device.')) return
     await createClient().from('webauthn_credentials').delete().eq('id', id)
     loadBioDevices()
   }
@@ -571,21 +571,21 @@ function EmployeeDetailModal({ employee, isAdmin, onClose, onEdit, onCreateAccou
         {/* 🔐 أجهزة البصمة المسجّلة — إعادة تعيين عند فقدان الموبايل (الأدمن فقط) */}
         {isAdmin && (
         <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>🔐 أجهزة البصمة المسجّلة</div>
+          <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>🔐 أجهزة البصمة المسجَّلة · Registered biometric devices</div>
           {bioDevices.length === 0 ? (
-            <div style={{ fontSize: 12, color: S.muted }}>لا يوجد جهاز مسجَّل</div>
+            <div style={{ fontSize: 12, color: S.muted }}>لا يوجد جهاز مسجَّل · No registered device</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {bioDevices.map(d => (
                 <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ fontSize: 12, color: S.white }}>
-                    ✅ {d.device_label || 'جهاز'}
+                    ✅ {d.device_label || 'جهاز / Device'}
                     <span style={{ color: S.muted, marginInlineStart: 6, fontSize: 11 }}>
-                      {d.last_used_at ? `آخر استخدام ${new Date(d.last_used_at).toLocaleDateString()}` : new Date(d.created_at).toLocaleDateString()}
+                      {d.last_used_at ? `آخر استخدام / last used ${new Date(d.last_used_at).toLocaleDateString('en-CA')}` : new Date(d.created_at).toLocaleDateString('en-CA')}
                     </span>
                   </div>
                   <button onClick={() => resetBioDevice(d.id)} style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${S.red}55`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>
-                    🗑️ إعادة تعيين
+                    🗑️ إعادة تعيين · Reset
                   </button>
                 </div>
               ))}

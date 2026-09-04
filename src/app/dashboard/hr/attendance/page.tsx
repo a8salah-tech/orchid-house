@@ -126,12 +126,12 @@ function MyAttendanceCard() {
     setBioBusy(true); setBioMsg('')
     try {
       const label = /iphone|ipad/i.test(navigator.userAgent) ? 'iPhone / iPad'
-        : /android/i.test(navigator.userAgent) ? 'Android' : 'جهاز'
+        : /android/i.test(navigator.userAgent) ? 'Android' : 'جهاز / Device'
       await registerBiometric(label)
-      setBioMsg(isAr ? '✅ تم تفعيل البصمة على هذا الجهاز' : '✅ Biometric enabled on this device')
+      setBioMsg('✅ تمّ تفعيل البصمة على هذا الجهاز\n✅ Biometric enabled on this device')
       await fetchBio()
     } catch (e: any) {
-      setBioMsg('⚠️ ' + (e?.message || (isAr ? 'تعذّر تفعيل البصمة' : 'Could not enable biometric')))
+      setBioMsg('⚠️ ' + (e?.message || 'تعذّر تفعيل البصمة\nCould not enable biometric'))
     }
     setBioBusy(false)
   }
@@ -140,23 +140,19 @@ function MyAttendanceCard() {
   async function passBiometricGate(): Promise<boolean> {
     if (!bioFlag) return true
     if (!bioSupported) {
-      setLocError(isAr
-        ? 'هذا الجهاز لا يدعم التحقق بالبصمة. سجّل الحضور من هاتفك، أو راجع مديرك لتسجيله يدوياً.'
-        : 'This device does not support biometric verification. Use your phone, or ask your manager to record it manually.')
+      setLocError('هذا الجهاز لا يدعم التحقّق بالبصمة. يُرجى استخدام هاتفك المحمول، أو مراجعة مديرك لتسجيل الحضور يدوياً.\nThis device does not support biometric verification. Please use your mobile phone, or ask your manager to record attendance manually.')
       return false
     }
     if (myBioDevices.length === 0) {
-      setLocError(isAr
-        ? '⚠️ لازم تسجّل بصمتك أولاً من قسم «التحقق بالبصمة» بالأسفل قبل تسجيل الدخول أو الخروج.'
-        : '⚠️ You must first register your biometric (see "Biometric verification" below) before checking in or out.')
+      setLocError('يجب تسجيل بصمتك أولاً من قسم «التحقّق بالبصمة» أدناه قبل تسجيل الدخول أو الخروج.\nYou must first register your biometric in the "Biometric verification" section below before checking in or out.')
       return false
     }
     try {
       const ok = await verifyBiometric()
-      if (!ok) { setLocError(isAr ? 'فشل التحقق بالبصمة — حاول مرة أخرى' : 'Biometric verification failed — try again'); return false }
+      if (!ok) { setLocError('فشل التحقّق بالبصمة. يُرجى المحاولة مرّة أخرى.\nBiometric verification failed. Please try again.'); return false }
       return true
     } catch (e: any) {
-      setLocError(e?.message || (isAr ? 'فشل التحقق بالبصمة' : 'Biometric failed'))
+      setLocError(e?.message || 'فشل التحقّق بالبصمة.\nBiometric verification failed.')
       return false
     }
   }
@@ -626,7 +622,7 @@ function MyAttendanceCard() {
             </div>
           )}
           {locError && (
-            <div style={{ background: S.redB, borderRadius: 10, padding: '10px 14px', marginTop: 8, fontSize: 12, color: S.red }}>
+            <div style={{ background: S.redB, borderRadius: 10, padding: '10px 14px', marginTop: 8, fontSize: 12, color: S.red, whiteSpace: 'pre-line', lineHeight: 1.7 }}>
               ⚠️ {locError}
             </div>
           )}
@@ -674,19 +670,15 @@ function MyAttendanceCard() {
       {bioSupported && (
         <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${bioFlag && myBioDevices.length === 0 ? S.amber : S.border}`, padding: '16px 18px', marginTop: 14 }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: S.white, marginBottom: 4 }}>
-            🔐 {isAr ? 'التحقق بالبصمة' : 'Biometric verification'}
+            🔐 التحقّق بالبصمة · Biometric verification
           </div>
-          <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.7, marginBottom: 10 }}>
-            {isAr
-              ? 'استخدم بصمة وجهك أو إصبعك على هذا الجهاز لتأكيد هويتك عند كل تسجيل دخول وخروج.'
-              : 'Use your face or fingerprint on this device to confirm your identity at every check-in and check-out.'}
+          <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.8, marginBottom: 10, whiteSpace: 'pre-line' }}>
+            {'استخدم بصمة وجهك أو إصبعك على هذا الجهاز لتأكيد هويتك عند كل تسجيل دخول أو خروج.\nUse your face or fingerprint on this device to confirm your identity at every check-in and check-out.'}
           </div>
 
           {bioFlag && myBioDevices.length === 0 && (
-            <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '8px 10px', fontSize: 11, color: S.red, fontWeight: 700, marginBottom: 10 }}>
-              {isAr
-                ? '⛔ التحقق بالبصمة إلزامي الآن. لن تتمكّن من تسجيل الدخول أو الخروج حتى تسجّل جهازك من الزر بالأسفل.'
-                : '⛔ Biometric verification is now mandatory. You cannot check in or out until you register your device using the button below.'}
+            <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '8px 10px', fontSize: 11, color: S.red, fontWeight: 700, marginBottom: 10, whiteSpace: 'pre-line', lineHeight: 1.8 }}>
+              {'⛔ التحقّق بالبصمة إلزامي الآن. لن تتمكّن من تسجيل الدخول أو الخروج حتى تسجّل جهازك من الزرّ أدناه.\n⛔ Biometric verification is now mandatory. You cannot check in or out until you register your device using the button below.'}
             </div>
           )}
 
@@ -695,17 +687,15 @@ function MyAttendanceCard() {
               {myBioDevices.map(d => (
                 <div key={d.id} style={{ background: S.navy, borderRadius: 10, padding: '8px 10px', border: `1px solid ${S.border}` }}>
                   <div style={{ fontSize: 11, color: S.white }}>
-                    ✅ {d.device_label || (isAr ? 'جهاز' : 'Device')}
+                    ✅ {d.device_label || 'جهاز / Device'}
                     <span style={{ color: S.muted, marginInlineStart: 6 }}>
-                      {isAr ? 'سُجِّل ' : 'registered '}{new Date(d.created_at).toLocaleDateString('en-CA')}
+                      {'سُجِّل / registered '}{new Date(d.created_at).toLocaleDateString('en-CA')}
                     </span>
                   </div>
                 </div>
               ))}
-              <div style={{ fontSize: 10, color: S.muted, lineHeight: 1.6 }}>
-                {isAr
-                  ? 'ℹ️ جهاز واحد فقط لكل موظف. لتغيير الجهاز راجع الإدارة لإعادة التعيين — لا يمكنك حذف البصمة بنفسك.'
-                  : 'ℹ️ One device per employee. To change it, contact management to reset — you cannot delete your biometric yourself.'}
+              <div style={{ fontSize: 10, color: S.muted, lineHeight: 1.7, whiteSpace: 'pre-line' }}>
+                {'ℹ️ جهاز واحد فقط لكلّ موظف. لتغيير الجهاز يُرجى مراجعة الإدارة لإعادة التعيين — لا يمكنك حذف البصمة بنفسك.\nℹ️ One device per employee. To change it, contact management to reset it — you cannot delete your biometric yourself.'}
               </div>
             </div>
           )}
@@ -713,10 +703,10 @@ function MyAttendanceCard() {
           {myBioDevices.length === 0 && (
             <button onClick={handleRegisterBio} disabled={bioBusy}
               style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: bioBusy ? S.border : `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: bioBusy ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
-              {bioBusy ? '⏳ ...' : (isAr ? '➕ تسجيل هذا الجهاز' : '➕ Register this device')}
+              {bioBusy ? '⏳ ...' : '➕ تسجيل هذا الجهاز · Register this device'}
             </button>
           )}
-          {bioMsg && <div style={{ fontSize: 11, color: S.muted, marginTop: 8, textAlign: 'center' }}>{bioMsg}</div>}
+          {bioMsg && <div style={{ fontSize: 11, color: S.muted, marginTop: 8, textAlign: 'center', whiteSpace: 'pre-line', lineHeight: 1.7 }}>{bioMsg}</div>}
         </div>
       )}
 
@@ -1523,7 +1513,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         {([
           ['day', '📅 Daily View'],
           ['report', '📊 Employee Report'],
-          ...(isAdmin ? ([['absence', '🔍 Absence Detection'], ['health', '🩺 Attendance Health'], ['biometric', '🔐 البصمة']] as [typeof tab, string][]) : []),
+          ...(isAdmin ? ([['absence', '🔍 Absence Detection'], ['health', '🩺 Attendance Health'], ['biometric', '🔐 البصمة · Biometric']] as [typeof tab, string][]) : []),
         ] as [typeof tab, string][]).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '9px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: tab === t ? 800 : 400, background: tab === t ? S.gold3 : 'transparent', color: tab === t ? S.gold : S.muted }}>
             {label}
@@ -2119,21 +2109,21 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       {tab === 'biometric' && isAdmin && (
         <div>
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 20, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🔐 أجهزة البصمة المسجّلة</div>
-            <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.7 }}>
-              الموظفون الذين فعّلوا التحقق بالبصمة على أجهزتهم. الحذف/إعادة التعيين من صفحة الموظفين (الأدمن فقط) — الموظف لا يمكنه حذف بصمته بنفسه.
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🔐 أجهزة البصمة المسجَّلة · Registered biometric devices</div>
+            <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.8, whiteSpace: 'pre-line' }}>
+              {'الموظفون الذين فعّلوا التحقّق بالبصمة على أجهزتهم. الحذف / إعادة التعيين من صفحة الموظفين (مدير النظام فقط) — لا يمكن للموظف حذف بصمته بنفسه.\nEmployees who enabled biometric verification on their devices. Removal / reset is done from the Employees page (system admin only) — an employee cannot delete their own biometric.'}
             </div>
             <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: S.white, flexWrap: 'wrap' }}>
-              <span>✅ مسجَّل: <b style={{ color: S.green }}>{new Set(bioRoster.map(r => r.employee_id)).size}</b> موظف</span>
-              <span>📱 أجهزة: <b>{bioRoster.length}</b></span>
+              <span>✅ مسجَّل / Registered: <b style={{ color: S.green }}>{new Set(bioRoster.map(r => r.employee_id)).size}</b></span>
+              <span>📱 أجهزة / Devices: <b>{bioRoster.length}</b></span>
             </div>
           </div>
 
           {!bioRosterLoaded ? (
-            <div style={{ color: S.muted, fontSize: 12, padding: 20 }}>⏳ جاري التحميل...</div>
+            <div style={{ color: S.muted, fontSize: 12, padding: 20 }}>⏳ جارٍ التحميل… · Loading…</div>
           ) : bioRoster.length === 0 ? (
             <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 24, textAlign: 'center', color: S.muted, fontSize: 13 }}>
-              📭 لا يوجد أي موظف سجّل بصمته بعد
+              📭 لم يسجّل أي موظف بصمته بعد · No employee has registered a biometric yet
             </div>
           ) : (
             <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
@@ -2141,21 +2131,21 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'rgba(255,255,255,0.03)', color: S.muted, textAlign: 'right' }}>
-                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الموظف</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الرقم</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الجهاز</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>تاريخ التسجيل</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>آخر استخدام</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الموظف · Employee</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الرقم · No.</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>الجهاز · Device</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>تاريخ التسجيل · Registered</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>آخر استخدام · Last used</th>
                     </tr>
                   </thead>
                   <tbody>
                     {bioRoster.map(r => (
                       <tr key={r.id} style={{ borderTop: `1px solid ${S.border}`, opacity: r.is_active ? 1 : 0.5 }}>
                         <td style={{ padding: '10px 14px', color: S.white, fontWeight: 600 }}>
-                          {r.name}{!r.is_active && <span style={{ color: S.muted, fontWeight: 400 }}> (موقوف)</span>}
+                          {r.name}{!r.is_active && <span style={{ color: S.muted, fontWeight: 400 }}> (موقوف · inactive)</span>}
                         </td>
                         <td style={{ padding: '10px 14px', color: S.muted }}>{r.employee_number || '—'}</td>
-                        <td style={{ padding: '10px 14px', color: S.white }}>{r.device_label || 'جهاز'}</td>
+                        <td style={{ padding: '10px 14px', color: S.white }}>{r.device_label || 'جهاز / Device'}</td>
                         <td style={{ padding: '10px 14px', color: S.muted }}>{new Date(r.created_at).toLocaleDateString('en-CA')}</td>
                         <td style={{ padding: '10px 14px', color: S.muted }}>{r.last_used_at ? new Date(r.last_used_at).toLocaleDateString('en-CA') : '—'}</td>
                       </tr>

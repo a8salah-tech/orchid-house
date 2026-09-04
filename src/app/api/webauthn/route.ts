@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   let action = ''
   try {
     const caller = await getCaller()
-    if (!caller) return NextResponse.json({ error: 'غير مصرح' }, { status: 401 })
+    if (!caller) return NextResponse.json({ error: 'غير مصرَّح\nNot authorized' }, { status: 401 })
 
     const body = await req.json()
     action = body.action || ''
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
         .select('credential_id, transports').eq('employee_id', caller.id)
       // ✅ جهاز واحد فقط لكل موظف — لتغيير الجهاز يحذف الأدمن القديم أولاً (إعادة تعيين)
       if (existing && existing.length > 0) {
-        return NextResponse.json({ error: 'لديك جهاز بصمة مسجَّل بالفعل. لتغيير الجهاز راجع الإدارة لإعادة التعيين.' }, { status: 409 })
+        return NextResponse.json({ error: 'لديك جهاز بصمة مسجَّل بالفعل. لتغيير الجهاز يُرجى مراجعة الإدارة لإعادة التعيين.\nYou already have a registered biometric device. To change it, please contact management to reset it.' }, { status: 409 })
       }
       const options = await generateRegistrationOptions({
         rpName: RP_NAME,
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       const { error: chErr } = await admin.from('webauthn_challenges').upsert({
         employee_id: caller.id, challenge: options.challenge, kind: 'register', expires_at: in5min(),
       })
-      if (chErr) return NextResponse.json({ error: 'تعذّر حفظ الطلب: ' + chErr.message }, { status: 500 })
+      if (chErr) return NextResponse.json({ error: 'تعذّر حفظ الطلب / Could not save the request: ' + chErr.message }, { status: 500 })
       return NextResponse.json(options)
     }
 
@@ -63,10 +63,10 @@ export async function POST(req: NextRequest) {
     if (action === 'register-verify') {
       const { data: ch, error: chSelErr } = await admin.from('webauthn_challenges')
         .select('*').eq('employee_id', caller.id).eq('kind', 'register').maybeSingle()
-      if (chSelErr) return NextResponse.json({ error: 'تعذّر قراءة الطلب: ' + chSelErr.message }, { status: 500 })
-      if (!ch) return NextResponse.json({ error: 'لم يُعثر على طلب تسجيل — ابدأ من جديد' }, { status: 400 })
+      if (chSelErr) return NextResponse.json({ error: 'تعذّر قراءة الطلب / Could not read the request: ' + chSelErr.message }, { status: 500 })
+      if (!ch) return NextResponse.json({ error: 'لم يُعثر على طلب تسجيل — يُرجى البدء من جديد\nNo registration request found — please start again' }, { status: 400 })
       if (new Date(ch.expires_at) < new Date()) {
-        return NextResponse.json({ error: 'انتهت صلاحية الطلب — حاول مرة أخرى' }, { status: 400 })
+        return NextResponse.json({ error: 'انتهت مهلة الطلب — يُرجى المحاولة مرّة أخرى\nThe request timed out — please try again' }, { status: 400 })
       }
       const verification = await verifyRegistrationResponse({
         response: body.response,
@@ -76,14 +76,14 @@ export async function POST(req: NextRequest) {
         requireUserVerification: true,
       })
       if (!verification.verified || !verification.registrationInfo) {
-        return NextResponse.json({ error: 'فشل التحقق من البصمة' }, { status: 400 })
+        return NextResponse.json({ error: 'فشل التحقّق من البصمة\nBiometric verification failed' }, { status: 400 })
       }
       // ✅ جهاز واحد فقط لكل موظف (فحص ثانٍ ضد أي سباق طلبات)
       const { count: existingCount } = await admin.from('webauthn_credentials')
         .select('id', { count: 'exact', head: true }).eq('employee_id', caller.id)
       if ((existingCount || 0) > 0) {
         await admin.from('webauthn_challenges').delete().eq('employee_id', caller.id)
-        return NextResponse.json({ error: 'لديك جهاز بصمة مسجَّل بالفعل. لتغيير الجهاز راجع الإدارة.' }, { status: 409 })
+        return NextResponse.json({ error: 'لديك جهاز بصمة مسجَّل بالفعل. لتغيير الجهاز يُرجى مراجعة الإدارة.\nYou already have a registered biometric device. To change it, please contact management.' }, { status: 409 })
       }
       const cred = verification.registrationInfo.credential
       const { error: insErr } = await admin.from('webauthn_credentials').insert({
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
       })
       await admin.from('webauthn_challenges').delete().eq('employee_id', caller.id)
       if (insErr) {
-        if (insErr.code === '23505') return NextResponse.json({ error: 'هذا الجهاز مسجَّل بالفعل' }, { status: 409 })
+        if (insErr.code === '23505') return NextResponse.json({ error: 'هذا الجهاز مسجَّل بالفعل\nThis device is already registered' }, { status: 409 })
         return NextResponse.json({ error: insErr.message }, { status: 500 })
       }
       return NextResponse.json({ verified: true })
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       const { data: creds } = await admin.from('webauthn_credentials')
         .select('credential_id, transports').eq('employee_id', caller.id)
       if (!creds || creds.length === 0) {
-        return NextResponse.json({ error: 'لا توجد بصمة مسجّلة لهذا الحساب' }, { status: 404 })
+        return NextResponse.json({ error: 'لا توجد بصمة مسجَّلة لهذا الحساب\nNo biometric is registered for this account' }, { status: 404 })
       }
       const options = await generateAuthenticationOptions({
         rpID: RP_ID,
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
       const { error: chErr } = await admin.from('webauthn_challenges').upsert({
         employee_id: caller.id, challenge: options.challenge, kind: 'auth', expires_at: in5min(),
       })
-      if (chErr) return NextResponse.json({ error: 'تعذّر حفظ الطلب: ' + chErr.message }, { status: 500 })
+      if (chErr) return NextResponse.json({ error: 'تعذّر حفظ الطلب / Could not save the request: ' + chErr.message }, { status: 500 })
       return NextResponse.json(options)
     }
 
@@ -127,14 +127,14 @@ export async function POST(req: NextRequest) {
     if (action === 'auth-verify') {
       const { data: ch, error: chSelErr } = await admin.from('webauthn_challenges')
         .select('*').eq('employee_id', caller.id).eq('kind', 'auth').maybeSingle()
-      if (chSelErr) return NextResponse.json({ error: 'تعذّر قراءة الطلب: ' + chSelErr.message }, { status: 500 })
+      if (chSelErr) return NextResponse.json({ error: 'تعذّر قراءة الطلب / Could not read the request: ' + chSelErr.message }, { status: 500 })
       if (!ch || new Date(ch.expires_at) < new Date()) {
         return NextResponse.json({ error: 'انتهت صلاحية الطلب — حاول مرة أخرى' }, { status: 400 })
       }
       const credId = body.response?.id
       const { data: cred } = await admin.from('webauthn_credentials')
         .select('*').eq('employee_id', caller.id).eq('credential_id', credId).maybeSingle()
-      if (!cred) return NextResponse.json({ error: 'بصمة غير معروفة' }, { status: 400 })
+      if (!cred) return NextResponse.json({ error: 'بصمة غير معروفة\nUnrecognized biometric' }, { status: 400 })
       const verification = await verifyAuthenticationResponse({
         response: body.response,
         expectedChallenge: ch.challenge,
@@ -157,9 +157,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ verified: true })
     }
 
-    return NextResponse.json({ error: 'إجراء غير معروف' }, { status: 400 })
+    return NextResponse.json({ error: 'إجراء غير معروف\nUnknown action' }, { status: 400 })
   } catch (e: any) {
     console.error('webauthn error:', action, e?.message)
-    return NextResponse.json({ error: e?.message || 'خطأ في الخادم' }, { status: 500 })
+    return NextResponse.json({ error: e?.message || 'خطأ في الخادم\nServer error' }, { status: 500 })
   }
 }

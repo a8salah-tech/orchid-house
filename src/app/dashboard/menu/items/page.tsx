@@ -40,7 +40,6 @@ function formatMYR(amount: number | null | undefined): string {
 }
 
 const PAGE_SIZE = 20 // fallback
-const TOP_6_NAMES = ['شيش طاووق','كباب دجاج','مندي دجاج','شاورما مع الرز','كبسة دجاج','وجبة شاورما']
 
 // ══ Pagination Component ══
 function Pagination({ page, total, totalPages, onChange, pageSize, onPageSizeChange }: {
@@ -850,12 +849,15 @@ export default function MenuItemsPage() {
   const [filterAvailable, setFilterAvailable] = useState<'all' | 'available' | 'unavailable'>('all')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
+  // ✅ الأكثر طلباً — يُحسب من الطلبات المدفوعة فعلياً عبر RPC app_menu_top_items
+  const [topOrders, setTopOrders] = useState<{ menu_item_id: string; times_ordered: number; units: number }[]>([])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [cats, itms] = await Promise.all([
+    const [cats, itms, top] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('menu_items').select('id, category_id, name, name_en, name_ms, or_code, description, description_en, description_ms, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.rpc('app_menu_top_items', { p_limit: 10 }),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,
@@ -863,6 +865,8 @@ export default function MenuItemsPage() {
     }))
     setCategories(catsWithCount)
     setItems(itms.data || [])
+    if (top.error) console.warn('app_menu_top_items:', top.error.message)
+    setTopOrders((top.data as any) || [])
     setLoading(false)
   }, [])
 
@@ -928,8 +932,12 @@ export default function MenuItemsPage() {
   const totalPages = pageSize === 9999 ? 1 : Math.ceil(filtered.length / pageSize)
   const paginated = pageSize === 9999 ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize)
 
-  // Top 6
-  const top6 = items.filter(i => TOP_6_NAMES.includes(i.name))
+  // ✅ الأكثر طلباً: نربط نتائج الـ RPC بأصناف المنيو الحالية، ونحافظ على ترتيب الـ RPC (الأعلى أولاً)
+  const itemById = new Map(items.map(i => [i.id, i]))
+  const topList = topOrders
+    .map(t => ({ item: itemById.get(t.menu_item_id), times: t.times_ordered, units: t.units }))
+    .filter((x): x is { item: MenuItem; times: number; units: number } => !!x.item)
+    .slice(0, 10)
 
   // Stats
   const totalItems = items.length
@@ -978,24 +986,30 @@ export default function MenuItemsPage() {
         ))}
       </div>
 
-      {/* ══ Top 6 الأكثر طلباً ══ */}
-      {top6.length > 0 && selectedCat === 'all' && !search && (
+      {/* ══ الأكثر طلباً — أعلى 10 أصناف من الطلبات المدفوعة ══ */}
+      {topList.length > 0 && selectedCat === 'all' && !search && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 18 }}>🔥</span>
-            <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>الأكثر طلباً</span>
-            <span style={{ fontSize: 12, color: S.muted, background: S.card2, borderRadius: 20, padding: '2px 10px' }}>أعلى 6 أصناف</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{isAr ? 'الأكثر طلباً' : 'Most Ordered'}</span>
+            <span style={{ fontSize: 12, color: S.muted, background: S.card2, borderRadius: 20, padding: '2px 10px' }}>{isAr ? `أعلى ${topList.length} أصناف` : `Top ${topList.length}`}</span>
+            <span style={{ fontSize: 11, color: S.muted }}>{isAr ? '· حسب الطلبات المدفوعة' : '· by paid orders'}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
-            {top6.slice(0, 6).map((item, idx) => (
-              <div key={item.id} style={{ background: S.navy2, borderRadius: 14, border: `2px solid rgba(201,168,76,0.25)`, overflow: 'hidden', position: 'relative' }}>
+            {topList.map(({ item, times, units }, idx) => (
+              <div key={item.id} onClick={() => setEditItem(item)} style={{ background: S.navy2, borderRadius: 14, border: `2px solid rgba(201,168,76,0.25)`, overflow: 'hidden', position: 'relative', cursor: 'pointer' }}>
                 <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, background: S.gold, color: S.navy, borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>{idx + 1}</div>
+                <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 2, background: 'rgba(10,22,40,0.85)', borderRadius: 8, padding: '3px 8px', fontSize: 11, color: S.gold, fontWeight: 800 }}>×{units} {isAr ? 'مرة' : ''}</div>
                 <div style={{ aspectRatio: '4/3', background: S.navy3, overflow: 'hidden' }}>
                   {item.image_url ? <img src={item.image_url} loading="lazy" alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>{item.menu_categories?.icon || '🍽️'}</div>}
                 </div>
                 <div style={{ padding: '10px 12px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{item.name_en || item.name}</div>                  <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{lang === 'en' ? (item.name_en || item.name) : item.name}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</span>
+                    <span style={{ fontSize: 11, color: S.muted }}>{times} {isAr ? 'طلب' : 'orders'}</span>
+                  </div>
                 </div>
               </div>
             ))}

@@ -857,7 +857,7 @@ export default function MenuItemsPage() {
     const [cats, itms, top] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('menu_items').select('id, category_id, name, name_en, name_ms, or_code, description, description_en, description_ms, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
-      supabase.rpc('app_menu_top_items', { p_limit: 10 }),
+      supabase.rpc('app_menu_top_items', { p_limit: 10, p_days: 90 }),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,
@@ -993,7 +993,7 @@ export default function MenuItemsPage() {
             <span style={{ fontSize: 18 }}>🔥</span>
             <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{isAr ? 'الأكثر طلباً' : 'Most Ordered'}</span>
             <span style={{ fontSize: 12, color: S.muted, background: S.card2, borderRadius: 20, padding: '2px 10px' }}>{isAr ? `أعلى ${topList.length} أصناف` : `Top ${topList.length}`}</span>
-            <span style={{ fontSize: 11, color: S.muted }}>{isAr ? '· حسب الطلبات المدفوعة' : '· by paid orders'}</span>
+            <span style={{ fontSize: 11, color: S.muted }}>{isAr ? '· الطلبات المدفوعة آخر 90 يوم' : '· paid orders, last 90 days'}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
             {topList.map(({ item, times, units }, idx) => (

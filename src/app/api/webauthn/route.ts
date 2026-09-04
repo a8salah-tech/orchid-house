@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
     if (action === 'register-options') {
       const { data: existing } = await admin.from('webauthn_credentials')
         .select('credential_id, transports').eq('employee_id', caller.id)
+      // ✅ جهاز واحد فقط لكل موظف — لتغيير الجهاز يحذف الأدمن القديم أولاً (إعادة تعيين)
+      if (existing && existing.length > 0) {
+        return NextResponse.json({ error: 'لديك جهاز بصمة مسجَّل بالفعل. لتغيير الجهاز راجع الإدارة لإعادة التعيين.' }, { status: 409 })
+      }
       const options = await generateRegistrationOptions({
         rpName: RP_NAME,
         rpID: RP_ID,
@@ -73,6 +77,13 @@ export async function POST(req: NextRequest) {
       })
       if (!verification.verified || !verification.registrationInfo) {
         return NextResponse.json({ error: 'فشل التحقق من البصمة' }, { status: 400 })
+      }
+      // ✅ جهاز واحد فقط لكل موظف (فحص ثانٍ ضد أي سباق طلبات)
+      const { count: existingCount } = await admin.from('webauthn_credentials')
+        .select('id', { count: 'exact', head: true }).eq('employee_id', caller.id)
+      if ((existingCount || 0) > 0) {
+        await admin.from('webauthn_challenges').delete().eq('employee_id', caller.id)
+        return NextResponse.json({ error: 'لديك جهاز بصمة مسجَّل بالفعل. لتغيير الجهاز راجع الإدارة.' }, { status: 409 })
       }
       const cred = verification.registrationInfo.credential
       const { error: insErr } = await admin.from('webauthn_credentials').insert({

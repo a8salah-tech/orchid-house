@@ -693,16 +693,18 @@ function MyAttendanceCard() {
               ))}
               <div style={{ fontSize: 10, color: S.muted, lineHeight: 1.6 }}>
                 {isAr
-                  ? 'ℹ️ لإزالة جهاز أو تغييره، راجع الإدارة — لا يمكنك حذف البصمة بنفسك.'
-                  : 'ℹ️ To remove or change a device, contact management — you cannot delete your biometric yourself.'}
+                  ? 'ℹ️ جهاز واحد فقط لكل موظف. لتغيير الجهاز راجع الإدارة لإعادة التعيين — لا يمكنك حذف البصمة بنفسك.'
+                  : 'ℹ️ One device per employee. To change it, contact management to reset — you cannot delete your biometric yourself.'}
               </div>
             </div>
           )}
 
-          <button onClick={handleRegisterBio} disabled={bioBusy}
-            style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: bioBusy ? S.border : `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: bioBusy ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
-            {bioBusy ? '⏳ ...' : (isAr ? '➕ تسجيل هذا الجهاز' : '➕ Register this device')}
-          </button>
+          {myBioDevices.length === 0 && (
+            <button onClick={handleRegisterBio} disabled={bioBusy}
+              style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: bioBusy ? S.border : `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: bioBusy ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+              {bioBusy ? '⏳ ...' : (isAr ? '➕ تسجيل هذا الجهاز' : '➕ Register this device')}
+            </button>
+          )}
           {bioMsg && <div style={{ fontSize: 11, color: S.muted, marginTop: 8, textAlign: 'center' }}>{bioMsg}</div>}
         </div>
       )}

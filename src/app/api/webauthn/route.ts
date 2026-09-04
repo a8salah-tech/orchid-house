@@ -50,7 +50,13 @@ export async function POST(req: NextRequest) {
         excludeCredentials: (existing || []).map(c => ({
           id: c.credential_id, transports: (c.transports as any) || undefined,
         })),
-        authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
+        // ✅ authenticatorAttachment:'platform' يجبر بصمة الجهاز نفسه (Face ID / بصمة الإصبع)
+        // ويمنع Safari من عرض "Scan QR Code / Use Security Key" (تسجيل من جهاز آخر)
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          residentKey: 'preferred',
+          userVerification: 'required',
+        },
       })
       const { error: chErr } = await admin.from('webauthn_challenges').upsert({
         employee_id: caller.id, challenge: options.challenge, kind: 'register', expires_at: in5min(),

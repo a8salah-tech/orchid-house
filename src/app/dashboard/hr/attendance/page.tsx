@@ -28,6 +28,14 @@ const S = {
   card: 'rgba(255,255,255,0.04)', card2: 'rgba(255,255,255,0.08)',
 }
 
+// ✅ نص زر الدخول/الخروج أثناء التحميل يوضّح الخطوة الفعلية الحالية (بدل رسالة ثابتة واحدة طول الوقت)،
+// عشان الموظف يفهم إن الوقت الإضافي بعد إضافة البصمة الإلزامية سببه التحقق نفسه مش تعليق في النظام
+function checkStepLabel(step: 'idle' | 'location' | 'biometric' | 'saving'): string {
+  if (step === 'biometric') return '🔒 Verifying biometric...'
+  if (step === 'saving') return '💾 Saving...'
+  return '📍 Getting location...'
+}
+
 function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -95,6 +103,9 @@ function MyAttendanceCard() {
   const [today,     setToday]     = useState<AttendanceRecord | null>(null)
   const [loading,   setLoading]   = useState(true)
   const [checking,  setChecking]  = useState(false)
+  // ✅ خطوة تسجيل الدخول/الخروج الحالية — تُعرض في نص الزر بدل رسالة ثابتة "Getting location"، عشان
+  // الموظف يفهم إن الوقت الإضافي دلوقتي بسبب التحقق بالبصمة مش تعليق/عطل في النظام
+  const [checkStep, setCheckStep] = useState<'idle' | 'location' | 'biometric' | 'saving'>('idle')
   const [distance,  setDistance]  = useState<number | null>(null)
   const [locError,  setLocError]  = useState('')
   const [history,   setHistory]   = useState<AttendanceRecord[]>([])
@@ -252,7 +263,7 @@ function MyAttendanceCard() {
 
   async function checkIn() {
     if (!employee?.id || !myBranch) return
-    setChecking(true); setLocError('')
+    setChecking(true); setCheckStep('location'); setLocError('')
     try {
       const pos  = await getLocation()
       const lat  = pos.coords.latitude
@@ -263,11 +274,13 @@ function MyAttendanceCard() {
 
       if (dist > radius) {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check in.`)
-        setChecking(false); return
+        setChecking(false); setCheckStep('idle'); return
       }
 
       // ✅ بوابة البصمة — تتحقق من هوية الموظف قبل تسجيل الدخول (منع تسجيل زميل بالنيابة)
-      if (!(await passBiometricGate())) { setChecking(false); return }
+      setCheckStep('biometric')
+      if (!(await passBiometricGate())) { setChecking(false); setCheckStep('idle'); return }
+      setCheckStep('saving')
 
       // ✅ Fix v2: منع تسجيل دخول جديد لو بعد يوجد شيفت مفتوح (لم يسجل خروج منه)
       const { data: stillOpen } = await sb.from('attendance')
@@ -280,7 +293,7 @@ function MyAttendanceCard() {
         .maybeSingle()
       if (stillOpen) {
         setLocError('You already have an open check-in. Please check out first before checking in again.')
-        setChecking(false); return
+        setChecking(false); setCheckStep('idle'); return
       }
 
       const today_date = getMalaysiaDateString()
@@ -398,19 +411,19 @@ function MyAttendanceCard() {
         error = res.error
       }
 
-      if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
+      if (error) { setLocError('Error: ' + error.message); setChecking(false); setCheckStep('idle'); return }
       setDistance(Math.round(dist))
       await fetchData()
       // ✅ تأخير قصير قبل إظهار زر Check Out في نفس مكان الزر، لمنع ضغطة متتالية سريعة غير مقصودة
       setJustCheckedIn(true)
       setTimeout(() => setJustCheckedIn(false), 60000)
     } catch (e: any) { setLocError('Location error: ' + e.message) }
-    setChecking(false)
+    setChecking(false); setCheckStep('idle')
   }
 
   async function checkOut() {
     if (!employee?.id) return
-    setChecking(true); setLocError('')
+    setChecking(true); setCheckStep('location'); setLocError('')
     try {
       const pos  = await getLocation()
       const lat  = pos.coords.latitude
@@ -421,11 +434,13 @@ function MyAttendanceCard() {
       const radius = myBranch?.radius_meters || 150
       if (dist > radius) {
         setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check out.`)
-        setChecking(false); return
+        setChecking(false); setCheckStep('idle'); return
       }
 
       // ✅ بوابة البصمة — تتحقق من هوية الموظف قبل تسجيل الخروج
-      if (!(await passBiometricGate())) { setChecking(false); return }
+      setCheckStep('biometric')
+      if (!(await passBiometricGate())) { setChecking(false); setCheckStep('idle'); return }
+      setCheckStep('saving')
 
       // ✅ Fix v2: البحث عن آخر صف حضور "مفتوح" (يوجد check_in بدون check_out)
       // بدل الاعتماد على تاريخ اليوم الحالي — ضروري للشيفتات التي تعبر منتصف الليل
@@ -438,10 +453,10 @@ function MyAttendanceCard() {
         .limit(1)
         .maybeSingle()
 
-      if (findError) { setLocError('Error: ' + findError.message); setChecking(false); return }
+      if (findError) { setLocError('Error: ' + findError.message); setChecking(false); setCheckStep('idle'); return }
       if (!openRecord) {
         setLocError('No open check-in found. Please check in first.')
-        setChecking(false); return
+        setChecking(false); setCheckStep('idle'); return
       }
 
       // ✅ حماية من إساءة الاستخدام: تسجيل دخول ثم خروج فوري بعد ثوانٍ/دقائق قليلة (بدون عمل فعلي)،
@@ -454,13 +469,13 @@ function MyAttendanceCard() {
       if (minutesSinceCheckIn !== null && minutesSinceCheckIn < MIN_SHIFT_MINUTES) {
         // نوقف هنا وننتظر تأكيد الموظف من النافذة المنبثقة — التنفيذ الفعلي في finalizeCheckOut()
         setShortShiftModal({ minutes: minutesSinceCheckIn, openRecordId: openRecord.id, lat, lng, dist, date: openRecord.date })
-        setChecking(false)
+        setChecking(false); setCheckStep('idle')
         return
       }
 
       await finalizeCheckOut(openRecord.id, lat, lng, dist, null, employee.id, openRecord.date)
     } catch (e: any) { setLocError('Location error: ' + e.message) }
-    setChecking(false)
+    setChecking(false); setCheckStep('idle')
   }
 
   // ✅ التنفيذ الفعلي لتسجيل الخروج — منفصل عن checkOut() لأنه يُستدعى إما مباشرة (خروج طبيعي)
@@ -502,7 +517,7 @@ function MyAttendanceCard() {
       })
       .eq('id', openRecordId)
 
-    if (error) { setLocError('Error: ' + error.message); setChecking(false); return }
+    if (error) { setLocError('Error: ' + error.message); setChecking(false); setCheckStep('idle'); return }
 
     // ✅ لو رصدنا نسيان تسجيل خروج (وضبطنا الوقت) — نرفع مخالفة نظام تُعتمد وتُخصم مباشرة (status='active').
     // مخالفات النظام لا تحتاج مراجعة؛ إلغاؤها من صفحة المخالفات لمدير النظام فقط. لو كان أوفر تايم فعلي
@@ -525,14 +540,14 @@ function MyAttendanceCard() {
 
     setDistance(Math.round(dist))
     await fetchData()
-    setChecking(false)
+    setChecking(false); setCheckStep('idle')
   }
 
   // ✅ يُستدعى عند تأكيد الموظف صراحةً من نافذة "خروج سريع جداً" — يسجّل الخروج، ويرفع مخالفة
   // "بانتظار الاعتماد" (submitted) للمراجعة، بنفس منطق ومصطلحات صفحة إدارة المخالفات الحالية
   async function confirmShortShiftCheckOut() {
     if (!shortShiftModal || !employee?.id) return
-    setChecking(true)
+    setChecking(true); setCheckStep('saving')
     const { minutes, openRecordId, lat, lng, dist, date } = shortShiftModal
     const note = `⚠️ خروج سريع جداً (${minutes} دقيقة فقط بعد الدخول) — يحتاج مراجعة الإدارة / Very short shift (only ${minutes} min after check-in) — needs management review`
     await finalizeCheckOut(openRecordId, lat, lng, dist, note, employee.id, date)
@@ -646,7 +661,7 @@ function MyAttendanceCard() {
         {!today?.check_in_time ? (
           <button onClick={checkIn} disabled={checking}
             style={{ width: '100%', padding: '16px', borderRadius: 14, border: 'none', background: `linear-gradient(135deg, ${S.green}, #16A34A)`, color: S.white, cursor: checking ? 'not-allowed' : 'pointer', fontSize: 16, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: checking ? 0.7 : 1, boxShadow: '0 4px 20px rgba(34,197,94,0.3)' }}>
-            {checking ? '⏳ Getting location...' : '✅ Check In'}
+            {checking ? checkStepLabel(checkStep) : '✅ Check In'}
           </button>
         ) : justCheckedIn ? (
           <div style={{ width: '100%', padding: '16px', borderRadius: 14, background: S.greenB, border: `1px solid ${S.green}40`, textAlign: 'center' }}>
@@ -656,7 +671,7 @@ function MyAttendanceCard() {
         ) : !today?.check_out_time ? (
           <button onClick={checkOut} disabled={checking}
             style={{ width: '100%', padding: '16px', borderRadius: 14, border: 'none', background: `linear-gradient(135deg, ${S.red}, #DC2626)`, color: S.white, cursor: checking ? 'not-allowed' : 'pointer', fontSize: 16, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: checking ? 0.7 : 1, boxShadow: '0 4px 20px rgba(239,68,68,0.3)' }}>
-            {checking ? '⏳ Getting location...' : '🔴 Check Out'}
+            {checking ? checkStepLabel(checkStep) : '🔴 Check Out'}
           </button>
         ) : (
           <div style={{ background: S.greenB, borderRadius: 12, padding: '14px', textAlign: 'center', border: `1px solid ${S.green}40` }}>
@@ -746,7 +761,7 @@ function MyAttendanceCard() {
     {shortShiftModal && typeof document !== 'undefined' && createPortal(
       <div
         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}
-        onClick={() => { setShortShiftModal(null); setChecking(false) }}
+        onClick={() => { setShortShiftModal(null); setChecking(false); setCheckStep('idle') }}
       >
         <div
           onClick={e => e.stopPropagation()}
@@ -771,7 +786,7 @@ function MyAttendanceCard() {
               style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: checking ? 'default' : 'pointer', fontWeight: 800, fontFamily: 'inherit', fontSize: 13, opacity: checking ? 0.6 : 1 }}
             >{checking ? '⏳...' : 'تأكيد الخروج / Confirm Checkout'}</button>
             <button
-              onClick={() => { setShortShiftModal(null); setChecking(false) }}
+              onClick={() => { setShortShiftModal(null); setChecking(false); setCheckStep('idle') }}
               disabled={checking}
               style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: checking ? 'default' : 'pointer', fontWeight: 700, fontFamily: 'inherit', fontSize: 13 }}
             >إلغاء / Cancel</button>

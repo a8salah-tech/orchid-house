@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
           residentKey: 'preferred',
           userVerification: 'required',
         },
+        // ✅ مهلة سخية (دقيقتين) بدل الافتراضي القصير في بعض المتصفحات — كان بيسبب "انتهت مهلة البصمة"
+        // لموظفين حسّاس البصمة عندهم بياخد أكتر من محاولة، أو بياخدوا وقت يوصلوا الموبايل لوشهم
+        timeout: 120000,
       })
       const { error: chErr } = await admin.from('webauthn_challenges').upsert({
         employee_id: caller.id, challenge: options.challenge, kind: 'register', expires_at: in5min(),
@@ -121,6 +124,8 @@ export async function POST(req: NextRequest) {
           id: c.credential_id, transports: (c.transports as any) || undefined,
         })),
         userVerification: 'required',
+        // ✅ نفس مهلة التسجيل (دقيقتين) - راجع تعليق register-options لسبب رفعها
+        timeout: 120000,
       })
       const { error: chErr } = await admin.from('webauthn_challenges').upsert({
         employee_id: caller.id, challenge: options.challenge, kind: 'auth', expires_at: in5min(),

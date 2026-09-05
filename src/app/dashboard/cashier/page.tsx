@@ -116,12 +116,12 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
       <td>#${o.id.slice(-6).toUpperCase()}</td>
       <td>${(o.order_items || []).filter(it => it.status !== 'cancelled').map(it => (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + (it.size_name ? ' (' + it.size_name + ')' : '') + ' ×' + it.quantity).join(', ')}</td>
       <td>${o.payment_method === 'split'
-          ? splitPayments.filter(sp => sp.order_id === o.id).map(sp => `${sp.payment_method.toUpperCase()}${sp.card_bank ? ' (' + sp.card_bank + ')' : ''} MYR ${sp.amount.toFixed(2)}`).join(' + ') || 'SPLIT'
+          ? splitPayments.filter(sp => sp.order_id === o.id).map(sp => `${sp.payment_method.toUpperCase()}${sp.card_bank ? ' (' + sp.card_bank + ')' : ''} MYR ${sp.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join(' + ') || 'SPLIT'
           : `${o.payment_method?.toUpperCase() || '—'}${(o as any).card_bank ? ' (' + (o as any).card_bank + ')' : ''}`}</td>
-      <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : (o.payment_method === 'free' ? 'FREE' : '—')}</td>
+      <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (o.payment_method === 'free' ? 'FREE' : '—')}</td>
       <td>${o.notes ? o.notes.replace(/</g, '&lt;') : '—'}</td>
       <td>${o.paid_by_name || '—'}</td>
-      <td><b>MYR ${(o.total_amount || 0).toFixed(2)}</b></td>
+      <td><b>MYR ${(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></td>
       <td>${o.paid_at ? new Date(o.paid_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
     </tr>`).join('')
 
@@ -140,7 +140,7 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
       <td>${i + 1}</td>
       <td>${e.description}</td>
       <td>${e.status === 'paid' ? '✅ Paid' : '⏳ Pending'}</td>
-      <td><b>MYR ${e.amount.toFixed(2)}</b></td>
+      <td><b>MYR ${e.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></td>
       <td>${new Date(e.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
     </tr>`).join('')
 
@@ -168,23 +168,23 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
   <h3>Started: ${new Date(session.started_at).toLocaleString('en-GB')} ${session.ended_at ? '· Ended: ' + new Date(session.ended_at).toLocaleString('en-GB') : '· 🟢 Still Active (printed at ' + new Date().toLocaleTimeString('en-GB') + ')'}</h3>
 
   <div class="summary">
-    <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toFixed(2)} · BSN ${totals.visaBsn.toFixed(2)})</div><div class="value">MYR ${totals.visa.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount || 0})</div><div class="value">MYR ${(totals.freeAmount || 0).toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${(totals.deposits || 0).toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">⏳ Expenses Pending</div><div class="value">MYR ${totals.expPending.toFixed(2)}</div></div>
-    <div class="summary-box" style="background:#1E3A8A;border-color:#1E3A8A;"><div class="label" style="color:#cbd5e1;">💰 Total Sales</div><div class="value" style="color:#fff;">MYR ${totals.total.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${totals.visaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</div><div class="value">MYR ${totals.visa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount || 0})</div><div class="value">MYR ${(totals.freeAmount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${(totals.deposits || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">⏳ Expenses Pending</div><div class="value">MYR ${totals.expPending.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box" style="background:#1E3A8A;border-color:#1E3A8A;"><div class="label" style="color:#cbd5e1;">💰 Total Sales</div><div class="value" style="color:#fff;">MYR ${totals.total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
   </div>
 
   <h4>📋 All Paid Orders (${paidOrders.length})</h4>
   ${paidOrders.length ? `<table>
     <thead><tr><th>#</th><th>Table</th><th>Order #</th><th>Items</th><th>Payment</th><th>Discount</th><th>Reason</th><th>Cashier</th><th>Total</th><th>Time</th></tr></thead>
     <tbody>${orderRows}
-      <tr class="total-row"><td colspan="8">TOTAL — ${paidOrders.length} orders</td><td>MYR ${totals.total.toFixed(2)}</td><td>—</td></tr>
+      <tr class="total-row"><td colspan="8">TOTAL — ${paidOrders.length} orders</td><td>MYR ${totals.total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>—</td></tr>
     </tbody>
   </table>` : `<div class="no-data">No paid orders in this shift.</div>`}
 
@@ -234,7 +234,7 @@ function printAggregatedReport(title: string, subtitle: string, orders: Order[],
       <td>${i + 1}</td>
       <td>${r.name}</td>
       <td>${r.qty}</td>
-      <td><b>MYR ${r.revenue.toFixed(2)}</b></td>
+      <td><b>MYR ${r.revenue.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></td>
     </tr>`).join('')
 
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -262,23 +262,23 @@ function printAggregatedReport(title: string, subtitle: string, orders: Order[],
   <div class="summary">
     <div class="summary-box"><div class="label">📋 Paid Orders</div><div class="value">${paidOrders.length}</div></div>
     <div class="summary-box"><div class="label">🍽️ Items Sold</div><div class="value">${totalUnits}</div></div>
-    <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toFixed(2)} · BSN ${totals.visaBsn.toFixed(2)})</div><div class="value">MYR ${totals.visa.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount})</div><div class="value">MYR ${totals.freeAmount.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${totals.deposits.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toFixed(2)}</div></div>
-    <div class="summary-box"><div class="label">⏳ Expenses Pending</div><div class="value">MYR ${totals.expPending.toFixed(2)}</div></div>
-    <div class="summary-box" style="background:#1E3A8A;border-color:#1E3A8A;"><div class="label" style="color:#cbd5e1;">💰 Total Sales</div><div class="value" style="color:#fff;">MYR ${totals.total.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${totals.visaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</div><div class="value">MYR ${totals.visa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount})</div><div class="value">MYR ${totals.freeAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${totals.deposits.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">⏳ Expenses Pending</div><div class="value">MYR ${totals.expPending.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box" style="background:#1E3A8A;border-color:#1E3A8A;"><div class="label" style="color:#cbd5e1;">💰 Total Sales</div><div class="value" style="color:#fff;">MYR ${totals.total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
   </div>
 
   <h4>🍽️ Items Sold — Grouped (${itemRows.length} distinct items)</h4>
   ${itemRows.length ? `<table>
     <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Revenue</th></tr></thead>
     <tbody>${rows}
-      <tr class="total-row"><td colspan="2">TOTAL</td><td>${totalUnits}</td><td>MYR ${itemRows.reduce((s, r) => s + r.revenue, 0).toFixed(2)}</td></tr>
+      <tr class="total-row"><td colspan="2">TOTAL</td><td>${totalUnits}</td><td>MYR ${itemRows.reduce((s, r) => s + r.revenue, 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
     </tbody>
   </table>` : `<div class="no-data">No paid orders.</div>`}
 
@@ -339,10 +339,10 @@ function ShiftItemSummaryModal({ data, onClose }: {
           {[
             { label: 'Paid Orders', value: paidOrders.length, color: S.blue, icon: '📋' },
             { label: 'Items Sold', value: totalUnits, color: S.green, icon: '🍽️' },
-            { label: `Free Tables (${freeCount})`, value: `MYR ${freeAmount.toFixed(2)}`, color: S.amber, icon: '🆓' },
-            { label: 'Discounts', value: `MYR ${discount.toFixed(2)}`, color: S.red, icon: '🏷️' },
-            { label: 'Deposits', value: `MYR ${deposits.toFixed(2)}`, color: S.teal, icon: '💰' },
-            { label: 'Total', value: `MYR ${total.toFixed(2)}`, color: S.gold, icon: '💰' },
+            { label: `Free Tables (${freeCount})`, value: `MYR ${freeAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.amber, icon: '🆓' },
+            { label: 'Discounts', value: `MYR ${discount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.red, icon: '🏷️' },
+            { label: 'Deposits', value: `MYR ${deposits.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.teal, icon: '💰' },
+            { label: 'Total', value: `MYR ${total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.gold, icon: '💰' },
           ].map((s, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 12, padding: '10px 12px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
               <div style={{ fontSize: 16, marginBottom: 4 }}>{s.icon}</div>
@@ -370,7 +370,7 @@ function ShiftItemSummaryModal({ data, onClose }: {
                   <tr key={i} style={{ borderTop: `1px solid ${S.border}` }}>
                     <td style={{ padding: '8px 12px', color: S.white }}>{r.name}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'center', color: S.gold, fontWeight: 800 }}>×{r.qty}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: S.muted }}>MYR {r.revenue.toFixed(2)}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: S.muted }}>MYR {r.revenue.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 ))}
               </tbody>
@@ -794,7 +794,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         (discountType === 'amount' || discountType === 'percent' || discountType === 'free') && discountReason.trim()
           ? `${discountType === 'free' ? '🎁 Free reason' : '🏷️ Discount reason'}: ${discountReason.trim()}`
           : null,
-        depositApplied ? `💰 Deposit applied: MYR ${depositDeduction.toFixed(2)}` : null,
+        depositApplied ? `💰 Deposit applied: MYR ${depositDeduction.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null,
       ].filter(Boolean).join(' | ') || null,
     }).eq('table_id', order.table_id).in('status', ['confirmed','preparing','ready'])
     // ✅ Fix حرج جدًا: Supabase مابيرميش استثناء تلقائي لما السيرفر يرفض الطلب - بنتأكد صراحة ونرمي خطأ فعلي
@@ -1050,23 +1050,23 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     <div class="row"><span>Order #:</span><span>${order.id.slice(-6).toUpperCase()}</span></div>
     <div class="line"></div>
     ${order.order_items.filter(i => i.status !== 'cancelled').map(i => `
-    <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}${i.size_name ? ' (' + i.size_name + ')' : ''} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toFixed(2)}</span></div>
+    <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}${i.size_name ? ' (' + i.size_name + ')' : ''} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
     ${i.notes ? `<div style="font-size:10px;color:#666;padding-right:10px">* ${i.notes}</div>` : ''}
     `).join('')}
     <div class="line"></div>
-    <div class="row"><span>Subtotal</span><span>MYR ${subtotal.toFixed(2)}</span></div>
+    <div class="row"><span>Subtotal</span><span>MYR ${subtotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
     ${discountType !== 'free' ? `
-    ${!isTakeawayOrder ? `<div class="row"><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toFixed(2)}</span></div>` : ''}
-    <div class="row"><span>SST (6%)</span><span>MYR ${sst.toFixed(2)}</span></div>
+    ${!isTakeawayOrder ? `<div class="row"><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+    <div class="row"><span>SST (6%)</span><span>MYR ${sst.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
     ` : ''}
-    ${discountAmt > 0 ? `<div class="row"><span>Discount</span><span>- MYR ${discountAmt.toFixed(2)}</span></div>` : ''}
+    ${discountAmt > 0 ? `<div class="row"><span>Discount</span><span>- MYR ${discountAmt.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
     <div class="line"></div>
-    <div class="row bold big"><span>TOTAL</span><span>MYR ${total.toFixed(2)}</span></div>
+    <div class="row bold big"><span>TOTAL</span><span>MYR ${total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
     <div class="line"></div>
     <div class="row"><span>Payment</span><span>${discountType === 'free' ? 'COMPLIMENTARY' : method.toUpperCase()}</span></div>
     ${method === 'cash' && discountType !== 'free' && cashReceivedNum >= total && cashReceived.trim() !== '' ? `
-    <div class="row"><span>Cash Received</span><span>MYR ${cashReceivedNum.toFixed(2)}</span></div>
-    <div class="row bold"><span>Change Due</span><span>MYR ${changeDue.toFixed(2)}</span></div>
+    <div class="row"><span>Cash Received</span><span>MYR ${cashReceivedNum.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+    <div class="row bold"><span>Change Due</span><span>MYR ${changeDue.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
     ` : ''}
     <div class="line"></div>
     <div class="center" style="font-size:10px;margin-top:10px">
@@ -1111,7 +1111,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
                       {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
                       <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                     </span>
-                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   {i.notes && <div style={{ fontSize: 11, color: S.gold, marginTop: 2 }}>📝 {i.notes}</div>}
                   {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginTop: 2 }}>❌ Cancelled: {i.cancel_reason}</div>}
@@ -1172,7 +1172,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
           {selectedCustomer && totalAvailableDeposit > 0 && (
             <div style={{ marginTop: 10, background: S.blueB, border: `1px solid ${S.blue}40`, borderRadius: 10, padding: '10px 14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: S.blue, fontWeight: 700 }}>💰 Available Deposit: MYR {totalAvailableDeposit.toFixed(2)}</span>
+                <span style={{ fontSize: 12, color: S.blue, fontWeight: 700 }}>💰 Available Deposit: MYR {totalAvailableDeposit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 <button onClick={() => setDepositApplied(v => !v)}
                   style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.blue}`, background: depositApplied ? S.blue : 'transparent', color: depositApplied ? '#fff' : S.blue, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                   {depositApplied ? '✅ Applied' : 'Apply Deposit'}
@@ -1256,7 +1256,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
                       {cashReceivedNum < total ? '⚠️ Insufficient Amount' : '💰 Change Due'}
                     </span>
                     <span style={{ fontSize: 16, fontWeight: 900, color: cashReceivedNum < total ? S.red : S.green }}>
-                      {cashReceivedNum < total ? `MYR ${(total - cashReceivedNum).toFixed(2)} short` : `MYR ${changeDue.toFixed(2)}`}
+                      {cashReceivedNum < total ? `MYR ${(total - cashReceivedNum).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} short` : `MYR ${changeDue.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     </span>
                   </div>
                 )}
@@ -1299,7 +1299,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
             {splitType === 'amount' && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>
-                  Enter the amount for each payment — the last one fills in automatically with the remainder of MYR {total.toFixed(2)}
+                  Enter the amount for each payment — the last one fills in automatically with the remainder of MYR {total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {Array.from({ length: Math.max(2, splitCount) - 1 }, (_, idx) => (
@@ -1337,7 +1337,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
                 <div key={p.idx} style={{ background: personPaid[p.idx] ? S.greenB : S.navy3, border: `1px solid ${personPaid[p.idx] ? S.green : S.border}`, borderRadius: 10, padding: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>👤 {p.label}</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {p.amount.toFixed(2)}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {p.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
 
                   {/* ✅ لو وضع "تحديد أصناف كل شخص": يظهر جنب كل شخص الأصناف المتبقية بس (اللي لسه محدش خدها) */}
@@ -1412,12 +1412,12 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
           ].filter(Boolean).map((row, i) => row && (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13 }}>
               <span style={{ color: S.muted }}>{row.label}</span>
-              <span style={{ color: row.color }}>{row.value < 0 ? '- ' : ''}MYR {Math.abs(row.value).toFixed(2)}</span>
+              <span style={{ color: row.color }}>{row.value < 0 ? '- ' : ''}MYR {Math.abs(row.value).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           ))}
           <div style={{ borderTop: `1px solid ${S.border}`, marginTop: 10, paddingTop: 10, display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 900 }}>
             <span style={{ color: S.white }}>Total</span>
-            <span style={{ color: S.gold }}>MYR {total.toFixed(2)}</span>
+            <span style={{ color: S.gold }}>MYR {total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
         </div>
 
@@ -1434,7 +1434,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
                       if (e.target.checked) next.add(item.id); else next.delete(item.id)
                       return next
                     })} />
-                  <span style={{ fontSize: 12, color: S.white }}>{item.menu_items?.name_en || item.menu_items?.name || '⚠️ Removed Item'} ×{item.quantity} — MYR {(item.unit_price * item.quantity).toFixed(2)}</span>
+                  <span style={{ fontSize: 12, color: S.white }}>{item.menu_items?.name_en || item.menu_items?.name || '⚠️ Removed Item'} ×{item.quantity} — MYR {(item.unit_price * item.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </label>
               ))}
             </div>
@@ -1499,12 +1499,12 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
             </div>
             <div style={{ color: S.muted, fontSize: 13, marginBottom: 8, lineHeight: 1.6 }}>
               {confirmAction === 'split'
-                ? <>Finalize this split bill for <span style={{ color: S.gold, fontWeight: 800 }}>MYR {total.toFixed(2)}</span>?</>
-                : <>Confirm payment of <span style={{ color: S.gold, fontWeight: 800 }}>MYR {total.toFixed(2)}</span> via <span style={{ color: S.gold, fontWeight: 800 }}>{discountType === 'free' ? 'Complimentary (Free)' : method.toUpperCase()}</span>?</>
+                ? <>Finalize this split bill for <span style={{ color: S.gold, fontWeight: 800 }}>MYR {total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>?</>
+                : <>Confirm payment of <span style={{ color: S.gold, fontWeight: 800 }}>MYR {total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> via <span style={{ color: S.gold, fontWeight: 800 }}>{discountType === 'free' ? 'Complimentary (Free)' : method.toUpperCase()}</span>?</>
               }
             </div>
             {method === 'cash' && discountType !== 'free' && cashReceived.trim() !== '' && cashReceivedNum >= total && (
-              <div style={{ color: S.green, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>💰 Change Due: MYR {changeDue.toFixed(2)}</div>
+              <div style={{ color: S.green, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>💰 Change Due: MYR {changeDue.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             )}
             <div style={{ color: S.red, fontSize: 11, marginBottom: 22 }}>This will close the table and cannot be undone.</div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -1729,7 +1729,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>
                     {/* ✅ جديد: لو له أنواع، نعرض "من" أرخص سعر بدل السعر الأساسي المفرد فقط */}
-                    {hasSizes ? `From MYR ${Math.min(...activeSizes.map(s => s.price)).toFixed(2)}` : `MYR ${item.price.toFixed(2)}`}
+                    {hasSizes ? `From MYR ${Math.min(...activeSizes.map(s => s.price)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `MYR ${item.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                   {/* ✅ Fix: زر الإنقاص السريع + حقل الكمية بقى قابل للكتابة المباشرة (بدل الضغط المتكرر) - يظهر بس للأصناف اللي مالهاش أنواع */}
                   {qty > 0 && !hasSizes && (
@@ -1771,7 +1771,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
                       style={{ width: 40, textAlign: 'center', background: S.navy2, border: `1px solid ${S.gold}`, borderRadius: 6, color: S.gold, fontWeight: 800, fontSize: 12, padding: '2px 0', fontFamily: 'Tajawal, sans-serif' }} />
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ color: S.gold }}>MYR {((c.selectedSize?.price ?? c.item.price) * c.qty).toFixed(2)}</span>
+                    <span style={{ color: S.gold }}>MYR {((c.selectedSize?.price ?? c.item.price) * c.qty).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     <button onClick={() => setCart(p => p.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 14 }}>✕</button>
                   </div>
                 </div>
@@ -1780,7 +1780,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 15, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
               <span style={{ color: S.white }}>Total</span>
-              <span style={{ color: S.gold }}>MYR {total.toFixed(2)}</span>
+              <span style={{ color: S.gold }}>MYR {total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
         )}
@@ -1809,7 +1809,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
                 <button key={size.id} onClick={() => addItemWithSize(sizePickerItem, size)}
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.white, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', textAlign: 'right' }}>
                   <span>{size.name_en || size.name}</span>
-                  <span style={{ color: S.gold, fontWeight: 700 }}>MYR {size.price.toFixed(2)}</span>
+                  <span style={{ color: S.gold, fontWeight: 700 }}>MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </button>
               ))}
             </div>
@@ -1898,10 +1898,10 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
         <td>#${o.id.slice(-6).toUpperCase()}</td>
         <td>${o.order_items?.map(i => (i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item') + ' ×' + i.quantity).join(', ')}</td>
         <td>${o.payment_method?.toUpperCase() || '—'}</td>
-        <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toFixed(2) : '—'}</td>
-        <td>${o.service_charge > 0 ? 'MYR ' + o.service_charge.toFixed(2) : '—'}</td>
-        <td>${o.sst_amount > 0 ? 'MYR ' + o.sst_amount.toFixed(2) : '—'}</td>
-        <td><b>MYR ${(o.total_amount || 0).toFixed(2)}</b></td>
+        <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+        <td>${o.service_charge > 0 ? 'MYR ' + o.service_charge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+        <td>${o.sst_amount > 0 ? 'MYR ' + o.sst_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+        <td><b>MYR ${(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></td>
         <td>${o.paid_at ? new Date(o.paid_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
       </tr>`).join('')
 
@@ -1935,18 +1935,18 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
       <tbody>${rows}
         <tr class="total-row">
           <td colspan="5">TOTAL — ${shiftOrders.length} orders</td>
-          <td>MYR ${totalDiscount.toFixed(2)}</td>
-          <td>MYR ${totalService.toFixed(2)}</td>
-          <td>MYR ${totalSST.toFixed(2)}</td>
-          <td>MYR ${grandTotal.toFixed(2)}</td>
+          <td>MYR ${totalDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>MYR ${totalService.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>MYR ${totalSST.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td>MYR ${grandTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td>—</td>
         </tr>
       </tbody>
     </table>
     <div class="summary">
-      <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totalCash.toFixed(2)}</div></div>
-      <div class="summary-box"><div class="label">💳 Visa</div><div class="value">MYR ${totalVisa.toFixed(2)}</div></div>
-      <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totalOnline.toFixed(2)}</div></div>
+      <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totalCash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+      <div class="summary-box"><div class="label">💳 Visa</div><div class="value">MYR ${totalVisa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+      <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totalOnline.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
       <div class="summary-box"><div class="label">🎁 Complimentary</div><div class="value">${totalFree} orders</div></div>
     </div>
     <script>window.onload=()=>window.print()<\/script>
@@ -1975,13 +1975,13 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 20 }}>
           {[
             { label: 'Total Orders', value: shiftOrders.length, color: S.white, icon: '📋' },
-            { label: 'Grand Total', value: `MYR ${grandTotal.toFixed(2)}`, color: S.gold, icon: '💰' },
-            { label: 'Cash', value: `MYR ${totalCash.toFixed(2)}`, color: S.green, icon: '💵' },
-            { label: 'Visa', value: `MYR ${totalVisa.toFixed(2)}`, color: S.blue, icon: '💳' },
-            { label: 'Bank Transfer', value: `MYR ${totalOnline.toFixed(2)}`, color: S.purple, icon: '📱' },
-            { label: 'Discount', value: `MYR ${totalDiscount.toFixed(2)}`, color: S.red, icon: '🏷️' },
-            { label: 'Service 10%', value: `MYR ${totalService.toFixed(2)}`, color: S.amber, icon: '⚡' },
-            { label: 'SST 6%', value: `MYR ${totalSST.toFixed(2)}`, color: S.teal, icon: '🧾' },
+            { label: 'Grand Total', value: `MYR ${grandTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.gold, icon: '💰' },
+            { label: 'Cash', value: `MYR ${totalCash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.green, icon: '💵' },
+            { label: 'Visa', value: `MYR ${totalVisa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.blue, icon: '💳' },
+            { label: 'Bank Transfer', value: `MYR ${totalOnline.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.purple, icon: '📱' },
+            { label: 'Discount', value: `MYR ${totalDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.red, icon: '🏷️' },
+            { label: 'Service 10%', value: `MYR ${totalService.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.amber, icon: '⚡' },
+            { label: 'SST 6%', value: `MYR ${totalSST.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.teal, icon: '🧾' },
           ].map((s, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 12, padding: '12px 14px', border: `1px solid ${S.border}` }}>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{s.icon} {s.label}</div>
@@ -2012,10 +2012,10 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
                         {o.payment_method?.toUpperCase() || '—'}
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, color: S.red }}>{o.discount_amount > 0 ? `MYR ${o.discount_amount.toFixed(2)}` : '—'}</td>
-                    <td style={{ ...tdStyle, color: S.amber }}>{o.service_charge > 0 ? `MYR ${o.service_charge.toFixed(2)}` : '—'}</td>
-                    <td style={{ ...tdStyle, color: S.teal }}>{o.sst_amount > 0 ? `MYR ${o.sst_amount.toFixed(2)}` : '—'}</td>
-                    <td style={{ ...tdStyle, color: S.gold, fontWeight: 800 }}>MYR {(o.total_amount || 0).toFixed(2)}</td>
+                    <td style={{ ...tdStyle, color: S.red }}>{o.discount_amount > 0 ? `MYR ${o.discount_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
+                    <td style={{ ...tdStyle, color: S.amber }}>{o.service_charge > 0 ? `MYR ${o.service_charge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
+                    <td style={{ ...tdStyle, color: S.teal }}>{o.sst_amount > 0 ? `MYR ${o.sst_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
+                    <td style={{ ...tdStyle, color: S.gold, fontWeight: 800 }}>MYR {(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td style={{ ...tdStyle, color: S.muted }}>{o.paid_at ? new Date(o.paid_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                   </tr>
                 ))}
@@ -2754,7 +2754,7 @@ export default function CashierPage() {
       : `🍽️ خصم كاشير - وجبة شخصية: ${chargeItemTarget.itemName} ×${chargeQty}`
     const percentNote = chargePercent < 100 ? ` (خصم ${chargePercent}% من السعر)` : ''
     // ✅ جديد: نوضّح في السبب لو الموظف دفع جزء كاش/شبكة فورًا، عشان يبان واضح في سجل المخالفات ليه المبلغ أقل من قيمة الصنف كاملة
-    const paidNoteText = chargePaidNowNum > 0 ? ` — دفع MYR ${chargePaidNowNum.toFixed(2)} ${chargePaidMethod === 'cash' ? 'كاش' : chargePaidMethod === 'visa' ? 'شبكة' : 'تحويل بنكي'} فورًا` : ''
+    const paidNoteText = chargePaidNowNum > 0 ? ` — دفع MYR ${chargePaidNowNum.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${chargePaidMethod === 'cash' ? 'كاش' : chargePaidMethod === 'visa' ? 'شبكة' : 'تحويل بنكي'} فورًا` : ''
     const fullReason = chargeNote.trim() ? `${label}${percentNote}${paidNoteText} — ${chargeNote.trim()}` : `${label}${percentNote}${paidNoteText}`
     const actionBy = employee?.name || employee?.name_en || 'Unknown'
 
@@ -2902,7 +2902,7 @@ export default function CashierPage() {
             <div style={{ fontSize: 52, marginBottom: 10 }}>🆕</div>
             <div style={{ fontSize: 22, fontWeight: 900, color: S.gold, marginBottom: 8 }}>New Order!</div>
             <div style={{ fontSize: 17, fontWeight: 700, color: S.white, marginBottom: 4 }}>{newOrderAlert.tableName}</div>
-            <div style={{ fontSize: 13, color: S.muted, marginBottom: 18 }}>{newOrderAlert.itemsCount} item(s) · MYR {newOrderAlert.total.toFixed(2)}</div>
+            <div style={{ fontSize: 13, color: S.muted, marginBottom: 18 }}>{newOrderAlert.itemsCount} item(s) · MYR {newOrderAlert.total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             <button onClick={() => setNewOrderAlert(null)}
               style={{ padding: '10px 28px', borderRadius: 10, border: 'none', background: `linear-gradient(135deg, ${S.gold}, ${S.gold2})`, color: S.navy, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
               OK
@@ -3114,7 +3114,7 @@ export default function CashierPage() {
                       const isTakeaway = (table as any).section === 'takeaway'
                       const raw = activeOrder.total_amount || 0
                       const withFees = raw + (isTakeaway ? 0 : raw * SERVICE_CHARGE_RATE) + raw * SST_RATE
-                      return <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {withFees.toFixed(2)}</div>
+                      return <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {withFees.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     })()}
                     {/* ✅ Fix: الدمج/فك الدمج يقتصر على الكاشير بس، لكن زرار + (إضافة طلب على طاولة مشغولة)
                         متاح للكاشير والدور المحدود (مشرف الصالة) مع بعض */}
@@ -3176,17 +3176,17 @@ export default function CashierPage() {
                   <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses Paid</div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {aExpPaid.toFixed(2)}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {aExpPaid.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     </div>
                     {aExpPending > 0 && (
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: 10, color: S.muted }}>⏳ Expenses Pending</div>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {aExpPending.toFixed(2)}</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {aExpPending.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       </div>
                     )}
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: 10, color: S.muted }}>Σ Total</div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>MYR {(aExpPaid + aExpPending).toFixed(2)}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>MYR {(aExpPaid + aExpPending).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     </div>
                   </div>
                   <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${S.red}30`, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -3202,7 +3202,7 @@ export default function CashierPage() {
                               <img src={url} alt="receipt" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
                             </a>
                           ))}
-                          <span style={{ color: S.red, fontWeight: 800 }}>MYR {(exp.amount || 0).toFixed(2)}</span>
+                          <span style={{ color: S.red, fontWeight: 800 }}>MYR {(exp.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                       </div>
                     ))}
@@ -3231,7 +3231,7 @@ export default function CashierPage() {
                     <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>
                       {new Date(order.created_at).toLocaleString('en-GB')}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: S.gold, marginBottom: 6 }}>MYR {(order.total_amount || 0).toFixed(2)}</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: S.gold, marginBottom: 6 }}>MYR {(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     {order.payment_method && <div style={{ fontSize: 11, color: S.teal, marginBottom: 4 }}>{order.payment_method === 'cash' ? '💵' : order.payment_method === 'visa' ? '💳' : '📱'} {order.payment_method}</div>}
                     {order.paid_by_name && <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 {order.paid_by_name}</div>}
                     {order.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginBottom: 4 }}>❌ {order.cancel_reason}</div>}
@@ -3343,55 +3343,55 @@ export default function CashierPage() {
                           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                             <div style={{ textAlign: 'center' }}>
                               <div style={{ fontSize: 10, color: S.muted }}>💵 Cash</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.green }}>MYR {dCash.toFixed(2)}</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.green }}>MYR {dCash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                             </div>
                             <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{(dVisaMaybank > 0 || dVisaBsn > 0) ? ` (Maybank ${dVisaMaybank.toFixed(2)} · BSN ${dVisaBsn.toFixed(2)})` : ''}</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.blue }}>MYR {dVisa.toFixed(2)}</div>
+                              <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{(dVisaMaybank > 0 || dVisaBsn > 0) ? ` (Maybank ${dVisaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${dVisaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : ''}</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.blue }}>MYR {dVisa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                             </div>
                             <div style={{ textAlign: 'center' }}>
                               <div style={{ fontSize: 10, color: S.muted }}>📱 Bank Transfer</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.purple }}>MYR {dOnline.toFixed(2)}</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.purple }}>MYR {dOnline.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                             </div>
                             {dCredit > 0 && (
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit (Grab/Foodpanda)</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dCredit.toFixed(2)}</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dCredit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                             )}
                             {dDiscount > 0 && (
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dDiscount.toFixed(2)}</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                             )}
                             {dFreeOrders.length > 0 && (
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>🆓 Free Tables ({dFreeOrders.length})</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dFreeAmount.toFixed(2)}</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dFreeAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                             )}
                             {dDepositsTotal > 0 && (
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>💰 Deposits</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.teal }}>MYR {dDepositsTotal.toFixed(2)}</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.teal }}>MYR {dDepositsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                             )}
                             <div style={{ textAlign: 'center' }}>
                               <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {dTotal.toFixed(2)}</div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {dTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                             </div>
                             {/* ✅ جديد: بطاقتي المصروفات المدفوعة/المعلّقة ليوم كامل */}
                             {dExpPaid > 0 && (
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses Paid</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dExpPaid.toFixed(2)}</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dExpPaid.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                             )}
                             {dExpPending > 0 && (
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>⏳ Expenses Pending</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dExpPending.toFixed(2)}</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dExpPending.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                             )}
                           </div>
@@ -3413,7 +3413,7 @@ export default function CashierPage() {
                                           <img src={url} alt="receipt" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
                                         </a>
                                       ))}
-                                      <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                      <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                   </div>
                                 ))}
@@ -3439,7 +3439,7 @@ export default function CashierPage() {
                                             : ` · ${new Date(dep.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
                                         </span>
                                       </span>
-                                      <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toFixed(2)}</span>
+                                      <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                   )
                                 })}
@@ -3519,44 +3519,44 @@ export default function CashierPage() {
                             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>💵 Cash</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.green }}>MYR {sCash.toFixed(2)}</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.green }}>MYR {sCash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                               <div style={{ textAlign: 'center' }}>
                                 {/* ✅ جديد: لو في خصم في الشيفت، نوري تقسيم الفيزا حسب البنك (Maybank/BSN) على نفس الصف */}
-                                <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{sDiscount > 0 && (sVisaMaybank > 0 || sVisaBsn > 0) ? ` (Maybank ${sVisaMaybank.toFixed(2)} · BSN ${sVisaBsn.toFixed(2)})` : ''}</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.blue }}>MYR {sVisa.toFixed(2)}</div>
+                                <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{sDiscount > 0 && (sVisaMaybank > 0 || sVisaBsn > 0) ? ` (Maybank ${sVisaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${sVisaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : ''}</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.blue }}>MYR {sVisa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>📱 Bank Transfer</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.purple }}>MYR {sOnline.toFixed(2)}</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.purple }}>MYR {sOnline.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                               {sCredit > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sCredit.toFixed(2)}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sCredit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
                               {sDiscount > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sDiscount.toFixed(2)}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
                               {sFreeOrders.length > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>🆓 Free Tables ({sFreeOrders.length})</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sFreeAmount.toFixed(2)}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sFreeAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
                               {sDepositsTotal > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>💰 Deposits</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.teal }}>MYR {sDepositsTotal.toFixed(2)}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.teal }}>MYR {sDepositsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toFixed(2)}</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                               {/* ✅ جديد: طباعة تقرير تفصيلي كامل لهذا الشيفت - كل الطاولات والأصناف والمصروفات */}
                               <button
@@ -3572,13 +3572,13 @@ export default function CashierPage() {
                               {sExpPaid > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sExpPaid.toFixed(2)}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sExpPaid.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
                               {sExpPending > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>⏳ Pending Exp.</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sExpPending.toFixed(2)}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sExpPending.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
                             </div>
@@ -3597,7 +3597,7 @@ export default function CashierPage() {
                                           <img src={url} alt="receipt" style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}` }} />
                                         </a>
                                       ))}
-                                      <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toFixed(2)}</span>
+                                      <span style={{ color: exp.status === 'paid' ? S.red : S.amber, fontWeight: 700 }}>MYR {exp.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                   </div>
                                 ))}
@@ -3612,7 +3612,7 @@ export default function CashierPage() {
                                 {sessDeposits.map(dep => (
                                   <div key={dep.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                                     <span style={{ color: S.white }}>{dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}</span>
-                                    <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toFixed(2)}</span>
+                                    <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                   </div>
                                 ))}
                               </div>
@@ -3626,7 +3626,7 @@ export default function CashierPage() {
                                 style={{ background: S.card, borderRadius: 12, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.border}`, padding: 10, cursor: 'pointer' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
-                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toFixed(2)}`}</span>
+                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
                                 </div>
                                 <div style={{ fontSize: 10, color: S.muted }}>
                                   {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -3658,7 +3658,7 @@ export default function CashierPage() {
                                 style={{ background: S.card, borderRadius: 12, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.border}`, padding: 10, cursor: 'pointer' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
-                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toFixed(2)}`}</span>
+                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
                                 </div>
                                 <div style={{ fontSize: 10, color: S.muted }}>
                                   {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -3701,7 +3701,7 @@ export default function CashierPage() {
                           )}
                         </div>
                         <div style={{ textAlign: 'left' }}>
-                          <div style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>MYR {(order.total_amount || 0).toFixed(2)}</div>
+                          <div style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>MYR {(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                           {order.payment_method && order.status === 'paid' && (
                             <div style={{ fontSize: 10, color: S.teal }}>{order.payment_method === 'cash' ? '💵' : order.payment_method === 'visa' ? '💳' : '📱'} {order.payment_method}</div>
                           )}
@@ -4147,7 +4147,7 @@ export default function CashierPage() {
                           {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
                           <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                         </span>
-                        <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                        <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                       {i.notes && <div style={{ fontSize: 11, color: S.gold, marginTop: 2 }}>📝 {i.notes}</div>}
                       {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginTop: 2 }}>❌ Cancelled: {i.cancel_reason}</div>}
@@ -4159,29 +4159,29 @@ export default function CashierPage() {
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, marginBottom: 4 }}>
                   <span>Subtotal</span>
-                  <span>MYR {archiveDetailOrder.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0).toFixed(2)}</span>
+                  <span>MYR {archiveDetailOrder.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 {archiveDetailOrder.service_charge > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.amber, marginBottom: 4 }}>
                     <span>Service Charge</span>
-                    <span>MYR {archiveDetailOrder.service_charge.toFixed(2)}</span>
+                    <span>MYR {archiveDetailOrder.service_charge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 {archiveDetailOrder.sst_amount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.teal, marginBottom: 4 }}>
                     <span>SST</span>
-                    <span>MYR {archiveDetailOrder.sst_amount.toFixed(2)}</span>
+                    <span>MYR {archiveDetailOrder.sst_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 {archiveDetailOrder.discount_amount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.red, marginBottom: 4 }}>
                     <span>Discount {archiveDetailOrder.discount_type ? `(${archiveDetailOrder.discount_type})` : ''}</span>
-                    <span>- MYR {archiveDetailOrder.discount_amount.toFixed(2)}</span>
+                    <span>- MYR {archiveDetailOrder.discount_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: S.gold, marginTop: 8 }}>
                   <span>Total</span>
-                  <span>MYR {(archiveDetailOrder.total_amount || 0).toFixed(2)}</span>
+                  <span>MYR {(archiveDetailOrder.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
@@ -4192,7 +4192,7 @@ export default function CashierPage() {
                     closedSplitPayments.filter(sp => sp.order_id === archiveDetailOrder.id).map((sp, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.teal, marginTop: 2 }}>
                         <span>{sp.payment_method === 'cash' ? '💵' : sp.payment_method === 'visa' ? '💳' : '📱'} {sp.payment_method}{sp.card_bank ? ` (${sp.card_bank})` : ''}</span>
-                        <span>MYR {sp.amount.toFixed(2)}</span>
+                        <span>MYR {sp.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     ))
                   ) : (
@@ -4345,7 +4345,7 @@ export default function CashierPage() {
               <div style={{ display: 'flex', gap: 8, marginBottom: chargePaidNowNum > 0 ? 8 : 0 }}>
                 <input type="number" min={0} max={chargeTotalAmount} step="0.01" value={chargePaidNow}
                   onChange={e => setChargePaidNow(e.target.value)}
-                  placeholder={`0.00 (max MYR ${chargeTotalAmount.toFixed(2)})`}
+                  placeholder={`0.00 (max MYR ${chargeTotalAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`}
                   style={{ flex: 1, boxSizing: 'border-box', padding: '9px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
               </div>
               {chargePaidNowNum > 0 && (
@@ -4371,17 +4371,17 @@ export default function CashierPage() {
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18, fontSize: 13 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: S.white, fontWeight: 800 }}>
                 <span>Total value</span>
-                <span>MYR {chargeTotalAmount.toFixed(2)}</span>
+                <span>MYR {chargeTotalAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               {chargePaidNowNum > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: S.green, marginTop: 4 }}>
                   <span>Paid now ({chargePaidMethod === 'cash' ? 'Cash' : chargePaidMethod === 'visa' ? 'Visa' : 'Bank Transfer'})</span>
-                  <span>MYR {chargePaidNowNum.toFixed(2)}</span>
+                  <span>MYR {chargePaidNowNum.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', color: S.amber, marginTop: 4, fontWeight: 800 }}>
                 <span>Deducted from salary</span>
-                <span>MYR {chargeRemaining.toFixed(2)}</span>
+                <span>MYR {chargeRemaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             </div>
 

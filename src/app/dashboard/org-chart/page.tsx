@@ -258,8 +258,8 @@ export default function OrgChartPage() {
         </div>
       </div>`
     }
-    win.document.write(`
-      <html dir="rtl"><head><title>الهيكل الوظيفي — ${branchName}</title>
+    win.document.write(`<!DOCTYPE html>
+      <html dir="rtl"><head><meta charset="utf-8"><title>الهيكل الوظيفي — ${branchName}</title>
       <style>
         @page { size: landscape; margin: 10mm; }
         * { box-sizing: border-box; }

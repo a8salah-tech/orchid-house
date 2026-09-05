@@ -1378,7 +1378,7 @@ export default function DailyReportPage() {
                       <div style={{ color: S.white, fontWeight: 700, fontSize: 15 }}>📅 {r.report_date}</div>
                       <div style={{ color: S.muted, fontSize: 12, marginTop: 2 }}>Click to edit</div>
                     </div>
-                    <div style={{ color: S.gold, fontWeight: 800, fontSize: 16 }}>MYR {(r.total_amount || 0).toFixed(2)}</div>
+                    <div style={{ color: S.gold, fontWeight: 800, fontSize: 16 }}>MYR {(r.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   </div>
                 ))}
               </div>
@@ -1509,7 +1509,7 @@ export default function DailyReportPage() {
                       {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
                       <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                     </span>
-                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toFixed(2)}</span>
+                    <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   {i.notes && <div style={{ fontSize: 11, color: S.gold, marginTop: 2 }}>📝 {i.notes}</div>}
                   {i.status === 'cancelled' && i.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginTop: 2 }}>❌ Cancelled: {i.cancel_reason}</div>}
@@ -1519,29 +1519,29 @@ export default function DailyReportPage() {
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, marginBottom: 4 }}>
                   <span>Subtotal</span>
-                  <span>MYR {(orderDetailModal.order_items || []).filter((i: any) => i.status !== 'cancelled').reduce((s: number, i: any) => s + i.unit_price * i.quantity, 0).toFixed(2)}</span>
+                  <span>MYR {(orderDetailModal.order_items || []).filter((i: any) => i.status !== 'cancelled').reduce((s: number, i: any) => s + i.unit_price * i.quantity, 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 {orderDetailModal.discount_amount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.red, marginBottom: 4 }}>
                     <span>Discount {orderDetailModal.discount_type ? `(${orderDetailModal.discount_type})` : ''}</span>
-                    <span>- MYR {orderDetailModal.discount_amount.toFixed(2)}</span>
+                    <span>- MYR {orderDetailModal.discount_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 {orderDetailModal.service_charge > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.amber, marginBottom: 4 }}>
                     <span>Service Charge</span>
-                    <span>MYR {orderDetailModal.service_charge.toFixed(2)}</span>
+                    <span>MYR {orderDetailModal.service_charge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 {orderDetailModal.sst_amount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.teal, marginBottom: 4 }}>
                     <span>SST</span>
-                    <span>MYR {orderDetailModal.sst_amount.toFixed(2)}</span>
+                    <span>MYR {orderDetailModal.sst_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 900, color: S.gold, marginTop: 8 }}>
                   <span>Total</span>
-                  <span>MYR {(orderDetailModal.total_amount || 0).toFixed(2)}</span>
+                  <span>MYR {(orderDetailModal.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
 

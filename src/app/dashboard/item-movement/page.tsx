@@ -478,7 +478,7 @@ export default function ItemMovementPage() {
                       conversionData.storedUnitIsBig
                         ? (parseFloat(editValue || '0') + (parseFloat(editSubValue || '0') / conversionData.factor))
                         : ((parseFloat(editValue || '0') * conversionData.factor) + parseFloat(editSubValue || '0'))
-                    ).toFixed(2)} {selectedProduct.units?.symbol} إجمالي (وحدة التخزين الفعلية)
+                    ).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {selectedProduct.units?.symbol} إجمالي (وحدة التخزين الفعلية)
                   </div>
                 </>
               )}

@@ -544,7 +544,7 @@ export default function ViolationsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 20 }}>
         {[
           { label: isAr ? 'إجمالي المخالفات' : 'Total', value: filtered.length, color: S.red, bg: S.redB },
-          { label: isAr ? 'إجمالي الخصم' : 'Total Deductions', value: `MYR ${totalAmount.toFixed(2)}`, color: S.amber, bg: S.amberB },
+          { label: isAr ? 'إجمالي الخصم' : 'Total Deductions', value: `MYR ${totalAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.amber, bg: S.amberB },
           { label: isAr ? 'نشطة' : 'Active', value: filtered.filter(v => v.status === 'active').length, color: S.green, bg: S.greenB },
           { label: isAr ? 'ملغاة' : 'Cancelled', value: filtered.filter(v => v.status === 'cancelled').length, color: S.muted, bg: S.card },
         ].map((s, i) => (
@@ -606,7 +606,7 @@ export default function ViolationsPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: v.status === 'cancelled' ? S.muted : S.red }}>MYR {(v.amount || 0).toFixed(2)}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: v.status === 'cancelled' ? S.muted : S.red }}>MYR {(v.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: v.status==='active'?S.red:v.status==='submitted'?S.amber:S.muted, background: v.status==='active'?S.redB:v.status==='submitted'?S.amberB:S.card, borderRadius: 20, padding: '2px 10px' }}>
                     {v.status==='active'?(isAr?'نشطة':'Active'):v.status==='submitted'?(isAr?'بانتظار الاعتماد':'Pending Approval'):(isAr?'ملغاة':'Cancelled')}
                   </span>

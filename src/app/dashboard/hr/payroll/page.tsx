@@ -871,7 +871,7 @@ export default function PayrollPage() {
         late_hours: lateHrs,
         early_exit_hours: earlyHrs,
         deduction_1: violAmount,
-        deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toFixed(2)} MYR)` : 'Violations',
+        deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR)` : 'Violations',
         deduction_2: absAmount,
         deduction_2_label: absDays > 0 ? `غياب بدون عذر (${absDays} يوم)` : 'Absences',
       }
@@ -1699,14 +1699,14 @@ export default function PayrollPage() {
                   <div key={i} style={{ background: S.redB, border: `1px solid ${S.red}30`, borderRadius: 10, padding: '12px 14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontSize: 12, color: S.muted }}>📅 {v.date}</span>
-                      <span style={{ fontSize: 14, fontWeight: 800, color: S.red }}>{v.amount.toFixed(2)} MYR</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: S.red }}>{v.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR</span>
                     </div>
                     <div style={{ fontSize: 13, color: S.white, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{v.reason || 'بلا سبب مسجَّل'}</div>
                   </div>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderTop: `1px solid ${S.border}`, marginTop: 4 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>الإجمالي</span>
-                  <span style={{ fontSize: 15, fontWeight: 900, color: S.red }}>{violationDetailsList.reduce((s, v) => s + v.amount, 0).toFixed(2)} MYR</span>
+                  <span style={{ fontSize: 15, fontWeight: 900, color: S.red }}>{violationDetailsList.reduce((s, v) => s + v.amount, 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR</span>
                 </div>
               </div>
             )}

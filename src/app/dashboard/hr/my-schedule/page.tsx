@@ -354,7 +354,7 @@ export default function MySchedulePage() {
                     {getDayViolations(d.date).map((v, vi) => (
                       <div key={vi} style={{ fontSize: 11, marginTop: 4, background: S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${S.red+'40'}` }}>
                         <span style={{ color: S.red, fontWeight: 700 }}>
-                          ⚠️ {isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toFixed(2)}
+                          ⚠️ {isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                         <span style={{ color: S.muted, marginRight: 6 }}> — {v.reason}</span>
                       </div>
@@ -440,7 +440,7 @@ export default function MySchedulePage() {
                   <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'عدد المخالفات' : 'Total Violations'}</div>
                 </div>
                 <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>MYR {totalViolationsAmount.toFixed(2)}</div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>MYR {totalViolationsAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'إجمالي الخصم' : 'Total Deductions'}</div>
                 </div>
               </div>

@@ -267,7 +267,7 @@ export default function WastePage() {
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
-          { label: isAr ? 'إجمالي الخسائر' : 'Total Loss', value: `MYR ${totalCost.toFixed(2)}`, color: S.red, bg: S.redB, icon: '💸' },
+          { label: isAr ? 'إجمالي الخسائر' : 'Total Loss', value: `MYR ${totalCost.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.red, bg: S.redB, icon: '💸' },
           { label: isAr ? 'عدد السجلات' : 'Records', value: totalItems, color: S.amber, bg: S.amberB, icon: '📋' },
           { label: isAr ? 'أعلى نوع هدر' : 'Top Waste', value: topType ? (isAr ? topType.labelAr : topType.labelEn) : '—', color: S.orange, bg: S.orangeB, icon: topType?.icon || '📊' },
           { label: isAr ? 'متوسط يومي' : 'Daily Avg', value: `MYR ${(totalCost / (new Date(parseInt(filterMonth.split('-')[0]), parseInt(filterMonth.split('-')[1]), 0).getDate()) || 0).toFixed(1)}`, color: S.purple, bg: S.purpleB, icon: '📈' },
@@ -332,7 +332,7 @@ export default function WastePage() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: log.cost > 0 ? S.red : S.muted }}>{log.cost > 0 ? `MYR ${log.cost.toFixed(2)}` : '—'}</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: log.cost > 0 ? S.red : S.muted }}>{log.cost > 0 ? `MYR ${log.cost.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</div>
                       <div style={{ fontSize: 11, color: S.muted }}>{log.quantity} {log.unit}</div>
                     </div>
                   </div>
@@ -559,13 +559,13 @@ export default function WastePage() {
                       <tr key={r.id} style={{ borderBottom: `1px solid ${S.border}` }}>
                         <td style={{ padding: '12px 14px', fontSize: 13, color: S.white, fontWeight: 700 }}>🏪 {r.name}</td>
                         <td style={{ padding: '12px 14px', fontSize: 13, color: S.amber }}>{r.count}</td>
-                        <td style={{ padding: '12px 14px', fontSize: 13, color: S.red, fontWeight: 700 }}>MYR {r.total.toFixed(2)}</td>
+                        <td style={{ padding: '12px 14px', fontSize: 13, color: S.red, fontWeight: 700 }}>MYR {r.total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                     ))}
                     <tr style={{ background: S.gold3 }}>
                       <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>🌐 {isAr ? 'الإجمالي الكلي' : 'Grand Total'}</td>
                       <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 800 }}>{comparisonReport.reduce((s, r) => s + r.count, 0)}</td>
-                      <td style={{ padding: '12px 14px', fontSize: 14, color: S.gold, fontWeight: 800 }}>MYR {comparisonReport.reduce((s, r) => s + r.total, 0).toFixed(2)}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 14, color: S.gold, fontWeight: 800 }}>MYR {comparisonReport.reduce((s, r) => s + r.total, 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   </tbody>
                 </table>

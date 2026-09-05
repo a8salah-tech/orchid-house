@@ -23,7 +23,7 @@ const S = {
 }
 
 function formatMYR(n: number) {
-  return 'MYR ' + (n || 0).toFixed(2)
+  return 'MYR ' + (n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function getMarginColor(margin: number) {
@@ -189,9 +189,9 @@ export default function CostAnalysisPage() {
       <tbody>
       ${cat.items.map(item => `<tr>
         <td><b>${item.name}</b>${item.name_en?`<br/><small style="color:#666">${item.name_en}</small>`:''}</td>
-        <td>MYR ${item.price.toFixed(2)}</td>
-        <td>${item.cost_price?'MYR '+item.cost_price.toFixed(2):'—'}</td>
-        <td style="color:${item.profit>0?'#16a34a':'#dc2626'};font-weight:700">${item.cost_price?'MYR '+item.profit.toFixed(2):'—'}</td>
+        <td>MYR ${item.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td>${item.cost_price?'MYR '+item.cost_price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }):'—'}</td>
+        <td style="color:${item.profit>0?'#16a34a':'#dc2626'};font-weight:700">${item.cost_price?'MYR '+item.profit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }):'—'}</td>
         <td style="font-weight:800;color:${item.margin>=70?'#16a34a':item.margin>=50?'#0d9488':item.margin>=30?'#d97706':'#dc2626'}">${item.cost_price?item.margin.toFixed(1)+'%':'—'}</td>
         <td>${item.cost_price?getMarginLabel(item.margin):'غير محدد'}</td>
       </tr>`).join('')}

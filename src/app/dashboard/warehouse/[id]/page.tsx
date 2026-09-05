@@ -321,7 +321,7 @@ function StockInModal({ warehouseId, warehouseName, products, units, onClose, on
         </div>
         <div style={{ background: S.card, borderRadius: 12, padding: '12px 16px', marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ color: S.muted, fontSize: 13 }}>إجمالي الفاتورة</span>
-          <span style={{ color: S.gold, fontSize: 20, fontWeight: 700 }}>{total.toFixed(2)} MYR</span>
+          <span style={{ color: S.gold, fontSize: 20, fontWeight: 700 }}>{total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR</span>
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
@@ -1201,7 +1201,7 @@ ${lowStock.map(p=>`<tr><td><b>${p.name}</b>${p.name_en?'<br><span style="color:#
 ${Object.entries(grouped).map(([cat, items]) => `
 <div class="section-title">📦 ${cat} (${items.length})</div>
 <table><thead><tr><th>الصنف</th><th>Item Name</th><th>الوحدة</th><th>المتاح</th><th>الحد الأدنى</th><th>آخر سعر</th></tr></thead><tbody>
-${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align:left;color:#666">${p.name_en||''}</td><td>${p.units?.symbol||'—'}</td><td class="${p.current_stock<=p.min_stock&&p.min_stock>0?'low':'ok'}">${fmtQty(p.current_stock)}</td><td>${fmtQty(p.min_stock||0)}</td><td>MYR ${(p.last_purchase_price||0).toFixed(2)}</td></tr>`).join('')}
+${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align:left;color:#666">${p.name_en||''}</td><td>${p.units?.symbol||'—'}</td><td class="${p.current_stock<=p.min_stock&&p.min_stock>0?'low':'ok'}">${fmtQty(p.current_stock)}</td><td>${fmtQty(p.min_stock||0)}</td><td>MYR ${(p.last_purchase_price||0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}
 </tbody></table>`).join('')}
 <div class="footer">Orchid House Restaurant Management System · ${today}</div>
 <script>window.onload=function(){window.print()}<\/script>

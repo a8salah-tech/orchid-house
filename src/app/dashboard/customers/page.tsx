@@ -181,10 +181,10 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
           {[
             { label: 'Total Visits', value: customer.total_visits, color: S.blue, icon: '🍽️' },
-            { label: 'Total Spent', value: `MYR ${customer.total_spent.toFixed(2)}`, color: S.gold, icon: '💰' },
+            { label: 'Total Spent', value: `MYR ${customer.total_spent.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.gold, icon: '💰' },
             { label: 'Loyalty Points', value: customer.loyalty_points, color: S.green, icon: '🎁' },
             // ✅ جديد: رصيد العربون المتاح حاليًا (لسه متطبقش على أي فاتورة)
-            { label: 'Deposit Balance', value: `MYR ${deposits.filter(d => d.status === 'available').reduce((s, d) => s + (d.amount || 0), 0).toFixed(2)}`, color: S.teal, icon: '💵' },
+            { label: 'Deposit Balance', value: `MYR ${deposits.filter(d => d.status === 'available').reduce((s, d) => s + (d.amount || 0), 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.teal, icon: '💵' },
           ].map((s, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 12, padding: '14px 16px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
               <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
@@ -277,7 +277,7 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
                       {d.status === 'available' ? '🟢' : d.status === 'used' ? '⚪' : '🔴'} {d.payment_method}{d.card_bank ? ` (${d.card_bank})` : ''}
                       <span style={{ color: S.muted, fontSize: 10 }}> · {new Date(d.created_at).toLocaleDateString('en-GB')}</span>
                     </span>
-                    <span style={{ color: d.status === 'available' ? S.teal : S.muted, fontWeight: 700 }}>MYR {(d.amount || 0).toFixed(2)}</span>
+                    <span style={{ color: d.status === 'available' ? S.teal : S.muted, fontWeight: 700 }}>MYR {(d.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 ))}
               </div>
@@ -299,7 +299,7 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
                     <tr key={o.id}>
                       <td style={tdS}>{new Date(o.created_at).toLocaleDateString('en-GB')}</td>
                       <td style={tdS}>{o.tables?.name || (o.tables?.number ? `Table ${o.tables.number}` : '—')}</td>
-                      <td style={{ ...tdS, color: S.gold, fontWeight: 700 }}>MYR {(o.total_amount || 0).toFixed(2)}</td>
+                      <td style={{ ...tdS, color: S.gold, fontWeight: 700 }}>MYR {(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={tdS}>
                         <span style={{ background: o.status === 'paid' ? S.greenB : o.status === 'cancelled' ? S.redB : S.amberB, color: o.status === 'paid' ? S.green : o.status === 'cancelled' ? S.red : S.amber, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>{o.status}</span>
                       </td>
@@ -396,6 +396,7 @@ export default function CustomersPage() {
   function exportCSV() {
     const rows = [
       ['Name', 'Email', 'Phone', 'Nationality', 'Visits', 'Total Spent', 'Points', 'Member Since'],
+      // ✅ رقم عادي بدون فواصل آلاف هنا (مش عرض) - القيمة بتتحط في خلية CSV وأي فاصلة جواها هتكسر ترقيم الأعمدة
       ...customers.map(c => [c.name, c.email||'', c.phone||'', c.nationality||'', c.total_visits, c.total_spent.toFixed(2), c.loyalty_points, new Date(c.created_at).toLocaleDateString('en-GB')])
     ]
     const csv = rows.map(r => r.join(',')).join('\n')
@@ -480,7 +481,7 @@ export default function CustomersPage() {
                     </td>
                     <td style={{ padding: '12px 14px', fontSize: 13, color: S.muted }}>{c.nationality || '—'}</td>
                     <td style={{ padding: '12px 14px', fontSize: 13, color: S.blue, fontWeight: 700, textAlign: 'center' }}>{c.total_visits}</td>
-                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 700 }}>MYR {c.total_spent.toFixed(2)}</td>
+                    <td style={{ padding: '12px 14px', fontSize: 13, color: S.gold, fontWeight: 700 }}>MYR {c.total_spent.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td style={{ padding: '12px 14px' }}>
                       <span style={{ background: S.purpleB, color: S.purple, borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>🎁 {c.loyalty_points}</span>
                     </td>

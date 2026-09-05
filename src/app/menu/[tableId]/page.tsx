@@ -873,7 +873,7 @@ const filteredItems = items
             {liveOrderItems.map(c => (
               <div key={c.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:`1px solid ${C.border}`, fontSize:13 }}>
                 <span style={{ color:C.white2 }}>{c.name}{c.size_name ? ` (${c.size_name})` : ''} <span style={{ color:C.silver2 }}>×{c.quantity}</span></span>
-                <span style={{ color:C.blue2, fontWeight:700 }}>MYR {(c.unit_price * c.quantity).toFixed(2)}</span>
+                <span style={{ color:C.blue2, fontWeight:700 }}>MYR {(c.unit_price * c.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             ))}
           </div>
@@ -1172,7 +1172,7 @@ const filteredItems = items
                 {selectedItem.sizes.filter((s: any) => s.is_active).map((size: any) => (
                   <button key={size.id} onClick={() => setSelectedSize(selectedSize?.id === size.id ? null : size)}
                     style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(0,200,200,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
-                    {dishName(size.name, size.name_en, size.name_ms)} — MYR {size.price.toFixed(2)}
+                    {dishName(size.name, size.name_en, size.name_ms)} — MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </button>
                 ))}
               </div>
@@ -1181,7 +1181,7 @@ const filteredItems = items
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:28 }}>
             <div>
               <div style={{ fontSize:26, fontWeight:900, color:C.blue2 }}>
-                MYR {selectedSize ? selectedSize.price.toFixed(2) : selectedItem.price.toFixed(2)}
+                MYR {selectedSize ? selectedSize.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : selectedItem.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en, selectedSize.name_ms)}</div>}
             </div>
@@ -1458,14 +1458,14 @@ const filteredItems = items
               <div style={{ flex:1 }}>
                 <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en, c.item.name_ms)}</div>
                 {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en, c.selectedSize.name_ms)}</div>}
-                <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>{t('each', unitPrice.toFixed(2))}</div>
+                <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>{t('each', unitPrice.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
                     <button onClick={() => removeFromCart(c.item.id, c.selectedSize?.id || null)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:20, cursor:'pointer', fontWeight:700 }}>−</button>
                     <span style={{ color:C.white, fontWeight:900, fontSize:16 }}>{c.quantity}</span>
                     <button onClick={() => addToCart(c.item, c.selectedSize || null)} style={{ width:32, height:32, borderRadius:'50%', border:'none', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, fontSize:20, cursor:'pointer', fontWeight:700 }}>+</button>
                   </div>
-                  <span style={{ color:C.blue2, fontWeight:900, fontSize:16 }}>MYR {(unitPrice * c.quantity).toFixed(2)}</span>
+                  <span style={{ color:C.blue2, fontWeight:900, fontSize:16 }}>MYR {(unitPrice * c.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>
@@ -1625,7 +1625,7 @@ const filteredItems = items
                             borderRadius:10, padding:'5px 8px', gap:6,
                           }}>
                           <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms)}</span>
-                          <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toFixed(2)}</span>
+                          <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           {sizeQty > 0 ? (
                             <div style={{ display:'flex', alignItems:'center', gap:3 }}>
                               <button onClick={() => removeFromCart(item.id, size.id)} style={{ width:19, height:19, borderRadius:'50%', border:'none', background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:12, cursor:'pointer', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
@@ -1644,11 +1644,11 @@ const filteredItems = items
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6, marginTop:'auto', paddingTop:6 }}>
                     {item.discount_percent && item.discount_percent > 0 ? (
                       <div style={{ display:'flex', flexDirection:'column' }}>
-                        <span style={{ fontSize:12, fontWeight:900, color:'#dc2626' }}>MYR {(item.price * (1 - item.discount_percent / 100)).toFixed(2)}</span>
-                        <span style={{ fontSize:9, color:C.silver2, textDecoration:'line-through' }}>MYR {item.price.toFixed(2)}</span>
+                        <span style={{ fontSize:12, fontWeight:900, color:'#dc2626' }}>MYR {(item.price * (1 - item.discount_percent / 100)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span style={{ fontSize:9, color:C.silver2, textDecoration:'line-through' }}>MYR {item.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     ) : (
-                      <span style={{ fontSize:13, fontWeight:900, color:C.blue2 }}>MYR {item.price.toFixed(2)}</span>
+                      <span style={{ fontSize:13, fontWeight:900, color:C.blue2 }}>MYR {item.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     )}
                     <div onClick={e => { e.stopPropagation(); addToCart(item); triggerFlyPlusOne(e); bumpPulse(item.id) }}
                       style={{ background: qty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : '#FFFFFF', border: qty > 0 ? 'none' : `2px solid ${C.blue1}`, borderRadius:20, padding:'5px 11px', cursor:'pointer', fontSize:11, fontWeight:800, color: qty > 0 ? C.white : C.blue2, display:'flex', alignItems:'center', gap:3, boxShadow: qty > 0 ? `0 2px 8px ${C.glow}` : `0 2px 6px rgba(0,180,180,.15)`, animation: pulseKey === item.id ? 'addBounce .4s ease' : undefined }}>

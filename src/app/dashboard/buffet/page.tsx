@@ -167,7 +167,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
   const itemsTotal = items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
 
   // ✅ الإجمالي يُحسب تلقائيًا من مجموع الأصناف، لكن يبقى قابلًا للتعديل اليدوي (لسعر باقة بوفية مخصص مثلًا)
-  useEffect(() => { setTotalAmount(itemsTotal.toFixed(2)) }, [itemsTotal])
+  useEffect(() => { setTotalAmount(itemsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }, [itemsTotal])
 
   const totalNum = parseFloat(totalAmount) || 0
   const paidNum = parseFloat(paidAmount) || 0
@@ -275,7 +275,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
                 {filteredMenu.map(m => (
                   <div key={m.id} onClick={() => addFromMenu(m)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', fontSize: 13, color: S.white, borderBottom: `1px solid ${S.border}` }}>
                     <span>{m.name}</span>
-                    <span style={{ color: S.gold }}>MYR {m.price.toFixed(2)}</span>
+                    <span style={{ color: S.gold }}>MYR {m.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 ))}
               </div>
@@ -298,7 +298,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
                   <input type="number" min={1} value={it.quantity} onChange={e => updateItem(idx, { quantity: parseInt(e.target.value) || 1 })} style={{ width: 50, ...inp, padding: '5px 8px', textAlign: 'center' }} />
                   <span style={{ color: S.muted, fontSize: 12 }}>×</span>
                   <input type="number" value={it.unit_price} onChange={e => updateItem(idx, { unit_price: parseFloat(e.target.value) || 0 })} style={{ width: 70, ...inp, padding: '5px 8px', textAlign: 'center' }} />
-                  <span style={{ width: 70, textAlign: 'left', color: S.gold, fontSize: 12, fontWeight: 700 }}>MYR {(it.quantity * it.unit_price).toFixed(2)}</span>
+                  <span style={{ width: 70, textAlign: 'left', color: S.gold, fontSize: 12, fontWeight: 700 }}>MYR {(it.quantity * it.unit_price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   <button onClick={() => removeItem(idx)} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 16 }}>🗑️</button>
                 </div>
               ))}
@@ -323,7 +323,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المبلغ المتبقي (محسوب تلقائيًا)</label>
-            <div style={{ ...inp, background: S.card, color: remaining > 0 ? S.red : S.green, fontWeight: 700 }}>MYR {remaining.toFixed(2)}</div>
+            <div style={{ ...inp, background: S.card, color: remaining > 0 ? S.red : S.green, fontWeight: 700 }}>MYR {remaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
         </div>
 
@@ -483,7 +483,7 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
                 {items.map((it, i) => (
                   <div key={it.id || i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', fontSize: 13, borderBottom: i < items.length - 1 ? `1px solid ${S.border}` : 'none' }}>
                     <span style={{ color: S.white }}>{it.item_name} × {it.quantity}</span>
-                    <span style={{ color: S.gold, fontWeight: 700 }}>MYR {(it.quantity * it.unit_price).toFixed(2)}</span>
+                    <span style={{ color: S.gold, fontWeight: 700 }}>MYR {(it.quantity * it.unit_price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 ))}
               </div>
@@ -493,15 +493,15 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 18 }}>
               <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>الإجمالي</div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>MYR {order.total_amount.toFixed(2)}</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>MYR {order.total_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               </div>
               <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>المدفوع</div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: S.green }}>MYR {order.paid_amount.toFixed(2)}</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: S.green }}>MYR {order.paid_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               </div>
               <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>المتبقي</div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: remaining > 0 ? S.red : S.green }}>MYR {remaining.toFixed(2)}</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: remaining > 0 ? S.red : S.green }}>MYR {remaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               </div>
             </div>
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 18 }}>طريقة الدفع: {PAYMENT_LABEL[order.payment_method] || order.payment_method}</div>
@@ -982,8 +982,8 @@ export default function BuffetPage() {
                 ) : (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 10 }}>
-                      <span style={{ color: S.muted }}>الإجمالي: <strong style={{ color: S.white }}>MYR {o.total_amount.toFixed(2)}</strong></span>
-                      <span style={{ color: remaining > 0 ? S.red : S.green }}>المتبقي: MYR {remaining.toFixed(2)}</span>
+                      <span style={{ color: S.muted }}>الإجمالي: <strong style={{ color: S.white }}>MYR {o.total_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                      <span style={{ color: remaining > 0 ? S.red : S.green }}>المتبقي: MYR {remaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     {responsible ? (
                       <div style={{ fontSize: 12, color: S.green, background: S.greenB, borderRadius: 8, padding: '6px 10px' }}>

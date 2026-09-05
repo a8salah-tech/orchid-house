@@ -544,7 +544,7 @@ export default function FixedAssetsPage() {
                     {a.description && <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>{a.description}</div>}
                     {/* ✅ جديد: السعر - يظهر لمدير المستودعات والأدمن فقط */}
                     {canManage && a.price != null && (
-                      <div style={{ fontSize: 12, fontWeight: 700, color: S.green, marginBottom: 8 }}>💰 السعر: RM {Number(a.price).toFixed(2)}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: S.green, marginBottom: 8 }}>💰 السعر: RM {Number(a.price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     )}
                     {/* ✅ Fix: الكمية بقت للعرض فقط دايمًا - التعديل بقى حصريًا من نافذة إضافة/تعديل الأصل */}
                     <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>

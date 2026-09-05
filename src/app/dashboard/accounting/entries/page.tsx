@@ -91,7 +91,7 @@ function printVoucher(entry: Entry, lines: Line[]) {
     </div>
     <div class="meta-box">
       <div class="meta-label">المبلغ الإجمالي</div>
-      <div class="meta-value" style="color:#22C55E;font-size:15px">MYR ${entry.total_amount.toFixed(2)}</div>
+      <div class="meta-value" style="color:#22C55E;font-size:15px">MYR ${entry.total_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
     </div>
   </div>
 
@@ -118,13 +118,13 @@ function printVoucher(entry: Entry, lines: Line[]) {
         <td style="font-family:monospace;font-weight:bold;color:#3B82F6">${l.account_code}</td>
         <td>${l.account_name}</td>
         <td style="color:#666">${l.description||''}</td>
-        <td style="font-family:monospace;font-weight:${l.debit>0?'bold':'normal'};color:${l.debit>0?'#22C55E':'#999'}">${l.debit>0?l.debit.toFixed(2):'—'}</td>
-        <td style="font-family:monospace;font-weight:${l.credit>0?'bold':'normal'};color:${l.credit>0?'#EF4444':'#999'}">${l.credit>0?l.credit.toFixed(2):'—'}</td>
+        <td style="font-family:monospace;font-weight:${l.debit>0?'bold':'normal'};color:${l.debit>0?'#22C55E':'#999'}">${l.debit>0?l.debit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }):'—'}</td>
+        <td style="font-family:monospace;font-weight:${l.credit>0?'bold':'normal'};color:${l.credit>0?'#EF4444':'#999'}">${l.credit>0?l.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }):'—'}</td>
       </tr>`).join('')}
       <tr class="total-row">
         <td colspan="3" style="text-align:center;font-weight:bold">الإجمالي</td>
-        <td style="font-family:monospace;color:#22C55E;font-size:13px">${totalDebit.toFixed(2)}</td>
-        <td style="font-family:monospace;color:#EF4444;font-size:13px">${totalCredit.toFixed(2)}</td>
+        <td style="font-family:monospace;color:#22C55E;font-size:13px">${totalDebit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td style="font-family:monospace;color:#EF4444;font-size:13px">${totalCredit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       </tr>
     </tbody>
   </table>
@@ -383,12 +383,12 @@ function EntryModal({ entry, accounts, branches, onClose, onSaved }: {
                 {/* Totals */}
                 <tr style={{ background:'rgba(255,255,255,0.04)' }}>
                   <td colSpan={3} style={{ padding:'10px 12px', fontSize:13, fontWeight:700, color:S.white, textAlign:'right' }}>الإجمالي</td>
-                  <td style={{ padding:'10px 12px', fontFamily:'monospace', fontWeight:800, fontSize:14, color:S.green }}>{totalDebit.toFixed(2)}</td>
-                  <td style={{ padding:'10px 12px', fontFamily:'monospace', fontWeight:800, fontSize:14, color:S.red }}>{totalCredit.toFixed(2)}</td>
+                  <td style={{ padding:'10px 12px', fontFamily:'monospace', fontWeight:800, fontSize:14, color:S.green }}>{totalDebit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td style={{ padding:'10px 12px', fontFamily:'monospace', fontWeight:800, fontSize:14, color:S.red }}>{totalCredit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   <td style={{ padding:'10px 12px' }}>
                     {isBalanced
                       ? <span style={{ color:S.green, fontSize:18 }}>✅</span>
-                      : <span style={{ color:S.red, fontSize:12 }}>فرق: {Math.abs(totalDebit-totalCredit).toFixed(2)}</span>}
+                      : <span style={{ color:S.red, fontSize:12 }}>فرق: {Math.abs(totalDebit-totalCredit).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
                   </td>
                 </tr>
               </tbody>
@@ -577,7 +577,7 @@ export default function JournalEntriesPage() {
 
                   {/* Amount */}
                   <div style={{ textAlign:'left', flexShrink:0 }}>
-                    <div style={{ fontFamily:'monospace', fontWeight:900, fontSize:16, color:S.gold }}>MYR {entry.total_amount.toFixed(2)}</div>
+                    <div style={{ fontFamily:'monospace', fontWeight:900, fontSize:16, color:S.gold }}>MYR {entry.total_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     <div style={{ fontSize:11, color:S.muted }}>{lines.length} بنود</div>
                   </div>
 
@@ -615,20 +615,20 @@ export default function JournalEntriesPage() {
                             <td style={{ padding:'8px 14px', fontSize:13, color:S.white }}>{line.account_name}</td>
                             <td style={{ padding:'8px 14px', fontSize:12, color:S.muted }}>{line.description||'—'}</td>
                             <td style={{ padding:'8px 14px', fontFamily:'monospace', fontSize:13, color:line.debit>0?S.green:S.muted, fontWeight:line.debit>0?700:400 }}>
-                              {line.debit>0?line.debit.toFixed(2):'—'}
+                              {line.debit>0?line.debit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }):'—'}
                             </td>
                             <td style={{ padding:'8px 14px', fontFamily:'monospace', fontSize:13, color:line.credit>0?S.red:S.muted, fontWeight:line.credit>0?700:400 }}>
-                              {line.credit>0?line.credit.toFixed(2):'—'}
+                              {line.credit>0?line.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }):'—'}
                             </td>
                           </tr>
                         ))}
                         <tr style={{ background:'rgba(255,255,255,0.04)' }}>
                           <td colSpan={3} style={{ padding:'8px 14px', fontSize:12, fontWeight:700, color:S.white, textAlign:'right' }}>الإجمالي</td>
                           <td style={{ padding:'8px 14px', fontFamily:'monospace', fontWeight:800, color:S.green }}>
-                            {lines.reduce((s,l)=>s+l.debit,0).toFixed(2)}
+                            {lines.reduce((s,l)=>s+l.debit,0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td style={{ padding:'8px 14px', fontFamily:'monospace', fontWeight:800, color:S.red }}>
-                            {lines.reduce((s,l)=>s+l.credit,0).toFixed(2)}
+                            {lines.reduce((s,l)=>s+l.credit,0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
                       </tbody>

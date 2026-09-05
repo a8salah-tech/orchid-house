@@ -239,7 +239,7 @@ export default function CouponsPage() {
   function discountLabel(c: Coupon) {
     if (c.discount_type === 'free') return '🎁 Free'
     if (c.discount_type === 'percent') return `${c.discount_value}% OFF`
-    return `MYR ${c.discount_value.toFixed(2)} OFF`
+    return `MYR ${c.discount_value.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} OFF`
   }
 
   const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }

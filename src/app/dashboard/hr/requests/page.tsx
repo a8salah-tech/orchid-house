@@ -122,7 +122,7 @@ Date of Request: ${form.date_of_request}
 
 Current Salary: MYR ${form.current_salary || '—'}
 Requested Salary: MYR ${form.requested_salary}
-Increase Amount: MYR ${form.current_salary && form.requested_salary ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toFixed(2) : '—'}
+Increase Amount: MYR ${form.current_salary && form.requested_salary ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
 
 Reason: ${form.reason}
 
@@ -142,7 +142,7 @@ Key Achievements: ${form.achievements || '—'}`
   }
 
   const increase = form.current_salary && form.requested_salary
-    ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toFixed(2)
+    ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : null
 
   return (
@@ -672,7 +672,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       finalAdvance = parseFloat(approvedAmount)
       if (!(finalAdvance > 0)) { alert('يرجى إدخال مبلغ معتمد صحيح'); return }
       if (request.amount && finalAdvance > request.amount + 0.001) {
-        alert(`المبلغ المعتمد (MYR ${finalAdvance.toFixed(2)}) أكبر من المبلغ المطلوب (MYR ${request.amount.toFixed(2)}). لا يمكن اعتماد أكثر من المطلوب.`); return
+        alert(`المبلغ المعتمد (MYR ${finalAdvance.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) أكبر من المبلغ المطلوب (MYR ${request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). لا يمكن اعتماد أكثر من المطلوب.`); return
       }
       finalAdvance = parseFloat(finalAdvance.toFixed(2))
     }
@@ -680,7 +680,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     // ✅ لو المبلغ المعتمد أقل من المطلوب، نضيف سطر توضيحي في وصف الطلب (يبان في الاستمارة المطبوعة)
     let updatedDescription: string | null = null
     if (finalAdvance != null && request.amount && finalAdvance < request.amount - 0.001) {
-      const note = `\n\n— اعتمد ${approvedBy || 'الإدارة'} مبلغ MYR ${finalAdvance.toFixed(2)} من أصل MYR ${request.amount.toFixed(2)} المطلوبة.`
+      const note = `\n\n— اعتمد ${approvedBy || 'الإدارة'} مبلغ MYR ${finalAdvance.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} من أصل MYR ${request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} المطلوبة.`
       if (!(request.description || '').includes('اعتمد ')) updatedDescription = (request.description || '') + note
     }
 
@@ -871,7 +871,7 @@ function printRequest() {
 <table>
   <tr><td>Status</td><td>${request.status.toUpperCase()}</td></tr>
   <tr><td>Date Submitted</td><td>${new Date(request.created_at).toLocaleDateString('en-GB')}</td></tr>
-  ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toFixed(2) + '</td></tr>' : ''}
+  ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td></tr>' : ''}
   ${request.start_date ? '<tr><td>From Date</td><td>' + request.start_date + '</td></tr>' : ''}
   ${request.end_date ? '<tr><td>To Date</td><td>' + request.end_date + '</td></tr>' : ''}
   ${request.days_count ? '<tr><td>Number of Days</td><td>' + request.days_count + '</td></tr>' : ''}
@@ -926,7 +926,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             { label: 'الفرع', value: request.employees?.branches?.name || '—', icon: '🏪' },
             { label: 'القسم', value: request.employees?.department || '—', icon: '🏷️' },
             { label: 'عنوان الطلب', value: request.title || '—', icon: '📋' },
-            request.amount ? { label: (isSalaryAdvance && ['approved', 'completed'].includes(request.status)) ? 'المبلغ المعتمد' : 'المبلغ المطلوب', value: `MYR ${request.amount.toFixed(2)}`, icon: '💰' } : null,
+            request.amount ? { label: (isSalaryAdvance && ['approved', 'completed'].includes(request.status)) ? 'المبلغ المعتمد' : 'المبلغ المطلوب', value: `MYR ${request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: '💰' } : null,
             request.start_date ? { label: 'من تاريخ', value: request.start_date, icon: '📅' } : null,
             request.end_date ? { label: 'إلى تاريخ', value: request.end_date, icon: '📅' } : null,
             request.days_count ? { label: 'عدد الأيام', value: `${request.days_count} يوم`, icon: '⏳' } : null,
@@ -1003,12 +1003,12 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                       <input style={{ ...inp, marginBottom: 4 }} type="number" min={0} max={request.amount || undefined} step="0.01"
                         value={approvedAmount} onChange={e => setApprovedAmount(e.target.value)} placeholder="0.00" />
                       <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>
-                        المطلوب: MYR {(request.amount || 0).toFixed(2)} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت في الطلب ويُخصم من الراتب
+                        المطلوب: MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت في الطلب ويُخصم من الراتب
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => updateStatus('completed')} disabled={updating}
                           style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                          ✅ اعتماد وخصم MYR {(parseFloat(approvedAmount) || 0).toFixed(2)}
+                          ✅ اعتماد وخصم MYR {(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </button>
                         <button onClick={() => setShowReject(true)}
                           style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -1066,13 +1066,13 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                 <input style={{ ...inp, marginBottom: 4 }} type="number" min={0} max={request.amount || undefined} step="0.01"
                   value={approvedAmount} onChange={e => setApprovedAmount(e.target.value)} placeholder="0.00" />
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 10 }}>
-                  المطلوب: MYR {(request.amount || 0).toFixed(2)} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت ويُخصم من الراتب
+                  المطلوب: MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت ويُخصم من الراتب
                 </div>
               </>
             )}
             <button onClick={() => updateStatus('completed')} disabled={updating}
               style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              {isSalaryAdvance ? `🏁 اعتماد وخصم MYR ${(parseFloat(approvedAmount) || 0).toFixed(2)}` : '🏁 تأكيد الاكتمال'}
+              {isSalaryAdvance ? `🏁 اعتماد وخصم MYR ${(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '🏁 تأكيد الاكتمال'}
             </button>
           </div>
         )}
@@ -1158,7 +1158,7 @@ export default function EmployeeRequestsPage() {
         <table>
           <tr><td>Status</td><td>${STATUS_CONFIG[request.status]?.label || request.status}</td></tr>
           <tr><td>Date Submitted</td><td>${new Date(request.created_at).toLocaleDateString('en-GB')}</td></tr>
-          ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toFixed(2) + '</td></tr>' : ''}
+          ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td></tr>' : ''}
         </table>
         <p class="section-title">Request Details</p>
         <table><tr><td colspan="2"><div class="description">${request.description || '—'}</div></td></tr></table>
@@ -1247,7 +1247,7 @@ export default function EmployeeRequestsPage() {
                 <td>${r.employees?.employee_number || '—'}</td>
                 <td>${r.employees?.name || '—'}${r.employees?.name_en ? ' ' + r.employees.name_en : ''}</td>
                 <td>${r.employees?.department || '—'}</td>
-                <td>${(r.amount || 0).toFixed(2)}</td>
+                <td>${(r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td>${STATUS_CONFIG[r.status]?.label || r.status}</td>
                 <td>${new Date(r.created_at).toLocaleDateString('ar-SA')}</td>
               </tr>`).join('')}
@@ -1258,7 +1258,7 @@ export default function EmployeeRequestsPage() {
           <div class="branch-section">
             <div class="branch-title">🏪 ${branchName}</div>
             ${chunksHtml}
-            <div class="branch-total">إجمالي ${branchName}: ${branchTotal.toFixed(2)} MYR (${branchRequests.length} طلب)</div>
+            <div class="branch-total">إجمالي ${branchName}: ${branchTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR (${branchRequests.length} طلب)</div>
           </div>`
       }).join('')
 
@@ -1266,7 +1266,7 @@ export default function EmployeeRequestsPage() {
         <div class="month-section" ${monthIndex > 0 ? 'style="page-break-before: always;"' : ''}>
           <div class="month-title">📅 ${monthName}</div>
           ${branchesHtml}
-          <div class="month-total">💰 إجمالي شهر ${monthName} كاملاً: ${monthTotal.toFixed(2)} MYR (${monthRequests.length} طلب)</div>
+          <div class="month-total">💰 إجمالي شهر ${monthName} كاملاً: ${monthTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR (${monthRequests.length} طلب)</div>
         </div>`
     }).join('')
 
@@ -1297,7 +1297,7 @@ export default function EmployeeRequestsPage() {
           <div style="font-size:12px;color:#666;margin-top:4px;">تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA')}</div>
         </div>
         ${monthsHtml}
-        <div class="grand-total">💰 الإجمالي الكلي النهائي لكل السلف: ${grandTotal.toFixed(2)} MYR</div>
+        <div class="grand-total">💰 الإجمالي الكلي النهائي لكل السلف: ${grandTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR</div>
         <script>window.onload = function(){ window.print() }</script>
       </body></html>`)
     win.document.close()
@@ -1545,7 +1545,7 @@ export default function EmployeeRequestsPage() {
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
-                        {req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toFixed(2)}</span>
+                        {req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           : req.days_count ? <span style={{ color: S.blue, fontWeight: 700, fontSize: 13 }}>{req.days_count} يوم</span>
                           : <span style={{ color: S.muted }}>—</span>}
                       </td>

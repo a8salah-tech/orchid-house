@@ -215,7 +215,7 @@ export default function ChartOfAccountsPage() {
         <td>${a.name_en||''}</td>
         <td style="font-family:monospace;font-weight:bold;color:${cfg.color}">${a.code}</td>
         <td>${cfg.label}</td>
-        <td style="text-align:right">${a.balance ? 'MYR ' + Math.abs(a.balance).toFixed(2) : '—'}</td>
+        <td style="text-align:right">${a.balance ? 'MYR ' + Math.abs(a.balance).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
       </tr>`
     }).join('')
 

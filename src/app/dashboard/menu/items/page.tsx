@@ -360,7 +360,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
             <div>
               <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الخصم %</label>
               <input style={inp} type="number" min="0" max="100" value={form.discount_percent} onChange={e => setForm(p => ({ ...p, discount_percent: e.target.value }))} placeholder="0" />
-              {parseFloat(form.discount_percent) > 0 && form.price && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>{isAr ? 'السعر بعد الخصم' : 'Price after discount'}: MYR {(parseFloat(form.price) * (1 - parseFloat(form.discount_percent)/100)).toFixed(2)}</div>}
+              {parseFloat(form.discount_percent) > 0 && form.price && <div style={{ fontSize: 11, color: S.green, marginTop: 4 }}>{isAr ? 'السعر بعد الخصم' : 'Price after discount'}: MYR {(parseFloat(form.price) * (1 - parseFloat(form.discount_percent)/100)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
             </div>
 
             {/* الوصف */}
@@ -663,11 +663,11 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
           <div style={{ background: S.redB, border: `1px solid ${S.red}30`, borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🏭 تكلفة المكونات</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: S.red }}>MYR {totalCost.toFixed(2)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: S.red }}>MYR {totalCost.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
           <div style={{ background: S.gold3, border: `1px solid ${S.gold}30`, borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>💰 سعر البيع</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: S.gold }}>MYR {(item.price || 0).toFixed(2)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: S.gold }}>MYR {(item.price || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
           <div style={{ background: margin && parseFloat(margin) > 0 ? S.greenB : S.redB, border: `1px solid ${margin && parseFloat(margin) > 0 ? S.green : S.red}30`, borderRadius: 12, padding: '14px 16px' }}>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📈 هامش الربح</div>
@@ -680,8 +680,8 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
         {margin && (
           <div style={{ marginBottom: 16, background: parseFloat(margin) > 0 ? S.greenB : S.redB, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: parseFloat(margin) > 0 ? S.green : S.red, fontWeight: 700 }}>
             {parseFloat(margin) > 0
-              ? `✅ ربح MYR ${(item.price - totalCost).toFixed(2)} لكل وجبة`
-              : `❌ خسارة MYR ${(totalCost - item.price).toFixed(2)} لكل وجبة — يجب مراجعة السعر أو التكاليف`}
+              ? `✅ ربح MYR ${(item.price - totalCost).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} لكل وجبة`
+              : `❌ خسارة MYR ${(totalCost - item.price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} لكل وجبة — يجب مراجعة السعر أو التكاليف`}
           </div>
         )}
 

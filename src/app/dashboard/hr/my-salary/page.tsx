@@ -135,7 +135,7 @@ export default function MySalaryPage() {
           late_hours: lateHours,
           early_exit_hours: earlyHours,
           deduction_1: activeViolationsTotal,
-          deduction_1_label: activeViolationsTotal > 0 ? `مخالفات (${activeViolationsTotal.toFixed(2)} MYR)` : 'Violations',
+          deduction_1_label: activeViolationsTotal > 0 ? `مخالفات (${activeViolationsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR)` : 'Violations',
         })
         setRealPresentDays(realPresentDaysCount)
       } else {

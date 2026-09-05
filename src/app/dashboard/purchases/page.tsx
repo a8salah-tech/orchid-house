@@ -226,7 +226,7 @@ function ProductSearchInput({ products, value, productName, matched, onChange, o
               <div style={{ textAlign: 'left', flexShrink: 0, marginRight: 8 }}>
                 <div style={{ fontSize: 10, color: S.muted }}>{p.category}</div>
                 {p.last_purchase_price > 0 && (
-                  <div style={{ fontSize: 11, color: S.gold }}>آخر سعر: {p.last_purchase_price.toFixed(2)}</div>
+                  <div style={{ fontSize: 11, color: S.gold }}>آخر سعر: {p.last_purchase_price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                 )}
               </div>
             </div>
@@ -1600,14 +1600,14 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                       <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
                         <div style={{ fontSize: 12, color: S2.white, fontWeight: 600 }}>{item.product_name || '—'}</div>
                         <div style={{ fontSize: 12, color: S2.muted }}>{item.quantity} {units.find(u => u.id === item.unit_id)?.symbol || ''}</div>
-                        <div style={{ fontSize: 12, color: S2.muted }}>{parseFloat(item.unit_price).toFixed(2)}</div>
-                        <div style={{ fontSize: 12, color: S2.gold, fontWeight: 600 }}>{t.toFixed(2)}</div>
+                        <div style={{ fontSize: 12, color: S2.muted }}>{parseFloat(item.unit_price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div style={{ fontSize: 12, color: S2.gold, fontWeight: 600 }}>{t.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       </div>
                     )
                   })}
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '10px 12px', gap: 8, borderTop: `1px solid ${S2.border}`, background: S2.greenB }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: S2.green, gridColumn: '1/4' }}>الإجمالي</div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: S2.green }}>{items.reduce((s, item) => s + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0).toFixed(2)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: S2.green }}>{items.reduce((s, item) => s + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   </div>
                 </div>
               )}
@@ -1825,10 +1825,10 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                             const sst = net * (parseFloat(item.sst_percent || '0') / 100)
                             return (
                               <span>
-                                MYR {gross.toFixed(2)}
-                                {disc > 0 && <span style={{ color: S2.red }}> −{disc.toFixed(2)}</span>}
-                                {sst > 0 && <span style={{ color: '#F59E0B' }}> +{sst.toFixed(2)}</span>}
-                                {(disc > 0 || sst > 0) && <span> = {(net + sst).toFixed(2)}</span>}
+                                MYR {gross.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {disc > 0 && <span style={{ color: S2.red }}> −{disc.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+                                {sst > 0 && <span style={{ color: '#F59E0B' }}> +{sst.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+                                {(disc > 0 || sst > 0) && <span> = {(net + sst).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
                               </span>
                             )
                           })()}
@@ -1845,29 +1845,29 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                 <div style={{ background: S2.navy3, borderRadius: 12, padding: '14px 16px', marginTop: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                     <span style={{ fontSize: 13, color: S2.muted }}>المجموع قبل الخصم</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: S2.white }}>MYR {editGrossSubtotal.toFixed(2)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: S2.white }}>MYR {editGrossSubtotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   {editItemDiscountsTotal > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontSize: 13, color: S2.red }}>خصم الأصناف</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: S2.red }}>− MYR {editItemDiscountsTotal.toFixed(2)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: S2.red }}>− MYR {editItemDiscountsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                   {editTotalSST > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontSize: 13, color: '#F59E0B' }}>SST (الأصناف الخاضعة)</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>MYR {editTotalSST.toFixed(2)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#F59E0B' }}>MYR {editTotalSST.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                   {editInvoiceDiscountPreview > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontSize: 13, color: S2.red }}>خصم الفاتورة كاملة</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: S2.red }}>− MYR {editInvoiceDiscountPreview.toFixed(2)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: S2.red }}>− MYR {editInvoiceDiscountPreview.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, borderTop: `1px solid rgba(255,255,255,0.07)` }}>
                     <span style={{ fontSize: 13, color: S2.muted }}>الإجمالي النهائي</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: S2.green }}>MYR {Math.max(0, editBeforeInvoiceDiscount - editInvoiceDiscountPreview).toFixed(2)}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: S2.green }}>MYR {Math.max(0, editBeforeInvoiceDiscount - editInvoiceDiscountPreview).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               )}

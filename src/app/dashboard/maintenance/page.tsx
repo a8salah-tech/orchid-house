@@ -499,7 +499,7 @@ function DetailModal({ req, employees, currentEmployee, isAdmin, onClose, onUpda
             {req.paid_amount !== null && req.paid_amount !== undefined && (
               <div style={{ background: S.card, borderRadius: 10, padding: 12, fontSize: 13 }}>
                 <span style={{ color: S.muted }}>💰 المبلغ المدفوع: </span>
-                <span style={{ color: S.white, fontWeight: 700 }}>RM {Number(req.paid_amount).toFixed(2)}</span>
+                <span style={{ color: S.white, fontWeight: 700 }}>RM {Number(req.paid_amount).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             )}
             {(req.invoice_url || req.after_image_url) && (

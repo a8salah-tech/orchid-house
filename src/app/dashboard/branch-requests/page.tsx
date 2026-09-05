@@ -752,13 +752,13 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
                   <div key={s.itemId} style={{ background: S.navy2, borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{s.name}</div>
                     <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>
-                      المطلوب: <span style={{ color: S.red, fontWeight: 700 }}>{s.requestedInBase.toFixed(2)} {s.unitSymbol}</span>
-                      {' '}— المتاح فعليًا: <span style={{ color: S.green, fontWeight: 700 }}>{s.available.toFixed(2)} {s.unitSymbol}</span>
+                      المطلوب: <span style={{ color: S.red, fontWeight: 700 }}>{s.requestedInBase.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {s.unitSymbol}</span>
+                      {' '}— المتاح فعليًا: <span style={{ color: S.green, fontWeight: 700 }}>{s.available.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {s.unitSymbol}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={() => adjustToAvailable(s.itemId, s.requestedInBase, s.available)}
                         style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                        ✏️ تعديل للمتاح ({s.available.toFixed(2)})
+                        ✏️ تعديل للمتاح ({s.available.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                       </button>
                       <button onClick={() => excludeItem(s.itemId)}
                         style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>

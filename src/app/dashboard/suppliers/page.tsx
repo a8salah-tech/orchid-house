@@ -146,7 +146,7 @@ function OrderModal({ product, suppliers, onClose }: {
 
   function buildWhatsAppMsg() {
     const price = product.last_purchase_price > 0
-      ? `\nآخر سعر شراء: MYR ${product.last_purchase_price.toFixed(2)}`
+      ? `\nآخر سعر شراء: MYR ${product.last_purchase_price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : ''
     return encodeURIComponent(
       `مرحباً ${selected?.name || ''}،\n\n` +
@@ -160,7 +160,7 @@ function OrderModal({ product, suppliers, onClose }: {
 
   function buildEmailBody() {
     const price = product.last_purchase_price > 0
-      ? `\nآخر سعر شراء: MYR ${product.last_purchase_price.toFixed(2)}`
+      ? `\nآخر سعر شراء: MYR ${product.last_purchase_price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : ''
     return encodeURIComponent(
       `مرحباً ${selected?.name || ''}،\n\n` +
@@ -188,7 +188,7 @@ function OrderModal({ product, suppliers, onClose }: {
           <div>
             <div style={{ fontSize:11, color:S.muted, marginBottom:3 }}>💰 آخر سعر شراء</div>
             <div style={{ fontSize:15, color:S.gold, fontWeight:800 }}>
-              {product.last_purchase_price > 0 ? `MYR ${product.last_purchase_price.toFixed(2)}` : '—'}
+              {product.last_purchase_price > 0 ? `MYR ${product.last_purchase_price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
             </div>
           </div>
           <div>
@@ -460,7 +460,7 @@ function OrderTab({ suppliers }: { suppliers: Supplier[] }) {
                     <div style={{ background:S.card, borderRadius:8, padding:'8px 10px' }}>
                       <div style={{ fontSize:10, color:S.muted, marginBottom:2 }}>آخر سعر</div>
                       <div style={{ fontSize:14, fontWeight:800, color:S.gold }}>
-                        {p.last_purchase_price > 0 ? `MYR ${p.last_purchase_price.toFixed(2)}` : '—'}
+                        {p.last_purchase_price > 0 ? `MYR ${p.last_purchase_price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                       </div>
                     </div>
                     <div style={{ background:p.current_stock <= 5 ? S.redB : S.card, borderRadius:8, padding:'8px 10px' }}>
@@ -645,7 +645,7 @@ function SupplierDetail({ supplier, onClose, onEdit }: {
                     <tr key={inv.id} style={{ borderBottom:`1px solid ${S.border}` }}>
                       <td style={{ padding:'8px 12px', fontSize:12, color:S.gold }}>{inv.invoice_number||'—'}</td>
                       <td style={{ padding:'8px 12px', fontSize:12, color:S.white }}>{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</td>
-                      <td style={{ padding:'8px 12px', fontSize:12, color:S.white, fontWeight:700 }}>MYR {parseFloat(inv.total_amount).toFixed(2)}</td>
+                      <td style={{ padding:'8px 12px', fontSize:12, color:S.white, fontWeight:700 }}>MYR {parseFloat(inv.total_amount).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ padding:'8px 12px' }}><span style={{ background:inv.status==='cancelled'?S.redB:S.greenB, color:inv.status==='cancelled'?S.red:S.green, borderRadius:20, padding:'2px 8px', fontSize:10, fontWeight:700 }}>{inv.status}</span></td>
                     </tr>
                   ))}
@@ -726,6 +726,7 @@ export default function SuppliersPage() {
   }
 
   function exportCSV() {
+    // ✅ رقم عادي بدون فواصل آلاف هنا (مش عرض) - القيمة بتتحط في خلية CSV وأي فاصلة جواها هتكسر ترقيم الأعمدة
     const rows=[['Name','Company','Category','Phone','WhatsApp','Email','Payment','Total Purchases','Outstanding','Status'],...suppliers.map(s=>[s.name,s.company||'',s.category||'',s.phone||'',s.whatsapp||'',s.email||'',s.payment_type,s.total_purchases.toFixed(2),s.outstanding_balance.toFixed(2),s.is_active?'Active':'Inactive'])]
     const csv=rows.map(r=>r.join(',')).join('\n')
     const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='suppliers.csv';a.click()

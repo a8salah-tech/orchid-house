@@ -258,18 +258,18 @@ export default function QuotationPage() {
         <td style="text-align:center">${i + 1}</td>
         <td>${r.isOpen ? (r.openName || '') : (r.item!.name_en + (r.selectedSize ? ' (' + (r.selectedSize.name_en || r.selectedSize.name) + ')' : ''))}${r.isOpen && r.openNotes ? '<br/><span style="color:#888;font-size:11px">' + r.openNotes + '</span>' : ''}</td>
         <td style="text-align:center">${r.qty}</td>
-        <td style="text-align:right">MYR ${(r.isOpen ? (r.openPrice || 0) : (r.selectedSize?.price ?? r.item!.price)).toFixed(2)}</td>
-        <td style="text-align:right">MYR ${lineTotal(r).toFixed(2)}</td>
+        <td style="text-align:right">MYR ${(r.isOpen ? (r.openPrice || 0) : (r.selectedSize?.price ?? r.item!.price)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td style="text-align:right">MYR ${lineTotal(r).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       </tr>`).join('')
     const notesHtml = notes.filter(n => n.trim()).map(n => `<li>${n}</li>`).join('')
     // ✅ جديد: سطر الخصم يظهر بس لو فيه خصم فعلي أكبر من صفر
     const totalsHtml = `
-      <div><span>Subtotal</span><span>MYR ${subtotal.toFixed(2)}</span></div>
-      ${includeServiceCharge ? `<div><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toFixed(2)}</span></div>` : ''}
-      <div><span>SST (6%)</span><span>MYR ${sst.toFixed(2)}</span></div>
-      ${discount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${discount.toFixed(2)}</span></div>` : ''}
-      ${extraCharge > 0 ? `<div><span>Extra Charge</span><span>MYR ${extraCharge.toFixed(2)}</span></div>` : ''}
-      <div class="grand"><span>Grand Total</span><span>MYR ${grandTotal.toFixed(2)}</span></div>`
+      <div><span>Subtotal</span><span>MYR ${subtotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ${includeServiceCharge ? `<div><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      <div><span>SST (6%)</span><span>MYR ${sst.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ${discount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${discount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      ${extraCharge > 0 ? `<div><span>Extra Charge</span><span>MYR ${extraCharge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      <div class="grand"><span>Grand Total</span><span>MYR ${grandTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>`
     win.document.write(`
       <html><head><title>Price Quotation</title>
       <style>${PRINT_STYLE}</style></head>
@@ -331,20 +331,20 @@ export default function QuotationPage() {
         <td style="text-align:center">${i + 1}</td>
         <td>${it.item_name}${it.notes ? '<br/><span style="color:#888;font-size:11px">' + it.notes + '</span>' : ''}</td>
         <td style="text-align:center">${it.qty}</td>
-        <td style="text-align:right">MYR ${Number(it.unit_price).toFixed(2)}</td>
-        <td style="text-align:right">MYR ${Number(it.line_total).toFixed(2)}</td>
+        <td style="text-align:right">MYR ${Number(it.unit_price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td style="text-align:right">MYR ${Number(it.line_total).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       </tr>`).join('')
     const notesHtml = (q.notes || []).filter((n: string) => n.trim()).map((n: string) => `<li>${n}</li>`).join('')
     // ✅ جديد: سطر الخصم يظهر بس لو العرض المحفوظ فيه خصم فعلي أكبر من صفر
     const savedDiscount = Number(q.discount) || 0
     const savedExtraCharge = Number(q.extra_charge) || 0
     const totalsHtml = `
-      <div><span>Subtotal</span><span>MYR ${Number(q.subtotal).toFixed(2)}</span></div>
-      ${q.include_service_charge ? `<div><span>Service Charge (10%)</span><span>MYR ${Number(q.service_charge).toFixed(2)}</span></div>` : ''}
-      <div><span>SST (6%)</span><span>MYR ${Number(q.sst).toFixed(2)}</span></div>
-      ${savedDiscount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${savedDiscount.toFixed(2)}</span></div>` : ''}
-      ${savedExtraCharge > 0 ? `<div><span>Extra Charge</span><span>MYR ${savedExtraCharge.toFixed(2)}</span></div>` : ''}
-      <div class="grand"><span>Grand Total</span><span>MYR ${Number(q.grand_total).toFixed(2)}</span></div>`
+      <div><span>Subtotal</span><span>MYR ${Number(q.subtotal).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ${q.include_service_charge ? `<div><span>Service Charge (10%)</span><span>MYR ${Number(q.service_charge).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      <div><span>SST (6%)</span><span>MYR ${Number(q.sst).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ${savedDiscount > 0 ? `<div class="discount"><span>Discount</span><span>-MYR ${savedDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      ${savedExtraCharge > 0 ? `<div><span>Extra Charge</span><span>MYR ${savedExtraCharge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      <div class="grand"><span>Grand Total</span><span>MYR ${Number(q.grand_total).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>`
     win.document.write(`
       <html><head><title>Price Quotation #${q.quote_number}</title>
       <style>${PRINT_STYLE}</style></head>
@@ -466,7 +466,7 @@ export default function QuotationPage() {
                         onBlur={() => clampRowQty(i)}
                         style={{ ...inp, width: 60 }} />
                     </div>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginLeft: 'auto' }}>MYR {lineTotal(row).toFixed(2)}</span>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginLeft: 'auto' }}>MYR {lineTotal(row).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   <input value={row.openNotes || ''} onChange={e => setOpenField(i, 'openNotes', e.target.value)} placeholder="Notes (optional)"
                     style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
@@ -505,7 +505,7 @@ export default function QuotationPage() {
                           onMouseEnter={e => (e.currentTarget.style.background = S.card)}
                           onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                           <span>{it.or_code ? `#${it.or_code} ` : ''}{it.name_en}{(it.sizes || []).filter(s => s.is_active).length > 0 ? ' ›' : ''}</span>
-                          <span style={{ color: S.gold }}>{(it.sizes || []).filter(s => s.is_active).length > 0 ? 'from ' : ''}MYR {((it.sizes || []).filter(s => s.is_active)[0]?.price ?? it.price).toFixed(2)}</span>
+                          <span style={{ color: S.gold }}>{(it.sizes || []).filter(s => s.is_active).length > 0 ? 'from ' : ''}MYR {((it.sizes || []).filter(s => s.is_active)[0]?.price ?? it.price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                       ))}
                       <div onClick={() => setSearchOpenFor(null)} style={{ textAlign: 'center', fontSize: 11, color: S.muted, cursor: 'pointer', marginTop: 6 }}>Close</div>
@@ -527,8 +527,8 @@ export default function QuotationPage() {
                     onBlur={() => clampRowQty(i)}
                     style={{ ...inp, width: 60 }} />
                 </div>
-                <span style={{ fontSize: 12, color: S.muted }}>MYR {(row.selectedSize?.price ?? row.item.price).toFixed(2)} each</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginLeft: 'auto' }}>MYR {lineTotal(row).toFixed(2)}</span>
+                <span style={{ fontSize: 12, color: S.muted }}>MYR {(row.selectedSize?.price ?? row.item.price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginLeft: 'auto' }}>MYR {lineTotal(row).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             )}
             </>
@@ -556,7 +556,7 @@ export default function QuotationPage() {
                 <button key={size.id} onClick={() => setRowSize(sizePickerFor.rowIdx, sizePickerFor.item, size)}
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.card, color: S.white, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', textAlign: 'left' }}>
                   <span>{size.name_en || size.name}</span>
-                  <span style={{ color: S.gold, fontWeight: 700 }}>MYR {size.price.toFixed(2)}</span>
+                  <span style={{ color: S.gold, fontWeight: 700 }}>MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </button>
               ))}
             </div>
@@ -569,7 +569,7 @@ export default function QuotationPage() {
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
         <div style={{ width: 300, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13, color: S.muted, borderBottom: `1px solid ${S.border}` }}>
-            <span>Subtotal</span><span>MYR {subtotal.toFixed(2)}</span>
+            <span>Subtotal</span><span>MYR {subtotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
           {/* ✅ جديد: زر تفعيل/إلغاء رسوم الخدمة - علامة + لو ملغية، ✕ لو مفعّلة */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, color: includeServiceCharge ? S.muted : S.muted + '80', borderBottom: `1px solid ${S.border}` }}>
@@ -580,12 +580,12 @@ export default function QuotationPage() {
               </button>
               <span style={{ textDecoration: includeServiceCharge ? 'none' : 'line-through' }}>Service Charge (10%)</span>
             </span>
-            <span>MYR {serviceCharge.toFixed(2)}</span>
+            <span>MYR {serviceCharge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
           {/* ✅ Fix: SST ضريبة قانونية ثابتة - شلنا زر الإلغاء منها، بتفضل محسوبة دايمًا (بعكس رسوم الخدمة) */}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13, color: S.muted, borderBottom: `1px solid ${S.border}` }}>
             <span>SST (6%)</span>
-            <span>MYR {sst.toFixed(2)}</span>
+            <span>MYR {sst.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
           {/* ✅ جديد: خصم بمبلغ ثابت (MYR) يُطرح من الإجمالي النهائي */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: 13, color: S.red, borderBottom: `1px solid ${S.border}` }}>
@@ -604,7 +604,7 @@ export default function QuotationPage() {
               style={{ width: 90, textAlign: 'right', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '4px 8px', fontSize: 13, color: S.gold, outline: 'none', fontFamily: 'inherit' }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, fontSize: 16, fontWeight: 800, color: S.gold }}>
-            <span>Grand Total</span><span>MYR {grandTotal.toFixed(2)}</span>
+            <span>Grand Total</span><span>MYR {grandTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
         </div>
       </div>
@@ -679,7 +679,7 @@ export default function QuotationPage() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>MYR {Number(q.grand_total).toFixed(2)}</span>
+                      <span style={{ color: S.gold, fontWeight: 800, fontSize: 15 }}>MYR {Number(q.grand_total).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       {/* ✅ جديد: تعديل وطباعة مباشرة من القائمة - stopPropagation عشان الضغط عليهم مايفتحش/يقفلش تفاصيل الكارت */}
                       <button onClick={e => { e.stopPropagation(); loadForEdit(q) }} title="Edit"
                         style={{ background: 'transparent', border: `1px solid ${S.blue}`, borderRadius: 8, color: S.blue, cursor: 'pointer', fontSize: 12, padding: '5px 9px' }}>
@@ -711,19 +711,19 @@ export default function QuotationPage() {
                                 {it.notes && <div style={{ color: S.muted, fontSize: 10 }}>{it.notes}</div>}
                               </td>
                               <td style={{ padding: '6px 0', textAlign: 'center', color: S.white }}>{it.qty}</td>
-                              <td style={{ padding: '6px 0', textAlign: 'right', color: S.muted }}>MYR {Number(it.unit_price).toFixed(2)}</td>
-                              <td style={{ padding: '6px 0', textAlign: 'right', color: S.white, fontWeight: 700 }}>MYR {Number(it.line_total).toFixed(2)}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right', color: S.muted }}>MYR {Number(it.unit_price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right', color: S.white, fontWeight: 700 }}>MYR {Number(it.line_total).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                       <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}`, fontSize: 12 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Subtotal</span><span>MYR {Number(q.subtotal).toFixed(2)}</span></div>
-                        {q.include_service_charge && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Service Charge (10%)</span><span>MYR {Number(q.service_charge).toFixed(2)}</span></div>}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>SST (6%)</span><span>MYR {Number(q.sst).toFixed(2)}</span></div>
-                        {Number(q.discount) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.red, padding: '3px 0' }}><span>Discount</span><span>-MYR {Number(q.discount).toFixed(2)}</span></div>}
-                        {Number(q.extra_charge) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, padding: '3px 0' }}><span>Extra Charge</span><span>MYR {Number(q.extra_charge).toFixed(2)}</span></div>}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, fontWeight: 800, fontSize: 14, paddingTop: 6 }}><span>Grand Total</span><span>MYR {Number(q.grand_total).toFixed(2)}</span></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Subtotal</span><span>MYR {Number(q.subtotal).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                        {q.include_service_charge && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>Service Charge (10%)</span><span>MYR {Number(q.service_charge).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.muted, padding: '3px 0' }}><span>SST (6%)</span><span>MYR {Number(q.sst).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                        {Number(q.discount) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.red, padding: '3px 0' }}><span>Discount</span><span>-MYR {Number(q.discount).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        {Number(q.extra_charge) > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, padding: '3px 0' }}><span>Extra Charge</span><span>MYR {Number(q.extra_charge).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: S.gold, fontWeight: 800, fontSize: 14, paddingTop: 6 }}><span>Grand Total</span><span>MYR {Number(q.grand_total).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       </div>
                       {q.notes && q.notes.length > 0 && (
                         <div style={{ marginTop: 10, fontSize: 11, color: S.muted }}>

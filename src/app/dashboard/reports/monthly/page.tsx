@@ -194,13 +194,13 @@ export default function MonthlyReportPage() {
 
     <div class="section"><div class="section-title">🛒 ملخص المشتريات</div>
     <div class="stats" style="grid-template-columns:repeat(3,1fr)">
-      <div class="stat"><div class="sv">MYR ${(report.purchases?.total||0).toFixed(2)}</div><div class="sl">الإجمالي</div></div>
+      <div class="stat"><div class="sv">MYR ${(report.purchases?.total||0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div><div class="sl">الإجمالي</div></div>
       <div class="stat"><div class="sv">${report.purchases?.count||0}</div><div class="sl">عدد الفواتير</div></div>
-      <div class="stat"><div class="sv">MYR ${(report.purchases?.avg||0).toFixed(2)}</div><div class="sl">متوسط الفاتورة</div></div>
+      <div class="stat"><div class="sv">MYR ${(report.purchases?.avg||0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div><div class="sl">متوسط الفاتورة</div></div>
     </div>
     ${report.purchases?.topSuppliers?.length > 0 ? `
     <table><thead><tr><th>المورد</th><th>عدد الفواتير</th><th>الإجمالي</th></tr></thead><tbody>
-    ${report.purchases.topSuppliers.map(([name, d]: any) => `<tr><td>${name}</td><td>${d.count}</td><td>MYR ${d.total.toFixed(2)}</td></tr>`).join('')}
+    ${report.purchases.topSuppliers.map(([name, d]: any) => `<tr><td>${name}</td><td>${d.count}</td><td>MYR ${d.total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>`).join('')}
     </tbody></table>` : '<p style="color:#666;font-size:12px">لا توجد مشتريات هذا الشهر</p>'}
     </div>
 

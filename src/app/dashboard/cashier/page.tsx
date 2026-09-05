@@ -206,11 +206,96 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
   win.document.close()
 }
 
+// ✅ جديد: طباعة ملخص مجمّع (أصناف مجمّعة + بند لكل نوع مصروف/دفع) - نفس منطق شاشة الملخص المجمّع بالظبط،
+// تُستخدم لكل من طباعة "يوم كامل" (Whole Day Total) وطباعة "شيفت واحد" من نافذة الملخص المجمّع
+function printAggregatedReport(title: string, subtitle: string, orders: Order[], totals: {
+  cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number
+  discount: number; freeCount: number; freeAmount: number; deposits: number; total: number; expPaid: number; expPending: number
+}) {
+  const win = window.open('', '_blank')
+  if (!win) return
+  const paidOrders = orders.filter(o => o.status === 'paid')
+
+  const itemMap = new Map<string, { name: string; qty: number; revenue: number }>()
+  paidOrders.forEach(o => {
+    (o.order_items || []).filter(it => it.status !== 'cancelled').forEach(it => {
+      const label = (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + (it.size_name ? ` (${it.size_name})` : '')
+      const cur = itemMap.get(label) || { name: label, qty: 0, revenue: 0 }
+      cur.qty += it.quantity || 0
+      cur.revenue += (it.unit_price || 0) * (it.quantity || 0)
+      itemMap.set(label, cur)
+    })
+  })
+  const itemRows = [...itemMap.values()].sort((a, b) => b.qty - a.qty)
+  const totalUnits = itemRows.reduce((s, r) => s + r.qty, 0)
+
+  const rows = itemRows.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${r.name}</td>
+      <td>${r.qty}</td>
+      <td><b>MYR ${r.revenue.toFixed(2)}</b></td>
+    </tr>`).join('')
+
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>${title} — ${subtitle}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11px; margin: 15px; color: #000; }
+    h2 { text-align: center; font-size: 16px; margin-bottom: 4px; }
+    h3 { text-align: center; font-size: 12px; color: #555; margin-bottom: 4px; }
+    h4 { font-size: 13px; margin: 18px 0 8px; border-bottom: 2px solid #1E3A8A; padding-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    th { background: #0A1628; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; }
+    td { padding: 5px 8px; border-bottom: 1px solid #ddd; font-size: 10px; }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+    .summary-box { border: 1px solid #ddd; border-radius: 8px; padding: 10px; text-align: center; }
+    .summary-box .label { font-size: 10px; color: #666; margin-bottom: 4px; }
+    .summary-box .value { font-size: 15px; font-weight: bold; color: #000; }
+    .total-row { background: #1E3A8A !important; font-weight: bold; color: #fff; }
+    .no-data { color: #999; font-size: 11px; padding: 8px 0; }
+    @media print { @page { size: A4 portrait; margin: 10mm; } }
+  </style></head><body>
+  <h2>🌸 Orchid House — ${title}</h2>
+  <h3>${subtitle}</h3>
+
+  <div class="summary">
+    <div class="summary-box"><div class="label">📋 Paid Orders</div><div class="value">${paidOrders.length}</div></div>
+    <div class="summary-box"><div class="label">🍽️ Items Sold</div><div class="value">${totalUnits}</div></div>
+    <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toFixed(2)} · BSN ${totals.visaBsn.toFixed(2)})</div><div class="value">MYR ${totals.visa.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount})</div><div class="value">MYR ${totals.freeAmount.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${totals.deposits.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">⏳ Expenses Pending</div><div class="value">MYR ${totals.expPending.toFixed(2)}</div></div>
+    <div class="summary-box" style="background:#1E3A8A;border-color:#1E3A8A;"><div class="label" style="color:#cbd5e1;">💰 Total Sales</div><div class="value" style="color:#fff;">MYR ${totals.total.toFixed(2)}</div></div>
+  </div>
+
+  <h4>🍽️ Items Sold — Grouped (${itemRows.length} distinct items)</h4>
+  ${itemRows.length ? `<table>
+    <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Revenue</th></tr></thead>
+    <tbody>${rows}
+      <tr class="total-row"><td colspan="2">TOTAL</td><td>${totalUnits}</td><td>MYR ${itemRows.reduce((s, r) => s + r.revenue, 0).toFixed(2)}</td></tr>
+    </tbody>
+  </table>` : `<div class="no-data">No paid orders.</div>`}
+
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`)
+  win.document.close()
+}
+
 // ══ Shift Item Summary Modal ══
 // ✅ جديد: ملخص مجمّع على الشاشة لكل أصناف الشيفت (كام شاورما، كام مياه...) - نفس بيانات التقرير المطبوع
 // بس متجمّعة في شاشة واحدة سهلة القراءة بدل جدول تفصيلي طلب-طلب
 function ShiftItemSummaryModal({ data, onClose }: {
-  data: { session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }; sessOrders: Order[]; discount: number; freeCount: number; freeAmount: number; deposits: number; total: number }
+  data: {
+    session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }; sessOrders: Order[]
+    cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number
+    discount: number; freeCount: number; freeAmount: number; deposits: number; total: number; expPaid: number; expPending: number
+  }
   onClose: () => void
 }) {
   const { session, sessOrders, discount, freeCount, freeAmount, deposits, total } = data
@@ -241,7 +326,13 @@ function ShiftItemSummaryModal({ data, onClose }: {
               {session.ended_at ? ` · Ended ${new Date(session.ended_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ' · 🟢 Still Active'}
             </p>
           </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={() => printAggregatedReport('Shift Summary', `${session.cashier_name} · ${shiftLabel}`, sessOrders, data)}
+              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              🖨️ Print
+            </button>
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: 18 }}>
@@ -2096,7 +2187,11 @@ export default function CashierPage() {
   // ✅ جديد: عرض صورة إيصال المصروف بحجمها الكامل جوه نفس الصفحة (بدل ما تفتح في تاب جديد)
   const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null)
   // ✅ جديد: ملخص مجمّع لشيفت مقفول (كم صنف اتباع مجمّع، طاولات فري، خصومات) - يفتح لما تضغط على بطاقة الشيفت
-  const [itemSummary, setItemSummary] = useState<{ session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }; sessOrders: Order[]; discount: number; freeCount: number; freeAmount: number; deposits: number; total: number } | null>(null)
+  const [itemSummary, setItemSummary] = useState<{
+    session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }; sessOrders: Order[]
+    cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number
+    discount: number; freeCount: number; freeAmount: number; deposits: number; total: number; expPaid: number; expPending: number
+  } | null>(null)
 
 
   // Init notifications + restore sound state
@@ -3233,7 +3328,18 @@ export default function CashierPage() {
                       const dExpPending = closedExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
                       return (
                         <div style={{ background: S.gold3, borderRadius: 16, border: `1px solid ${S.gold}`, padding: '16px 18px' }}>
-                          <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, marginBottom: 10 }}>📊 Whole Day Total ({closedDate})</div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>📊 Whole Day Total ({closedDate})</div>
+                            <button
+                              onClick={() => printAggregatedReport('Daily Summary', closedDate, dayPaid, {
+                                cash: dCash, visa: dVisa, visaMaybank: dVisaMaybank, visaBsn: dVisaBsn, online: dOnline, credit: dCredit,
+                                discount: dDiscount, freeCount: dFreeOrders.length, freeAmount: dFreeAmount, deposits: dDepositsTotal, total: dTotal,
+                                expPaid: dExpPaid, expPending: dExpPending,
+                              })}
+                              style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: 'transparent', color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                              🖨️ Print
+                            </button>
+                          </div>
                           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                             <div style={{ textAlign: 'center' }}>
                               <div style={{ fontSize: 10, color: S.muted }}>💵 Cash</div>
@@ -3396,7 +3502,12 @@ export default function CashierPage() {
                         <div key={session.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
                           <div style={{ padding: '14px 16px', background: S.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                             {/* ✅ جديد: الضغط هنا يفتح ملخص مجمّع لكل أصناف الشيفت (كم شاورما، كم مياه...) بدل الطباعة */}
-                            <div onClick={() => setItemSummary({ session, sessOrders, discount: sDiscount, freeCount: sFreeOrders.length, freeAmount: sFreeAmount, deposits: sDepositsTotal, total: sTotal })}
+                            <div onClick={() => setItemSummary({
+                              session, sessOrders,
+                              cash: sCash, visa: sVisa, visaMaybank: sVisaMaybank, visaBsn: sVisaBsn, online: sOnline, credit: sCredit,
+                              discount: sDiscount, freeCount: sFreeOrders.length, freeAmount: sFreeAmount, deposits: sDepositsTotal, total: sTotal,
+                              expPaid: sExpPaid, expPending: sExpPending,
+                            })}
                               style={{ cursor: 'pointer' }} title="Click to view item summary">
                               <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>🧑‍💼 {session.cashier_name} · {session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'} <span style={{ fontSize: 11, color: S.gold, fontWeight: 400 }}>📊</span></div>
                               <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>

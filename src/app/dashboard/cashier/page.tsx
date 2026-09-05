@@ -206,6 +206,95 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
   win.document.close()
 }
 
+// ══ Shift Item Summary Modal ══
+// ✅ جديد: ملخص مجمّع على الشاشة لكل أصناف الشيفت (كام شاورما، كام مياه...) - نفس بيانات التقرير المطبوع
+// بس متجمّعة في شاشة واحدة سهلة القراءة بدل جدول تفصيلي طلب-طلب
+function ShiftItemSummaryModal({ data, onClose }: {
+  data: { session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }; sessOrders: Order[]; discount: number; freeCount: number; freeAmount: number; deposits: number; total: number }
+  onClose: () => void
+}) {
+  const { session, sessOrders, discount, freeCount, freeAmount, deposits, total } = data
+  const shiftLabel = session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'
+  const paidOrders = sessOrders.filter(o => o.status === 'paid')
+
+  const itemMap = new Map<string, { name: string; qty: number; revenue: number }>()
+  paidOrders.forEach(o => {
+    (o.order_items || []).filter(it => it.status !== 'cancelled').forEach(it => {
+      const label = (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + (it.size_name ? ` (${it.size_name})` : '')
+      const cur = itemMap.get(label) || { name: label, qty: 0, revenue: 0 }
+      cur.qty += it.quantity || 0
+      cur.revenue += (it.unit_price || 0) * (it.quantity || 0)
+      itemMap.set(label, cur)
+    })
+  })
+  const itemRows = [...itemMap.values()].sort((a, b) => b.qty - a.qty)
+  const totalUnits = itemRows.reduce((s, r) => s + r.qty, 0)
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, padding: 24, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>📊 Item Summary</h2>
+            <p style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>
+              🧑‍💼 {session.cashier_name} · {shiftLabel} · Started {new Date(session.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+              {session.ended_at ? ` · Ended ${new Date(session.ended_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ' · 🟢 Still Active'}
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: 18 }}>
+          {[
+            { label: 'Paid Orders', value: paidOrders.length, color: S.blue, icon: '📋' },
+            { label: 'Items Sold', value: totalUnits, color: S.green, icon: '🍽️' },
+            { label: `Free Tables (${freeCount})`, value: `MYR ${freeAmount.toFixed(2)}`, color: S.amber, icon: '🆓' },
+            { label: 'Discounts', value: `MYR ${discount.toFixed(2)}`, color: S.red, icon: '🏷️' },
+            { label: 'Deposits', value: `MYR ${deposits.toFixed(2)}`, color: S.teal, icon: '💰' },
+            { label: 'Total', value: `MYR ${total.toFixed(2)}`, color: S.gold, icon: '💰' },
+          ].map((s, i) => (
+            <div key={i} style={{ background: S.card, borderRadius: 12, padding: '10px 12px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
+              <div style={{ fontSize: 16, marginBottom: 4 }}>{s.icon}</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 8 }}>🍽️ Items (grouped, most sold first)</div>
+        {itemRows.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 24, color: S.muted, fontSize: 12 }}>No paid orders in this shift.</div>
+        ) : (
+          <div style={{ background: S.navy3, borderRadius: 12, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', color: S.muted, fontWeight: 700 }}>Item</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center', color: S.muted, fontWeight: 700 }}>Qty</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right', color: S.muted, fontWeight: 700 }}>Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemRows.map((r, i) => (
+                  <tr key={i} style={{ borderTop: `1px solid ${S.border}` }}>
+                    <td style={{ padding: '8px 12px', color: S.white }}>{r.name}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center', color: S.gold, fontWeight: 800 }}>×{r.qty}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: S.muted }}>MYR {r.revenue.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <button onClick={onClose} style={{ width: '100%', marginTop: 18, padding: '10px 0', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
 type Order = {
@@ -1979,6 +2068,8 @@ export default function CashierPage() {
   const [depAmount, setDepAmount] = useState('')
   const [depMethod, setDepMethod] = useState<'cash' | 'visa' | 'online'>('cash')
   const [depCardBank, setDepCardBank] = useState<'maybank' | 'bsn' | ''>('')
+  // ✅ جديد: يوم الحجز (يوم رجوع العميل) - العربون يُنسب لتوتال هذا اليوم، مش يوم أخذ العربون نفسه
+  const [depReservationDate, setDepReservationDate] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
   const [depSaving, setDepSaving] = useState(false)
   const [depSaved, setDepSaved] = useState(false)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
@@ -1999,11 +2090,13 @@ export default function CashierPage() {
   // ✅ جديد: تفاصيل دفعات الفواتير المقسّمة (Split Payment) - مطلوبة عشان نجمع كام كاش وكام فيزا فعليًا حتى للفواتير المقسّمة
   const [closedSplitPayments, setClosedSplitPayments] = useState<{ order_id: string; person_label: string; amount: number; payment_method: string; card_bank: string | null }[]>([])
   // ✅ جديد: العربونات المأخوذة في نطاق اليوم/الشيفت المعروض في تاب Closed - عشان تتحسب ضمن Cash/Visa/Online
-  const [closedDeposits, setClosedDeposits] = useState<{ id: string; amount: number; payment_method: string; card_bank: string | null; created_at: string; created_by_name: string | null; branch_id: string | null }[]>([])
+  const [closedDeposits, setClosedDeposits] = useState<{ id: string; amount: number; payment_method: string; card_bank: string | null; created_at: string; created_by_name: string | null; branch_id: string | null; reservation_date?: string | null }[]>([])
   const [closedLoading, setClosedLoading] = useState(false)
   const [closedFetched, setClosedFetched] = useState(false)
   // ✅ جديد: عرض صورة إيصال المصروف بحجمها الكامل جوه نفس الصفحة (بدل ما تفتح في تاب جديد)
   const [viewingReceiptUrl, setViewingReceiptUrl] = useState<string | null>(null)
+  // ✅ جديد: ملخص مجمّع لشيفت مقفول (كم صنف اتباع مجمّع، طاولات فري، خصومات) - يفتح لما تضغط على بطاقة الشيفت
+  const [itemSummary, setItemSummary] = useState<{ session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }; sessOrders: Order[]; discount: number; freeCount: number; freeAmount: number; deposits: number; total: number } | null>(null)
 
 
   // Init notifications + restore sound state
@@ -2354,10 +2447,10 @@ export default function CashierPage() {
       setClosedSplitPayments([])
     }
 
-    // ✅ جديد: العربونات المأخوذة في نفس نطاق الطلبات الموسّع (ordersRangeStart/End) - عشان تتحسب ضمن
-    // Cash/Visa/Online بتاعة الشيفت اللي اتاخدت فيه، بالظبط زي أي فاتورة عادية
-    let dq = sb.from('customer_deposits').select('id, amount, payment_method, card_bank, created_at, created_by_name, branch_id')
-      .gte('created_at', ordersRangeStart).lte('created_at', ordersRangeEnd)
+    // ✅ Fix: العربون يُنسب ليوم الحجز (reservation_date) مش يوم أخذه فعليًا - عربون يُؤخذ النهارده لحجز الأسبوع
+    // الجاي لازم يظهر في توتال يوم الحجز، مش توتال النهارده. اللي اتاخد بدون تاريخ حجز مستقبلي (نفس اليوم) بيفضل يتحسب زي ما كان
+    let dq = sb.from('customer_deposits').select('id, amount, payment_method, card_bank, created_at, created_by_name, branch_id, reservation_date')
+      .eq('reservation_date', closedDate)
     if (!isAdmin && employee?.branch_id) dq = dq.eq('branch_id', employee.branch_id)
     if (isAdmin && adminBranchFilter) dq = dq.eq('branch_id', adminBranchFilter)
     const { data: depositsData } = await dq
@@ -3224,17 +3317,26 @@ export default function CashierPage() {
                           {/* ✅ جديد: قائمة تفصيلية بالعربونات المأخوذة اليوم - عشان تبان واضحة مش بس متجمّعة في الإجمالي */}
                           {closedDeposits.length > 0 && (
                             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${S.gold}40` }}>
-                              <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, fontWeight: 700 }}>💰 Deposits Log</div>
+                              <div style={{ fontSize: 11, color: S.muted, marginBottom: 8, fontWeight: 700 }}>💰 Deposits Log (for this reservation day)</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {closedDeposits.map(dep => (
-                                  <div key={dep.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
-                                    <span style={{ color: S.white }}>
-                                      {dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}
-                                      <span style={{ color: S.muted, fontSize: 10 }}> · {dep.created_by_name || '—'} · {new Date(dep.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
-                                    </span>
-                                    <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toFixed(2)}</span>
-                                  </div>
-                                ))}
+                                {closedDeposits.map(dep => {
+                                  // ✅ لو العربون اتاخد فعليًا في يوم مختلف عن يوم الحجز المعروض، نوضّح إمتى اتاخد
+                                  const takenOnOtherDay = new Date(dep.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }) !== closedDate
+                                  return (
+                                    <div key={dep.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                                      <span style={{ color: S.white }}>
+                                        {dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}
+                                        <span style={{ color: S.muted, fontSize: 10 }}>
+                                          {' · '}{dep.created_by_name || '—'}
+                                          {takenOnOtherDay
+                                            ? ` · taken ${new Date(dep.created_at).toLocaleDateString('en-GB')}`
+                                            : ` · ${new Date(dep.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
+                                        </span>
+                                      </span>
+                                      <span style={{ color: S.teal, fontWeight: 700 }}>MYR {dep.amount.toFixed(2)}</span>
+                                    </div>
+                                  )
+                                })}
                               </div>
                             </div>
                           )}
@@ -3293,8 +3395,10 @@ export default function CashierPage() {
                       return (
                         <div key={session.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
                           <div style={{ padding: '14px 16px', background: S.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                            <div>
-                              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>🧑‍💼 {session.cashier_name} · {session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'}</div>
+                            {/* ✅ جديد: الضغط هنا يفتح ملخص مجمّع لكل أصناف الشيفت (كم شاورما، كم مياه...) بدل الطباعة */}
+                            <div onClick={() => setItemSummary({ session, sessOrders, discount: sDiscount, freeCount: sFreeOrders.length, freeAmount: sFreeAmount, deposits: sDepositsTotal, total: sTotal })}
+                              style={{ cursor: 'pointer' }} title="Click to view item summary">
+                              <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>🧑‍💼 {session.cashier_name} · {session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'} <span style={{ fontSize: 11, color: S.gold, fontWeight: 400 }}>📊</span></div>
                               <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
                                 Started {new Date(session.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                                 {' · '}
@@ -3624,16 +3728,18 @@ export default function CashierPage() {
             style={{ maxWidth: '95%', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8 }} />
         </div>
       )}
+      {/* ✅ جديد: ملخص مجمّع لأصناف الشيفت - يفتح لما تضغط على بطاقة الشيفت في تاب Closed */}
+      {itemSummary && <ShiftItemSummaryModal data={itemSummary} onClose={() => setItemSummary(null)} />}
 
       {/* ✅ جديد: مودال تسجيل عربون لعميل من شاشة الكاشير - باسمه ورقمه بس، بيتربط تلقائيًا بحساب موجود
           (لو رقمه متسجّل بالفعل) أو بينشئله حساب جديد في نظام العملاء على طول */}
       {showDepositModal && (
-        <div onClick={() => { setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount(''); setDepCardBank(''); setDepSaved(false) }}
+        <div onClick={() => { setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount(''); setDepCardBank(''); setDepSaved(false); setDepReservationDate(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })) }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 380, padding: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>💰 Add Deposit</h2>
-              <button onClick={() => { setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount(''); setDepCardBank(''); setDepSaved(false) }}
+              <button onClick={() => { setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount(''); setDepCardBank(''); setDepSaved(false); setDepReservationDate(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })) }}
                 style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>
@@ -3646,6 +3752,13 @@ export default function CashierPage() {
               placeholder="Phone Number" value={depCustPhone} onChange={e => setDepCustPhone(e.target.value)} />
             <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 10, boxSizing: 'border-box' }}
               type="number" placeholder="Deposit Amount (MYR)" value={depAmount} onChange={e => setDepAmount(e.target.value)} />
+
+            <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>📅 Reservation Date (when the customer will come)</label>
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.navy, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 6, boxSizing: 'border-box' }}
+              type="date" value={depReservationDate} onChange={e => setDepReservationDate(e.target.value)} />
+            <div style={{ fontSize: 10, color: S.muted, marginBottom: 10 }}>
+              This deposit will count toward that day's total, not today's.
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
               {[{ k: 'cash', label: '💵 Cash' }, { k: 'visa', label: '💳 Visa' }, { k: 'online', label: '📱 Bank Transfer' }].map(m => (
@@ -3690,6 +3803,7 @@ export default function CashierPage() {
                   amount: parseFloat(depAmount), status: 'available',
                   payment_method: depMethod, card_bank: depMethod === 'visa' ? depCardBank : null,
                   created_by_name: activeShiftCashierName || employee?.name || null,
+                  reservation_date: depReservationDate,
                 }])
                 setDepSaving(false)
                 if (depositError) { alert('⚠️ Failed to save deposit: ' + depositError.message); return }
@@ -3697,6 +3811,7 @@ export default function CashierPage() {
                 setTimeout(() => {
                   setShowDepositModal(false); setDepCustName(''); setDepCustPhone(''); setDepAmount('')
                   setDepCardBank(''); setDepSaved(false)
+                  setDepReservationDate(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
                 }, 1200)
               }}
               style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: depSaved ? S.green : S.blue, color: '#fff', cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: depSaving ? 0.6 : 1 }}>

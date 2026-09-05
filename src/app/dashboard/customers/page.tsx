@@ -350,15 +350,27 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  // ✅ جديد: تقسيم القائمة لصفحات - 100 عميل في كل صفحة بدل عرضهم كلهم في جدول واحد طويل
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 100
   const [showAdd, setShowAdd] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null)
   // ✅ جديد: مجموعة IDs بتاعة العملاء اللي عندهم رصيد عربون متاح - لعرض شارة سريعة في القائمة الرئيسية
   const [depositCustomerIds, setDepositCustomerIds] = useState<Set<string>>(new Set())
 
+  // ✅ Fix: بدون .range() بيرجع Supabase أول 1000 صف بس افتراضيًا - فوق الرقم ده كان بيتجمّد "Total Customers"
+  // عند 1000 حتى لو العدد الحقيقي أكبر. دلوقتي بيجيب الكل على دفعات 1000
   const fetchCustomers = useCallback(async () => {
-    const { data } = await sb.from('customers').select('*').order('created_at', { ascending: false })
-    setCustomers(data || [])
+    const PAGE = 1000
+    const all: Customer[] = []
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await sb.from('customers').select('*').order('created_at', { ascending: false }).range(from, from + PAGE - 1)
+      if (error || !data) break
+      all.push(...data)
+      if (data.length < PAGE) break
+    }
+    setCustomers(all)
     setLoading(false)
   }, [sb])
 
@@ -385,6 +397,11 @@ export default function CustomersPage() {
       c.phone?.includes(search) ||
       c.nationality?.toLowerCase().includes(q)
   })
+
+  // ✅ إعادة الصفحة لأول واحدة لما البحث يتغيّر - وإلا ممكن تفضل واقف على صفحة 5 والنتائج بقت صفحة واحدة بس
+  useEffect(() => { setPage(1) }, [search])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const stats = {
     total: customers.length,
@@ -461,7 +478,7 @@ export default function CustomersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(c => (
+                {paginated.map(c => (
                   <tr key={c.id} style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer' }} onClick={() => setViewCustomer(c)}>
                     <td style={{ padding: '12px 14px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -494,6 +511,22 @@ export default function CustomersPage() {
               </tbody>
             </table>
           </div>
+          {/* ✅ جديد: تنقّل بين الصفحات - 100 عميل في كل صفحة */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '14px 16px', borderTop: `1px solid ${S.border}` }}>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: page === 1 ? S.muted : S.white, cursor: page === 1 ? 'default' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', opacity: page === 1 ? 0.5 : 1 }}>
+                ← Previous
+              </button>
+              <span style={{ fontSize: 12, color: S.muted }}>
+                Page {page} of {totalPages} · {filtered.length} customers
+              </span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: page === totalPages ? S.muted : S.white, cursor: page === totalPages ? 'default' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', opacity: page === totalPages ? 0.5 : 1 }}>
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       )}
 

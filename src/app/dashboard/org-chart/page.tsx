@@ -261,20 +261,24 @@ export default function OrgChartPage() {
     win.document.write(`
       <html dir="rtl"><head><title>الهيكل الوظيفي — ${branchName}</title>
       <style>
-        @page { size: A4 landscape; margin: 10mm; }
+        @page { size: landscape; margin: 10mm; }
         * { box-sizing: border-box; }
         body { font-family: 'Tajawal', Arial, sans-serif; margin: 0; }
-        .page { page-break-after: always; }
-        .page:last-child { page-break-after: auto; }
+        /* ✅ عرض صريح بمقاس A4 أفقي (297مم − هامشين 10مم = 277مم) - يجبر المتصفح يحسب تخطيط الأعمدة
+           على مساحة عريضة بدل ما يفترض عرض عمودي ضيق، وده اللي كان بيخلي الأعمدة تتلخبط/تطلع عمودية.
+           break-after (المعيار الحديث) بجانب page-break-after (القديم) لتوافق أوسع بين المتصفحات */
+        .page { page-break-after: always; break-after: page; width: 277mm; min-height: 190mm; }
+        .page:last-child { page-break-after: auto; break-after: auto; }
         h1 { text-align: center; font-size: 20px; margin: 0 0 4px; }
         .sub { text-align: center; color: #666; font-size: 11px; margin-bottom: 6px; }
         h2 { text-align: center; font-size: 15px; margin: 0 0 14px; }
         .leadership { display: flex; justify-content: center; gap: 14px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 2px dashed #C9A84C; flex-wrap: wrap; }
         .cols { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
-        .col { border: 2px solid #999; border-radius: 10px; padding: 10px; min-width: 140px; }
+        .col { border: 2px solid #999; border-radius: 10px; padding: 10px; min-width: 140px; break-inside: avoid; }
         .col-title { text-align: center; font-size: 12px; font-weight: 800; margin-bottom: 8px; }
         .station-title { text-align: center; font-size: 9px; font-weight: 700; color: #888; margin: 6px 0 4px; border-bottom: 1px solid #ddd; padding-bottom: 2px; }
-        .card { border: 1.5px solid #999; border-radius: 8px; padding: 6px 8px; text-align: center; margin-bottom: 6px; background: #fff; }
+        /* ✅ منع الطباعة من تقطيع بطاقة موظف أو عمود قسم في نص السطر بين صفحتين لو الشيفت طويل وامتد لصفحة إضافية */
+        .card { border: 1.5px solid #999; border-radius: 8px; padding: 6px 8px; text-align: center; margin-bottom: 6px; background: #fff; break-inside: avoid; }
         .name { font-size: 10px; font-weight: 700; }
         .role { font-size: 8px; font-weight: 700; }
         .num { font-size: 7px; color: #888; }

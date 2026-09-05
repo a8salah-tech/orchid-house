@@ -3865,7 +3865,7 @@ export default function CashierPage() {
               type="number" placeholder="Deposit Amount (MYR)" value={depAmount} onChange={e => setDepAmount(e.target.value)} />
 
             <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>📅 Reservation Date (when the customer will come)</label>
-            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.navy, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 6, boxSizing: 'border-box' }}
+            <input style={{ background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', width: '100%', marginBottom: 6, boxSizing: 'border-box', colorScheme: 'light' }}
               type="date" value={depReservationDate} onChange={e => setDepReservationDate(e.target.value)} />
             <div style={{ fontSize: 10, color: S.muted, marginBottom: 10 }}>
               This deposit will count toward that day's total, not today's.

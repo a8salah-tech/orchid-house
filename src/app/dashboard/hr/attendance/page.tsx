@@ -151,7 +151,10 @@ function MyAttendanceCard() {
   async function passBiometricGate(): Promise<boolean> {
     if (!bioFlag) return true
     if (!bioSupported) {
-      setLocError('هذا الجهاز لا يدعم التحقّق بالبصمة. يُرجى استخدام هاتفك المحمول، أو مراجعة مديرك لتسجيل الحضور يدوياً.\nThis device does not support biometric verification. Please use your mobile phone, or ask your manager to record attendance manually.')
+      // ✅ الرسالة القديمة كانت تقول "استخدم هاتفك المحمول" حتى للموظف اللي أصلاً بيفتح من موبايله —
+      // غالبًا السبب متصفح قديم (Chrome/Android System WebView قديم) أو فتح الرابط من واتساب/فيسبوك
+      // بدل متصفح حقيقي، فبنوضّح الخطوات العملية بدل رسالة عامة
+      setLocError('هذا المتصفح لا يدعم التحقّق بالبصمة. جرّب: 1) افتح الرابط من Chrome مباشرة (مش من واتساب/فيسبوك) 2) حدّث تطبيقي Chrome و"Android System WebView" من متجر Google Play. لو المشكلة استمرت، راجع مديرك لتسجيل حضورك يدويًا.\nThis browser does not support biometric verification. Try: 1) open the link directly in Chrome (not inside WhatsApp/Facebook) 2) update the Chrome and "Android System WebView" apps from the Google Play Store. If it still fails, ask your manager to record your attendance manually.')
       return false
     }
     if (myBioDevices.length === 0) {

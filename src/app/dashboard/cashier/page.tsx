@@ -102,7 +102,7 @@ function getPaymentBreakdown(order: Order, splitPayments: { order_id: string; am
   return [{ method: order.payment_method, card_bank: (order as any).card_bank || null, amount: order.total_amount || 0 }]
 }
 
-function printClosedShiftReport(session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }, sessOrders: Order[], expenses: { description: string; amount: number; status: string; created_at: string }[], totals: { cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number; discount: number; total: number; expPaid: number; expPending: number }, splitPayments: { order_id: string; amount: number; payment_method: string; card_bank: string | null }[] = []) {
+function printClosedShiftReport(session: { cashier_name: string; shift: string; started_at: string; ended_at: string | null }, sessOrders: Order[], expenses: { description: string; amount: number; status: string; created_at: string }[], totals: { cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number; discount: number; freeCount?: number; freeAmount?: number; deposits?: number; total: number; expPaid: number; expPending: number }, splitPayments: { order_id: string; amount: number; payment_method: string; card_bank: string | null }[] = []) {
   const win = window.open('', '_blank')
   if (!win) return
   const shiftLabel = session.shift === 'shift1' ? 'Shift 1' : session.shift === 'shift2' ? 'Shift 2' : 'Shift 3'
@@ -173,6 +173,8 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
     <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount || 0})</div><div class="value">MYR ${(totals.freeAmount || 0).toFixed(2)}</div></div>
+    <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${(totals.deposits || 0).toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">💸 Expenses Paid</div><div class="value">MYR ${totals.expPaid.toFixed(2)}</div></div>
     <div class="summary-box"><div class="label">⏳ Expenses Pending</div><div class="value">MYR ${totals.expPending.toFixed(2)}</div></div>
     <div class="summary-box" style="background:#1E3A8A;border-color:#1E3A8A;"><div class="label" style="color:#cbd5e1;">💰 Total Sales</div><div class="value" style="color:#fff;">MYR ${totals.total.toFixed(2)}</div></div>
@@ -3113,23 +3115,26 @@ export default function CashierPage() {
                       // ✅ Fix حرج: بدل ما نحسب من payment_method المسجّل على الفاتورة مباشرة (اللي بيبقى "split"
                       // للفواتير المقسّمة ومش بيتحسب في أي عمود)، بنفكّك كل فاتورة لدفعاتها الحقيقية (getPaymentBreakdown)
                       // ونجمعها حسب الطريقة الفعلية لكل دفعة - كده الفواتير المقسّمة بتتحسب صح في Cash/Visa/Online/Credit
-                      const dayPayments = [
-                        ...dayPaid.flatMap(o => getPaymentBreakdown(o, closedSplitPayments)),
-                        // ✅ جديد: العربونات المأخوذة اليوم بتتحسب زي أي دفعة عادية حسب طريقتها
-                        ...closedDeposits.map(d => ({ method: d.payment_method, card_bank: d.card_bank, amount: d.amount })),
-                      ]
-                      const dCash = dayPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
-                      const dVisa = dayPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
-                      const dVisaMaybank = dayPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
-                      const dVisaBsn = dayPayments.filter(p => p.method === 'visa' && p.card_bank === 'bsn').reduce((s, p) => s + p.amount, 0)
-                      const dOnline = dayPayments.filter(p => p.method === 'online').reduce((s, p) => s + p.amount, 0)
+                      // ✅ Fix: العربونات بقت منفصلة تمامًا عن Cash/Visa/Bank Transfer (كانت بتتجمع فيهم بصمت) -
+                      // ليها بند "💰 Deposits" مستقل، وبتتضاف لـ Total بس مش لأي تبويب دفع بعينه
+                      const dayOrderPayments = dayPaid.flatMap(o => getPaymentBreakdown(o, closedSplitPayments))
+                      const dCash = dayOrderPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
+                      const dVisa = dayOrderPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
+                      const dVisaMaybank = dayOrderPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
+                      const dVisaBsn = dayOrderPayments.filter(p => p.method === 'visa' && p.card_bank === 'bsn').reduce((s, p) => s + p.amount, 0)
+                      const dOnline = dayOrderPayments.filter(p => p.method === 'online').reduce((s, p) => s + p.amount, 0)
                       // ✅ جديد: إجمالي الآجل (Credit) ليوم كامل - مش كاش فعلي، دي فلوس متوقعة من جراب/فودباندا
-                      const dCredit = dayPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
-                      const dDiscount = dayPaid.reduce((s, o) => s + (o.discount_amount || 0), 0)
-                      // ✅ Fix: الإجمالي (💰 Total) المفروض يمثّل الفلوس الفعلية عند الكاشير بس (كاش + فيزا + أونلاين) -
+                      const dCredit = dayOrderPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
+                      // ✅ Fix: الطاولات "Free" (تنازل كامل) بقت منفصلة عن الخصومات الحقيقية - كانت بتتجمع مع بعض
+                      // في نفس رقم "🏷️ Discounts" فيضخّمه بمبالغ مش خصومات فعلية (الطاولة مجانية بالكامل)
+                      const dDiscount = dayPaid.filter(o => o.discount_type !== 'free').reduce((s, o) => s + (o.discount_amount || 0), 0)
+                      const dFreeOrders = dayPaid.filter(o => o.discount_type === 'free')
+                      const dFreeAmount = dFreeOrders.reduce((s, o) => s + (o.discount_amount || 0), 0)
+                      const dDepositsTotal = closedDeposits.reduce((s, d) => s + (d.amount || 0), 0)
+                      // ✅ Fix: الإجمالي (💰 Total) المفروض يمثّل الفلوس الفعلية عند الكاشير بس (كاش + فيزا + أونلاين + عربونات) -
                       // مش شامل الـCredit لأنه فلوس آجلة لسه متحصلتش من المنصة (Grab/Foodpanda)، فمينفعش تتحسب
                       // كأنها موجودة في الدرج دلوقتي. الـCredit بيفضل ظاهر لوحده كبند منفصل بس مش جزء من الإجمالي
-                      const dTotal = dayPayments.filter(p => p.method !== 'credit').reduce((s, p) => s + p.amount, 0)
+                      const dTotal = dayOrderPayments.filter(p => p.method !== 'credit').reduce((s, p) => s + p.amount, 0) + dDepositsTotal
                       // ✅ جديد: إجمالي المصروفات (المدفوعة والمعلّقة) لليوم كله من زرار "💸 Add Expense"
                       const dExpPaid = closedExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
                       const dExpPending = closedExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
@@ -3159,6 +3164,18 @@ export default function CashierPage() {
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
                                 <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dDiscount.toFixed(2)}</div>
+                              </div>
+                            )}
+                            {dFreeOrders.length > 0 && (
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>🆓 Free Tables ({dFreeOrders.length})</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dFreeAmount.toFixed(2)}</div>
+                              </div>
+                            )}
+                            {dDepositsTotal > 0 && (
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, color: S.muted }}>💰 Deposits</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: S.teal }}>MYR {dDepositsTotal.toFixed(2)}</div>
                               </div>
                             )}
                             <div style={{ textAlign: 'center' }}>
@@ -3248,20 +3265,22 @@ export default function CashierPage() {
                         const t = new Date(d.created_at).getTime()
                         return t >= start && t <= end
                       })
-                      const sessPayments = [
-                        ...sessPaidOrders.flatMap(o => getPaymentBreakdown(o, closedSplitPayments)),
-                        ...sessDeposits.map(d => ({ method: d.payment_method, card_bank: d.card_bank, amount: d.amount })),
-                      ]
-                      const sCash = sessPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
-                      const sVisa = sessPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
-                      const sVisaMaybank = sessPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
-                      const sVisaBsn = sessPayments.filter(p => p.method === 'visa' && p.card_bank === 'bsn').reduce((s, p) => s + p.amount, 0)
-                      const sOnline = sessPayments.filter(p => p.method === 'online').reduce((s, p) => s + p.amount, 0)
+                      // ✅ Fix: نفس منطق Whole Day Total - العربونات منفصلة عن Cash/Visa/Bank Transfer، ليها بند خاص
+                      const sessOrderPayments = sessPaidOrders.flatMap(o => getPaymentBreakdown(o, closedSplitPayments))
+                      const sCash = sessOrderPayments.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
+                      const sVisa = sessOrderPayments.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0)
+                      const sVisaMaybank = sessOrderPayments.filter(p => p.method === 'visa' && p.card_bank === 'maybank').reduce((s, p) => s + p.amount, 0)
+                      const sVisaBsn = sessOrderPayments.filter(p => p.method === 'visa' && p.card_bank === 'bsn').reduce((s, p) => s + p.amount, 0)
+                      const sOnline = sessOrderPayments.filter(p => p.method === 'online').reduce((s, p) => s + p.amount, 0)
                       // ✅ جديد: إجمالي الآجل (Credit) لهذا الشيفت
-                      const sCredit = sessPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
-                      const sDiscount = sessOrders.filter(o => o.status === 'paid').reduce((s, o) => s + (o.discount_amount || 0), 0)
-                      // ✅ Fix: نفس منطق Whole Day Total - الإجمالي هنا كمان بيستبعد Credit
-                      const sTotal = sessPayments.filter(p => p.method !== 'credit').reduce((s, p) => s + p.amount, 0)
+                      const sCredit = sessOrderPayments.filter(p => p.method === 'credit').reduce((s, p) => s + p.amount, 0)
+                      // ✅ Fix: الطاولات "Free" بقت منفصلة عن الخصومات الحقيقية بدل ما تتجمع معاها
+                      const sDiscount = sessOrders.filter(o => o.status === 'paid' && o.discount_type !== 'free').reduce((s, o) => s + (o.discount_amount || 0), 0)
+                      const sFreeOrders = sessOrders.filter(o => o.status === 'paid' && o.discount_type === 'free')
+                      const sFreeAmount = sFreeOrders.reduce((s, o) => s + (o.discount_amount || 0), 0)
+                      const sDepositsTotal = sessDeposits.reduce((s, d) => s + (d.amount || 0), 0)
+                      // ✅ Fix: نفس منطق Whole Day Total - الإجمالي هنا كمان بيستبعد Credit ويضيف العربونات
+                      const sTotal = sessOrderPayments.filter(p => p.method !== 'credit').reduce((s, p) => s + p.amount, 0) + sDepositsTotal
                       // ✅ جديد: مصروفات هذا الشيفت بالذات - نفس نافذة الوقت اللي بنفلتر بيها الطلبات
                       const sExpenses = closedExpenses.filter(e => {
                         if (e.shift !== session.shift) return false
@@ -3308,6 +3327,18 @@ export default function CashierPage() {
                                   <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sDiscount.toFixed(2)}</div>
                                 </div>
                               )}
+                              {sFreeOrders.length > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>🆓 Free Tables ({sFreeOrders.length})</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sFreeAmount.toFixed(2)}</div>
+                                </div>
+                              )}
+                              {sDepositsTotal > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>💰 Deposits</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.teal }}>MYR {sDepositsTotal.toFixed(2)}</div>
+                                </div>
+                              )}
                               <div style={{ textAlign: 'center' }}>
                                 <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
                                 <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toFixed(2)}</div>
@@ -3316,7 +3347,7 @@ export default function CashierPage() {
                               <button
                                 onClick={() => printClosedShiftReport(
                                   session, sessOrders, sExpenses,
-                                  { cash: sCash, visa: sVisa, visaMaybank: sVisaMaybank, visaBsn: sVisaBsn, online: sOnline, credit: sCredit, discount: sDiscount, total: sTotal, expPaid: sExpPaid, expPending: sExpPending },
+                                  { cash: sCash, visa: sVisa, visaMaybank: sVisaMaybank, visaBsn: sVisaBsn, online: sOnline, credit: sCredit, discount: sDiscount, freeCount: sFreeOrders.length, freeAmount: sFreeAmount, deposits: sDepositsTotal, total: sTotal, expPaid: sExpPaid, expPending: sExpPending },
                                   closedSplitPayments
                                 )}
                                 style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', alignSelf: 'center' }}>

@@ -38,7 +38,10 @@ export async function verifyBiometric(): Promise<boolean> {
   try {
     asrResp = await startAuthentication({ optionsJSON: options })
   } catch (e: any) {
-    if (e?.name === 'NotAllowedError') throw new Error('أُلغِي التحقّق بالبصمة أو انتهت مهلة الوقت\nBiometric verification was cancelled or timed out')
+    // ✅ نفس الاستثناء (NotAllowedError) بيطلع في حالتين مختلفتين: (أ) المستخدم لغى/الوقت خلص، أو
+    // (ب) الجهاز فقد بصمة الويب المحفوظة فعليًا (تسجيل خروج من حساب جوجل، مسح بيانات التطبيق...) وظهرله
+    // "No passkeys available" من المتصفح نفسه. مفيش طريقة نفرّق بينهم برمجيًا، فبنوضّح الاحتمالين مع بعض
+    if (e?.name === 'NotAllowedError') throw new Error('فشل التحقّق بالبصمة — يمكن تكون ألغيتها أو انتهت المهلة، أو أن الجهاز فقَد بصمة الويب المحفوظة (مثلاً بعد تسجيل خروج من حساب جوجل أو مسح بيانات المتصفح). جرّب مرة أخرى، ولو استمرت راجع الإدارة لإعادة تسجيل جهازك.\nBiometric check failed — this can happen if it was cancelled/timed out, or if the device lost its saved passkey (e.g. after signing out of a Google account or clearing browser data). Try again, and if it persists, contact management to re-register your device.')
     throw new Error('تعذّر قراءة البصمة من الجهاز\nCould not read the biometric from this device')
   }
   const r = await call('auth-verify', { response: asrResp })

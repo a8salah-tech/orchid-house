@@ -164,12 +164,13 @@ export default function OrgChartPage() {
                 {leadership.map(e => <Card key={e.id} e={e} />)}
               </div>
             )}
-            {/* ✅ أعمدة الأقسام - كل قسم عمود مستقل، مرتب من مدير لمشرف لموظفين */}
-            <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 6 }}>
+            {/* ✅ كل قسم شريط كامل العرض (اسم القسم فوق)، والموظفين تحته بالعرض في صفوف متعددة —
+                بدل العمود الضيق الطويل اللي كان بيتراكم فيه كل موظفي القسم فوق بعض */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {DEPTS.map(d => {
                 const deptEmps = group.filter(e => deptOf(e) === d.key).sort((a, b) => tierOf(a) - tierOf(b))
                 if (deptEmps.length === 0) return null
-                // ✅ المدير والمشرف (تير 0/1/2) يظهروا فوق العمود بلا تجميع، زي ما كان بالظبط
+                // ✅ المدير والمشرف (تير 0/1/2) يظهروا فوق بلا تجميع، زي ما كان بالظبط
                 const leaders = deptEmps.filter(e => tierOf(e) < 3)
                 // ✅ العمال (تير 3) يتجمعوا في فرق فرعية حسب "المسمى الوظيفي" (job_title) — نفس الحقل
                 // المستخدَم لعرض المسمى على الكارت، بيشتغل هنا كمان كمفتاح تجميع "فريق/محطة" (مشويات، معجنات، مغسلة...)
@@ -183,10 +184,10 @@ export default function OrgChartPage() {
                 // ✅ ترتيب المجموعات أبجديًا، مع إبقاء "أخرى" (بلا مسمى محدد) في الآخر دائمًا
                 const stationKeys = Object.keys(stationGroups).sort((a, b) => a === 'أخرى' ? 1 : b === 'أخرى' ? -1 : a.localeCompare(b, 'ar'))
                 return (
-                  <div key={d.key} style={{ background: S.navy3, borderRadius: 12, border: `1px solid ${d.color}40`, padding: 10, minWidth: 160, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: d.color, textAlign: 'center', marginBottom: 8 }}>{d.icon} {d.label} ({deptEmps.length})</div>
+                  <div key={d.key} style={{ background: S.navy3, borderRadius: 12, border: `1px solid ${d.color}40`, padding: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: d.color, marginBottom: 10 }}>{d.icon} {d.label} ({deptEmps.length})</div>
                     {leaders.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', marginBottom: workers.length > 0 ? 10 : 0, paddingBottom: workers.length > 0 ? 10 : 0, borderBottom: workers.length > 0 ? `1px dashed ${d.color}30` : 'none' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: workers.length > 0 ? 12 : 0, paddingBottom: workers.length > 0 ? 12 : 0, borderBottom: workers.length > 0 ? `1px dashed ${d.color}30` : 'none' }}>
                         {leaders.map(e => <Card key={e.id} e={e} />)}
                       </div>
                     )}
@@ -194,11 +195,11 @@ export default function OrgChartPage() {
                       <div key={stationKey} style={{ marginBottom: 10 }}>
                         {/* ✅ عنوان فرعي للفريق/المحطة - يظهر بس لو فيه أكتر من مجموعة، أو المجموعة الوحيدة مش "أخرى" */}
                         {(stationKeys.length > 1 || stationKey !== 'أخرى') && (
-                          <div style={{ fontSize: 10, fontWeight: 700, color: S.muted, textAlign: 'center', marginBottom: 5, borderBottom: `1px solid ${S.border}`, paddingBottom: 3 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: S.muted, marginBottom: 6, borderBottom: `1px solid ${S.border}`, paddingBottom: 3 }}>
                             {stationKey} ({stationGroups[stationKey].length})
                           </div>
                         )}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                           {stationGroups[stationKey].map(e => <Card key={e.id} e={e} />)}
                         </div>
                       </div>
@@ -249,10 +250,10 @@ export default function OrgChartPage() {
         <div class="cols">
           ${deptCols.map(c => `<div class="col" style="border-color:${c.d.color}">
             <div class="col-title" style="color:${c.d.color}">${c.d.icon} ${c.d.label} (${c.emps.length})</div>
-            ${c.leaders.map(cardHtml).join('')}
+            ${c.leaders.length > 0 ? `<div class="cards-row">${c.leaders.map(cardHtml).join('')}</div>` : ''}
             ${c.stationKeys.map(sk => `
               ${(c.stationKeys.length > 1 || sk !== 'أخرى') ? `<div class="station-title">${sk} (${c.stationGroups[sk].length})</div>` : ''}
-              ${c.stationGroups[sk].map(cardHtml).join('')}
+              <div class="cards-row">${c.stationGroups[sk].map(cardHtml).join('')}</div>
             `).join('')}
           </div>`).join('')}
         </div>
@@ -273,10 +274,12 @@ export default function OrgChartPage() {
         .sub { text-align: center; color: #666; font-size: 11px; margin-bottom: 6px; }
         h2 { text-align: center; font-size: 15px; margin: 0 0 14px; }
         .leadership { display: flex; justify-content: center; gap: 14px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 2px dashed #C9A84C; flex-wrap: wrap; }
-        .cols { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
-        .col { border: 2px solid #999; border-radius: 10px; padding: 10px; min-width: 140px; break-inside: avoid; }
-        .col-title { text-align: center; font-size: 12px; font-weight: 800; margin-bottom: 8px; }
-        .station-title { text-align: center; font-size: 9px; font-weight: 700; color: #888; margin: 6px 0 4px; border-bottom: 1px solid #ddd; padding-bottom: 2px; }
+        /* ✅ كل قسم شريط كامل العرض (اسم القسم فوق) والموظفين تحته بالعرض في صفوف - بدل عمود ضيق طويل */
+        .cols { display: flex; flex-direction: column; gap: 10px; }
+        .col { border: 2px solid #999; border-radius: 10px; padding: 10px; width: 100%; break-inside: avoid; }
+        .col-title { text-align: right; font-size: 13px; font-weight: 800; margin-bottom: 8px; }
+        .cards-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+        .station-title { font-size: 9px; font-weight: 700; color: #888; margin: 6px 0 4px; border-bottom: 1px solid #ddd; padding-bottom: 2px; }
         /* ✅ منع الطباعة من تقطيع بطاقة موظف أو عمود قسم في نص السطر بين صفحتين لو الشيفت طويل وامتد لصفحة إضافية */
         .card { border: 1.5px solid #999; border-radius: 8px; padding: 6px 8px; text-align: center; margin-bottom: 6px; background: #fff; break-inside: avoid; }
         .name { font-size: 10px; font-weight: 700; }

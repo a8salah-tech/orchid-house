@@ -30,27 +30,32 @@ type Customer = {
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  نموذج النقاط (2026-09-06)
-//  كل 1 رينغيت (MYR) يصرفه العميل = نقطة ولاء واحدة، تُحتسب مباشرةً من إجمالي صرفه
-//  المسجَّل فعلاً في جدول customers (total_spent) — بدون أي خطوة يدوية ولا حفظ منفصل.
+//  كل 100 رينغيت (MYR) يصرفها العميل = نقطة ولاء واحدة، تُحتسب مباشرةً من إجمالي
+//  صرفه المسجَّل فعلاً في جدول customers (total_spent) — بدون أي خطوة يدوية ولا حفظ منفصل.
+//  (كل مئة كاملة تُحتسب نقطة — الكسر الأقل من 100 لا يُحتسب.)
 //  عمود loyalty_points بقى مخصَّصاً للنقاط الإضافية اليدوية فقط:
 //  نقاط الترحيب، هدايا أعياد الميلاد، تعويضات، عروض... إلخ.
 //  رصيد العميل الظاهر = (المكتسبة من الصرف) + (الإضافية اليدوية)، والمستوى يُحسب منه.
 // ══════════════════════════════════════════════════════════════════════════════
-const POINTS_PER_MYR = 1
-const earnedPoints    = (c: Customer) => Math.round((c.total_spent || 0) * POINTS_PER_MYR)
+const MYR_PER_POINT   = 100
+const earnedPoints    = (c: Customer) => Math.floor((c.total_spent || 0) / MYR_PER_POINT)
 const bonusPoints     = (c: Customer) => c.loyalty_points || 0
 const effectivePoints = (c: Customer) => earnedPoints(c) + bonusPoints(c)
+// نقاط فاتورة واحدة (للعرض في سجل الزيارات)
+const orderPoints = (amount: number) => Math.floor((amount || 0) / MYR_PER_POINT)
 
 // تنسيق الأرقام: فواصل آلاف إنجليزية موحّدة في كل الصفحة
 const nf = (n: number) => (n || 0).toLocaleString('en-GB')
 const money0 = (n: number) => 'MYR ' + (n || 0).toLocaleString('en-GB', { maximumFractionDigits: 0 })
+const money2 = (n: number) => 'MYR ' + (n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const dt = (iso: string) => new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-// Loyalty tiers
+// Loyalty tiers — الحدود بالنقاط (نقطة = 100 MYR صرف)
 const TIERS = [
-  { name: 'Bronze',   min: 0,    max: 499,  color: '#CD7F32', bg: 'rgba(205,127,50,0.12)',  icon: '🥉', perks: ['5% discount on birthdays', 'Welcome gift'] },
-  { name: 'Silver',   min: 500,  max: 1499, color: '#C0C0C0', bg: 'rgba(192,192,192,0.12)', icon: '🥈', perks: ['10% discount', 'Priority reservation', 'Free dessert on birthday'] },
-  { name: 'Gold',     min: 1500, max: 2999, color: S.gold,    bg: S.gold3,                  icon: '🥇', perks: ['15% discount', 'Free appetizer', 'VIP table', 'Monthly gift'] },
-  { name: 'Platinum', min: 3000, max: Infinity, color: S.blue, bg: S.blueB,                 icon: '💎', perks: ['20% discount', 'Personal waiter', 'Chef\'s table', 'Exclusive events'] },
+  { name: 'Bronze',   min: 0,   max: 24,       color: '#CD7F32', bg: 'rgba(205,127,50,0.12)',  icon: '🥉', perks: ['خصم 5% في عيد الميلاد', 'هدية ترحيب'] },
+  { name: 'Silver',   min: 25,  max: 74,       color: '#C0C0C0', bg: 'rgba(192,192,192,0.12)', icon: '🥈', perks: ['خصم 10%', 'أولوية الحجز', 'حلوى مجانية في عيد الميلاد'] },
+  { name: 'Gold',     min: 75,  max: 149,      color: S.gold,    bg: S.gold3,                  icon: '🥇', perks: ['خصم 15%', 'مقبّلات مجانية', 'طاولة VIP', 'هدية شهرية'] },
+  { name: 'Platinum', min: 150, max: Infinity, color: S.blue,    bg: S.blueB,                  icon: '💎', perks: ['خصم 20%', 'خدمة خاصة', 'طاولة الشيف', 'دعوات حصرية'] },
 ]
 
 function getTier(points: number) {
@@ -60,6 +65,174 @@ function getTier(points: number) {
 function getNextTier(points: number) {
   const idx = TIERS.findIndex(t => points >= t.min && points <= t.max)
   return idx < TIERS.length - 1 ? TIERS[idx + 1] : null
+}
+
+// ══ سجل زيارات/فواتير العميل — كل فاتورة في بطاقة قابلة للطي، الأحدث فوق ══
+function CustomerVisitsModal({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+  const sbRef = useRef(createClient())
+  const sb = sbRef.current
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [openId, setOpenId] = useState<string | null>(null)
+
+  useEffect(() => {
+    sb.from('orders')
+      .select('id,total_amount,discount_amount,discount_type,service_charge,sst_amount,payment_method,status,shift,created_at,paid_at,tables(number,name,section),order_items(id,quantity,unit_price,size_name,notes,status,menu_items(name,name_en))')
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        const rows = data || []
+        setOrders(rows)
+        setOpenId(rows[0]?.id || null)   // أول (أحدث) فاتورة مفتوحة تلقائياً
+        setLoading(false)
+      })
+  }, [customer.id])
+
+  // إحصاءات مشتقّة من الفواتير المدفوعة
+  const paid = orders.filter(o => o.status === 'paid')
+  const paidTotal = paid.reduce((s, o) => s + (o.total_amount || 0), 0)
+
+  const earned = earnedPoints(customer)
+  const bonus = bonusPoints(customer)
+  const tier = getTier(earned + bonus)
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 620, padding: 26, margin: 'auto' }}>
+
+        {/* الترويسة */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+          <div>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>👤 {customer.name}</h2>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{customer.phone || customer.email || '—'}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* بطاقات ملخّص */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 18 }}>
+          {[
+            { l: 'المستوى', v: `${tier.icon} ${tier.name}`, c: tier.color },
+            { l: 'الرصيد', v: `${nf(earned + bonus)}`, c: S.gold },
+            { l: 'إجمالي الصرف', v: money0(customer.total_spent), c: S.green },
+            { l: 'عدد الزيارات', v: nf(customer.total_visits), c: S.blue },
+          ].map((x, i) => (
+            <div key={i} style={{ background: S.card, borderRadius: 12, padding: '12px 8px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: x.c }}>{x.v}</div>
+              <div style={{ fontSize: 10, color: S.muted, marginTop: 3 }}>{x.l}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 11, color: S.muted, marginBottom: 12, lineHeight: 1.6 }}>
+          الرصيد = {nf(earned)} نقطة من الصرف (كل {MYR_PER_POINT} MYR = نقطة) + {nf(bonus)} نقطة إضافية يدوية.
+        </div>
+
+        {/* سجل الفواتير */}
+        <div style={{ fontSize: 13, color: S.white, fontWeight: 800, marginBottom: 10 }}>
+          🧾 سجل الزيارات والفواتير {orders.length > 0 && <span style={{ color: S.muted, fontWeight: 400 }}>({nf(orders.length)})</span>}
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جارٍ التحميل...</div>
+        ) : orders.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: S.muted, background: S.card, borderRadius: 12 }}>
+            لا توجد فواتير مرتبطة بهذا العميل بعد
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {orders.map((o, idx) => {
+              const open = openId === o.id
+              const items = (o.order_items || []).filter((it: any) => it.status !== 'cancelled')
+              const isPaid = o.status === 'paid'
+              const badgeC = isPaid ? S.green : o.status === 'cancelled' ? S.red : S.amber
+              const badgeB = isPaid ? S.greenB : o.status === 'cancelled' ? S.redB : S.amberB
+              const tableLabel = o.tables?.name || (o.tables?.number ? `طاولة ${o.tables.number}` : '—')
+              return (
+                <div key={o.id} style={{ background: S.navy3, borderRadius: 12, border: `1px solid ${open ? S.gold + '55' : S.border}`, overflow: 'hidden' }}>
+
+                  {/* رأس البطاقة — اضغط للفتح/الطي */}
+                  <button onClick={() => setOpenId(open ? null : o.id)}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'right', fontFamily: 'Tajawal, sans-serif' }}>
+                    <span style={{ fontSize: 12, color: S.muted, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: S.white }}>
+                        زيارة #{orders.length - idx} · {dt(o.created_at)}
+                      </div>
+                      <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
+                        {tableLabel}{o.tables?.section ? ` · ${o.tables.section}` : ''} · {o.payment_method || '—'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'left', flexShrink: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>{money2(o.total_amount)}</div>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end', marginTop: 3 }}>
+                        <span style={{ background: badgeB, color: badgeC, borderRadius: 20, padding: '1px 7px', fontSize: 9, fontWeight: 700 }}>{o.status}</span>
+                        {isPaid && <span style={{ fontSize: 9, color: S.green }}>+{nf(orderPoints(o.total_amount))} نقطة</span>}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* تفاصيل الفاتورة */}
+                  {open && (
+                    <div style={{ padding: '0 14px 14px', borderTop: `1px solid ${S.border}` }}>
+                      {items.length === 0 ? (
+                        <div style={{ fontSize: 12, color: S.muted, padding: '10px 0' }}>لا توجد أصناف في هذه الفاتورة</div>
+                      ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+                          <tbody>
+                            {items.map((it: any) => (
+                              <tr key={it.id}>
+                                <td style={{ padding: '5px 0', fontSize: 12, color: S.white }}>
+                                  <span style={{ color: S.gold, fontWeight: 700 }}>{it.quantity}×</span>{' '}
+                                  {it.menu_items?.name || it.menu_items?.name_en || 'صنف'}
+                                  {it.size_name ? <span style={{ color: S.muted }}> · {it.size_name}</span> : ''}
+                                </td>
+                                <td style={{ padding: '5px 0', fontSize: 12, color: S.muted, textAlign: 'left', whiteSpace: 'nowrap' }}>
+                                  {money2((it.unit_price || 0) * (it.quantity || 0))}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+
+                      {/* تفكيك المبلغ */}
+                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${S.border}`, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {o.discount_amount > 0 && (
+                          <Row l={`الخصم${o.discount_type ? ` (${o.discount_type})` : ''}`} v={`- ${money2(o.discount_amount)}`} c={S.red} />
+                        )}
+                        {o.service_charge > 0 && <Row l="رسوم الخدمة" v={money2(o.service_charge)} />}
+                        {o.sst_amount > 0 && <Row l="ضريبة SST" v={money2(o.sst_amount)} />}
+                        <Row l="الإجمالي" v={money2(o.total_amount)} c={S.gold} bold />
+                        {isPaid && <Row l="نقاط مكتسبة من هذه الفاتورة" v={`+ ${nf(orderPoints(o.total_amount))}`} c={S.green} />}
+                        {o.paid_at && <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>دُفعت: {dt(o.paid_at)}</div>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {paid.length > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, padding: '8px 4px 0' }}>
+                <span>إجمالي {nf(paid.length)} فاتورة مدفوعة</span>
+                <span style={{ color: S.gold, fontWeight: 700 }}>{money2(paidTotal)}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Row({ l, v, c, bold }: { l: string; v: string; c?: string; bold?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+      <span style={{ color: S.muted }}>{l}</span>
+      <span style={{ color: c || S.white, fontWeight: bold ? 800 : 600 }}>{v}</span>
+    </div>
+  )
 }
 
 // Points adjustment modal — يعدّل النقاط الإضافية اليدوية فقط (loyalty_points)
@@ -130,7 +303,7 @@ function AdjustPointsModal({ customer, onClose, onSaved }: { customer: Customer;
 
         {/* Quick amounts */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {[50, 100, 200, 500].map(p => (
+          {[5, 10, 25, 50].map(p => (
             <button key={p} onClick={() => setPoints(p.toString())} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${S.border}`, background: points === p.toString() ? S.gold3 : 'transparent', color: points === p.toString() ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
               {p}
             </button>
@@ -184,6 +357,7 @@ export default function LoyaltyPage() {
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 100
   const [adjustCustomer, setAdjustCustomer] = useState<Customer | null>(null)
+  const [visitsCustomer, setVisitsCustomer] = useState<Customer | null>(null)
 
   // ✅ Fix: من غير .range() بيرجّع Supabase أول 1000 صف بس افتراضياً — فوق كده كانت الأعداد
   // والمستويات بتتجمّد عند 1000 عميل. دلوقتي بنجيب الكل على دفعات 1000.
@@ -231,10 +405,10 @@ export default function LoyaltyPage() {
   const stats = {
     total: customers.length,
     totalPoints: customers.reduce((s, c) => s + effectivePoints(c), 0),
-    platinum: customers.filter(c => effectivePoints(c) >= 3000).length,
-    gold: customers.filter(c => effectivePoints(c) >= 1500 && effectivePoints(c) < 3000).length,
-    silver: customers.filter(c => effectivePoints(c) >= 500 && effectivePoints(c) < 1500).length,
-    bronze: customers.filter(c => effectivePoints(c) < 500).length,
+    platinum: customers.filter(c => effectivePoints(c) >= 150).length,
+    gold: customers.filter(c => effectivePoints(c) >= 75 && effectivePoints(c) < 150).length,
+    silver: customers.filter(c => effectivePoints(c) >= 25 && effectivePoints(c) < 75).length,
+    bronze: customers.filter(c => effectivePoints(c) < 25).length,
   }
 
   const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
@@ -247,7 +421,7 @@ export default function LoyaltyPage() {
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>🎁 برنامج الولاء</h1>
         <p style={{ fontSize: 13, color: S.muted }}>
-          الرصيد = نقاط مكتسبة من الصرف (كل {POINTS_PER_MYR} MYR = نقطة) + نقاط إضافية يدوية · المستوى يُحسب من الرصيد الإجمالي
+          كل {MYR_PER_POINT} MYR يصرفها العميل = نقطة · الرصيد = المكتسب من الصرف + نقاط إضافية يدوية · اضغط على أي عميل لعرض فواتيره
         </p>
       </div>
 
@@ -261,7 +435,7 @@ export default function LoyaltyPage() {
                 <div>
                   <div style={{ fontSize: 22 }}>{tier.icon}</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: tier.color, marginTop: 4 }}>{tier.name}</div>
-                  <div style={{ fontSize: 11, color: S.muted }}>{nf(tier.min)}+ نقطة</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{nf(tier.min)}+ نقطة ({money0(tier.min * MYR_PER_POINT)})</div>
                 </div>
                 <div style={{ fontSize: 28, fontWeight: 900, color: tier.color }}>{nf(count)}</div>
               </div>
@@ -310,7 +484,9 @@ export default function LoyaltyPage() {
             const next = getNextTier(pts)
             const progress = next ? ((pts - tier.min) / (next.min - tier.min)) * 100 : 100
             return (
-              <div key={c.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              <div key={c.id} onClick={() => setVisitsCustomer(c)}
+                title="اضغط لعرض فواتير العميل"
+                style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', cursor: 'pointer' }}>
 
                 {/* Avatar */}
                 <div style={{ width: 44, height: 44, borderRadius: '50%', background: tier.bg, border: `2px solid ${tier.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
@@ -353,7 +529,7 @@ export default function LoyaltyPage() {
                 </div>
 
                 {/* Actions */}
-                <button onClick={() => setAdjustCustomer(c)}
+                <button onClick={e => { e.stopPropagation(); setAdjustCustomer(c) }}
                   style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flexShrink: 0 }}>
                   🎁 نقاط
                 </button>
@@ -381,6 +557,9 @@ export default function LoyaltyPage() {
         </>
       )}
 
+      {visitsCustomer && (
+        <CustomerVisitsModal customer={visitsCustomer} onClose={() => setVisitsCustomer(null)} />
+      )}
       {adjustCustomer && (
         <AdjustPointsModal customer={adjustCustomer} onClose={() => setAdjustCustomer(null)} onSaved={fetchCustomers} />
       )}

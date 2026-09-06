@@ -84,6 +84,11 @@ const ALL_PERMISSIONS = [
   { key: 'internal_warehouse_requests', label: 'طلبات المستودع الداخلي', group: 'إدارة المخزون', icon: '🏭' },
   { key: 'market_purchases', label: 'مشتريات السوق', group: 'إدارة المخزون', icon: '🥬' },
   { key: 'suppliers',        label: 'الموردون',             group: 'إدارة المخزون', icon: '🤝' },
+  // ✅ صلاحيات كانت مستخدمة في القائمة الجانبية (Layout) بس ناقصة هنا، فكانت الصفحات دي تظهر لمدير النظام فقط
+  // ومفيش طريقة تُمنح لأي دور تاني من واجهة الصلاحيات
+  { key: 'waste',            label: 'سجل الهدر',            group: 'إدارة المخزون', icon: '🗑️' },
+  { key: 'inventory_reports', label: 'تقارير الجرد',        group: 'إدارة المخزون', icon: '📋' },
+  { key: 'fixed_assets',     label: 'الأصول الثابتة',       group: 'إدارة المخزون', icon: '🏷️' },
   { key: 'kitchen',          label: 'المطبخ',               group: 'العمليات',      icon: '👨‍🍳' },
   { key: 'hall',             label: 'الصالة',               group: 'العمليات',      icon: '🍽️' },
   { key: 'bar',              label: 'البار',                group: 'العمليات',      icon: '☕' },
@@ -98,6 +103,7 @@ const ALL_PERMISSIONS = [
   { key: 'customers',        label: 'قاعدة العملاء',        group: 'العملاء',       icon: '👥' },
   { key: 'loyalty',          label: 'نقاط الولاء',          group: 'العملاء',       icon: '🎁' },
   { key: 'invoices',         label: 'الفواتير',             group: 'المالية',       icon: '🧾' },
+  { key: 'quotation',        label: 'عرض الأسعار',          group: 'المالية',       icon: '📋' },
   { key: 'accounting',       label: 'المحاسبة',             group: 'المالية',       icon: '💸' },
   { key: 'reports',          label: 'التقارير',             group: 'المالية',       icon: '📊' },
   { key: 'payroll',          label: 'الرواتب والأجور',       group: 'المالية',       icon: '💰' },

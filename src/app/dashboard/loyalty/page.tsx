@@ -28,6 +28,23 @@ type Customer = {
   created_at: string
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  نموذج النقاط (2026-09-06)
+//  كل 1 رينغيت (MYR) يصرفه العميل = نقطة ولاء واحدة، تُحتسب مباشرةً من إجمالي صرفه
+//  المسجَّل فعلاً في جدول customers (total_spent) — بدون أي خطوة يدوية ولا حفظ منفصل.
+//  عمود loyalty_points بقى مخصَّصاً للنقاط الإضافية اليدوية فقط:
+//  نقاط الترحيب، هدايا أعياد الميلاد، تعويضات، عروض... إلخ.
+//  رصيد العميل الظاهر = (المكتسبة من الصرف) + (الإضافية اليدوية)، والمستوى يُحسب منه.
+// ══════════════════════════════════════════════════════════════════════════════
+const POINTS_PER_MYR = 1
+const earnedPoints    = (c: Customer) => Math.round((c.total_spent || 0) * POINTS_PER_MYR)
+const bonusPoints     = (c: Customer) => c.loyalty_points || 0
+const effectivePoints = (c: Customer) => earnedPoints(c) + bonusPoints(c)
+
+// تنسيق الأرقام: فواصل آلاف إنجليزية موحّدة في كل الصفحة
+const nf = (n: number) => (n || 0).toLocaleString('en-GB')
+const money0 = (n: number) => 'MYR ' + (n || 0).toLocaleString('en-GB', { maximumFractionDigits: 0 })
+
 // Loyalty tiers
 const TIERS = [
   { name: 'Bronze',   min: 0,    max: 499,  color: '#CD7F32', bg: 'rgba(205,127,50,0.12)',  icon: '🥉', perks: ['5% discount on birthdays', 'Welcome gift'] },
@@ -45,7 +62,7 @@ function getNextTier(points: number) {
   return idx < TIERS.length - 1 ? TIERS[idx + 1] : null
 }
 
-// Points adjustment modal
+// Points adjustment modal — يعدّل النقاط الإضافية اليدوية فقط (loyalty_points)
 function AdjustPointsModal({ customer, onClose, onSaved }: { customer: Customer; onClose: () => void; onSaved: () => void }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
@@ -54,15 +71,18 @@ function AdjustPointsModal({ customer, onClose, onSaved }: { customer: Customer;
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const earned = earnedPoints(customer)
+  const currentBonus = bonusPoints(customer)
+
   async function save() {
     const pts = parseInt(points) || 0
-    if (!pts) { alert('Enter points amount'); return }
+    if (!pts) { alert('أدخل عدد النقاط'); return }
     setSaving(true)
-    let newPoints = customer.loyalty_points
-    if (action === 'add') newPoints += pts
-    else if (action === 'deduct') newPoints = Math.max(0, newPoints - pts)
-    else newPoints = pts
-    await sb.from('customers').update({ loyalty_points: newPoints }).eq('id', customer.id)
+    let newBonus = currentBonus
+    if (action === 'add') newBonus += pts
+    else if (action === 'deduct') newBonus = Math.max(0, newBonus - pts)
+    else newBonus = pts
+    await sb.from('customers').update({ loyalty_points: newBonus }).eq('id', customer.id)
     setSaving(false)
     onSaved()
     onClose()
@@ -70,24 +90,38 @@ function AdjustPointsModal({ customer, onClose, onSaved }: { customer: Customer;
 
   const inp: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
 
-  const tier = getTier(customer.loyalty_points)
+  const nextBonus = action === 'add' ? currentBonus + (parseInt(points) || 0)
+    : action === 'deduct' ? Math.max(0, currentBonus - (parseInt(points) || 0))
+    : parseInt(points) || 0
+  const tier = getTier(earned + currentBonus)
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 420, padding: 28 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>🎁 Adjust Points — {customer.name}</h2>
+          <h2 style={{ color: S.white, fontSize: 16, fontWeight: 800 }}>🎁 نقاط إضافية — {customer.name}</h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
         </div>
 
-        <div style={{ background: S.card, borderRadius: 12, padding: 14, marginBottom: 20, textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>Current Balance</div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: tier.color }}>{customer.loyalty_points.toLocaleString()}</div>
-          <div style={{ fontSize: 12, color: tier.color }}>{tier.icon} {tier.name}</div>
+        <div style={{ background: S.card, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, marginBottom: 6 }}>
+            <span>مكتسبة من الصرف (تلقائية)</span><span style={{ color: S.white }}>{nf(earned)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, marginBottom: 8 }}>
+            <span>نقاط إضافية يدوية</span><span style={{ color: S.gold }}>{nf(currentBonus)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, borderTop: `1px solid ${S.border}`, paddingTop: 8 }}>
+            <span style={{ color: S.muted }}>الرصيد الإجمالي</span>
+            <span style={{ color: tier.color }}>{nf(earned + currentBonus)} · {tier.icon} {tier.name}</span>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, color: S.muted, marginBottom: 12, lineHeight: 1.6 }}>
+          المكتسبة من الصرف بتتحدّث تلقائياً من فواتير العميل ولا يمكن تعديلها هنا. الأزرار التالية تعدّل النقاط الإضافية اليدوية فقط.
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 16 }}>
-          {[{ k: 'add', l: '➕ Add', c: S.green }, { k: 'deduct', l: '➖ Deduct', c: S.red }, { k: 'set', l: '⚙️ Set', c: S.blue }].map(a => (
+          {[{ k: 'add', l: '➕ إضافة', c: S.green }, { k: 'deduct', l: '➖ خصم', c: S.red }, { k: 'set', l: '⚙️ تعيين', c: S.blue }].map(a => (
             <button key={a.k} onClick={() => setAction(a.k as any)} style={{ padding: '10px', borderRadius: 10, border: `1px solid ${action === a.k ? a.c : S.border}`, background: action === a.k ? a.c + '20' : 'transparent', color: action === a.k ? a.c : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: action === a.k ? 700 : 400 }}>
               {a.l}
             </button>
@@ -104,31 +138,38 @@ function AdjustPointsModal({ customer, onClose, onSaved }: { customer: Customer;
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Points Amount</label>
-          <input type="number" style={inp} value={points} onChange={e => setPoints(e.target.value)} placeholder="Enter amount..." />
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>عدد النقاط</label>
+          <input type="number" style={inp} value={points} onChange={e => setPoints(e.target.value)} placeholder="أدخل العدد..." />
         </div>
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Reason (optional)</label>
-          <input style={inp} value={reason} onChange={e => setReason(e.target.value)} placeholder="Birthday bonus, redemption..." />
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>السبب (اختياري)</label>
+          <input style={inp} value={reason} onChange={e => setReason(e.target.value)} placeholder="هدية عيد ميلاد، تعويض، عرض..." />
         </div>
 
         {points && (
           <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: S.muted }}>
-            New balance: <span style={{ color: S.white, fontWeight: 700 }}>
-              {action === 'add' ? customer.loyalty_points + (parseInt(points)||0)
-               : action === 'deduct' ? Math.max(0, customer.loyalty_points - (parseInt(points)||0))
-               : parseInt(points)||0} pts
+            الرصيد الجديد: <span style={{ color: S.white, fontWeight: 700 }}>
+              {nf(earned + nextBonus)} نقطة
             </span>
+            <span style={{ fontSize: 11 }}> ({nf(earned)} صرف + {nf(nextBonus)} إضافية)</span>
           </div>
         )}
 
         <button onClick={save} disabled={saving} style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: `linear-gradient(135deg,${S.gold},${S.gold2})`, color: S.navy, cursor: 'pointer', fontWeight: 800, fontSize: 15, fontFamily: 'Tajawal, sans-serif' }}>
-          {saving ? '⏳...' : '✅ Confirm'}
+          {saving ? '⏳...' : '✅ تأكيد'}
         </button>
       </div>
     </div>
   )
 }
+
+const SORTS: { k: string; l: string }[] = [
+  { k: 'points', l: '🎁 النقاط (الأعلى أولاً)' },
+  { k: 'spent',  l: '💰 إجمالي الصرف' },
+  { k: 'visits', l: '🍽️ عدد الزيارات' },
+  { k: 'newest', l: '🆕 الأحدث تسجيلاً' },
+  { k: 'name',   l: '🔤 الاسم (أ–ي)' },
+]
 
 // ══ Main ══
 export default function LoyaltyPage() {
@@ -139,11 +180,27 @@ export default function LoyaltyPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [tierFilter, setTierFilter] = useState('all')
+  const [sortBy, setSortBy] = useState<'points' | 'spent' | 'visits' | 'newest' | 'name'>('points')
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 100
   const [adjustCustomer, setAdjustCustomer] = useState<Customer | null>(null)
 
+  // ✅ Fix: من غير .range() بيرجّع Supabase أول 1000 صف بس افتراضياً — فوق كده كانت الأعداد
+  // والمستويات بتتجمّد عند 1000 عميل. دلوقتي بنجيب الكل على دفعات 1000.
   const fetchCustomers = useCallback(async () => {
-    const { data } = await sb.from('customers').select('id,name,email,phone,total_visits,total_spent,loyalty_points,created_at').order('loyalty_points', { ascending: false })
-    setCustomers(data || [])
+    const PAGE = 1000
+    const all: Customer[] = []
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await sb
+        .from('customers')
+        .select('id,name,email,phone,total_visits,total_spent,loyalty_points,created_at')
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE - 1)
+      if (error || !data) break
+      all.push(...(data as Customer[]))
+      if (data.length < PAGE) break
+    }
+    setCustomers(all)
     setLoading(false)
   }, [sb])
 
@@ -151,18 +208,33 @@ export default function LoyaltyPage() {
 
   const filtered = customers.filter(c => {
     const matchSearch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search)
-    const tier = getTier(c.loyalty_points)
+    const tier = getTier(effectivePoints(c))
     const matchTier = tierFilter === 'all' || tier.name.toLowerCase() === tierFilter
     return matchSearch && matchTier
   })
 
+  // ✅ الترتيب: افتراضياً بالنقاط (الرصيد الإجمالي) من الأعلى للأقل — مع إمكانية التغيير من القائمة
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'points') return effectivePoints(b) - effectivePoints(a)
+    if (sortBy === 'spent') return (b.total_spent || 0) - (a.total_spent || 0)
+    if (sortBy === 'visits') return (b.total_visits || 0) - (a.total_visits || 0)
+    if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    if (sortBy === 'name') return a.name.localeCompare(b.name, 'ar')
+    return 0
+  })
+
+  // ✅ إعادة الصفحة لأول واحدة لما البحث/الفلتر/الترتيب يتغيّر
+  useEffect(() => { setPage(1) }, [search, tierFilter, sortBy])
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const paginated = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
   const stats = {
     total: customers.length,
-    totalPoints: customers.reduce((s, c) => s + c.loyalty_points, 0),
-    platinum: customers.filter(c => c.loyalty_points >= 3000).length,
-    gold: customers.filter(c => c.loyalty_points >= 1500 && c.loyalty_points < 3000).length,
-    silver: customers.filter(c => c.loyalty_points >= 500 && c.loyalty_points < 1500).length,
-    bronze: customers.filter(c => c.loyalty_points < 500).length,
+    totalPoints: customers.reduce((s, c) => s + effectivePoints(c), 0),
+    platinum: customers.filter(c => effectivePoints(c) >= 3000).length,
+    gold: customers.filter(c => effectivePoints(c) >= 1500 && effectivePoints(c) < 3000).length,
+    silver: customers.filter(c => effectivePoints(c) >= 500 && effectivePoints(c) < 1500).length,
+    bronze: customers.filter(c => effectivePoints(c) < 500).length,
   }
 
   const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
@@ -173,8 +245,10 @@ export default function LoyaltyPage() {
 
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>🎁 Loyalty Program</h1>
-        <p style={{ fontSize: 13, color: S.muted }}>Manage customer loyalty points and tiers</p>
+        <h1 style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>🎁 برنامج الولاء</h1>
+        <p style={{ fontSize: 13, color: S.muted }}>
+          الرصيد = نقاط مكتسبة من الصرف (كل {POINTS_PER_MYR} MYR = نقطة) + نقاط إضافية يدوية · المستوى يُحسب من الرصيد الإجمالي
+        </p>
       </div>
 
       {/* Tier Cards */}
@@ -187,9 +261,9 @@ export default function LoyaltyPage() {
                 <div>
                   <div style={{ fontSize: 22 }}>{tier.icon}</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: tier.color, marginTop: 4 }}>{tier.name}</div>
-                  <div style={{ fontSize: 11, color: S.muted }}>{tier.min.toLocaleString()}+ pts</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{nf(tier.min)}+ نقطة</div>
                 </div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: tier.color }}>{count}</div>
+                <div style={{ fontSize: 28, fontWeight: 900, color: tier.color }}>{nf(count)}</div>
               </div>
               <div style={{ borderTop: `1px solid ${tier.color}30`, paddingTop: 10 }}>
                 {tier.perks.slice(0, 2).map((p, j) => (
@@ -203,33 +277,38 @@ export default function LoyaltyPage() {
 
       {/* Stats bar */}
       <div style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-        <div><div style={{ fontSize: 11, color: S.muted }}>Total Members</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.total}</div></div>
-        <div><div style={{ fontSize: 11, color: S.muted }}>Total Points Issued</div><div style={{ fontSize: 20, fontWeight: 800, color: S.gold }}>{stats.totalPoints.toLocaleString()}</div></div>
+        <div><div style={{ fontSize: 11, color: S.muted }}>إجمالي الأعضاء</div><div style={{ fontSize: 20, fontWeight: 800 }}>{nf(stats.total)}</div></div>
+        <div><div style={{ fontSize: 11, color: S.muted }}>إجمالي النقاط</div><div style={{ fontSize: 20, fontWeight: 800, color: S.gold }}>{nf(stats.totalPoints)}</div></div>
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <input style={{ ...inp, flex: 1, minWidth: 200 }} placeholder="🔍 Search customer..." value={search} onChange={e => setSearch(e.target.value)} />
+      <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <input style={{ ...inp, flex: 1, minWidth: 200 }} placeholder="🔍 ابحث عن عميل..." value={search} onChange={e => setSearch(e.target.value)} />
         <select style={{ ...inp, width: 'auto', cursor: 'pointer' }} value={tierFilter} onChange={e => setTierFilter(e.target.value)}>
-          <option value="all">All Tiers</option>
+          <option value="all">كل المستويات</option>
           <option value="bronze">🥉 Bronze</option>
           <option value="silver">🥈 Silver</option>
           <option value="gold">🥇 Gold</option>
           <option value="platinum">💎 Platinum</option>
         </select>
+        <select style={{ ...inp, width: 'auto', cursor: 'pointer' }} value={sortBy} onChange={e => setSortBy(e.target.value as any)}>
+          {SORTS.map(s => <option key={s.k} value={s.k}>ترتيب: {s.l}</option>)}
+        </select>
       </div>
 
       {/* Customers list */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>No customers found</div>
+        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جارٍ التحميل...</div>
+      ) : sorted.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>لا يوجد عملاء</div>
       ) : (
+        <>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map(c => {
-            const tier = getTier(c.loyalty_points)
-            const next = getNextTier(c.loyalty_points)
-            const progress = next ? ((c.loyalty_points - tier.min) / (next.min - tier.min)) * 100 : 100
+          {paginated.map(c => {
+            const pts = effectivePoints(c)
+            const tier = getTier(pts)
+            const next = getNextTier(pts)
+            const progress = next ? ((pts - tier.min) / (next.min - tier.min)) * 100 : 100
             return (
               <div key={c.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
 
@@ -248,35 +327,58 @@ export default function LoyaltyPage() {
                 {/* Points + Progress */}
                 <div style={{ flex: 2, minWidth: 180 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>{c.loyalty_points.toLocaleString()} pts</span>
-                    {next && <span style={{ fontSize: 11, color: S.muted }}>{(next.min - c.loyalty_points).toLocaleString()} to {next.name}</span>}
+                    <span style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>{nf(pts)} نقطة</span>
+                    {next && <span style={{ fontSize: 11, color: S.muted }}>باقي {nf(next.min - pts)} لـ {next.name}</span>}
                   </div>
                   <div style={{ background: 'rgba(255,255,255,.08)', borderRadius: 20, height: 6, overflow: 'hidden' }}>
                     <div style={{ width: `${Math.min(100, progress)}%`, height: '100%', background: `linear-gradient(90deg,${tier.color},${next?.color || tier.color})`, borderRadius: 20, transition: 'width .5s' }} />
                   </div>
+                  {bonusPoints(c) > 0 && (
+                    <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>
+                      {nf(earnedPoints(c))} من الصرف + {nf(bonusPoints(c))} إضافية
+                    </div>
+                  )}
                 </div>
 
                 {/* Stats */}
                 <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: S.blue }}>{c.total_visits}</div>
-                    <div style={{ fontSize: 10, color: S.muted }}>Visits</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: S.blue }}>{nf(c.total_visits)}</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>زيارات</div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>MYR {c.total_spent.toFixed(0)}</div>
-                    <div style={{ fontSize: 10, color: S.muted }}>Spent</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: S.gold }}>{money0(c.total_spent)}</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>إجمالي الصرف</div>
                   </div>
                 </div>
 
                 {/* Actions */}
                 <button onClick={() => setAdjustCustomer(c)}
                   style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, flexShrink: 0 }}>
-                  🎁 Points
+                  🎁 نقاط
                 </button>
               </div>
             )
           })}
         </div>
+
+        {/* ✅ تنقّل بين الصفحات — 100 عميل في كل صفحة */}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '18px 16px' }}>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: page === 1 ? S.muted : S.white, cursor: page === 1 ? 'default' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', opacity: page === 1 ? 0.5 : 1 }}>
+              ← السابق
+            </button>
+            <span style={{ fontSize: 12, color: S.muted }}>
+              صفحة {nf(page)} من {nf(totalPages)} · {nf(sorted.length)} عميل
+            </span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: page === totalPages ? S.muted : S.white, cursor: page === totalPages ? 'default' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', opacity: page === totalPages ? 0.5 : 1 }}>
+              التالي →
+            </button>
+          </div>
+        )}
+        </>
       )}
 
       {adjustCustomer && (

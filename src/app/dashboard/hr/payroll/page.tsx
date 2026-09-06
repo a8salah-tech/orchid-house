@@ -81,6 +81,8 @@ type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
   role: string; department?: string; salary?: number; insurance?: number
   work_insurance?: number; branch_id?: string; is_active?: boolean; deactivated_at?: string; join_date?: string; branches?: { name: string } | any
+  // ✅ راتب ثابت بدون حضور (سواقين / إدارة / موظفين لا يسجّلون بصمة) — يُدفع كامل كل شهر بلا خصم غياب أو تحذير
+  fixed_salary?: boolean
 }
 type PayrollRecord = {
   id?: string; created_at?: string; payroll_month_id: string; employee_id: string
@@ -288,6 +290,11 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
           {emp?.name} {emp?.name_en && <span style={{ color: S.muted, fontWeight: 400 }}>{emp.name_en}</span>}
         </div>
         <div style={{ fontSize: isMobile ? 9 : 10, color: S.muted }}>{emp?.department}</div>
+        {emp?.fixed_salary && (
+          <div style={{ fontSize: 9, color: S.gold, marginTop: 2, fontWeight: 700, whiteSpace: 'normal' }} title="راتب ثابت — يُدفع كامل شهرياً بلا احتساب حضور أو غياب">
+            📌 راتب ثابت · Fixed salary
+          </div>
+        )}
         {record.notes && (record.notes.startsWith('⏸') || record.notes.startsWith('⚠️')) && (
           <div style={{ fontSize: 9, color: S.red, marginTop: 2, fontWeight: 700, whiteSpace: 'normal' }}>{record.notes}</div>
         )}
@@ -648,7 +655,7 @@ export default function PayrollPage() {
     const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
       (() => {
-        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,fixed_salary,branches(name)').order('name')
         // فلتر حسب الدور
         if (!isSuperAdmin && isBranchManager) q = q.eq('branch_id', currentUser?.branch_id || '')
         else if (!isSuperAdmin && !isBranchManager) q = q.eq('id', myId)
@@ -670,7 +677,7 @@ export default function PayrollPage() {
 
     let emps = employees
     if (emps.length === 0) {
-      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,branches(name)').order('name')
+      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,fixed_salary,branches(name)').order('name')
       if (!isSuperAdmin && isBranchManager) q2 = q2.eq('branch_id', currentUser?.branch_id || '')
       else if (!isSuperAdmin && !isBranchManager) q2 = q2.eq('id', myId)
       const { data } = await q2
@@ -840,10 +847,15 @@ export default function PayrollPage() {
       const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }
       // ✅ الحالة القصوى: مفيش شيفت مسجَّل خالص ومفيش بصمة خالص هذا الشهر — لا يوجد أي أساس لدفع أي راتب على الإطلاق،
       // فنحتسب أيام العمل صفراً تلقائياً (بعكس أي حالة فيها غياب جزئي أو بصمة متقطعة، اللي بتفضل تحتاج مراجعة يدوية)
+      // ✅ موظف "راتب ثابت" (سواق / إدارة / بدون بصمة): يُدفع راتبه كامل كل شهر، بلا خصم غياب/تأخير،
+      // وبلا تحذير "لا يوجد شيفت" — لأن ده وضعه الطبيعي مش مؤشر مشكلة
+      const isFixedSalary = !!emp?.fixed_salary
       const hasNoScheduleAtAll = !!emp && !employeesWithAnySchedule.has(emp.id)
       const hasNoAttendanceAtAll = !!emp && !employeesWithAnyAttendance.has(emp.id)
-      const isCompletelyUnaccountedFor = hasNoScheduleAtAll && hasNoAttendanceAtAll
-      const noScheduleWarning = isCompletelyUnaccountedFor
+      const isCompletelyUnaccountedFor = !isFixedSalary && hasNoScheduleAtAll && hasNoAttendanceAtAll
+      const noScheduleWarning = isFixedSalary
+        ? salaryInfo.note
+        : isCompletelyUnaccountedFor
         ? '⚠️ لا يوجد أي شيفت مسجَّل لهذا الموظف هذا الشهر، ولم يُسجَّل له أي حضور — لذلك احتُسِب راتبه صفراً تلقائياً. يُرجى مراجعة حالته (هل استقال دون تسجيل ذلك؟ أم لم تُجدوَل شيفتاته؟) قبل اعتماد راتب هذا الشهر'
         : (!salaryInfo.note && emp && hasNoScheduleAtAll)
         ? '⚠️ لا يوجد أي شيفت مسجَّل لهذا الموظف هذا الشهر، ورغم ذلك يُحتسَب له راتب كامل — راجع جدول الشيفتات قبل اعتماد الراتب'
@@ -851,11 +863,12 @@ export default function PayrollPage() {
       const baseSalary = salaryInfo.basicSalary
       const dailyRate = baseSalary / 30
       const violAmount = violMap[r.employee_id] || 0
-      const absDays = absMap[r.employee_id] || 0
+      // ✅ الغياب/التأخير/الخروج المبكر ما ليهاش معنى لموظف الراتب الثابت (مفيش جدول حضور يقارَن بيه)
+      const absDays = isFixedSalary ? 0 : (absMap[r.employee_id] || 0)
       const absAmount = parseFloat((absDays * dailyRate).toFixed(2))
-      const lateHrs = parseFloat(((lateMap[r.employee_id] || 0) / 60).toFixed(2))
+      const lateHrs = isFixedSalary ? 0 : parseFloat(((lateMap[r.employee_id] || 0) / 60).toFixed(2))
       // ✅ جديد: نظير lateHrs تمامًا لكن لساعات الخروج المبكر — تُحسب تلقائيًا من الحضور بدل انتظار إدخال يدوي
-      const earlyHrs = parseFloat(((earlyMap[r.employee_id] || 0) / 60).toFixed(2))
+      const earlyHrs = isFixedSalary ? 0 : parseFloat(((earlyMap[r.employee_id] || 0) / 60).toFixed(2))
       return {
         ...r,
         basic_salary: baseSalary,
@@ -863,7 +876,8 @@ export default function PayrollPage() {
         // (شهر كامل بلا تعيين/إيقاف في منتصفه)، يجب حساب أيام العمل من working_days الشهر الكامل،
         // وليس الإبقاء على days_worked القديمة المخزَّنة من وقت ما كان محسوباً خطأً (مثلاً صفر بسبب تاريخ تعيين خاطئ سابقاً)
         // — إلا في حالة "مفيش شيفت ومفيش بصمة خالص" فأيام العمل صفر مباشرة
-        days_worked: isCompletelyUnaccountedFor ? 0 : (salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : (r.working_days || 30)),
+        // ✅ موظف الراتب الثابت: شهر كامل دائماً بغضّ النظر عن الحضور المسجَّل (أو غيابه)
+        days_worked: isFixedSalary ? (r.working_days || 30) : (isCompletelyUnaccountedFor ? 0 : (salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : (r.working_days || 30))),
         // ✅ يجب استبدال الملاحظة بالكامل بالقيمة المحسوبة حديثاً دائماً، وليس الإبقاء على القيمة القديمة المخزَّنة
         // عند عدم وجود ملاحظة جديدة — وإلا تبقى رسالة "⏸ لم يبدأ العمل بعد" أو "⏸ موقوف" ظاهرة إلى الأبد
         // حتى بعد تصحيح تاريخ التعيين أو تاريخ الإيقاف، لأن الشرط لم يعد يتحقق فتفشل إعادة الحساب في مسح الرسالة القديمة

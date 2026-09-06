@@ -67,6 +67,7 @@ interface Employee {
   role: string; department: string; branch_id: string; phone: string
   email: string; email_account?: string  // ① إيميل شخصي + إيميل النظام
   join_date: string; salary?: number; insurance?: number; work_insurance?: number; is_active: boolean
+  fixed_salary?: boolean  // ✅ راتب ثابت — بدون حضور: يُدفع كامل شهرياً بلا خصم غياب/تأخير
   notes: string; photo_url?: string; national_id_url?: string
   auth_user_id?: string; branches?: { name: string }
   created_at?: string
@@ -242,6 +243,7 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
     salary: employee?.salary?.toString() || '',
     notes: employee?.notes || '',
     is_active: employee?.is_active !== false,
+    fixed_salary: employee?.fixed_salary === true,
   })
 
   function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) { const file = e.target.files?.[0]; if (!file) return; setPhotoFile(file); setPhotoPreview(URL.createObjectURL(file)) }
@@ -326,6 +328,15 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
           <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10 }}>
             <input type="checkbox" id="is_active" checked={form.is_active} onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))} style={{ width: 16, height: 16, accentColor: S.green }} />
             <label htmlFor="is_active" style={{ fontSize: 13, color: S.white, cursor: 'pointer' }}>موظف نشط — يظهر في النظام</label>
+          </div>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12, background: S.card, borderRadius: 12, border: `1px solid ${S.border}` }}>
+            <input type="checkbox" id="fixed_salary" checked={form.fixed_salary} onChange={e => setForm(p => ({ ...p, fixed_salary: e.target.checked }))} style={{ width: 16, height: 16, accentColor: S.gold, marginTop: 2 }} />
+            <label htmlFor="fixed_salary" style={{ fontSize: 13, color: S.white, cursor: 'pointer' }}>
+              📌 راتب ثابت — بدون حضور <span style={{ color: S.muted }}>/ Fixed salary (no attendance)</span>
+              <div style={{ fontSize: 11, color: S.muted, marginTop: 4, fontWeight: 400 }}>
+                للسواقين والإدارة ومن لا يسجّل بصمة: يُحتسب راتبه كاملاً كل شهر في صفحة الرواتب تلقائياً، بلا خصم غياب أو تأخير وبلا تحذير «لا يوجد شيفت». تبقى السلف والخصومات اليدوية سارية.
+              </div>
+            </label>
           </div>
         </div>
 

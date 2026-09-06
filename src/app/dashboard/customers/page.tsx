@@ -25,9 +25,18 @@ const S = {
 type Customer = {
   id: string; name: string; email?: string; phone?: string
   nationality?: string; birthday?: string; notes?: string
+  customer_type?: 'regular' | 'student' | 'tour_company'
   total_visits: number; total_spent: number; loyalty_points: number
   created_at: string
 }
+
+// ✅ تصنيف العميل — عادي / طالب / شركة سياحة (الخطوة الأولى لميزة خصومات الطلاب والسياحة)
+const CUSTOMER_TYPES: { key: 'regular' | 'student' | 'tour_company'; label: string; label_en: string; icon: string; color: string; bg: string }[] = [
+  { key: 'regular',      label: 'عادي',        label_en: 'Regular',       icon: '👤', color: S.muted,  bg: S.card2 },
+  { key: 'student',      label: 'طالب',        label_en: 'Student',       icon: '🎓', color: S.blue,   bg: S.blueB },
+  { key: 'tour_company', label: 'شركة سياحة',  label_en: 'Tour Company',  icon: '🧳', color: S.amber,  bg: S.amberB },
+]
+const typeInfo = (t?: string) => CUSTOMER_TYPES.find(x => x.key === t) || CUSTOMER_TYPES[0]
 
 // ══ Add/Edit Modal ══
 function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | null; onClose: () => void; onSaved: () => void }) {
@@ -42,6 +51,7 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
     birthday: customer?.birthday || '',
     notes: customer?.notes || '',
     loyalty_points: customer?.loyalty_points?.toString() || '0',
+    customer_type: customer?.customer_type || 'regular',
   })
 
   async function save() {
@@ -55,6 +65,7 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
       birthday: form.birthday || null,
       notes: form.notes || null,
       loyalty_points: parseInt(form.loyalty_points) || 0,
+      customer_type: form.customer_type,
     }
     let error
     if (customer) {
@@ -83,6 +94,17 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>نوع العميل · Customer Type</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {CUSTOMER_TYPES.map(t => (
+                <button key={t.key} type="button" onClick={() => setForm(p => ({ ...p, customer_type: t.key }))}
+                  style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: `1px solid ${form.customer_type === t.key ? t.color : S.border}`, background: form.customer_type === t.key ? t.bg : 'transparent', color: form.customer_type === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: form.customer_type === t.key ? 700 : 400 }}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Full Name *</label>
             <input style={inp} placeholder="John Smith" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
@@ -170,7 +192,14 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 620, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800 }}>👤 {customer.name}</h2>
+          <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            👤 {customer.name}
+            {customer.customer_type && customer.customer_type !== 'regular' && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: typeInfo(customer.customer_type).color, background: typeInfo(customer.customer_type).bg, borderRadius: 8, padding: '3px 10px' }}>
+                {typeInfo(customer.customer_type).icon} {typeInfo(customer.customer_type).label}
+              </span>
+            )}
+          </h2>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onEdit} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✏️ Edit</button>
             <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -353,6 +382,8 @@ export default function CustomersPage() {
   // ✅ جديد: تقسيم القائمة لصفحات - 100 عميل في كل صفحة بدل عرضهم كلهم في جدول واحد طويل
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 100
+  // ✅ فلتر نوع العميل: 'all' | 'regular' | 'student' | 'tour_company'
+  const [typeFilter, setTypeFilter] = useState<'all' | 'regular' | 'student' | 'tour_company'>('all')
   const [showAdd, setShowAdd] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null)
@@ -390,6 +421,7 @@ export default function CustomersPage() {
   }, [sb, fetchCustomers])
 
   const filtered = customers.filter(c => {
+    if (typeFilter !== 'all' && (c.customer_type || 'regular') !== typeFilter) return false
     if (!search) return true
     const q = search.toLowerCase()
     return c.name.toLowerCase().includes(q) ||
@@ -398,8 +430,8 @@ export default function CustomersPage() {
       c.nationality?.toLowerCase().includes(q)
   })
 
-  // ✅ إعادة الصفحة لأول واحدة لما البحث يتغيّر - وإلا ممكن تفضل واقف على صفحة 5 والنتائج بقت صفحة واحدة بس
-  useEffect(() => { setPage(1) }, [search])
+  // ✅ إعادة الصفحة لأول واحدة لما البحث أو الفلتر يتغيّر - وإلا ممكن تفضل واقف على صفحة 5 والنتائج بقت صفحة واحدة بس
+  useEffect(() => { setPage(1) }, [search, typeFilter])
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
@@ -408,13 +440,15 @@ export default function CustomersPage() {
     totalSpent: customers.reduce((s, c) => s + c.total_spent, 0),
     totalPoints: customers.reduce((s, c) => s + c.loyalty_points, 0),
     vip: customers.filter(c => c.total_visits >= 10).length,
+    students: customers.filter(c => c.customer_type === 'student').length,
+    tourCompanies: customers.filter(c => c.customer_type === 'tour_company').length,
   }
 
   function exportCSV() {
     const rows = [
-      ['Name', 'Email', 'Phone', 'Nationality', 'Visits', 'Total Spent', 'Points', 'Member Since'],
+      ['Name', 'Type', 'Email', 'Phone', 'Nationality', 'Visits', 'Total Spent', 'Points', 'Member Since'],
       // ✅ رقم عادي بدون فواصل آلاف هنا (مش عرض) - القيمة بتتحط في خلية CSV وأي فاصلة جواها هتكسر ترقيم الأعمدة
-      ...customers.map(c => [c.name, c.email||'', c.phone||'', c.nationality||'', c.total_visits, c.total_spent.toFixed(2), c.loyalty_points, new Date(c.created_at).toLocaleDateString('en-GB')])
+      ...customers.map(c => [c.name, typeInfo(c.customer_type).label_en, c.email||'', c.phone||'', c.nationality||'', c.total_visits, c.total_spent.toFixed(2), c.loyalty_points, new Date(c.created_at).toLocaleDateString('en-GB')])
     ]
     const csv = rows.map(r => r.join(',')).join('\n')
     const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv); a.download = 'customers.csv'; a.click()
@@ -442,6 +476,8 @@ export default function CustomersPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Total Customers', value: stats.total, color: S.white, icon: '👥' },
+          { label: 'طلاب · Students', value: stats.students, color: S.blue, icon: '🎓' },
+          { label: 'شركات سياحة · Tour Companies', value: stats.tourCompanies, color: S.amber, icon: '🧳' },
           { label: 'VIP (10+ visits)', value: stats.vip, color: S.gold, icon: '⭐' },
           { label: 'Total Spent', value: `MYR ${stats.totalSpent.toFixed(0)}`, color: S.green, icon: '💰' },
           { label: 'Loyalty Points', value: stats.totalPoints.toLocaleString(), color: S.purple, icon: '🎁' },
@@ -451,6 +487,18 @@ export default function CustomersPage() {
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, marginBottom: 4 }}>{s.value}</div>
             <div style={{ fontSize: 11, color: S.muted }}>{s.label}</div>
           </div>
+        ))}
+      </div>
+
+      {/* Type filter */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {([{ key: 'all' as const, label: 'الكل · All', icon: '📋', color: S.white, bg: S.card2 }, ...CUSTOMER_TYPES]).map(t => (
+          <button key={t.key} onClick={() => setTypeFilter(t.key as any)}
+            style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${typeFilter === t.key ? t.color : S.border}`, background: typeFilter === t.key ? t.bg : 'transparent', color: typeFilter === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: typeFilter === t.key ? 700 : 400 }}>
+            {t.icon} {t.label}
+            {t.key === 'student' && ` (${stats.students})`}
+            {t.key === 'tour_company' && ` (${stats.tourCompanies})`}
+          </button>
         ))}
       </div>
 
@@ -487,6 +535,11 @@ export default function CustomersPage() {
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{c.name}</div>
+                          {c.customer_type && c.customer_type !== 'regular' && (
+                            <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: typeInfo(c.customer_type).color, background: typeInfo(c.customer_type).bg, borderRadius: 6, padding: '1px 6px', marginTop: 2 }}>
+                              {typeInfo(c.customer_type).icon} {typeInfo(c.customer_type).label}
+                            </span>
+                          )}
                           {c.total_visits >= 10 && <div style={{ fontSize: 10, color: S.gold }}>⭐ VIP</div>}
                           {depositCustomerIds.has(c.id) && <div style={{ fontSize: 10, color: S.teal }}>💰 Has Deposit</div>}
                         </div>

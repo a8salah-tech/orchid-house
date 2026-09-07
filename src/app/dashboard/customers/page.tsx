@@ -26,11 +26,18 @@ type Customer = {
   id: string; name: string; email?: string; phone?: string
   nationality?: string; birthday?: string; notes?: string
   customer_type?: 'regular' | 'staff' | 'student' | 'tour_company' | 'government' | 'private'
+  discount_percent?: number | null   // نسبة خصم خاصة — لو null يُطبَّق معدّل التصنيف
   total_visits: number; total_spent: number; loyalty_points: number
   created_at: string
 }
 
 type CustomerTypeKey = 'regular' | 'staff' | 'student' | 'tour_company' | 'government' | 'private'
+
+// ✅ النسبة الفعلية للخصم: استثناء العميل لو موجود، وإلا معدّل تصنيفه
+function effectiveDiscount(c: Pick<Customer, 'customer_type' | 'discount_percent'>, rates: Record<string, number>): number {
+  if (c.discount_percent != null) return c.discount_percent
+  return rates[c.customer_type || 'regular'] || 0
+}
 
 // ✅ تصنيف العميل — لكل نوع خصم خاص بكود لاحقاً
 const CUSTOMER_TYPES: { key: CustomerTypeKey; label: string; label_en: string; icon: string; color: string; bg: string }[] = [
@@ -44,7 +51,7 @@ const CUSTOMER_TYPES: { key: CustomerTypeKey; label: string; label_en: string; i
 const typeInfo = (t?: string) => CUSTOMER_TYPES.find(x => x.key === t) || CUSTOMER_TYPES[0]
 
 // ══ Add/Edit Modal ══
-function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | null; onClose: () => void; onSaved: () => void }) {
+function CustomerModal({ customer, onClose, onSaved, rates }: { customer?: Customer | null; onClose: () => void; onSaved: () => void; rates: Record<string, number> }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   const [saving, setSaving] = useState(false)
@@ -57,11 +64,14 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
     notes: customer?.notes || '',
     loyalty_points: customer?.loyalty_points?.toString() || '0',
     customer_type: customer?.customer_type || 'regular',
+    discount_percent: customer?.discount_percent != null ? String(customer.discount_percent) : '',
   })
 
   async function save() {
     if (!form.name.trim()) { alert('Name is required'); return }
     setSaving(true)
+    // ✅ نسبة خصم خاصة: فاضية = null (يُطبَّق معدّل التصنيف)، وإلا رقم بين 0 و100
+    const dp = form.discount_percent.trim() === '' ? null : Math.min(100, Math.max(0, parseFloat(form.discount_percent) || 0))
     const payload = {
       name: form.name,
       email: form.email || null,
@@ -71,6 +81,7 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
       notes: form.notes || null,
       loyalty_points: parseInt(form.loyalty_points) || 0,
       customer_type: form.customer_type,
+      discount_percent: dp,
     }
     let error
     if (customer) {
@@ -109,6 +120,15 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
                 </button>
               ))}
             </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>
+              نسبة خصم خاصة (٪) · Special discount — اتركها فارغة لتطبيق معدّل التصنيف
+            </label>
+            <input type="number" min={0} max={100} step={0.5} style={inp}
+              placeholder={`معدّل «${typeInfo(form.customer_type).label}» الحالي: ${(rates[form.customer_type] || 0)}%`}
+              value={form.discount_percent}
+              onChange={e => setForm(p => ({ ...p, discount_percent: e.target.value }))} />
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Full Name *</label>
@@ -156,7 +176,7 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
 }
 
 // ══ Customer Detail Modal ══
-function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Customer; onClose: () => void; onEdit: () => void; onRefresh: () => void }) {
+function CustomerDetail({ customer, onClose, onEdit, onRefresh, rates }: { customer: Customer; onClose: () => void; onEdit: () => void; onRefresh: () => void; rates: Record<string, number> }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   const [bookings, setBookings] = useState<any[]>([])
@@ -212,13 +232,15 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
         </div>
 
         {/* Info Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', gap: 12, marginBottom: 20 }}>
           {[
             { label: 'Total Visits', value: customer.total_visits, color: S.blue, icon: '🍽️' },
             { label: 'Total Spent', value: `MYR ${customer.total_spent.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.gold, icon: '💰' },
             { label: 'Loyalty Points', value: customer.loyalty_points, color: S.green, icon: '🎁' },
             // ✅ جديد: رصيد العربون المتاح حاليًا (لسه متطبقش على أي فاتورة)
             { label: 'Deposit Balance', value: `MYR ${deposits.filter(d => d.status === 'available').reduce((s, d) => s + (d.amount || 0), 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: S.teal, icon: '💵' },
+            // ✅ نسبة الخصم الفعلية (استثناء العميل أو معدّل تصنيفه) + مصدرها
+            { label: customer.discount_percent != null ? 'خصم خاص · Discount' : `خصم «${typeInfo(customer.customer_type).label}»`, value: `${effectiveDiscount(customer, rates)}%`, color: S.green, icon: '🏷️' },
           ].map((s, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 12, padding: '14px 16px', border: `1px solid ${S.border}`, textAlign: 'center' }}>
               <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
@@ -376,6 +398,57 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh }: { customer: Cu
   )
 }
 
+// ══ لوحة نسب الخصم الثابتة حسب التصنيف ══
+function DiscountRatesPanel({ rates, onSaved }: { rates: Record<string, number>; onSaved: () => void }) {
+  const sbRef = useRef(createClient())
+  const sb = sbRef.current
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [savedKey, setSavedKey] = useState<string | null>(null)
+
+  const val = (k: string) => (draft[k] !== undefined ? draft[k] : String(rates[k] ?? 0))
+
+  async function saveOne(k: string) {
+    const pct = Math.min(100, Math.max(0, parseFloat(val(k)) || 0))
+    setSavingKey(k)
+    const { error } = await sb.from('discount_rates').upsert(
+      { customer_type: k, percent: pct, updated_at: new Date().toISOString() },
+      { onConflict: 'customer_type' }
+    )
+    setSavingKey(null)
+    if (error) { alert('خطأ: ' + error.message); return }
+    setDraft(p => { const n = { ...p }; delete n[k]; return n })
+    setSavedKey(k); setTimeout(() => setSavedKey(null), 2000)
+    onSaved()
+  }
+
+  const inp2: React.CSSProperties = { width: 80, background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', textAlign: 'center', direction: 'ltr' }
+
+  return (
+    <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, marginBottom: 4 }}>⚙️ نسب الخصم حسب التصنيف</div>
+      <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>
+        نسبة ثابتة تُطبَّق تلقائياً على كل عميل حسب تصنيفه. يمكن تجاوزها لعميل بعينه من «نسبة خصم خاصة» في ملفه.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 10 }}>
+        {CUSTOMER_TYPES.map(t => (
+          <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: '8px 10px' }}>
+            <span style={{ fontSize: 12, color: t.color, fontWeight: 700, flex: 1 }}>{t.icon} {t.label}</span>
+            <input type="number" min={0} max={100} step={0.5} style={inp2}
+              value={val(t.key)}
+              onChange={e => setDraft(p => ({ ...p, [t.key]: e.target.value }))} />
+            <span style={{ fontSize: 12, color: S.muted }}>%</span>
+            <button onClick={() => saveOne(t.key)} disabled={savingKey === t.key}
+              style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${savedKey === t.key ? S.green : S.gold}`, background: savedKey === t.key ? S.greenB : S.gold3, color: savedKey === t.key ? S.green : S.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              {savingKey === t.key ? '⏳' : savedKey === t.key ? '✅' : '💾'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ══ Main ══
 export default function CustomersPage() {
   const sbRef = useRef(createClient())
@@ -401,6 +474,9 @@ export default function CustomersPage() {
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null)
   // ✅ جديد: مجموعة IDs بتاعة العملاء اللي عندهم رصيد عربون متاح - لعرض شارة سريعة في القائمة الرئيسية
   const [depositCustomerIds, setDepositCustomerIds] = useState<Set<string>>(new Set())
+  // ✅ نسب الخصم الثابتة حسب التصنيف (من جدول discount_rates)
+  const [discountRates, setDiscountRates] = useState<Record<string, number>>({})
+  const [showRatesPanel, setShowRatesPanel] = useState(false)
 
   // ✅ Fix: بدون .range() بيرجع Supabase أول 1000 صف بس افتراضيًا - فوق الرقم ده كان بيتجمّد "Total Customers"
   // عند 1000 حتى لو العدد الحقيقي أكبر. دلوقتي بيجيب الكل على دفعات 1000
@@ -423,7 +499,14 @@ export default function CustomersPage() {
     setDepositCustomerIds(new Set((data || []).map((d: any) => d.customer_id)))
   }, [sb])
 
-  useEffect(() => { fetchCustomers(); fetchDepositBalances() }, [fetchCustomers, fetchDepositBalances])
+  const fetchDiscountRates = useCallback(async () => {
+    const { data } = await sb.from('discount_rates').select('customer_type,percent')
+    const map: Record<string, number> = {}
+    for (const r of data || []) map[(r as any).customer_type] = Number((r as any).percent) || 0
+    setDiscountRates(map)
+  }, [sb])
+
+  useEffect(() => { fetchCustomers(); fetchDepositBalances(); fetchDiscountRates() }, [fetchCustomers, fetchDepositBalances, fetchDiscountRates])
 
   useEffect(() => {
     const ch = sb.channel('customers-rt')
@@ -478,9 +561,9 @@ export default function CustomersPage() {
 
   function exportCSV() {
     const rows = [
-      ['Name', 'Type', 'Email', 'Phone', 'Nationality', 'Visits', 'Total Spent', 'Points', 'Member Since'],
+      ['Name', 'Type', 'Discount %', 'Email', 'Phone', 'Nationality', 'Visits', 'Total Spent', 'Points', 'Member Since'],
       // ✅ رقم عادي بدون فواصل آلاف هنا (مش عرض) - القيمة بتتحط في خلية CSV وأي فاصلة جواها هتكسر ترقيم الأعمدة
-      ...customers.map(c => [c.name, typeInfo(c.customer_type).label_en, c.email||'', c.phone||'', c.nationality||'', c.total_visits, c.total_spent.toFixed(2), c.loyalty_points, new Date(c.created_at).toLocaleDateString('en-GB')])
+      ...customers.map(c => [c.name, typeInfo(c.customer_type).label_en, effectiveDiscount(c, discountRates), c.email||'', c.phone||'', c.nationality||'', c.total_visits, c.total_spent.toFixed(2), c.loyalty_points, new Date(c.created_at).toLocaleDateString('en-GB')])
     ]
     const csv = rows.map(r => r.join(',')).join('\n')
     const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv); a.download = 'customers.csv'; a.click()
@@ -499,10 +582,13 @@ export default function CustomersPage() {
           <p style={{ fontSize: 13, color: S.muted }}>Manage customer profiles and loyalty points</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => setShowRatesPanel(v => !v)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: showRatesPanel ? S.gold3 : 'transparent', color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⚙️ نسب الخصم</button>
           <button onClick={exportCSV} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📥 Export CSV</button>
           <button onClick={() => setShowAdd(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>➕ Add Customer</button>
         </div>
       </div>
+
+      {showRatesPanel && <DiscountRatesPanel rates={discountRates} onSaved={fetchDiscountRates} />}
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
@@ -610,6 +696,11 @@ export default function CustomersPage() {
                           )}
                           {c.total_visits >= 10 && <div style={{ fontSize: 10, color: S.gold }}>⭐ VIP</div>}
                           {depositCustomerIds.has(c.id) && <div style={{ fontSize: 10, color: S.teal }}>💰 Has Deposit</div>}
+                          {effectiveDiscount(c, discountRates) > 0 && (
+                            <div style={{ fontSize: 10, color: S.green, fontWeight: 700 }}>
+                              🏷️ خصم {effectiveDiscount(c, discountRates)}%{c.discount_percent != null ? ' (خاص)' : ''}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -653,10 +744,10 @@ export default function CustomersPage() {
 
       {/* Modals */}
       {(showAdd || editCustomer) && (
-        <CustomerModal customer={editCustomer} onClose={() => { setShowAdd(false); setEditCustomer(null) }} onSaved={() => { setShowAdd(false); setEditCustomer(null); fetchCustomers() }} />
+        <CustomerModal customer={editCustomer} rates={discountRates} onClose={() => { setShowAdd(false); setEditCustomer(null) }} onSaved={() => { setShowAdd(false); setEditCustomer(null); fetchCustomers() }} />
       )}
       {viewCustomer && (
-        <CustomerDetail customer={viewCustomer} onClose={() => setViewCustomer(null)} onEdit={() => { setEditCustomer(viewCustomer); setViewCustomer(null) }} onRefresh={() => { fetchCustomers(); setViewCustomer(prev => prev ? { ...prev, loyalty_points: prev.loyalty_points } : null) }} />
+        <CustomerDetail customer={viewCustomer} rates={discountRates} onClose={() => setViewCustomer(null)} onEdit={() => { setEditCustomer(viewCustomer); setViewCustomer(null) }} onRefresh={() => { fetchCustomers(); setViewCustomer(prev => prev ? { ...prev, loyalty_points: prev.loyalty_points } : null) }} />
       )}
     </div>
   )

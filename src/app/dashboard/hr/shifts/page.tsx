@@ -844,7 +844,7 @@ export default function ShiftsPage() {
       // بعد ✅
 
       // فلتر الموظفين حسب دور المدير
-      let empQuery = supabase.from('employees').select('id,name,name_en,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
+      let empQuery = supabase.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
       // فلتر بالفرع أولاً لمدير الفرع
       if (employee?.role === 'branch_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '')
       else if (employee?.role === 'kitchen_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
@@ -1158,7 +1158,7 @@ export default function ShiftsPage() {
                             <tr key={emp.id} style={{borderBottom:`1px solid ${S.border}`,background:ei%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
                               <td style={{padding:'8px 14px',background:ei%2===0?S.navy2:'#0d1b35',borderLeft:`1px solid ${S.border}`,cursor:canAssignShifts?'pointer':'default'}} title={canAssignShifts?'اضغط لتعيين الشيفت':''}>
                                 <div style={{display:'flex',alignItems:'center',gap:8}} onClick={()=>{ if(canAssignShifts){ setAssignEmpId(emp.id); setShowAssign(true) } }} title={canAssignShifts ? 'اضغط لتعيين الشيفت' : ''}>
-                                  <div style={{width:26,height:26,borderRadius:'50%',background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:S.gold,flexShrink:0}}>{emp.name?.charAt(0)}</div>
+                                  <div style={{minWidth:46,height:22,padding:'0 8px',borderRadius:6,background:S.gold3,border:`1px solid ${S.gold}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:S.gold,flexShrink:0,direction:'ltr',whiteSpace:'nowrap'}}>{emp.employee_number||'—'}</div>
                                   <div>
                                     <div style={{fontSize:12,fontWeight:700,color:S.white}}>{emp.name}{emp.name_en ? ' '+emp.name_en : ''}</div>
                                     <div style={{fontSize:10,color:S.muted,display:'flex',gap:6,alignItems:'center'}}>

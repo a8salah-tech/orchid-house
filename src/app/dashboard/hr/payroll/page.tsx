@@ -204,7 +204,9 @@ function calcRecord(r: PayrollRecord) {
   const earlyDed    = LATE_HOUR_PENALTY * r.early_exit_hours
   const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
-  const amountDue   = netSalary > 0 ? netSalary : 0
+  // ✅ جبر الكسور: المبلغ المستحق فقط يُقرَّب لأعلى رينغيت كامل (Math.ceil) لصالح الموظف —
+  // صافي الراتب وباقي الخانات تظل بقيمتها الدقيقة بالقروش
+  const amountDue   = netSalary > 0 ? Math.ceil(netSalary) : 0
   const balance     = amountDue - r.amount_paid
   return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, totalDeductions, netSalary, amountDue, balance }
 }
@@ -331,8 +333,8 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
         extra={!readOnly && (
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); set('amount_due', calc.netSalary > 0 ? calc.netSalary : 0) }}
-            title="مزامنة المستحق مع صافي الراتب المحسوب حالياً"
+            onClick={e => { e.stopPropagation(); set('amount_due', calc.amountDue) }}
+            title="مزامنة المستحق مع صافي الراتب المحسوب حالياً (مجبور لأعلى رينغيت كامل)"
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1, flexShrink: 0 }}
           >🔄</button>
         )}
@@ -473,7 +475,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
       </tr>
       <tr class="net-row">
         <td class="lbl">صافي الراتب / NET SALARY</td><td class="val net">${fmt(c.netSalary)}</td>
-        <td class="lbl">المبلغ المستحق / Amount Due</td><td class="val">${fmt(record.amount_due || c.amountDue)}</td>
+        <td class="lbl">المبلغ المستحق / Amount Due</td><td class="val">${fmt(record.amount_due || c.amountDue)}${c.amountDue > c.netSalary && c.netSalary > 0 ? ' <span style="font-size:9px;color:#888">(جُبر لأعلى)</span>' : ''}</td>
       </tr>
       <tr>
         <td class="lbl">المبلغ المدفوع / Amount Paid</td><td class="val">${fmt(record.amount_paid)}</td>
@@ -1619,6 +1621,10 @@ export default function PayrollPage() {
                 <div style={{ marginTop: 18, background: S.gold3, border: `1px solid ${S.gold}40`, borderRadius: 12, padding: '14px 18px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 17, fontWeight: 900, color: S.teal, marginBottom: 8 }}>
                     <span>صافي الراتب NET</span><span>MYR {fmt2(c.netSalary)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 8 }}>
+                    <span>المبلغ المستحق{c.amountDue > c.netSalary && c.netSalary > 0 ? ' (جُبر لأعلى)' : ''}</span>
+                    <span>MYR {fmt2(payslipRecord.amount_due || c.amountDue)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted }}>
                     <span>مدفوع: {fmt2(payslipRecord.amount_paid)}</span>

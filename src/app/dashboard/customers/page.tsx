@@ -25,16 +25,17 @@ const S = {
 type Customer = {
   id: string; name: string; email?: string; phone?: string
   nationality?: string; birthday?: string; notes?: string
-  customer_type?: 'regular' | 'student' | 'tour_company'
+  customer_type?: 'regular' | 'staff' | 'student' | 'tour_company'
   total_visits: number; total_spent: number; loyalty_points: number
   created_at: string
 }
 
-// ✅ تصنيف العميل — عادي / طالب / شركة سياحة (الخطوة الأولى لميزة خصومات الطلاب والسياحة)
-const CUSTOMER_TYPES: { key: 'regular' | 'student' | 'tour_company'; label: string; label_en: string; icon: string; color: string; bg: string }[] = [
-  { key: 'regular',      label: 'عادي',        label_en: 'Regular',       icon: '👤', color: S.muted,  bg: S.card2 },
-  { key: 'student',      label: 'طالب',        label_en: 'Student',       icon: '🎓', color: S.blue,   bg: S.blueB },
-  { key: 'tour_company', label: 'شركة سياحة',  label_en: 'Tour Company',  icon: '🧳', color: S.amber,  bg: S.amberB },
+// ✅ تصنيف العميل — عادي / ستاف / طالب / شركة سياحة (لكل نوع خصم خاص بكود لاحقاً)
+const CUSTOMER_TYPES: { key: 'regular' | 'staff' | 'student' | 'tour_company'; label: string; label_en: string; icon: string; color: string; bg: string }[] = [
+  { key: 'regular',      label: 'عادي',        label_en: 'Regular',       icon: '👤',  color: S.muted,  bg: S.card2 },
+  { key: 'staff',        label: 'ستاف',        label_en: 'Staff',         icon: '🧑‍🍳', color: S.teal,   bg: S.tealB },
+  { key: 'student',      label: 'طالب',        label_en: 'Student',       icon: '🎓',  color: S.blue,   bg: S.blueB },
+  { key: 'tour_company', label: 'شركة سياحة',  label_en: 'Tour Company',  icon: '🧳',  color: S.amber,  bg: S.amberB },
 ]
 const typeInfo = (t?: string) => CUSTOMER_TYPES.find(x => x.key === t) || CUSTOMER_TYPES[0]
 
@@ -96,10 +97,10 @@ function CustomerModal({ customer, onClose, onSaved }: { customer?: Customer | n
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>نوع العميل · Customer Type</label>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {CUSTOMER_TYPES.map(t => (
                 <button key={t.key} type="button" onClick={() => setForm(p => ({ ...p, customer_type: t.key }))}
-                  style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: `1px solid ${form.customer_type === t.key ? t.color : S.border}`, background: form.customer_type === t.key ? t.bg : 'transparent', color: form.customer_type === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: form.customer_type === t.key ? 700 : 400 }}>
+                  style={{ flex: '1 1 90px', padding: '9px 6px', borderRadius: 10, border: `1px solid ${form.customer_type === t.key ? t.color : S.border}`, background: form.customer_type === t.key ? t.bg : 'transparent', color: form.customer_type === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: form.customer_type === t.key ? 700 : 400 }}>
                   {t.icon} {t.label}
                 </button>
               ))}
@@ -383,7 +384,7 @@ export default function CustomersPage() {
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 100
   // ✅ فلتر نوع العميل: 'all' | 'regular' | 'student' | 'tour_company'
-  const [typeFilter, setTypeFilter] = useState<'all' | 'regular' | 'student' | 'tour_company'>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'regular' | 'staff' | 'student' | 'tour_company'>('all')
   const [showAdd, setShowAdd] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null)
@@ -440,6 +441,7 @@ export default function CustomersPage() {
     totalSpent: customers.reduce((s, c) => s + c.total_spent, 0),
     totalPoints: customers.reduce((s, c) => s + c.loyalty_points, 0),
     vip: customers.filter(c => c.total_visits >= 10).length,
+    staff: customers.filter(c => c.customer_type === 'staff').length,
     students: customers.filter(c => c.customer_type === 'student').length,
     tourCompanies: customers.filter(c => c.customer_type === 'tour_company').length,
   }
@@ -476,6 +478,7 @@ export default function CustomersPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Total Customers', value: stats.total, color: S.white, icon: '👥' },
+          { label: 'ستاف · Staff', value: stats.staff, color: S.teal, icon: '🧑‍🍳' },
           { label: 'طلاب · Students', value: stats.students, color: S.blue, icon: '🎓' },
           { label: 'شركات سياحة · Tour Companies', value: stats.tourCompanies, color: S.amber, icon: '🧳' },
           { label: 'VIP (10+ visits)', value: stats.vip, color: S.gold, icon: '⭐' },
@@ -492,10 +495,12 @@ export default function CustomersPage() {
 
       {/* Type filter */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        {([{ key: 'all' as const, label: 'الكل · All', icon: '📋', color: S.white, bg: S.card2 }, ...CUSTOMER_TYPES]).map(t => (
+        {/* الترتيب: الكل ← ستاف ← طالب ← شركة سياحة (تصنيف "عادي" ما يحتاجش تبويب — "الكل" بيغطيه) */}
+        {([{ key: 'all' as const, label: 'الكل · All', icon: '📋', color: S.white, bg: S.card2 }, ...CUSTOMER_TYPES.filter(t => t.key !== 'regular')]).map(t => (
           <button key={t.key} onClick={() => setTypeFilter(t.key as any)}
             style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${typeFilter === t.key ? t.color : S.border}`, background: typeFilter === t.key ? t.bg : 'transparent', color: typeFilter === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: typeFilter === t.key ? 700 : 400 }}>
             {t.icon} {t.label}
+            {t.key === 'staff' && ` (${stats.staff})`}
             {t.key === 'student' && ` (${stats.students})`}
             {t.key === 'tour_company' && ` (${stats.tourCompanies})`}
           </button>

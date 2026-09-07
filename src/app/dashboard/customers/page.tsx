@@ -25,17 +25,21 @@ const S = {
 type Customer = {
   id: string; name: string; email?: string; phone?: string
   nationality?: string; birthday?: string; notes?: string
-  customer_type?: 'regular' | 'staff' | 'student' | 'tour_company'
+  customer_type?: 'regular' | 'staff' | 'student' | 'tour_company' | 'government' | 'private'
   total_visits: number; total_spent: number; loyalty_points: number
   created_at: string
 }
 
-// ✅ تصنيف العميل — عادي / ستاف / طالب / شركة سياحة (لكل نوع خصم خاص بكود لاحقاً)
-const CUSTOMER_TYPES: { key: 'regular' | 'staff' | 'student' | 'tour_company'; label: string; label_en: string; icon: string; color: string; bg: string }[] = [
+type CustomerTypeKey = 'regular' | 'staff' | 'student' | 'tour_company' | 'government' | 'private'
+
+// ✅ تصنيف العميل — لكل نوع خصم خاص بكود لاحقاً
+const CUSTOMER_TYPES: { key: CustomerTypeKey; label: string; label_en: string; icon: string; color: string; bg: string }[] = [
   { key: 'regular',      label: 'عادي',        label_en: 'Regular',       icon: '👤',  color: S.muted,  bg: S.card2 },
   { key: 'staff',        label: 'ستاف',        label_en: 'Staff',         icon: '🧑‍🍳', color: S.teal,   bg: S.tealB },
   { key: 'student',      label: 'طالب',        label_en: 'Student',       icon: '🎓',  color: S.blue,   bg: S.blueB },
   { key: 'tour_company', label: 'شركة سياحة',  label_en: 'Tour Company',  icon: '🧳',  color: S.amber,  bg: S.amberB },
+  { key: 'government',   label: 'قطاع حكومي',  label_en: 'Government',    icon: '🏛️',  color: S.purple, bg: S.purpleB },
+  { key: 'private',      label: 'قطاع خاص',    label_en: 'Private Sector', icon: '🏢', color: S.green,  bg: S.greenB },
 ]
 const typeInfo = (t?: string) => CUSTOMER_TYPES.find(x => x.key === t) || CUSTOMER_TYPES[0]
 
@@ -383,8 +387,15 @@ export default function CustomersPage() {
   // ✅ جديد: تقسيم القائمة لصفحات - 100 عميل في كل صفحة بدل عرضهم كلهم في جدول واحد طويل
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 100
-  // ✅ فلتر نوع العميل: 'all' | 'regular' | 'student' | 'tour_company'
-  const [typeFilter, setTypeFilter] = useState<'all' | 'regular' | 'staff' | 'student' | 'tour_company'>('all')
+  // ✅ فلتر نوع العميل
+  const [typeFilter, setTypeFilter] = useState<'all' | CustomerTypeKey>('all')
+  // ✅ فلاتر سريعة إضافية (تُطبَّق مع بعض بمنطق "و") — بجانب البحث
+  const [attrFilters, setAttrFilters] = useState<Set<string>>(new Set())
+  const toggleAttr = (k: string) => setAttrFilters(prev => {
+    const next = new Set(prev)
+    next.has(k) ? next.delete(k) : next.add(k)
+    return next
+  })
   const [showAdd, setShowAdd] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null)
@@ -421,8 +432,24 @@ export default function CustomersPage() {
     return () => { sb.removeChannel(ch) }
   }, [sb, fetchCustomers])
 
+  // ✅ تحقّق الفلاتر السريعة لعميل واحد
+  const thisMonth = new Date().getMonth()
+  const thisYear = new Date().getFullYear()
+  function passesAttrFilters(c: Customer): boolean {
+    for (const k of attrFilters) {
+      if (k === 'deposit' && !depositCustomerIds.has(c.id)) return false
+      if (k === 'vip' && !(c.total_visits >= 10)) return false
+      if (k === 'points' && !(c.loyalty_points > 0)) return false
+      if (k === 'birthday' && !(c.birthday && new Date(c.birthday).getMonth() === thisMonth)) return false
+      if (k === 'new' && !(new Date(c.created_at).getMonth() === thisMonth && new Date(c.created_at).getFullYear() === thisYear)) return false
+      if (k === 'no_phone' && !!c.phone) return false
+    }
+    return true
+  }
+
   const filtered = customers.filter(c => {
     if (typeFilter !== 'all' && (c.customer_type || 'regular') !== typeFilter) return false
+    if (!passesAttrFilters(c)) return false
     if (!search) return true
     const q = search.toLowerCase()
     return c.name.toLowerCase().includes(q) ||
@@ -432,7 +459,7 @@ export default function CustomersPage() {
   })
 
   // ✅ إعادة الصفحة لأول واحدة لما البحث أو الفلتر يتغيّر - وإلا ممكن تفضل واقف على صفحة 5 والنتائج بقت صفحة واحدة بس
-  useEffect(() => { setPage(1) }, [search, typeFilter])
+  useEffect(() => { setPage(1) }, [search, typeFilter, attrFilters])
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
@@ -444,6 +471,9 @@ export default function CustomersPage() {
     staff: customers.filter(c => c.customer_type === 'staff').length,
     students: customers.filter(c => c.customer_type === 'student').length,
     tourCompanies: customers.filter(c => c.customer_type === 'tour_company').length,
+    government: customers.filter(c => c.customer_type === 'government').length,
+    privateSector: customers.filter(c => c.customer_type === 'private').length,
+    withDeposit: customers.filter(c => depositCustomerIds.has(c.id)).length,
   }
 
   function exportCSV() {
@@ -481,6 +511,9 @@ export default function CustomersPage() {
           { label: 'ستاف · Staff', value: stats.staff, color: S.teal, icon: '🧑‍🍳' },
           { label: 'طلاب · Students', value: stats.students, color: S.blue, icon: '🎓' },
           { label: 'شركات سياحة · Tour Companies', value: stats.tourCompanies, color: S.amber, icon: '🧳' },
+          { label: 'قطاع حكومي · Government', value: stats.government, color: S.purple, icon: '🏛️' },
+          { label: 'قطاع خاص · Private', value: stats.privateSector, color: S.green, icon: '🏢' },
+          { label: 'عندهم عربون · Has Deposit', value: stats.withDeposit, color: S.teal, icon: '💰' },
           { label: 'VIP (10+ visits)', value: stats.vip, color: S.gold, icon: '⭐' },
           { label: 'Total Spent', value: `MYR ${stats.totalSpent.toFixed(0)}`, color: S.green, icon: '💰' },
           { label: 'Loyalty Points', value: stats.totalPoints.toLocaleString(), color: S.purple, icon: '🎁' },
@@ -503,12 +536,42 @@ export default function CustomersPage() {
             {t.key === 'staff' && ` (${stats.staff})`}
             {t.key === 'student' && ` (${stats.students})`}
             {t.key === 'tour_company' && ` (${stats.tourCompanies})`}
+            {t.key === 'government' && ` (${stats.government})`}
+            {t.key === 'private' && ` (${stats.privateSector})`}
           </button>
         ))}
       </div>
 
-      {/* Search */}
-      <input style={{ ...inp, width: '100%', marginBottom: 16 }} placeholder="🔍 Search by name, email, phone..." value={search} onChange={e => setSearch(e.target.value)} />
+      {/* Search + فلاتر سريعة */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input style={{ ...inp, flex: '1 1 240px' }} placeholder="🔍 Search by name, email, phone..." value={search} onChange={e => setSearch(e.target.value)} />
+        {([
+          { k: 'deposit',  label: '💰 عندهم عربون',  count: stats.withDeposit },
+          { k: 'vip',      label: '⭐ VIP',           count: stats.vip },
+          { k: 'points',   label: '🎁 عندهم نقاط' },
+          { k: 'birthday', label: '🎂 ميلاد هذا الشهر' },
+          { k: 'new',      label: '🆕 مسجّل هذا الشهر' },
+        ] as { k: string; label: string; count?: number }[]).map(f => {
+          const on = attrFilters.has(f.k)
+          return (
+            <button key={f.k} onClick={() => toggleAttr(f.k)}
+              style={{ padding: '8px 12px', borderRadius: 10, border: `1px solid ${on ? S.teal : S.border}`, background: on ? S.tealB : 'transparent', color: on ? S.teal : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: on ? 700 : 400, whiteSpace: 'nowrap' }}>
+              {f.label}{f.count !== undefined ? ` (${f.count})` : ''}
+            </button>
+          )
+        })}
+        {attrFilters.size > 0 && (
+          <button onClick={() => setAttrFilters(new Set())}
+            style={{ padding: '8px 12px', borderRadius: 10, border: `1px solid ${S.red}`, background: 'transparent', color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', whiteSpace: 'nowrap' }}>
+            ✕ مسح الفلاتر
+          </button>
+        )}
+      </div>
+      {(attrFilters.size > 0 || typeFilter !== 'all') && (
+        <div style={{ fontSize: 12, color: S.muted, marginBottom: 12 }}>
+          يعرض <b style={{ color: S.white }}>{filtered.length}</b> من {stats.total} عميل
+        </div>
+      )}
 
       {/* Table */}
       {loading ? (

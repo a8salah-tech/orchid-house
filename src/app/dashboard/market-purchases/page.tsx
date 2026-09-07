@@ -274,11 +274,14 @@ export default function MarketPurchasesPage() {
 
   function startEditingPurchase(req: PurchaseRequest) {
     // ✅ Fix: أزلنا السعر - سيُدخَل لاحقًا في فاتورة مشتريات منفصلة بقسم المشتريات
-    const init: Record<string, { quantity: string; unit_id: string }> = {}
+    // ✅ Fix: لازم نبدأ بحالة "غير متاح" المحفوظة مسبقًا (it.is_unavailable) — من غيرها كانت العلامة
+    //   بتختفي عند إعادة فتح المودال وبيتحسب الصنف وكأنه هيتشرى بالكمية كاملة
+    const init: Record<string, { quantity: string; unit_id: string; unavailable: boolean }> = {}
     req.market_purchase_request_items?.forEach(it => {
       init[it.id] = {
-        quantity: String(it.purchased_quantity ?? it.requested_quantity),
-        unit_id: it.purchased_unit_id || it.requested_unit_id,
+        quantity: it.is_unavailable ? '' : String(it.purchased_quantity ?? it.requested_quantity),
+        unit_id: it.purchased_unit_id || it.requested_unit_id || '',
+        unavailable: it.is_unavailable || false,
       }
     })
     setPurchaseEdits(init)
@@ -318,25 +321,27 @@ export default function MarketPurchasesPage() {
 
   // ✅ جديد: حفظ التقدم بس - بيسجل الكمية اللي اتلقت لحد دلوقتي من غير ما يقفل الطلب أو يشيله من قائمة "ما زال بحاجة إلى شراء"
   // مفيد لما المسؤول يشتري جزء من مكان، ويحتاج يرجع يكمل من مكان تاني بعدين
+  // ✅ يحفظ كل أصناف الطلب (الكمية/الوحدة/علامة غير متاح) ويُرجِع أول خطأ صادفه — أو null لو نجح
+  async function persistPurchaseItems(): Promise<string | null> {
+    for (const [itemId, edit] of Object.entries(purchaseEdits)) {
+      // ✅ جديد: لو الصنف اتعلّم "غير متاح"، نحفظ العلامة ونصفّر الكمية المشتراة (مفيش حاجة اتشرت فعليًا)
+      const payload = edit.unavailable
+        ? { is_unavailable: true, purchased_quantity: null, purchased_unit_id: null }
+        : { purchased_quantity: parseFloat(edit.quantity) || 0, purchased_unit_id: edit.unit_id || null, is_unavailable: false }
+      const { error } = await sb.from('market_purchase_request_items').update(payload).eq('id', itemId)
+      if (error) return `تعذّر حفظ الصنف: ${error.message}`
+    }
+    return null
+  }
+
   async function savePurchaseProgress() {
     if (!editingReq) return
     setSaving(true)
-    for (const [itemId, edit] of Object.entries(purchaseEdits)) {
-      // ✅ جديد: لو الصنف اتعلّم "غير متاح"، نحفظ العلامة ونصفّر الكمية المشتراة (مفيش حاجة اتشرت فعليًا)
-      if (edit.unavailable) {
-        await sb.from('market_purchase_request_items').update({
-          is_unavailable: true, purchased_quantity: null, purchased_unit_id: null,
-        }).eq('id', itemId)
-        continue
-      }
-      const qty = parseFloat(edit.quantity) || 0
-      await sb.from('market_purchase_request_items').update({
-        purchased_quantity: qty, purchased_unit_id: edit.unit_id, is_unavailable: false,
-      }).eq('id', itemId)
-    }
+    const err = await persistPurchaseItems()
+    setSaving(false)
+    if (err) { alert('⚠️ ' + err); return }
     // ✅ ملحوظة: لا نلمس status الطلب هنا خالص - يفضل زي ما هو (قيد الانتظار) لحد ما يضغط "إتمام الشراء نهائيًا"
     await fetchAll()
-    setSaving(false)
     alert('✅ تم حفظ التقدم الحالي. لا يزال الطلب ظاهرًا في قائمة الشراء، ويمكنك إكماله في أي وقت لاحق.')
   }
 
@@ -356,23 +361,19 @@ export default function MarketPurchasesPage() {
     if (!confirmed) return
     setSaving(true)
     // ✅ Fix: مفيش سعر هنا خالص - بس نسجل الكمية والوحدة الفعلية بعد المراجعة
-    for (const [itemId, edit] of Object.entries(purchaseEdits)) {
-      // ✅ جديد: حفظ علامة "غير متاح" للصنف بدل كمية مشتراة
-      if (edit.unavailable) {
-        await sb.from('market_purchase_request_items').update({
-          is_unavailable: true, purchased_quantity: null, purchased_unit_id: null,
-        }).eq('id', itemId)
-        continue
-      }
-      const qty = parseFloat(edit.quantity) || 0
-      await sb.from('market_purchase_request_items').update({
-        purchased_quantity: qty, purchased_unit_id: edit.unit_id, is_unavailable: false,
-      }).eq('id', itemId)
-    }
-    await sb.from('market_purchase_requests').update({
+    const itemsErr = await persistPurchaseItems()
+    if (itemsErr) { setSaving(false); alert('⚠️ ' + itemsErr + '\n\nلم يتم إتمام الشراء. يُرجى إبلاغ الإدارة.'); return }
+    // ✅ Fix: كان هذا التحديث يفشل بصمت (بلا فحص الخطأ) فيبدو الطلب "لم يتغير" رغم الضغط على "إتمام الشراء"
+    const { error: statusErr } = await sb.from('market_purchase_requests').update({
       status: 'purchased', purchased_at: new Date().toISOString(),
       purchased_by: currentUser?.id,
     }).eq('id', editingReq.id)
+    if (statusErr) {
+      setSaving(false)
+      alert('⚠️ تعذّر إغلاق الطلب: ' + statusErr.message + '\n\nقد لا تملك صلاحية إتمام الشراء — يُرجى إبلاغ الإدارة.')
+      await fetchAll()
+      return
+    }
     // ✅ جديد: إشعار لمقدّم الطلب بأن الشراء تم وأصبح جاهزًا للاستلام
     await sendNotifToEmployee(editingReq.requested_by, '✅ تم الشراء', `تم شراء طلبك #${editingReq.request_number || ''} وأصبح جاهزًا للاستلام`)
     await fetchAll()

@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,7 +52,7 @@ const CUSTOMER_TYPES: { key: CustomerTypeKey; label: string; label_en: string; i
 const typeInfo = (t?: string) => CUSTOMER_TYPES.find(x => x.key === t) || CUSTOMER_TYPES[0]
 
 // ══ Add/Edit Modal ══
-function CustomerModal({ customer, onClose, onSaved, rates }: { customer?: Customer | null; onClose: () => void; onSaved: () => void; rates: Record<string, number> }) {
+function CustomerModal({ customer, onClose, onSaved, rates, isAdmin }: { customer?: Customer | null; onClose: () => void; onSaved: () => void; rates: Record<string, number>; isAdmin: boolean }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   const [saving, setSaving] = useState(false)
@@ -81,7 +82,9 @@ function CustomerModal({ customer, onClose, onSaved, rates }: { customer?: Custo
       notes: form.notes || null,
       loyalty_points: parseInt(form.loyalty_points) || 0,
       customer_type: form.customer_type,
-      discount_percent: dp,
+      // ✅ Fix أمان: الأدمن بس اللي يقدر يغيّر نسبة الخصم الخاصة - لغير الأدمن نستبعد الحقل من الحفظ
+      // تمامًا (مش بس تعطيل الحقل شكليًا في الواجهة) عشان لا تتغيّر القيمة حتى لو تم التلاعب بالـ HTML
+      ...(isAdmin ? { discount_percent: dp } : {}),
     }
     let error
     if (customer) {
@@ -124,10 +127,13 @@ function CustomerModal({ customer, onClose, onSaved, rates }: { customer?: Custo
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>
               نسبة خصم خاصة (٪) · Special discount — اتركها فارغة لتطبيق معدّل التصنيف
+              {/* ✅ جديد: الأدمن فقط يقدر يعدّل نسبة الخصم - غيره يشوفها معطّلة (Read-only) */}
+              {!isAdmin && <span style={{ color: S.amber }}> 🔒 للأدمن فقط</span>}
             </label>
-            <input type="number" min={0} max={100} step={0.5} style={inp}
+            <input type="number" min={0} max={100} step={0.5} style={{ ...inp, opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }}
               placeholder={`معدّل «${typeInfo(form.customer_type).label}» الحالي: ${(rates[form.customer_type] || 0)}%`}
               value={form.discount_percent}
+              disabled={!isAdmin}
               onChange={e => setForm(p => ({ ...p, discount_percent: e.target.value }))} />
           </div>
           <div>
@@ -399,7 +405,7 @@ function CustomerDetail({ customer, onClose, onEdit, onRefresh, rates }: { custo
 }
 
 // ══ لوحة نسب الخصم الثابتة حسب التصنيف ══
-function DiscountRatesPanel({ rates, onSaved }: { rates: Record<string, number>; onSaved: () => void }) {
+function DiscountRatesPanel({ rates, onSaved, isAdmin }: { rates: Record<string, number>; onSaved: () => void; isAdmin: boolean }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   const [draft, setDraft] = useState<Record<string, string>>({})
@@ -409,6 +415,8 @@ function DiscountRatesPanel({ rates, onSaved }: { rates: Record<string, number>;
   const val = (k: string) => (draft[k] !== undefined ? draft[k] : String(rates[k] ?? 0))
 
   async function saveOne(k: string) {
+    // ✅ Fix أمان: حماية إضافية غير الزرار المعطَّل شكليًا - نفس مبدأ الحقل الخاص في CustomerModal
+    if (!isAdmin) return
     const pct = Math.min(100, Math.max(0, parseFloat(val(k)) || 0))
     setSavingKey(k)
     const { error } = await sb.from('discount_rates').upsert(
@@ -426,7 +434,11 @@ function DiscountRatesPanel({ rates, onSaved }: { rates: Record<string, number>;
 
   return (
     <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: 16, marginBottom: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, marginBottom: 4 }}>⚙️ نسب الخصم حسب التصنيف</div>
+      <div style={{ fontSize: 13, fontWeight: 800, color: S.gold, marginBottom: 4 }}>
+        ⚙️ نسب الخصم حسب التصنيف
+        {/* ✅ جديد: توضيح إن التعديل مقصور على الأدمن لمن ليس أدمن */}
+        {!isAdmin && <span style={{ color: S.amber, fontSize: 11, fontWeight: 400 }}> — 🔒 للعرض فقط، التعديل للأدمن فقط</span>}
+      </div>
       <div style={{ fontSize: 11, color: S.muted, marginBottom: 14 }}>
         نسبة ثابتة تُطبَّق تلقائياً على كل عميل حسب تصنيفه. يمكن تجاوزها لعميل بعينه من «نسبة خصم خاصة» في ملفه.
       </div>
@@ -434,14 +446,17 @@ function DiscountRatesPanel({ rates, onSaved }: { rates: Record<string, number>;
         {CUSTOMER_TYPES.map(t => (
           <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.card, borderRadius: 10, padding: '8px 10px' }}>
             <span style={{ fontSize: 12, color: t.color, fontWeight: 700, flex: 1 }}>{t.icon} {t.label}</span>
-            <input type="number" min={0} max={100} step={0.5} style={inp2}
+            <input type="number" min={0} max={100} step={0.5} style={{ ...inp2, opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }}
               value={val(t.key)}
+              disabled={!isAdmin}
               onChange={e => setDraft(p => ({ ...p, [t.key]: e.target.value }))} />
             <span style={{ fontSize: 12, color: S.muted }}>%</span>
-            <button onClick={() => saveOne(t.key)} disabled={savingKey === t.key}
-              style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${savedKey === t.key ? S.green : S.gold}`, background: savedKey === t.key ? S.greenB : S.gold3, color: savedKey === t.key ? S.green : S.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
-              {savingKey === t.key ? '⏳' : savedKey === t.key ? '✅' : '💾'}
-            </button>
+            {isAdmin ? (
+              <button onClick={() => saveOne(t.key)} disabled={savingKey === t.key}
+                style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${savedKey === t.key ? S.green : S.gold}`, background: savedKey === t.key ? S.greenB : S.gold3, color: savedKey === t.key ? S.green : S.gold, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                {savingKey === t.key ? '⏳' : savedKey === t.key ? '✅' : '💾'}
+              </button>
+            ) : null}
           </div>
         ))}
       </div>
@@ -451,6 +466,9 @@ function DiscountRatesPanel({ rates, onSaved }: { rates: Record<string, number>;
 
 // ══ Main ══
 export default function CustomersPage() {
+  // ✅ جديد: تحديد الأدمن - عشان نقصر تعديل نسب الخصم عليه بس، ومن عنده صلاحية الوصول للصفحة يشوفها فقط
+  const { permissions } = useAuth()
+  const isAdmin = permissions?.all === true
   const sbRef = useRef(createClient())
   const sb = sbRef.current
 
@@ -588,7 +606,7 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {showRatesPanel && <DiscountRatesPanel rates={discountRates} onSaved={fetchDiscountRates} />}
+      {showRatesPanel && <DiscountRatesPanel rates={discountRates} onSaved={fetchDiscountRates} isAdmin={isAdmin} />}
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
@@ -744,7 +762,7 @@ export default function CustomersPage() {
 
       {/* Modals */}
       {(showAdd || editCustomer) && (
-        <CustomerModal customer={editCustomer} rates={discountRates} onClose={() => { setShowAdd(false); setEditCustomer(null) }} onSaved={() => { setShowAdd(false); setEditCustomer(null); fetchCustomers() }} />
+        <CustomerModal customer={editCustomer} rates={discountRates} isAdmin={isAdmin} onClose={() => { setShowAdd(false); setEditCustomer(null) }} onSaved={() => { setShowAdd(false); setEditCustomer(null); fetchCustomers() }} />
       )}
       {viewCustomer && (
         <CustomerDetail customer={viewCustomer} rates={discountRates} onClose={() => setViewCustomer(null)} onEdit={() => { setEditCustomer(viewCustomer); setViewCustomer(null) }} onRefresh={() => { fetchCustomers(); setViewCustomer(prev => prev ? { ...prev, loyalty_points: prev.loyalty_points } : null) }} />

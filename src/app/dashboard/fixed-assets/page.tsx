@@ -69,6 +69,36 @@ function pickImage(file: File, setFile: (f: File) => void, setPreview: (p: strin
   reader.readAsDataURL(file)
 }
 
+// ✅ جديد: تحديث/إدراج رصيد صنف في موقع واحد (رئيسي أو فرع) - نفس منطق الجرد اليدوي القديم بس
+// مستخرج في دالة مشتركة عشان تُستخدم من نافذة تعديل الأصل وشاشة الجرد الشاملة كمان
+async function upsertAssetStock(sb: ReturnType<typeof createClient>, assetId: string, locationKey: string, qtyValue: number) {
+  const isMain = locationKey === 'main'
+  let query = sb.from('fixed_asset_stock').select('id').eq('asset_id', assetId).eq('location_type', isMain ? 'main_warehouse' : 'branch')
+  query = isMain ? query.is('branch_id', null) : query.eq('branch_id', locationKey)
+  const { data: existing } = await query.maybeSingle()
+  if (existing) {
+    await sb.from('fixed_asset_stock').update({ quantity_good: qtyValue, updated_at: new Date().toISOString() }).eq('id', existing.id)
+  } else {
+    await sb.from('fixed_asset_stock').insert([{ asset_id: assetId, location_type: isMain ? 'main_warehouse' : 'branch', branch_id: isMain ? null : locationKey, quantity_good: qtyValue }])
+  }
+}
+
+// ✅ جديد: تنفيذ نقل كمية فعليًا - خصم من المستودع الرئيسي وإضافة لرصيد فرع معيّن. مستخرجة في دالة
+// مشتركة عشان تُستخدم من موافقة التحويل العادي (طلب من فرع) والتحويل المباشر (أمين المستودع بيبدأه)
+async function applyAssetTransferStock(sb: ReturnType<typeof createClient>, assetId: string, branchId: string, qty: number) {
+  if (qty <= 0) return
+  const { data: mainRow } = await sb.from('fixed_asset_stock').select('id, quantity_good').eq('asset_id', assetId).eq('location_type', 'main_warehouse').is('branch_id', null).maybeSingle()
+  if (mainRow) {
+    await sb.from('fixed_asset_stock').update({ quantity_good: Math.max(0, (mainRow.quantity_good || 0) - qty), updated_at: new Date().toISOString() }).eq('id', mainRow.id)
+  }
+  const { data: branchRow } = await sb.from('fixed_asset_stock').select('id, quantity_good').eq('asset_id', assetId).eq('location_type', 'branch').eq('branch_id', branchId).maybeSingle()
+  if (branchRow) {
+    await sb.from('fixed_asset_stock').update({ quantity_good: (branchRow.quantity_good || 0) + qty, updated_at: new Date().toISOString() }).eq('id', branchRow.id)
+  } else {
+    await sb.from('fixed_asset_stock').insert([{ asset_id: assetId, location_type: 'branch', branch_id: branchId, quantity_good: qty }])
+  }
+}
+
 // ══ Modal: إضافة/تعديل أصل في الكتالوج (لأمين المستودع) ══
 // ✅ Fix: بدل حقل كمية ثابت للمستودع الرئيسي بس، دلوقتي بتختار "الموقع" (مستودع رئيسي أو أحد
 // الفرعين) من قائمة، والكمية بتتغيّر تلقائيًا لتعرض رصيد الموقع المختار - وبتُحفظ لنفس الموقع بس
@@ -117,16 +147,9 @@ function AssetFormModal({ asset, allBranches, stockByAsset, onClose, onSaved }: 
       : await sb.from('fixed_assets').insert([{ ...payload, is_active: true }]).select().single()
     if (error || !savedAsset) { setSaving(false); alert('خطأ: ' + (error?.message || '')); return }
     // ✅ جديد: حفظ كمية الموقع المختار بس (مستودع رئيسي أو فرع محدد) - مش كل المواقع مرة واحدة
+    // (للتعديل الشامل لكل المواقع مرة واحدة، استخدم تاب "📝 الجرد")
     const qtyValue = Math.max(0, parseInt(qty) || 0)
-    const isMain = location === 'main'
-    let query = sb.from('fixed_asset_stock').select('id').eq('asset_id', savedAsset.id).eq('location_type', isMain ? 'main_warehouse' : 'branch')
-    query = isMain ? query.is('branch_id', null) : query.eq('branch_id', location)
-    const { data: existingStock } = await query.maybeSingle()
-    if (existingStock) {
-      await sb.from('fixed_asset_stock').update({ quantity_good: qtyValue, updated_at: new Date().toISOString() }).eq('id', existingStock.id)
-    } else {
-      await sb.from('fixed_asset_stock').insert([{ asset_id: savedAsset.id, location_type: isMain ? 'main_warehouse' : 'branch', branch_id: isMain ? null : location, quantity_good: qtyValue }])
-    }
+    await upsertAssetStock(sb, savedAsset.id, location, qtyValue)
     setSaving(false)
     onSaved()
   }
@@ -256,6 +279,103 @@ function NewTransferModal({ assets, currentEmployee, onClose, onSaved }: {
   )
 }
 
+// ══ Modal: تحويل مباشر لفرع معيّن (لأمين المستودع) - بيبدأه هو نفسه من غير ما الفرع يطلب الأول ══
+// ✅ جديد: نفس ضمانة صورة التسليم الإجبارية بتاعة الموافقة العادية، بس هنا التنفيذ فوري (status: approved)
+// من أول ما يحفظ - لأن أمين المستودع هو نفسه المسؤول عن الاعتماد أصلاً
+function DirectTransferModal({ assets, allBranches, currentEmployee, onClose, onSaved }: {
+  assets: FixedAsset[]; allBranches: { id: string; name: string }[]; currentEmployee: any
+  onClose: () => void; onSaved: () => void
+}) {
+  const sb = createClient()
+  const [branchId, setBranchId] = useState('')
+  const [items, setItems] = useState<{ asset_id: string; qty: string }[]>([{ asset_id: '', qty: '' }])
+  const [notes, setNotes] = useState('')
+  const [handoverImg, setHandoverImg] = useState<File | null>(null)
+  const [handoverPreview, setHandoverPreview] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  function addRow() { setItems(p => [...p, { asset_id: '', qty: '' }]) }
+  function removeRow(i: number) { setItems(p => p.filter((_, idx) => idx !== i)) }
+  function updateRow(i: number, field: 'asset_id' | 'qty', value: string) {
+    setItems(p => p.map((it, idx) => idx === i ? { ...it, [field]: value } : it))
+  }
+
+  async function save() {
+    if (!branchId) { alert('يرجى اختيار الفرع المُرسَل إليه'); return }
+    const validItems = items.filter(it => it.asset_id && parseInt(it.qty) > 0)
+    if (validItems.length === 0) { alert('يرجى إضافة صنف واحد على الأقل بكمية صحيحة'); return }
+    if (!handoverImg) { alert('يرجى إرفاق صورة التسليم (إثبات تسليم الأصول للفرع)'); return }
+    setSaving(true)
+    const fileName = `fixed-assets/handover-direct-${Date.now()}.jpg`
+    const { data: upData } = await sb.storage.from('employees').upload(fileName, handoverImg, { upsert: true })
+    if (!upData) { setSaving(false); alert('تعذّر رفع صورة التسليم'); return }
+    const handoverUrl = sb.storage.from('employees').getPublicUrl(upData.path).data.publicUrl
+    const nowIso = new Date().toISOString()
+    // ✅ تحويل مباشر = طلب يُنشأ ويُعتمد فوريًا بنفس اللحظة (نفس الشخص هو الطالب والمعتمِد)
+    const { data: req, error } = await sb.from('fixed_asset_transfer_requests').insert([{
+      branch_id: branchId, requested_by: currentEmployee?.id || null,
+      requested_by_name: fullEmployeeName(currentEmployee) || 'غير معروف',
+      notes: notes.trim() || null, status: 'approved',
+      handover_image_url: handoverUrl, approved_at: nowIso,
+    }]).select().single()
+    if (error || !req) { setSaving(false); alert('خطأ: ' + (error?.message || '')); return }
+    const rows = validItems.map(it => ({ request_id: req.id, asset_id: it.asset_id, quantity_requested: parseInt(it.qty), quantity_approved: parseInt(it.qty) }))
+    const { error: itemsErr } = await sb.from('fixed_asset_transfer_items').insert(rows)
+    if (itemsErr) { setSaving(false); alert('خطأ: ' + itemsErr.message); return }
+    for (const it of validItems) {
+      await applyAssetTransferStock(sb, it.asset_id, branchId, parseInt(it.qty))
+    }
+    setSaving(false)
+    onSaved()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 480, padding: 24, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 18 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>🚚 تحويل مباشر لفرع</h2>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>🏪 الفرع المُرسَل إليه *</label>
+          <select value={branchId} onChange={e => setBranchId(e.target.value)} style={inp}>
+            <option value="">اختر الفرع...</option>
+            {allBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+          {items.map((it, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8 }}>
+              <select value={it.asset_id} onChange={e => updateRow(i, 'asset_id', e.target.value)} style={{ ...inp, flex: 2 }}>
+                <option value="">اختر الصنف...</option>
+                {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <input type="number" min={1} value={it.qty} onChange={e => updateRow(i, 'qty', e.target.value)} placeholder="الكمية" style={{ ...inp, flex: 1 }} />
+              {items.length > 1 && (
+                <button onClick={() => removeRow(i)} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 18 }}>✕</button>
+              )}
+            </div>
+          ))}
+          <button onClick={addRow} style={{ padding: '8px', borderRadius: 8, border: `1px dashed ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12 }}>+ إضافة صنف آخر</button>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>ملاحظات</label>
+          <textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="اختياري..." />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>📷 صورة التسليم (إجبارية) *</label>
+          <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && pickImage(e.target.files[0], setHandoverImg, setHandoverPreview)} style={{ fontSize: 12, color: S.white }} />
+          {handoverPreview && <img src={handoverPreview} alt="صورة التسليم" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }} />}
+        </div>
+        <button onClick={save} disabled={saving}
+          style={{ width: '100%', padding: '12px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+          {saving ? '⏳ جارٍ التنفيذ...' : '🚚 تنفيذ التحويل الآن'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ══ Modal: موافقة وتنفيذ التحويل (لأمين المستودع) - صورة تسليم إجبارية ══
 function ApproveTransferModal({ req, onClose, onUpdate }: { req: TransferRequest; onClose: () => void; onUpdate: () => void }) {
   const sb = createClient()
@@ -277,18 +397,7 @@ function ApproveTransferModal({ req, onClose, onUpdate }: { req: TransferRequest
       const qty = parseInt(approvedQtys[it.id] || '0') || 0
       await sb.from('fixed_asset_transfer_items').update({ quantity_approved: qty }).eq('id', it.id)
       // ✅ جديد: تحديث الرصيد الفعلي - خصم الكمية من المستودع الرئيسي وإضافتها لرصيد الفرع
-      if (qty > 0) {
-        const { data: mainRow } = await sb.from('fixed_asset_stock').select('id, quantity_good').eq('asset_id', it.asset_id).eq('location_type', 'main_warehouse').is('branch_id', null).maybeSingle()
-        if (mainRow) {
-          await sb.from('fixed_asset_stock').update({ quantity_good: Math.max(0, (mainRow.quantity_good || 0) - qty), updated_at: new Date().toISOString() }).eq('id', mainRow.id)
-        }
-        const { data: branchRow } = await sb.from('fixed_asset_stock').select('id, quantity_good').eq('asset_id', it.asset_id).eq('location_type', 'branch').eq('branch_id', req.branch_id).maybeSingle()
-        if (branchRow) {
-          await sb.from('fixed_asset_stock').update({ quantity_good: (branchRow.quantity_good || 0) + qty, updated_at: new Date().toISOString() }).eq('id', branchRow.id)
-        } else {
-          await sb.from('fixed_asset_stock').insert([{ asset_id: it.asset_id, location_type: 'branch', branch_id: req.branch_id, quantity_good: qty }])
-        }
-      }
+      await applyAssetTransferStock(sb, it.asset_id, req.branch_id, qty)
     }
     await sb.from('fixed_asset_transfer_requests').update({
       status: 'approved', handover_image_url: handoverUrl, approved_at: new Date().toISOString(),
@@ -434,7 +543,7 @@ export default function FixedAssetsPage() {
   const canManage = isAdmin || hasPermission?.('fixed_assets_manage')
   const myBranchId = employeeBranchId(employee)
 
-  const [tab, setTab] = useState<'catalog' | 'transfers' | 'damage'>('catalog')
+  const [tab, setTab] = useState<'catalog' | 'transfers' | 'stocktake' | 'damage'>('catalog')
   const [assets, setAssets] = useState<FixedAsset[]>([])
   const [transfers, setTransfers] = useState<TransferRequest[]>([])
   const [damageReports, setDamageReports] = useState<any[]>([])
@@ -448,8 +557,12 @@ export default function FixedAssetsPage() {
   const [search, setSearch] = useState('')
   const [showAssetForm, setShowAssetForm] = useState<FixedAsset | null | 'new'>(null)
   const [showNewTransfer, setShowNewTransfer] = useState(false)
+  const [showDirectTransfer, setShowDirectTransfer] = useState(false)
   const [showDamageReport, setShowDamageReport] = useState(false)
   const [approvingReq, setApprovingReq] = useState<TransferRequest | null>(null)
+  // ✅ جديد: تعديلات الجرد الشامل - {assetId: {locationKey: قيمة مكتوبة}} - محفوظة محليًا لحد ما يدوس "حفظ الجرد"
+  const [stockEdits, setStockEdits] = useState<Record<string, Record<string, string>>>({})
+  const [savingStocktake, setSavingStocktake] = useState(false)
 
   async function fetchAll() {
     setLoading(true)
@@ -485,6 +598,33 @@ export default function FixedAssetsPage() {
 
   useEffect(() => { if (employee) fetchAll() }, [employee?.id])
 
+  // ✅ جديد: القيمة المعروضة في خلية الجرد - المُعدَّلة محليًا لو اتلمست، وإلا الرصيد الحالي من قاعدة البيانات
+  function stocktakeValue(assetId: string, locationKey: string): string {
+    if (stockEdits[assetId]?.[locationKey] !== undefined) return stockEdits[assetId][locationKey]
+    const s = stockByAsset[assetId]
+    return String(locationKey === 'main' ? (s?.mainWarehouse ?? 0) : (s?.branchQty[locationKey] ?? 0))
+  }
+  function setStocktakeValue(assetId: string, locationKey: string, value: string) {
+    setStockEdits(p => ({ ...p, [assetId]: { ...p[assetId], [locationKey]: value } }))
+  }
+  const stocktakeChangedCount = Object.values(stockEdits).reduce((n, locs) => n + Object.keys(locs).length, 0)
+  async function saveStocktake() {
+    const entries: { assetId: string; locationKey: string; qty: number }[] = []
+    for (const [assetId, locs] of Object.entries(stockEdits)) {
+      for (const [locationKey, val] of Object.entries(locs)) {
+        entries.push({ assetId, locationKey, qty: Math.max(0, parseInt(val) || 0) })
+      }
+    }
+    if (entries.length === 0) { alert('لا يوجد تعديلات لحفظها'); return }
+    setSavingStocktake(true)
+    for (const e of entries) {
+      await upsertAssetStock(sb, e.assetId, e.locationKey, e.qty)
+    }
+    setSavingStocktake(false)
+    setStockEdits({})
+    fetchAll()
+  }
+
   if (!canView) {
     return <div style={{ padding: 40, textAlign: 'center', color: S.muted, fontFamily: 'Tajawal, sans-serif' }}>ليس لديك صلاحية للوصول لهذه الصفحة</div>
   }
@@ -505,6 +645,8 @@ export default function FixedAssetsPage() {
         {[
           { id: 'catalog', label: '📋 الكتالوج' },
           { id: 'transfers', label: '📦 طلبات التحويل' },
+          // ✅ جديد: تاب الجرد الشامل - لأمين المستودع/الأدمن بس
+          ...(canManage ? [{ id: 'stocktake', label: '📝 الجرد' }] : []),
           { id: 'damage', label: '⚠️ تالف / مفقود' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
@@ -571,10 +713,16 @@ export default function FixedAssetsPage() {
       {/* ══ Transfers Tab ══ */}
       {tab === 'transfers' && (
         <div>
-          <div style={{ marginBottom: 18 }}>
+          <div style={{ marginBottom: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button onClick={() => setShowNewTransfer(true)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               + طلب تحويل جديد
             </button>
+            {/* ✅ جديد: تحويل مباشر لفرع - لأمين المستودع بس، من غير ما الفرع يطلب الأول */}
+            {canManage && (
+              <button onClick={() => setShowDirectTransfer(true)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                🚚 تحويل مباشر لفرع
+              </button>
+            )}
           </div>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جارٍ التحميل...</div>
@@ -611,6 +759,57 @@ export default function FixedAssetsPage() {
                   </div>
                 )
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ Stocktake Tab (الجرد الشامل) ══ */}
+      {/* ✅ جديد: شاشة جرد واحدة تعرض كل الأصناف مع خانة كمية قابلة للتعديل لكل موقع (رئيسي + كل فرع)،
+          وحفظة واحدة بتحدّث كل الخلايا اللي اتغيّرت - بدل ما تفتح نافذة تعديل الأصل لكل موقع لوحده */}
+      {tab === 'stocktake' && canManage && (
+        <div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <input style={{ ...inp, maxWidth: 320 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 ابحث عن أصل..." />
+            <button onClick={saveStocktake} disabled={savingStocktake || stocktakeChangedCount === 0}
+              style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.green}`, background: stocktakeChangedCount === 0 ? 'transparent' : S.greenB, color: stocktakeChangedCount === 0 ? S.muted : S.green, cursor: (savingStocktake || stocktakeChangedCount === 0) ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {savingStocktake ? '⏳ جارٍ الحفظ...' : `💾 حفظ الجرد${stocktakeChangedCount > 0 ? ` (${stocktakeChangedCount})` : ''}`}
+            </button>
+          </div>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جارٍ التحميل...</div>
+          ) : filteredAssets.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>لا توجد أصول مسجّلة بعد</div>
+          ) : (
+            <div style={{ overflowX: 'auto', background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}` }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${S.border}` }}>
+                    <th style={{ textAlign: 'right', padding: '10px 14px', color: S.muted, fontWeight: 700 }}>الصنف</th>
+                    <th style={{ textAlign: 'center', padding: '10px 10px', color: S.gold, fontWeight: 700 }}>🏭 رئيسي</th>
+                    {allBranches.map(b => (
+                      <th key={b.id} style={{ textAlign: 'center', padding: '10px 10px', color: S.blue, fontWeight: 700, whiteSpace: 'nowrap' }}>🏪 {b.name}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAssets.map(a => (
+                    <tr key={a.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <td style={{ padding: '8px 14px', color: S.white }}>{a.name}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                        <input type="number" min={0} value={stocktakeValue(a.id, 'main')} onChange={e => setStocktakeValue(a.id, 'main', e.target.value)}
+                          style={{ width: 70, textAlign: 'center', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 6px', fontSize: 12, color: S.white, outline: 'none' }} />
+                      </td>
+                      {allBranches.map(b => (
+                        <td key={b.id} style={{ padding: '6px 10px', textAlign: 'center' }}>
+                          <input type="number" min={0} value={stocktakeValue(a.id, b.id)} onChange={e => setStocktakeValue(a.id, b.id, e.target.value)}
+                            style={{ width: 70, textAlign: 'center', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 6px', fontSize: 12, color: S.white, outline: 'none' }} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -659,6 +858,10 @@ export default function FixedAssetsPage() {
       {showNewTransfer && (
         <NewTransferModal assets={assets} currentEmployee={employee}
           onClose={() => setShowNewTransfer(false)} onSaved={() => { setShowNewTransfer(false); fetchAll() }} />
+      )}
+      {showDirectTransfer && (
+        <DirectTransferModal assets={assets} allBranches={allBranches} currentEmployee={employee}
+          onClose={() => setShowDirectTransfer(false)} onSaved={() => { setShowDirectTransfer(false); fetchAll() }} />
       )}
       {approvingReq && (
         <ApproveTransferModal req={approvingReq} onClose={() => setApprovingReq(null)} onUpdate={() => { setApprovingReq(null); fetchAll() }} />

@@ -83,6 +83,8 @@ const TR: Record<Lang, Record<string, string>> = {
     your_order: '🛒 Your Order', each: 'MYR {x} each',
     special_request: 'Special request… e.g. no onion',
     placing_order: '⏳ Placing order…', confirm_order: '✅ Confirm Order — {x} items',
+    confirm_dialog_title: 'Confirm Order', confirm_dialog_msg: 'Your order will be sent directly to the kitchen for preparation.',
+    confirm_dialog_yes: '✅ Confirm', confirm_dialog_no: 'Cancel',
     waiter_coming: '✅ On the way!', call_waiter: '🔔 Call Waiter',
     search_dishes: 'Search dishes…', cat_all: 'All', no_items: 'No items found',
     be_first_rate: '🆕 Be the first to rate', view_order: '🛒 View Order ({x} items)',
@@ -142,6 +144,8 @@ const TR: Record<Lang, Record<string, string>> = {
     your_order: '🛒 Pesanan Anda', each: 'MYR {x} seunit',
     special_request: 'Permintaan khas… cth. tanpa bawang',
     placing_order: '⏳ Menghantar pesanan…', confirm_order: '✅ Sahkan Pesanan — {x} item',
+    confirm_dialog_title: 'Sahkan Pesanan', confirm_dialog_msg: 'Pesanan anda akan dihantar terus ke dapur untuk disediakan.',
+    confirm_dialog_yes: '✅ Sahkan', confirm_dialog_no: 'Batal',
     waiter_coming: '✅ Dalam perjalanan!', call_waiter: '🔔 Panggil Pelayan',
     search_dishes: 'Cari hidangan…', cat_all: 'Semua', no_items: 'Tiada item dijumpai',
     be_first_rate: '🆕 Jadi yang pertama menilai', view_order: '🛒 Lihat Pesanan ({x} item)',
@@ -201,6 +205,8 @@ const TR: Record<Lang, Record<string, string>> = {
     your_order: '🛒 طلبك', each: 'MYR {x} للوحدة',
     special_request: 'طلب خاص… مثال: بدون بصل',
     placing_order: '⏳ جارٍ إرسال الطلب…', confirm_order: '✅ تأكيد الطلب — {x} صنف',
+    confirm_dialog_title: 'تأكيد الطلب', confirm_dialog_msg: 'سيُرسَل طلبك مباشرة إلى المطبخ لتحضيره.',
+    confirm_dialog_yes: '✅ تأكيد', confirm_dialog_no: 'إلغاء',
     waiter_coming: '✅ في الطريق!', call_waiter: '🔔 نادِ النادل',
     search_dishes: 'ابحث عن الأطباق…', cat_all: 'الكل', no_items: 'لا توجد أصناف',
     be_first_rate: '🆕 كن أول من يقيّم', view_order: '🛒 عرض الطلب ({x} صنف)',
@@ -295,6 +301,8 @@ export default function CustomerMenuPage() {
     : (en || ar || ms)
   ) || ''
   const [submitting, setSubmitting] = useState(false)
+  // ✅ جديد: تأكيد وسيط قبل إرسال الطلب فعليًا - يوضّح للعميل أن الطلب سيُرسَل مباشرة للمطبخ فور الموافقة
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
   // ✅ New: Orchid Rewards system - customer enters just their mobile number (no password); if already registered they see their points,
@@ -1476,11 +1484,33 @@ const filteredItems = items
           </div>
           )
         })}
-        <button onClick={confirmOrder} disabled={submitting}
+        <button onClick={() => setShowConfirmDialog(true)} disabled={submitting}
           style={{ width:'100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'17px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight:900, fontSize:16, color:C.white, boxShadow: submitting ? 'none' : `0 8px 32px ${C.glow2}` }}>
           {submitting ? t('placing_order') : t('confirm_order', cartCount)}
         </button>
       </div>
+      {/* ✅ جديد: تأكيد وسيط قبل إرسال الطلب فعليًا - يوضّح للعميل أن الطلب هيروح للمطبخ مباشرة،
+          وبيدّيله فرصة يتراجع ويرجع لنفس السلة من غير ما يتلغي أي حاجة */}
+      {showConfirmDialog && (
+        <div style={{ position:'fixed', inset:0, zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} onClick={() => setShowConfirmDialog(false)} />
+          <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:24, padding:'28px 24px', maxWidth:380, width:'100%', border:`1px solid ${C.border2}`, textAlign:'center' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:18, fontWeight:900, color:C.white, marginBottom:10 }}>{t('confirm_dialog_title')}</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:24 }}>{t('confirm_dialog_msg')}</div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setShowConfirmDialog(false)}
+                style={{ flex:1, background:'rgba(255,255,255,.06)', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:800, fontSize:14, color:C.silver2 }}>
+                {t('confirm_dialog_no')}
+              </button>
+              <button onClick={() => { setShowConfirmDialog(false); confirmOrder() }}
+                style={{ flex:1, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:900, fontSize:14, color:C.white, boxShadow:`0 8px 24px ${C.glow2}` }}>
+                {t('confirm_dialog_yes')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 

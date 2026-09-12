@@ -99,6 +99,8 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'sales' },
     { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'cashier_only' },
     { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'admin_only' },
+    // ✅ جديد: مراقبة الطلبات الشغّالة دلوقتي + بيانات الجهاز/IP بتاعها - لكشف الطلبات المشبوهة من برّة المطعم
+    { label: 'مراقبة الطلبات', label_en: 'Order Monitor', icon: '🔍', path: '/dashboard/order-monitor', permission: 'admin_only' },
     // ✅ مقصورة على المشرفين فما فوق — كانت 'all_employees' فتظهر للجميع بلا استثناء بالغلط
     { label: 'البوفية', label_en: 'Buffet', icon: '🍽️', path: '/dashboard/buffet', permission: 'buffet' },
   ]},

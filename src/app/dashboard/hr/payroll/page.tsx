@@ -417,10 +417,12 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const row = (label: string, value: string, bold = false) => `
     <tr><td class="lbl">${label}</td><td class="val" style="${bold ? 'font-weight:800' : ''}">${value}</td></tr>`
+  // ✅ Fix: العنوان كان ثابت "Orchid House" لكل الموظفين بغض النظر عن فرعهم - يظهر فيه اسم فرع الموظف دلوقتي
+  const branchName = (emp?.branches as any)?.name || ''
   return `
   <div class="payslip">
     <div class="payslip-header">
-      <div class="brand">🌸 Orchid House</div>
+      <div class="brand">🌸 Orchid House${branchName ? ' — ' + branchName : ''}</div>
       <div class="title">Payslip — قسيمة راتب</div>
       <div class="period">${monthName} ${year}</div>
       ${record.notes && (record.notes.startsWith('⏸') || record.notes.startsWith('⚠️')) ? `<div style="margin-top:6px;color:#c62828;font-weight:800;font-size:11px">${record.notes}</div>` : ''}

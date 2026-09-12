@@ -127,7 +127,7 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
 
 // ✅ حساب الراتب بالتناسب حسب تاريخ تعيين الموظف (join_date) وتاريخ إيقافه (deactivated_at)، ومقارنتهما بالشهر الحالي
 // monthStart/monthEnd بصيغة 'YYYY-MM-DD' (مقارنة نصية تعمل صحيح لأن الصيغة موحّدة)
-function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: string): { basicSalary: number; daysWorked: number | null; note: string | null } {
+function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: string, asOfDate: string = monthEnd): { basicSalary: number; daysWorked: number | null; note: string | null } {
   // موظف موقوف بدون تاريخ إيقاف مسجل (حالة قديمة قبل إضافة هذه الميزة) — أأمن نوقف الراتب من الآن
   if (emp.is_active === false && !emp.deactivated_at) {
     return { basicSalary: 0, daysWorked: 0, note: '⏸ موظف موقوف عن العمل (بدون تاريخ إيقاف مسجل)' }
@@ -159,7 +159,12 @@ function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: strin
     }
   }
 
-  // لا تعيين ولا إيقاف أثّرا على حدود الشهر — موظف نشط طوال الشهر بالكامل، راتب طبيعي
+  // ✅ جديد: لو asOfDate (النهاردة، لو الشهر لسه شغال) قبل نهاية الشهر التقويمية أو تاريخ الإيقاف الفعلي،
+  // منعتبرش أيام لسه ما جاتش "مُنجزة" - نوقف الحساب عند asOfDate. لأي شهر فات وخلص فعلاً، asOfDate = monthEnd
+  // فالسطر ده مالوش أي تأثير (نفس السلوك القديم تمامًا)
+  if (asOfDate < effectiveEnd) effectiveEnd = asOfDate
+
+  // لا تعيين ولا إيقاف ولا "لسه في نص الشهر الحالي" أثّروا على حدود الشهر — موظف نشط طوال الشهر بالكامل، راتب طبيعي
   if (effectiveStart === monthStart && effectiveEnd === monthEnd) {
     return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
   }
@@ -170,10 +175,12 @@ function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: strin
   const endDay = parseInt(effectiveEnd.split('-')[2], 10)
   const daysCount = Math.max(0, endDay - startDay + 1)
 
+  // ✅ لو السبب الوحيد إن effectiveEnd اتقصّر هو إننا لسه في نص الشهر الحالي (مفيش تعيين/إيقاف فعلي)،
+  // فده وضع طبيعي متوقَّع مش مشكلة تستاهل تحذير — منسيبش note عشان الواجهة متعرضوش كتحذير أحمر
   return {
     basicSalary: emp.salary || 0,
     daysWorked: daysCount,
-    note: `⏸ ${notesParts.join(' — ')} — تم حساب الراتب لـ ${daysCount} يوم فقط من هذا الشهر`,
+    note: notesParts.length > 0 ? `⏸ ${notesParts.join(' — ')} — تم حساب الراتب لـ ${daysCount} يوم فقط من هذا الشهر` : null,
   }
 }
 
@@ -698,6 +705,13 @@ export default function PayrollPage() {
     // (مثال: شيفت ليلي يبدأ 8 مساءً، لو الأدمن راجع الصفحة ظهراً، اليوم سيُحتسَب "غياباً" رغم أن الشيفت لم يحن وقته بعد)
     const yesterdayForAbsence = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const absenceCalcEnd = monthEnd < yesterdayForAbsence ? monthEnd : yesterdayForAbsence
+    // ✅ جديد: لو الشهر المطلوب هو الشهر الحالي (لسه شغال وما خلصش)، أيام العمل وصافي الراتب المعروضين
+    // لازم يُحسبوا لحد النهاردة بس - مش الشهر كامل وكأنه خلص فعلاً. لأي شهر فات (أو مستقبلي)، asOfDate = monthEnd
+    // فمالوش أي تأثير على الحساب المعتاد
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const now = new Date()
+    const isCurrentMonthInProgress = month.year === now.getFullYear() && month.month === now.getMonth() + 1
+    const asOfDate = isCurrentMonthInProgress ? todayStr : monthEnd
 
     // ✅ فلتر موظفي الفرع المختار + استبعاد أي موظف كان متوقف بالكامل قبل بداية هذا الشهر
     // (لو اتوقف داخل الشهر نفسه، بيفضل ظاهر لكي راتبه المتناسب لحد يوم التوقف)
@@ -845,8 +859,9 @@ export default function PayrollPage() {
     // دمج المخالفات والغياب — دائماً بتحسب من الجداول ليس من DB
     const allRecords = [...existing, ...missing].map((r: any) => {
       const emp = filteredEmps.find(e => e.id === r.employee_id)
-      // ✅ تناسب الراتب حسب تاريخ إيقاف الموظف (لو موجود) ومقارنته بشهر الجرد الحالي
-      const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }
+      // ✅ تناسب الراتب حسب تاريخ إيقاف الموظف (لو موجود) ومقارنته بشهر الجرد الحالي، وحسب اليوم الحالي
+      // لو الشهر ده لسه شغال (asOfDate)
+      const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd, asOfDate) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }
       // ✅ الحالة القصوى: مفيش شيفت مسجَّل خالص ومفيش بصمة خالص هذا الشهر — لا يوجد أي أساس لدفع أي راتب على الإطلاق،
       // فنحتسب أيام العمل صفراً تلقائياً (بعكس أي حالة فيها غياب جزئي أو بصمة متقطعة، اللي بتفضل تحتاج مراجعة يدوية)
       // ✅ موظف "راتب ثابت" (سواق / إدارة / بدون بصمة): يُدفع راتبه كامل كل شهر، بلا خصم غياب/تأخير،
@@ -875,11 +890,13 @@ export default function PayrollPage() {
         ...r,
         basic_salary: baseSalary,
         // ✅ نفس تصحيح باج "القيمة القديمة العالقة" اللي حصل في notes بالظبط — لما الموظف يرجع لحالة طبيعية
-        // (شهر كامل بلا تعيين/إيقاف في منتصفه)، يجب حساب أيام العمل من working_days الشهر الكامل،
+        // (شهر كامل بلا تعيين/إيقاف في منتصفه، وخلص فعلاً)، يجب حساب أيام العمل من working_days الشهر الكامل،
         // وليس الإبقاء على days_worked القديمة المخزَّنة من وقت ما كان محسوباً خطأً (مثلاً صفر بسبب تاريخ تعيين خاطئ سابقاً)
         // — إلا في حالة "مفيش شيفت ومفيش بصمة خالص" فأيام العمل صفر مباشرة
-        // ✅ موظف الراتب الثابت: شهر كامل دائماً بغضّ النظر عن الحضور المسجَّل (أو غيابه)
-        days_worked: isFixedSalary ? (r.working_days || 30) : (isCompletelyUnaccountedFor ? 0 : (salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : (r.working_days || 30))),
+        // ✅ موظف الراتب الثابت بيمشي بنفس منطق salaryInfo.daysWorked كمان (بدل ما يُفرض عليه شهر كامل دايمًا) —
+        // ده بيغطي حالتين: (1) لسه في نص الشهر الحالي، و(2) اتعيّن/اتوقف في نص شهر — في الحالتين لازم يتناسب،
+        // بس يفضل الغياب/التأخير مالوش تأثير عليه (absDays/lateHrs/earlyHrs فوق بتفضل صفر ليه دايمًا)
+        days_worked: isCompletelyUnaccountedFor ? 0 : (salaryInfo.daysWorked !== null ? salaryInfo.daysWorked : (r.working_days || 30)),
         // ✅ يجب استبدال الملاحظة بالكامل بالقيمة المحسوبة حديثاً دائماً، وليس الإبقاء على القيمة القديمة المخزَّنة
         // عند عدم وجود ملاحظة جديدة — وإلا تبقى رسالة "⏸ لم يبدأ العمل بعد" أو "⏸ موقوف" ظاهرة إلى الأبد
         // حتى بعد تصحيح تاريخ التعيين أو تاريخ الإيقاف، لأن الشرط لم يعد يتحقق فتفشل إعادة الحساب في مسح الرسالة القديمة

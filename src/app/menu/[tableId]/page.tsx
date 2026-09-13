@@ -29,20 +29,21 @@ const C = {
 }
 
 type Category = {
-  id: string; name: string; name_en: string; name_ms?: string | null; destination: string
+  id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; destination: string
   available_days?: number[] | null; available_from?: string | null; available_to?: string | null
   time_badge_ar?: string | null; time_badge_en?: string | null
 }
-type MenuItem  = { id: string; name: string; name_en: string; name_ms?: string | null; price: number; discount_percent?: number; description: string; description_en: string; description_ms?: string | null; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; name_ms?: string | null; price: number; is_active: boolean }[] }
-type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; name_ms?: string | null; price: number } | null }
+type MenuItem  = { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number; discount_percent?: number; description: string; description_en: string; description_ms?: string | null; description_zh?: string | null; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number; is_active: boolean }[] }
+type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number } | null }
 type Phase     = 'language' | 'welcome' | 'rewards' | 'menu' | 'cart' | 'done'
 
-// ══ اللغات المدعومة في واجهة العميل (المرحلة ١: ماليزي / إنجليزي / عربي) ══
-type Lang = 'ms' | 'en' | 'ar'
+// ══ اللغات المدعومة في واجهة العميل (ماليزي / إنجليزي / عربي / صيني) ══
+type Lang = 'ms' | 'en' | 'ar' | 'zh'
 const LANGS: { code: Lang; label: string; native: string; flag: string }[] = [
   { code: 'ms', label: 'Malay',   native: 'Bahasa Melayu', flag: '🇲🇾' },
   { code: 'en', label: 'English', native: 'English',        flag: '🇬🇧' },
   { code: 'ar', label: 'Arabic',  native: 'العربية',         flag: '🇸🇦' },
+  { code: 'zh', label: 'Chinese', native: '中文',            flag: '🇨🇳' },
 ]
 
 // كل نصوص واجهة العميل × ٣ لغات. المفاتيح ثابتة، والقيم تُترجم.
@@ -231,6 +232,67 @@ const TR: Record<Lang, Record<string, string>> = {
     follow_t: 'هل جعلنا أمسيتك مميزة؟ 🌸', follow_s: 'تابعنا وشاركنا تجربتك',
     act_rate: 'قيّمنا', act_follow: 'تابع', act_like: 'أعجبني', act_review: 'راجعنا', act_visit: 'زيارة',
   },
+  zh: {
+    lang_pick_title: '欢迎光临兰花集团', lang_pick_sub: '请选择您的语言',
+    loading: '菜单加载中…', table_not_found: '未找到该餐桌',
+    order_confirmed: '✨ 订单已确认', order_being_prepared: '您的订单正在准备中！',
+    order_prep_sub: '我们的厨师团队正在为您精心制作美食，请稍作休息！🍽️',
+    your_order_number: '您的订单号', order_summary: '订单摘要',
+    served_shortly: '工作人员将很快为您服务 🙏', order_more: '➕ 继续点餐',
+    restaurant_tag: '兰花餐厅', welcome_title: '欢迎光临兰花',
+    welcome_sub: '美味佳肴，难忘时刻',
+    perk_points_t: '赚取积分', perk_points_s: '每次光临都可获得',
+    perk_offers_t: '专属优惠', perk_offers_s: '会员专享',
+    perk_bday_t: '生日礼遇', perk_bday_s: '更多惊喜',
+    join_benefits: '加入兰花奖励计划，享受专属礼遇。',
+    register_50: '立即注册，即获50点欢迎积分！',
+    how_continue: '您想如何继续？',
+    join_rewards: '加入兰花奖励计划', join_rewards_s: '登录或创建账户',
+    check_points: '查询我的积分', check_points_s: '查看积分余额和折扣进度',
+    continue_guest: '以访客身份继续', continue_guest_s: '浏览菜单并下单',
+    guest_note: '您可以以访客身份浏览菜单并下单，但将无法获得积分或享受会员礼遇。',
+    back: '‹ 返回', rewards_title: '兰花奖励计划', check_points_title: '查询我的积分',
+    rewards_check_sub: '请输入您的手机号码以查看积分余额。',
+    rewards_join_sub: '请输入您的手机号码——无论新老会员，我们都能为您服务。',
+    mobile_number: '手机号码', your_name_new: '您的姓名（新会员填写）',
+    checking: '查询中…', cont: '继续',
+    welcome_name: '欢迎您，{x}！', welcome_back_name: '欢迎回来，{x}！',
+    just_joined: '您已成功加入兰花奖励计划', good_to_see: '很高兴再次见到您',
+    points_balance: '您的积分余额', welcome_50_added: '🎁 已获赠50点欢迎积分！',
+    discount_unlocked: '🎉 您已解锁折扣！请将此页面出示给服务员。',
+    progress_discount: '折扣进度',
+    earn_more_points: '再赚{x}积分即可解锁专属折扣！🎁',
+    browse_menu: '浏览菜单 →',
+    err_phone: '请输入有效的手机号码', err_generic: '出现问题，请重试',
+    your_order: '🛒 您的订单', each: '单价 MYR {x}',
+    special_request: '特殊要求…例如不加洋葱',
+    placing_order: '⏳ 正在提交订单…', confirm_order: '✅ 确认订单 — {x}件商品',
+    confirm_dialog_title: '确认订单', confirm_dialog_msg: '您的订单将直接发送至厨房进行制作。',
+    confirm_dialog_yes: '✅ 确认', confirm_dialog_no: '取消',
+    waiter_coming: '✅ 服务员正在赶来！', call_waiter: '🔔 呼叫服务员',
+    search_dishes: '搜索菜品…', cat_all: '全部', no_items: '未找到相关菜品',
+    be_first_rate: '🆕 成为第一位评价者', view_order: '🛒 查看订单（{x}件）',
+    add: '添加', select_size: '选择规格：', pick_size_first: '请先选择规格',
+    ratings: '⭐ 评价', rate_this: '为此菜品评分：',
+    review_hint: '您对口味和品质的评价将在审核后展示给其他客人。如需特殊要求（例如「不加洋葱」），请在确认订单时使用备注栏。',
+    review_placeholder: '分享您对口味和品质的看法…（选填）',
+    your_name_opt: '您的姓名（选填）', pick_stars_first: '请先选择星级评分',
+    review_thanks: '✅ 感谢您！您的评价正在等待审核，稍后将会显示。',
+    already_reviewed: '✅ 您已评价过此菜品，感谢您！',
+    rate_dishes_t: '🌟 为您的菜品评分', rate_dishes_s: '您对本次用餐满意吗？您的评分对我们很重要（审核后展示）。',
+    kitchen_note_label: '🍳 给厨房的备注（选填）',
+    submitting: '提交中…', submit_review: '提交评价', no_comments: '暂无评论',
+    guest: '访客', n_ratings: '{x}条评价', no_ratings_yet: '🆕 暂无评价 — 成为第一位评价此菜品的人',
+    err_order_send: '⚠️ 订单发送失败，请重试或呼叫服务员。',
+    game_teaser_t: '等待期间…谁来买单？', game_teaser_s: '转动转盘，让命运来决定！🎉',
+    game_play: '🎮 开始游戏', game_short_t: '🎲 谁来买单？', game_bill_goes: '账单将由…支付',
+    game_share: '📤 分享结果', game_again: '🔄 再玩一次', game_people: '人数',
+    game_person_n: '第{x}位的姓名', game_phone: '📱 手机号码（必填）*',
+    game_spinning: '🎰 转动中…', game_spin: '🎰 转动转盘！',
+    game_fun_note: '🎉 仅供娱乐 — 并非真实付款决定！', game_need_phone: '请输入手机号码以开始游戏',
+    follow_t: '我们让您的夜晚更加特别了吗？🌸', follow_s: '关注我们并分享您的体验',
+    act_rate: '给我们评分', act_follow: '关注', act_like: '点赞', act_review: '评论', act_visit: '访问',
+  },
 }
 // ✅ New: dish review — star rating (1-5) with an optional written comment and optional reviewer name
 type Review    = { id: string; menu_item_id: string; stars: number; review_text: string | null; reviewer_name: string | null; created_at: string }
@@ -293,12 +355,13 @@ export default function CustomerMenuPage() {
       }
     } catch {}
   }, [])
-  // اسم الطبق/الوصف حسب اللغة. الماليزي يرجع للإنجليزي ثم العربي لو مش مترجم.
+  // اسم الطبق/الوصف حسب اللغة. الماليزي والصيني يرجعان للإنجليزي ثم العربي لو مش مترجم.
   // العربي يعرض العربي أولاً؛ الإنجليزي (والافتراضي) يعرض الإنجليزي أولاً.
-  const dishName = (ar?: string | null, en?: string | null, ms?: string | null) => (
-    lang === 'ar' ? (ar || en || ms)
-    : lang === 'ms' ? (ms || en || ar)
-    : (en || ar || ms)
+  const dishName = (ar?: string | null, en?: string | null, ms?: string | null, zh?: string | null) => (
+    lang === 'ar' ? (ar || en || ms || zh)
+    : lang === 'ms' ? (ms || en || ar || zh)
+    : lang === 'zh' ? (zh || en || ar || ms)
+    : (en || ar || ms || zh)
   ) || ''
   const [submitting, setSubmitting] = useState(false)
   // ✅ جديد: تأكيد وسيط قبل إرسال الطلب فعليًا - يوضّح للعميل أن الطلب سيُرسَل مباشرة للمطبخ فور الموافقة
@@ -321,7 +384,7 @@ export default function CustomerMenuPage() {
   const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null; menu_item_id?: string | null }[]>([])
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
-  const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; name_ms?: string | null; price: number } | null>(null)
+  const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number } | null>(null)
 
   // ✅ New: dish rating system — stars and written comment for each item
   const [reviews, setReviews] = useState<Review[]>([])
@@ -401,12 +464,12 @@ export default function CustomerMenuPage() {
   // ✅ New: fetch all items of a given order (all rounds) from the database, so they display in full no matter how many rounds the customer ordered
   async function fetchLiveOrderItems(orderId: string) {
     const { data } = await sb.from('order_items')
-      .select('id, menu_item_id, quantity, unit_price, size_name, status, menu_items(name, name_en, name_ms)')
+      .select('id, menu_item_id, quantity, unit_price, size_name, status, menu_items(name, name_en, name_ms, name_zh)')
       .eq('order_id', orderId)
       .neq('status', 'cancelled')
     setLiveOrderItems((data || []).map((i: any) => ({
       id: i.id, menu_item_id: i.menu_item_id, quantity: i.quantity, unit_price: i.unit_price, size_name: i.size_name,
-      name: dishName(i.menu_items?.name, i.menu_items?.name_en, i.menu_items?.name_ms),
+      name: dishName(i.menu_items?.name, i.menu_items?.name_en, i.menu_items?.name_ms, i.menu_items?.name_zh),
     })))
   }
 
@@ -416,8 +479,8 @@ export default function CustomerMenuPage() {
       if (!tbl) { setNotFound(true); setLoading(false); return }
       setTable(tbl)
       const [cats, itms, revs] = await Promise.all([
-        sb.from('menu_categories').select('id,name,name_en,name_ms,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items') .select('id,name,name_en,name_ms,price,discount_percent,description,description_en,description_ms,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,name_ms,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
+        sb.from('menu_categories').select('id,name,name_en,name_ms,name_zh,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
+        sb.from('menu_items') .select('id,name,name_en,name_ms,name_zh,price,discount_percent,description,description_en,description_ms,description_zh,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,name_ms,name_zh,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
         // ✅ التقييمات المعتمدة فقط — التقييمات الجديدة تظهر بعد مراجعة الإدارة (status='approved')
         sb.from('menu_item_reviews').select('id,menu_item_id,stars,review_text,reviewer_name,created_at').eq('status', 'approved').order('created_at', { ascending: false })
       ])
@@ -1153,7 +1216,7 @@ const filteredItems = items
           </div>
         )}
         <div style={{ padding:'24px 24px 40px' }}>
-          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en, selectedItem.name_ms)}</div>
+          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en, selectedItem.name_ms, selectedItem.name_zh)}</div>
           <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{lang === 'ar' ? selectedItem.name_en : selectedItem.name}</div>
 
           {/* ✅ New: average item rating above the sheet */}
@@ -1170,7 +1233,7 @@ const filteredItems = items
           })()}
 
           {(selectedItem.description_en || selectedItem.description) && (
-            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en, selectedItem.description_ms)}</div>
+            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en, selectedItem.description_ms, selectedItem.description_zh)}</div>
           )}
           {/* Sizes */}
           {selectedItem.sizes && selectedItem.sizes.filter((s: any) => s.is_active).length > 0 && (
@@ -1180,7 +1243,7 @@ const filteredItems = items
                 {selectedItem.sizes.filter((s: any) => s.is_active).map((size: any) => (
                   <button key={size.id} onClick={() => setSelectedSize(selectedSize?.id === size.id ? null : size)}
                     style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(0,200,200,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
-                    {dishName(size.name, size.name_en, size.name_ms)} — MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {dishName(size.name, size.name_en, size.name_ms, size.name_zh)} — MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </button>
                 ))}
               </div>
@@ -1191,7 +1254,7 @@ const filteredItems = items
               <div style={{ fontSize:26, fontWeight:900, color:C.blue2 }}>
                 MYR {selectedSize ? selectedSize.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : selectedItem.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en, selectedSize.name_ms)}</div>}
+              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en, selectedSize.name_ms, selectedSize.name_zh)}</div>}
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:14 }}>
               {getQty(selectedItem.id, selectedSize?.id) > 0 && (
@@ -1464,8 +1527,8 @@ const filteredItems = items
             <div style={{ display:'flex', gap:12, alignItems:'center' }}>
               {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0, border:`1px solid ${C.border}` }} />}
               <div style={{ flex:1 }}>
-                <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en, c.item.name_ms)}</div>
-                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en, c.selectedSize.name_ms)}</div>}
+                <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en, c.item.name_ms, c.item.name_zh)}</div>
+                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en, c.selectedSize.name_ms, c.selectedSize.name_zh)}</div>}
                 <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>{t('each', unitPrice.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1559,7 +1622,7 @@ const filteredItems = items
             return (
               <button key={c.id} onClick={() => setActiveCat(c.id)}
                 style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s', display:'flex', alignItems:'center', gap:6 }}>
-                {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en, (c as any).name_ms)}
+                {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en, (c as any).name_ms, (c as any).name_zh)}
                 {timeBadge && (
                   <span style={{ fontSize:9, background: activeCat === c.id ? 'rgba(255,255,255,.25)' : 'rgba(245,158,11,.15)', color: activeCat === c.id ? C.white : '#F59E0B', border: activeCat === c.id ? 'none' : '1px solid rgba(245,158,11,.4)', borderRadius:8, padding:'2px 6px', fontWeight:800 }}>
                     🍽️ {timeBadge}
@@ -1614,7 +1677,7 @@ const filteredItems = items
 
                 {/* Name plate overlapping the bottom of the image */}
                 <div style={{ position:'absolute', left:8, right:8, bottom:-12, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:9, padding:'6px 9px', boxShadow:`0 4px 10px ${C.glow2}` }}>
-                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{dishName(item.name, item.name_en, item.name_ms)}</div>
+                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{dishName(item.name, item.name_en, item.name_ms, item.name_zh)}</div>
                 </div>
               </div>
 
@@ -1636,7 +1699,7 @@ const filteredItems = items
                 })()}
 
                 {(item.description_en || item.description) && (
-                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en, item.description_ms)}</div>
+                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en, item.description_ms, item.description_zh)}</div>
                 )}
 
                 {hasSizes ? (
@@ -1654,7 +1717,7 @@ const filteredItems = items
                             border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
                             borderRadius:10, padding:'5px 8px', gap:6,
                           }}>
-                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms)}</span>
+                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms, size.name_zh)}</span>
                           <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           {sizeQty > 0 ? (
                             <div style={{ display:'flex', alignItems:'center', gap:3 }}>

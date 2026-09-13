@@ -122,7 +122,9 @@ export default function ViolationsPage() {
   const isBranchViewer = role === 'general_supervisor'
   // ✅ دور غير إداري له صلاحية "المخالفات" (زي أمين المستودعات) — يشوف مخالفاته هو فقط + إحصائياته هو،
   // بدون قوائم باقي الموظفين/الفروع، وبدون إمكانية إضافة مخالفة. (المخالفات سرية — لا تُعرض لغير الإدارة)
-  const isSelfOnly = !canManage && permissions?.violations === true
+  // ✅ Fix: لازم نستبعد isBranchViewer هنا صراحةً - المشرف العام معاه صلاحية violations=true (لازمة
+  // أصلاً عشان رابط الصفحة يظهر له)، فكان بيقع في هذا الشرط ويترجع لوضع "مخالفاتي أنا بس" بدل فرعه كامل
+  const isSelfOnly = !canManage && !isBranchViewer && permissions?.violations === true
   const canAdd = canManage
   const canAccessPage = canManage || isSelfOnly || isBranchViewer
   const canViewEvaluations = isAdmin || isBranchManager || isDeptManager

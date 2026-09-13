@@ -117,11 +117,14 @@ export default function ViolationsPage() {
   const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
   const canManage = isAdmin || isBranchManager || isDeptManager || isSupervisor
+  // ✅ جديد: المشرف العام يشوف مخالفات كل أقسام فرعه (زي مدير الفرع في النطاق) لكن للعرض فقط —
+  // بدون إضافة/اعتماد/إلغاء أي مخالفة (canManage مقصودة تفضل false له)
+  const isBranchViewer = role === 'general_supervisor'
   // ✅ دور غير إداري له صلاحية "المخالفات" (زي أمين المستودعات) — يشوف مخالفاته هو فقط + إحصائياته هو،
   // بدون قوائم باقي الموظفين/الفروع، وبدون إمكانية إضافة مخالفة. (المخالفات سرية — لا تُعرض لغير الإدارة)
   const isSelfOnly = !canManage && permissions?.violations === true
   const canAdd = canManage
-  const canAccessPage = canManage || isSelfOnly
+  const canAccessPage = canManage || isSelfOnly || isBranchViewer
   const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
   // ✅ بعد اعتماد التقييم، يظهر تفاصيله بس لمدير القسم والأدمن (حتى مدير الفرع مايشوفوش بعد الاعتماد)
   const canViewApprovedEvaluations = isAdmin || isDeptManager
@@ -186,7 +189,7 @@ export default function ViolationsPage() {
     if (isSelfOnly) {
       empQ = empQ.eq('id', employee?.id || '')
     } else if (!isAdmin) {
-      if (isBranchManager) empQ = empQ.eq('branch_id', employee?.branch_id || '')
+      if (isBranchManager || isBranchViewer) empQ = empQ.eq('branch_id', employee?.branch_id || '')
       else {
         const d = deptsForRole(role)
         if (d) empQ = empQ.eq('branch_id', employee?.branch_id || '').in('department', d)
@@ -221,7 +224,7 @@ export default function ViolationsPage() {
         const ids = (empData || []).map((e: any) => e.id)
         vQ = vQ.in('employee_id', ids.length > 0 ? ids : ['__none__'])
       }
-    } else if (isBranchManager) {
+    } else if (isBranchManager || isBranchViewer) {
       const ids = (empData || []).map((e: any) => e.id)
       if (ids.length > 0) vQ = vQ.in('employee_id', ids)
     } else if (isDeptManager) {
@@ -315,7 +318,7 @@ export default function ViolationsPage() {
     if (isSelfOnly) {
       empQ = empQ.eq('id', employee?.id || '')
     } else if(!isAdmin){
-      if(isBranchManager) empQ=empQ.eq('branch_id',employee?.branch_id||'')
+      if(isBranchManager || isBranchViewer) empQ=empQ.eq('branch_id',employee?.branch_id||'')
       else {
         const d = deptsForRole(role)
         if (d) empQ = empQ.eq('branch_id',employee?.branch_id||'').in('department', d)
@@ -827,7 +830,8 @@ export default function ViolationsPage() {
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
             <input style={{...inp,width:'auto'}} type="month" value={absFilterMonth} onChange={e=>setAbsFilterMonth(e.target.value)} />
-            {!isSelfOnly && (
+            {/* ✅ المشرف العام للعرض فقط - مايقدرش يسجّل غياب */}
+            {!isSelfOnly && !isBranchViewer && (
               <button onClick={()=>setShowAbsAdd(true)} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #8B5CF6',background:'rgba(139,92,246,0.12)',color:'#8B5CF6',cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
                 ➕ {isAr?'تسجيل غياب':'Add Absence'}
               </button>

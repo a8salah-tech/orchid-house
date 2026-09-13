@@ -95,6 +95,9 @@ const ALL_PERMISSIONS = [
   { key: 'desserts',         label: 'الحلويات',             group: 'العمليات',      icon: '🍰' },
   { key: 'prep_warehouse',   label: 'مستودع التجهيزات',     group: 'العمليات',      icon: '🏭' },
   { key: 'sales',            label: 'المبيعات / الكاشير',  group: 'العمليات',      icon: '💳' },
+  // ✅ جديد: كانت مربوطة بفحص خاص (cashier_only) في القائمة الجانبية، فمكانش ممكن مَنحها لدور تاني
+  // (زي مساعد كاشير أو مشرف عام محدد) من واجهة الصلاحيات - نفس مشكلة waste/inventory_reports فوق بالظبط
+  { key: 'takeaway',         label: 'تيك أواي',             group: 'العمليات',      icon: '🥡' },
   // ✅ جديد: صلاحيتان مقصورتان على المشرفين فما فوق (بدل ما كانتا ظاهرتين لكل الموظفين بلا استثناء)
   { key: 'maintenance',      label: 'الصيانة',              group: 'العمليات',      icon: '🔧' },
   { key: 'buffet',           label: 'البوفية',              group: 'العمليات',      icon: '🍽️' },

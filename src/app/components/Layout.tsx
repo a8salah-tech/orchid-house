@@ -97,7 +97,9 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'البار',    label_en: 'Bar',      icon: '☕',  path: '/dashboard/bar',      permission: 'bar' },
     { label: 'مستودع التجهيزات', label_en: 'Prep Warehouse', icon: '🏭', path: '/dashboard/prep-warehouse', permission: 'prep_warehouse' },
     { label: 'الكاشير',  label_en: 'Cashier',  icon: '🏧',  path: '/dashboard/cashier',  permission: 'sales' },
-    { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'cashier_only' },
+    // ✅ Fix: كانت مقصورة على فحص خاص (cashier_only) مش صلاحية عادية - فمكانش ممكن مَنحها لدور/موظف
+    // بعينه من صفحة الصلاحيات. دلوقتي صلاحية عادية زي غيرها - امنحها لأي دور محتاج يشوف تيك أواي
+    { label: 'تيك أواي',  label_en: 'Take Away',  icon: '🥡',  path: '/dashboard/takeaway',  permission: 'takeaway' },
     { label: 'الطاولات', label_en: 'Tables',   icon: '🪑',  path: '/dashboard/tables',   permission: 'admin_only' },
     // ✅ جديد: مراقبة الطلبات الشغّالة دلوقتي + بيانات الجهاز/IP بتاعها - لكشف الطلبات المشبوهة من برّة المطعم
     { label: 'مراقبة الطلبات', label_en: 'Order Monitor', icon: '🔍', path: '/dashboard/order-monitor', permission: 'admin_only' },

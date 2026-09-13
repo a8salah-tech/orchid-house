@@ -448,6 +448,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   // ✅ جديد: الدور المحدود (مشرف/موظف الصالة + مساعد الكاشير) - بياخدوا "+" بس، مش الدفع/الدمج/التحويل
   const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'assistant_cashier'].includes(employee?.role || '')
   const isAdminUser = permissions?.all === true || employee?.role === 'general_supervisor'
+  // ✅ جديد: "🎁 Free" حصري لمدير الفرع ومدير النظام والمشرف العام فقط - أي صلاحية تانية ميظهرلهاش الخيار خالص
+  const canUseFree = permissions?.all === true || employee?.role === 'branch_manager' || employee?.role === 'general_supervisor'
   // ✅ Fix: حماية من تنفيذ الدفع مرتين لو حصل ضغط مزدوج سريع على "Confirm" (كان بيضاعف إحصائيات العميل)
   const isPayingRef = useRef(false)
   // ✅ اسم الفرع الحقيقي للطاولة - عشان الأدمن يفرّق بين طاولات نفس الاسم في فروع مختلفة (زي "Table 1" في House و KLCC)
@@ -1185,12 +1187,12 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         {/* Discount */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Discount</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${canUseFree ? 4 : 3}, 1fr)`, gap: 8, marginBottom: 10 }}>
             {[
               { k: 'none', label: 'None' },
               { k: 'amount', label: 'Amount' },
               { k: 'percent', label: '%' },
-              { k: 'free', label: '🎁 Free' },
+              ...(canUseFree ? [{ k: 'free', label: '🎁 Free' }] : []),
             ].map(d => (
               <button key={d.k} onClick={() => setDiscountType(d.k as any)}
                 style={{ padding: '8px', borderRadius: 8, border: `1px solid ${discountType === d.k ? S.amber : S.border}`, background: discountType === d.k ? S.amberB : 'transparent', color: discountType === d.k ? S.amber : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: discountType === d.k ? 700 : 400 }}>
@@ -2727,31 +2729,51 @@ export default function CashierPage() {
       })
     : chargeStaffList
 
+  // ✅ كل موظفي الفرع النشطين - مش بس الكاشيرية، لأن الخطأ أو الوجبة الشخصية ممكن تكون لأي موظف (مطبخ، صالة، إلخ)
+  // ✅ جديد: name_en + employee_number كمان عشان البحث/العرض يبان بيهم مش بس بالاسم العربي
+  async function ensureChargeStaffLoaded() {
+    if (chargeStaffList.length > 0) return
+    const { data } = await sb.from('employees').select('id,name,name_en,employee_number')
+      .eq('is_active', true).eq('branch_id', employee?.branch_id || '').order('name')
+    setChargeStaffList(data || [])
+  }
+
+  function resetChargeForm() {
+    setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false)
+    setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
+  }
+
   async function openChargeToEmployee(orderId: string, itemId: string, itemName: string, unitPrice: number, totalQty: number) {
     setChargeItemTarget({ orderId, itemId, itemName, unitPrice, totalQty })
+    resetChargeForm()
     setChargeQty(totalQty)
-    setChargeEmployeeId('')
-    setChargeStaffSearch('')
-    setChargeType('mistake')
-    setChargePercent(100)
-    setChargeNote('')
-    setChargePaidNow('')
-    setChargePaidMethod('cash')
-    if (chargeStaffList.length === 0) {
-      // ✅ كل موظفي الفرع النشطين - مش بس الكاشيرية، لأن الخطأ أو الوجبة الشخصية ممكن تكون لأي موظف (مطبخ، صالة، إلخ)
-      // ✅ جديد: name_en + employee_number كمان عشان البحث/العرض يبان بيهم مش بس بالاسم العربي
-      const { data } = await sb.from('employees').select('id,name,name_en,employee_number')
-        .eq('is_active', true).eq('branch_id', employee?.branch_id || '').order('name')
-      setChargeStaffList(data || [])
-    }
+    await ensureChargeStaffLoaded()
+  }
+
+  // ✅ جديد: تحميل الطاولة (الطلب) كامل على موظف دفعة واحدة، بدل ما يتحمّل صنف صنف - بيعتمد على نفس
+  // نافذة/آلية "تحميل صنف على موظف" بالظبط، بس بيلغي كل الأصناف النشطة في الطلب مرة واحدة
+  async function openChargeWholeOrderToEmployee(order: Order) {
+    const activeItems = (order.order_items || []).filter(i => i.status !== 'cancelled')
+    const orderTotal = activeItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+    const itemsCount = activeItems.reduce((s, i) => s + i.quantity, 0)
+    setChargeItemTarget({
+      orderId: order.id, itemId: 'WHOLE_ORDER',
+      itemName: `Whole Table Order (${itemsCount} ${itemsCount === 1 ? 'item' : 'items'})`,
+      unitPrice: orderTotal, totalQty: 1,
+    })
+    resetChargeForm()
+    await ensureChargeStaffLoaded()
   }
 
   async function doChargeToEmployee() {
     if (!chargeItemTarget || !chargeEmployeeId) return
     setChargeSaving(true)
+    // ✅ جديد: وضع "الطاولة كاملة" - itemName نفسه بيوصف عدد الأصناف، فمش محتاجين نضيف "×الكمية" (دايمًا 1)
+    const isWholeOrder = chargeItemTarget.itemId === 'WHOLE_ORDER'
+    const itemLabel = isWholeOrder ? chargeItemTarget.itemName : `${chargeItemTarget.itemName} ×${chargeQty}`
     const label = chargeType === 'mistake'
-      ? `🍽️ خصم كاشير - خطأ في الطلب: ${chargeItemTarget.itemName} ×${chargeQty}`
-      : `🍽️ خصم كاشير - وجبة شخصية: ${chargeItemTarget.itemName} ×${chargeQty}`
+      ? `🍽️ خصم كاشير - خطأ في الطلب: ${itemLabel}`
+      : `🍽️ خصم كاشير - وجبة شخصية: ${itemLabel}`
     const percentNote = chargePercent < 100 ? ` (خصم ${chargePercent}% من السعر)` : ''
     // ✅ جديد: نوضّح في السبب لو الموظف دفع جزء كاش/شبكة فورًا، عشان يبان واضح في سجل المخالفات ليه المبلغ أقل من قيمة الصنف كاملة
     const paidNoteText = chargePaidNowNum > 0 ? ` — دفع MYR ${chargePaidNowNum.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${chargePaidMethod === 'cash' ? 'كاش' : chargePaidMethod === 'visa' ? 'شبكة' : 'تحويل بنكي'} فورًا` : ''
@@ -2759,7 +2781,11 @@ export default function CashierPage() {
     const actionBy = employee?.name || employee?.name_en || 'Unknown'
 
     // 1) نفس آلية إلغاء الصنف بالظبط - نشيله من فاتورة العميل (الكمية كلها أو جزء منها)
-    if (chargeQty < chargeItemTarget.totalQty) {
+    // ✅ جديد: في وضع "الطاولة كاملة" نلغي كل الأصناف النشطة في الطلب دفعة واحدة بدل صنف واحد بعينه
+    if (isWholeOrder) {
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: fullReason, cancelled_at: new Date().toISOString(), action_by: actionBy })
+        .eq('order_id', chargeItemTarget.orderId).neq('status', 'cancelled')
+    } else if (chargeQty < chargeItemTarget.totalQty) {
       const { data: originalItem } = await sb.from('order_items').select('*').eq('id', chargeItemTarget.itemId).maybeSingle()
       if (originalItem) {
         await sb.from('order_items').update({ quantity: chargeItemTarget.totalQty - chargeQty }).eq('id', chargeItemTarget.itemId)
@@ -3756,6 +3782,12 @@ export default function CashierPage() {
                         )}
                         {['confirmed','preparing','ready'].includes(order.status) && (
                           <button onClick={() => setPayOrder(order)} style={{ flex: 1, padding: '9px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 Pay</button>
+                        )}
+                        {/* ✅ جديد: تحميل الطاولة كاملة على موظف دفعة واحدة - بدل ما تتحمّل صنف صنف بس */}
+                        {isCashierRole && ['confirmed','preparing','ready'].includes(order.status) && order.order_items.some(i => i.status !== 'cancelled') && (
+                          <button onClick={() => openChargeWholeOrderToEmployee(order)}
+                            title="Charge the entire table to an employee"
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🍽️👤</button>
                         )}
                         {isCashierRole && ['confirmed','preparing'].includes(order.status) && (
                           <button onClick={() => setCancelOrderTarget(order)} style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>

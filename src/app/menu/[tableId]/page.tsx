@@ -29,21 +29,22 @@ const C = {
 }
 
 type Category = {
-  id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; destination: string
+  id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; name_ru?: string | null; destination: string
   available_days?: number[] | null; available_from?: string | null; available_to?: string | null
   time_badge_ar?: string | null; time_badge_en?: string | null
 }
-type MenuItem  = { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number; discount_percent?: number; description: string; description_en: string; description_ms?: string | null; description_zh?: string | null; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number; is_active: boolean }[] }
-type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number } | null }
+type MenuItem  = { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; name_ru?: string | null; price: number; discount_percent?: number; description: string; description_en: string; description_ms?: string | null; description_zh?: string | null; description_ru?: string | null; category_id: string; is_available: boolean; image_url?: string; sizes?: { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; name_ru?: string | null; price: number; is_active: boolean }[] }
+type CartItem  = { item: MenuItem; quantity: number; notes: string; selectedSize?: { id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; name_ru?: string | null; price: number } | null }
 type Phase     = 'language' | 'welcome' | 'rewards' | 'menu' | 'cart' | 'done'
 
-// ══ اللغات المدعومة في واجهة العميل (ماليزي / إنجليزي / عربي / صيني) ══
-type Lang = 'ms' | 'en' | 'ar' | 'zh'
+// ══ اللغات المدعومة في واجهة العميل (ماليزي / إنجليزي / عربي / صيني / روسي) ══
+type Lang = 'ms' | 'en' | 'ar' | 'zh' | 'ru'
 const LANGS: { code: Lang; label: string; native: string; flag: string }[] = [
   { code: 'ms', label: 'Malay',   native: 'Bahasa Melayu', flag: '🇲🇾' },
   { code: 'en', label: 'English', native: 'English',        flag: '🇬🇧' },
   { code: 'ar', label: 'Arabic',  native: 'العربية',         flag: '🇸🇦' },
   { code: 'zh', label: 'Chinese', native: '中文',            flag: '🇨🇳' },
+  { code: 'ru', label: 'Russian', native: 'Русский',        flag: '🇷🇺' },
 ]
 
 // كل نصوص واجهة العميل × ٣ لغات. المفاتيح ثابتة، والقيم تُترجم.
@@ -293,6 +294,67 @@ const TR: Record<Lang, Record<string, string>> = {
     follow_t: '我们让您的夜晚更加特别了吗？🌸', follow_s: '关注我们并分享您的体验',
     act_rate: '给我们评分', act_follow: '关注', act_like: '点赞', act_review: '评论', act_visit: '访问',
   },
+  ru: {
+    lang_pick_title: 'Добро пожаловать в Orchid Group', lang_pick_sub: 'Пожалуйста, выберите язык',
+    loading: 'Загрузка меню…', table_not_found: 'Столик не найден',
+    order_confirmed: '✨ Заказ подтверждён', order_being_prepared: 'Ваш заказ готовится!',
+    order_prep_sub: 'Наши повара готовят для вас вкусное блюдо. Расслабьтесь и отдохните! 🍽️',
+    your_order_number: 'НОМЕР ВАШЕГО ЗАКАЗА', order_summary: 'СВОДКА ЗАКАЗА',
+    served_shortly: 'Сотрудник скоро подойдёт к вам 🙏', order_more: '➕ Заказать ещё',
+    restaurant_tag: 'РЕСТОРАН ORCHID', welcome_title: 'Добро пожаловать в Orchid',
+    welcome_sub: 'Прекрасная еда. Незабываемые моменты.',
+    perk_points_t: 'Копите баллы', perk_points_s: 'с каждым визитом',
+    perk_offers_t: 'Эксклюзивные предложения', perk_offers_s: 'только для участников',
+    perk_bday_t: 'Подарки на день рождения', perk_bday_s: 'и другие сюрпризы',
+    join_benefits: 'Присоединяйтесь к Orchid Rewards и получайте эксклюзивные привилегии.',
+    register_50: 'Зарегистрируйтесь сегодня и получите 50 приветственных баллов!',
+    how_continue: 'Как вы хотите продолжить?',
+    join_rewards: 'ПРИСОЕДИНИТЬСЯ К ORCHID REWARDS', join_rewards_s: 'Войдите или создайте аккаунт',
+    check_points: 'ПРОВЕРИТЬ МОИ БАЛЛЫ', check_points_s: 'Посмотреть баланс и прогресс скидки',
+    continue_guest: 'ПРОДОЛЖИТЬ КАК ГОСТЬ', continue_guest_s: 'Просмотреть меню и сделать заказ',
+    guest_note: 'Вы можете просматривать меню и делать заказ как гость, но не будете получать баллы и привилегии участника.',
+    back: '‹ Назад', rewards_title: 'Orchid Rewards', check_points_title: 'Проверить мои баллы',
+    rewards_check_sub: 'Введите номер телефона, чтобы увидеть баланс баллов.',
+    rewards_join_sub: 'Введите номер телефона — неважно, новый вы участник или нет, мы всё предусмотрели.',
+    mobile_number: 'Номер телефона', your_name_new: 'Ваше имя (для новых участников)',
+    checking: 'Проверка…', cont: 'Продолжить',
+    welcome_name: 'Добро пожаловать, {x}!', welcome_back_name: 'С возвращением, {x}!',
+    just_joined: 'Вы только что присоединились к Orchid Rewards', good_to_see: 'Рады видеть вас снова',
+    points_balance: 'ВАШ БАЛАНС БАЛЛОВ', welcome_50_added: '🎁 Начислено +50 приветственных баллов!',
+    discount_unlocked: '🎉 Вы разблокировали скидку! Покажите это официанту.',
+    progress_discount: 'Прогресс до скидки',
+    earn_more_points: 'Наберите ещё {x} баллов, чтобы получить специальную скидку! 🎁',
+    browse_menu: 'Смотреть меню →',
+    err_phone: 'Пожалуйста, введите корректный номер телефона', err_generic: 'Что-то пошло не так, попробуйте ещё раз',
+    your_order: '🛒 Ваш заказ', each: 'MYR {x} за штуку',
+    special_request: 'Особые пожелания… например, без лука',
+    placing_order: '⏳ Оформление заказа…', confirm_order: '✅ Подтвердить заказ — {x} позиций',
+    confirm_dialog_title: 'Подтверждение заказа', confirm_dialog_msg: 'Ваш заказ будет немедленно отправлен на кухню для приготовления.',
+    confirm_dialog_yes: '✅ Подтвердить', confirm_dialog_no: 'Отмена',
+    waiter_coming: '✅ Уже идёт!', call_waiter: '🔔 Позвать официанта',
+    search_dishes: 'Поиск блюд…', cat_all: 'Все', no_items: 'Ничего не найдено',
+    be_first_rate: '🆕 Оставьте первый отзыв', view_order: '🛒 Посмотреть заказ ({x} позиций)',
+    add: 'Добавить', select_size: 'Выберите размер:', pick_size_first: 'Пожалуйста, сначала выберите размер',
+    ratings: '⭐ Отзывы', rate_this: 'Оцените это блюдо:',
+    review_hint: 'Ваше мнение о вкусе и качестве будет показано другим гостям после проверки. Для особых пожеланий, например «без лука», используйте поле заметок при подтверждении заказа.',
+    review_placeholder: 'Поделитесь мнением о вкусе и качестве… (необязательно)',
+    your_name_opt: 'Ваше имя (необязательно)', pick_stars_first: 'Пожалуйста, сначала поставьте оценку звёздами',
+    review_thanks: '✅ Спасибо! Ваш отзыв на модерации и скоро появится.',
+    already_reviewed: '✅ Вы уже оценили это блюдо — спасибо!',
+    rate_dishes_t: '🌟 Оцените ваши блюда', rate_dishes_s: 'Как вам еда? Ваша оценка помогает нам (отображается после проверки).',
+    kitchen_note_label: '🍳 Заметка для кухни (необязательно)',
+    submitting: 'Отправка…', submit_review: 'Отправить отзыв', no_comments: 'Пока нет комментариев',
+    guest: 'Гость', n_ratings: '{x} отзывов', no_ratings_yet: '🆕 Пока нет отзывов — станьте первым, кто оценит это блюдо',
+    err_order_send: '⚠️ Не удалось отправить заказ. Попробуйте ещё раз или позовите официанта.',
+    game_teaser_t: 'Пока вы ждёте… Кто оплатит счёт?', game_teaser_s: 'Крутите колесо и пусть решит судьба! 🎉',
+    game_play: '🎮 Играть', game_short_t: '🎲 Кто платит?', game_bill_goes: 'А счёт достаётся…',
+    game_share: '📤 Поделиться результатом', game_again: '🔄 Играть снова', game_people: 'Количество человек',
+    game_person_n: 'Имя участника {x}', game_phone: '📱 Номер телефона (обязательно) *',
+    game_spinning: '🎰 Крутится…', game_spin: '🎰 Крутить колесо!',
+    game_fun_note: '🎉 Просто ради развлечения — не настоящее решение об оплате!', game_need_phone: 'Введите номер телефона, чтобы играть',
+    follow_t: 'Мы сделали ваш вечер особенным? 🌸', follow_s: 'Подписывайтесь на нас и делитесь впечатлениями',
+    act_rate: 'Оцените нас', act_follow: 'Подписаться', act_like: 'Нравится', act_review: 'Отзыв', act_visit: 'Посетить',
+  },
 }
 // ✅ New: dish review — star rating (1-5) with an optional written comment and optional reviewer name
 type Review    = { id: string; menu_item_id: string; stars: number; review_text: string | null; reviewer_name: string | null; created_at: string }
@@ -357,11 +419,12 @@ export default function CustomerMenuPage() {
   }, [])
   // اسم الطبق/الوصف حسب اللغة. الماليزي والصيني يرجعان للإنجليزي ثم العربي لو مش مترجم.
   // العربي يعرض العربي أولاً؛ الإنجليزي (والافتراضي) يعرض الإنجليزي أولاً.
-  const dishName = (ar?: string | null, en?: string | null, ms?: string | null, zh?: string | null) => (
-    lang === 'ar' ? (ar || en || ms || zh)
-    : lang === 'ms' ? (ms || en || ar || zh)
-    : lang === 'zh' ? (zh || en || ar || ms)
-    : (en || ar || ms || zh)
+  const dishName = (ar?: string | null, en?: string | null, ms?: string | null, zh?: string | null, ru?: string | null) => (
+    lang === 'ar' ? (ar || en || ms || zh || ru)
+    : lang === 'ms' ? (ms || en || ar || zh || ru)
+    : lang === 'zh' ? (zh || en || ar || ms || ru)
+    : lang === 'ru' ? (ru || en || ar || ms || zh)
+    : (en || ar || ms || zh || ru)
   ) || ''
   const [submitting, setSubmitting] = useState(false)
   // ✅ جديد: تأكيد وسيط قبل إرسال الطلب فعليًا - يوضّح للعميل أن الطلب سيُرسَل مباشرة للمطبخ فور الموافقة
@@ -384,7 +447,7 @@ export default function CustomerMenuPage() {
   const [liveOrderItems, setLiveOrderItems] = useState<{ id: string; name: string; quantity: number; unit_price: number; size_name?: string | null; menu_item_id?: string | null }[]>([])
   const [waiterCalled, setWaiterCalled] = useState(false)
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
-  const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; price: number } | null>(null)
+  const [selectedSize, setSelectedSize]   = useState<{ id: string; name: string; name_en: string; name_ms?: string | null; name_zh?: string | null; name_ru?: string | null; price: number } | null>(null)
 
   // ✅ New: dish rating system — stars and written comment for each item
   const [reviews, setReviews] = useState<Review[]>([])
@@ -464,12 +527,12 @@ export default function CustomerMenuPage() {
   // ✅ New: fetch all items of a given order (all rounds) from the database, so they display in full no matter how many rounds the customer ordered
   async function fetchLiveOrderItems(orderId: string) {
     const { data } = await sb.from('order_items')
-      .select('id, menu_item_id, quantity, unit_price, size_name, status, menu_items(name, name_en, name_ms, name_zh)')
+      .select('id, menu_item_id, quantity, unit_price, size_name, status, menu_items(name, name_en, name_ms, name_zh, name_ru)')
       .eq('order_id', orderId)
       .neq('status', 'cancelled')
     setLiveOrderItems((data || []).map((i: any) => ({
       id: i.id, menu_item_id: i.menu_item_id, quantity: i.quantity, unit_price: i.unit_price, size_name: i.size_name,
-      name: dishName(i.menu_items?.name, i.menu_items?.name_en, i.menu_items?.name_ms, i.menu_items?.name_zh),
+      name: dishName(i.menu_items?.name, i.menu_items?.name_en, i.menu_items?.name_ms, i.menu_items?.name_zh, i.menu_items?.name_ru),
     })))
   }
 
@@ -479,8 +542,8 @@ export default function CustomerMenuPage() {
       if (!tbl) { setNotFound(true); setLoading(false); return }
       setTable(tbl)
       const [cats, itms, revs] = await Promise.all([
-        sb.from('menu_categories').select('id,name,name_en,name_ms,name_zh,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items') .select('id,name,name_en,name_ms,name_zh,price,discount_percent,description,description_en,description_ms,description_zh,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,name_ms,name_zh,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
+        sb.from('menu_categories').select('id,name,name_en,name_ms,name_zh,name_ru,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
+        sb.from('menu_items') .select('id,name,name_en,name_ms,name_zh,name_ru,price,discount_percent,description,description_en,description_ms,description_zh,description_ru,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,name_ms,name_zh,name_ru,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
         // ✅ التقييمات المعتمدة فقط — التقييمات الجديدة تظهر بعد مراجعة الإدارة (status='approved')
         sb.from('menu_item_reviews').select('id,menu_item_id,stars,review_text,reviewer_name,created_at').eq('status', 'approved').order('created_at', { ascending: false })
       ])
@@ -1216,7 +1279,7 @@ const filteredItems = items
           </div>
         )}
         <div style={{ padding:'24px 24px 40px' }}>
-          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en, selectedItem.name_ms, selectedItem.name_zh)}</div>
+          <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en, selectedItem.name_ms, selectedItem.name_zh, selectedItem.name_ru)}</div>
           <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{lang === 'ar' ? selectedItem.name_en : selectedItem.name}</div>
 
           {/* ✅ New: average item rating above the sheet */}
@@ -1233,7 +1296,7 @@ const filteredItems = items
           })()}
 
           {(selectedItem.description_en || selectedItem.description) && (
-            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en, selectedItem.description_ms, selectedItem.description_zh)}</div>
+            <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en, selectedItem.description_ms, selectedItem.description_zh, selectedItem.description_ru)}</div>
           )}
           {/* Sizes */}
           {selectedItem.sizes && selectedItem.sizes.filter((s: any) => s.is_active).length > 0 && (
@@ -1243,7 +1306,7 @@ const filteredItems = items
                 {selectedItem.sizes.filter((s: any) => s.is_active).map((size: any) => (
                   <button key={size.id} onClick={() => setSelectedSize(selectedSize?.id === size.id ? null : size)}
                     style={{ padding:'8px 14px', borderRadius:20, border:`2px solid ${selectedSize?.id === size.id ? C.blue1 : C.border2}`, background: selectedSize?.id === size.id ? 'rgba(0,200,200,0.15)' : 'transparent', color: selectedSize?.id === size.id ? C.blue1 : C.silver2, cursor:'pointer', fontSize:13, fontWeight:700, fontFamily:'inherit' }}>
-                    {dishName(size.name, size.name_en, size.name_ms, size.name_zh)} — MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {dishName(size.name, size.name_en, size.name_ms, size.name_zh, size.name_ru)} — MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </button>
                 ))}
               </div>
@@ -1254,7 +1317,7 @@ const filteredItems = items
               <div style={{ fontSize:26, fontWeight:900, color:C.blue2 }}>
                 MYR {selectedSize ? selectedSize.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : selectedItem.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en, selectedSize.name_ms, selectedSize.name_zh)}</div>}
+              {selectedSize && <div style={{ fontSize:11, color:C.silver2, marginTop:2 }}>{dishName(selectedSize.name, selectedSize.name_en, selectedSize.name_ms, selectedSize.name_zh, selectedSize.name_ru)}</div>}
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:14 }}>
               {getQty(selectedItem.id, selectedSize?.id) > 0 && (
@@ -1527,8 +1590,8 @@ const filteredItems = items
             <div style={{ display:'flex', gap:12, alignItems:'center' }}>
               {c.item.image_url && <img src={c.item.image_url} alt={c.item.name_en} style={{ width:60, height:60, borderRadius:14, objectFit:'cover', flexShrink:0, border:`1px solid ${C.border}` }} />}
               <div style={{ flex:1 }}>
-                <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en, c.item.name_ms, c.item.name_zh)}</div>
-                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en, c.selectedSize.name_ms, c.selectedSize.name_zh)}</div>}
+                <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white, marginBottom:2 }}>{dishName(c.item.name, c.item.name_en, c.item.name_ms, c.item.name_zh, c.item.name_ru)}</div>
+                {c.selectedSize && <div style={{ fontSize:11, color:C.blue2, marginBottom:2, fontWeight:600 }}>{dishName(c.selectedSize.name, c.selectedSize.name_en, c.selectedSize.name_ms, c.selectedSize.name_zh, c.selectedSize.name_ru)}</div>}
                 <div style={{ fontSize:11, color:C.silver2, marginBottom:8 }}>{t('each', unitPrice.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1622,7 +1685,7 @@ const filteredItems = items
             return (
               <button key={c.id} onClick={() => setActiveCat(c.id)}
                 style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s', display:'flex', alignItems:'center', gap:6 }}>
-                {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en, (c as any).name_ms, (c as any).name_zh)}
+                {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en, (c as any).name_ms, (c as any).name_zh, (c as any).name_ru)}
                 {timeBadge && (
                   <span style={{ fontSize:9, background: activeCat === c.id ? 'rgba(255,255,255,.25)' : 'rgba(245,158,11,.15)', color: activeCat === c.id ? C.white : '#F59E0B', border: activeCat === c.id ? 'none' : '1px solid rgba(245,158,11,.4)', borderRadius:8, padding:'2px 6px', fontWeight:800 }}>
                     🍽️ {timeBadge}
@@ -1677,7 +1740,7 @@ const filteredItems = items
 
                 {/* Name plate overlapping the bottom of the image */}
                 <div style={{ position:'absolute', left:8, right:8, bottom:-12, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:9, padding:'6px 9px', boxShadow:`0 4px 10px ${C.glow2}` }}>
-                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{dishName(item.name, item.name_en, item.name_ms, item.name_zh)}</div>
+                  <div className="ar-text" style={{ fontSize:11.5, fontWeight:900, color:C.white, lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)}</div>
                 </div>
               </div>
 
@@ -1699,7 +1762,7 @@ const filteredItems = items
                 })()}
 
                 {(item.description_en || item.description) && (
-                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en, item.description_ms, item.description_zh)}</div>
+                  <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en, item.description_ms, item.description_zh, item.description_ru)}</div>
                 )}
 
                 {hasSizes ? (
@@ -1717,7 +1780,7 @@ const filteredItems = items
                             border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
                             borderRadius:10, padding:'5px 8px', gap:6,
                           }}>
-                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms, size.name_zh)}</span>
+                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms, size.name_zh, size.name_ru)}</span>
                           <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           {sizeQty > 0 ? (
                             <div style={{ display:'flex', alignItems:'center', gap:3 }}>

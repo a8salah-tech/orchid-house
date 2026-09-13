@@ -898,7 +898,8 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,branches(name)').eq('is_active', true).order('name')
         const role = empInfo?.role || ''
         const branchId = empInfo?.branch_id || ''
-        if (role === 'branch_manager') q = q.eq('branch_id', branchId)
+        // ✅ جديد: مشرف عام - زي مدير الفرع بالظبط (كل الأقسام)، بس بلا صلاحيات الأدمن في هذا الجدول
+        if (role === 'branch_manager' || role === 'general_supervisor') q = q.eq('branch_id', branchId)
         else if (role === 'kitchen_manager') q = q.eq('branch_id', branchId).in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
         else if (role === 'hall_manager') q = q.eq('branch_id', branchId).in('department', ['الصالة','Hall'])
         else if (role === 'bar_manager') q = q.eq('branch_id', branchId).in('department', ['البار','Bar'])
@@ -2185,7 +2186,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 export default function AttendancePage() {
   const { isAr } = useLang()
   const { employee, permissions } = useAuth()
-  const isManager = permissions?.all === true || ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role || '')
+  const isManager = permissions?.all === true || ['branch_manager','kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','general_supervisor'].includes(employee?.role || '')
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>

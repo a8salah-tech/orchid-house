@@ -1007,13 +1007,24 @@ export default function ShiftsPage() {
       filterDept !== 'all' ? filterDept : null,
     ].filter(Boolean)
     const scopeLabel = scopeParts.length > 0 ? ` — ${scopeParts.join(' — ')}` : ''
+    // ✅ Fix: كانت أعمدة الأيام كلها min-width ثابت بالبكسل (28px × حتى 31 يوم) من غير table-layout:fixed
+    // ولا حجم صفحة طباعة محدد - على الشاشة (نافذة المعاينة) كان بيبان كامل لأن عرض النافذة مرن، لكن
+    // عند الطباعة الفعلية (ورق/PDF) المتصفح بيقصّ أي عمود زايد عن عرض الصفحة بدل ما يصغّره، فكان بيقطع
+    // آخر الشهر (يفضل يبان أول ١٨ يوم بس تقريبًا حسب عرض A4). الحل: أعمدة بنسبة مئوية + table-layout:fixed
+    // + صفحة طباعة أفقية (landscape) - كده العرض الكلي دايمًا 100% من عرض الصفحة الفعلي مهما كان عدد الأيام
+    const nameColPct = 13, dutyColPct = 8
+    const dayColPct = ((100 - nameColPct - dutyColPct) / monthDays.length).toFixed(3)
     const html = `<html dir="rtl"><head><title>جدول ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</title>
-    <style>body{font-family:Arial;font-size:11px;margin:20px}h2{text-align:center}
-    table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px;text-align:center}
-    th{background:#0A1628;color:white}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}</style></head>
+    <style>
+    @page{size:A4 landscape;margin:10mm}
+    body{font-family:Arial;font-size:11px;margin:0}h2{text-align:center}
+    table{width:100%;table-layout:fixed;border-collapse:collapse}
+    th,td{border:1px solid #ccc;padding:3px 2px;text-align:center;overflow:hidden;text-overflow:ellipsis}
+    th{background:#0A1628;color:white}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}
+    </style></head>
     <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</h2>
-    <table><thead><tr><th style='text-align:right;min-width:120px'>الموظف</th><th style='min-width:80px'>الدوام</th>
-    ${monthDays.map(d=>`<th style='min-width:28px'>${d.day}<br/><span style='font-size:8px'>${DAYS_SHORT[d.dow]}</span></th>`).join('')}</tr></thead>
+    <table><thead><tr><th style='text-align:right;width:${nameColPct}%'>الموظف</th><th style='width:${dutyColPct}%'>الدوام</th>
+    ${monthDays.map(d=>`<th style='width:${dayColPct}%'>${d.day}<br/><span style='font-size:8px'>${DAYS_SHORT[d.dow]}</span></th>`).join('')}</tr></thead>
     <tbody>${filteredScheduleEmployees.map(emp=>`<tr><td style="text-align:right;white-space:nowrap;font-weight:bold">${emp.name}${emp.name_en ? ' '+emp.name_en : ''}</td>
     <td style='text-align:center;font-size:10px;color:#555'>${(() => {
       const allSch = monthDays.map(d => getShift(emp.id, d.date)).filter(Boolean)

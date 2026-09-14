@@ -819,6 +819,8 @@ export default function ShiftsPage() {
   const [viewYear, setViewYear] = useState(now.getFullYear())
   const [activeTab, setActiveTab] = useState('schedule')
   const [filterBranch, setFilterBranch] = useState('all')
+  // ✅ جديد: فلتر القسم (بعد فلتر الفرع) - يُستخدم في العرض والطباعة معًا
+  const [filterDept, setFilterDept] = useState('all')
   const [showAddShift, setShowAddShift] = useState(false)
   const [showAssign, setShowAssign] = useState(false)
   const [assignEmpId, setAssignEmpId] = useState<string | null>(null)
@@ -978,6 +980,13 @@ export default function ShiftsPage() {
     return emp.branches.name||'بدون فرع'
   }
 
+  // ✅ جديد: القائمة النهائية للموظفين بعد فلتر الفرع والقسم معًا - نفس القائمة تُستخدم في العرض
+  // والطباعة، عشان الطباعة تحترم فلتر القسم (والفرع) المختار على الشاشة بالظبط
+  const filteredScheduleEmployees = employees.filter(e =>
+    (filterBranch==='all'||getBranchName(e)===filterBranch) &&
+    (filterDept==='all'||normalizeDept(e.department||'')===filterDept)
+  )
+
   async function approveRequest(req:any) {
     await supabase.from('shift_schedules').delete().eq('employee_id',req.employee_id).eq('date',req.date)
     await supabase.from('shift_schedules').insert([{employee_id:req.employee_id,shift_id:req.shift_id,date:req.date,status:'confirmed'}])
@@ -992,14 +1001,20 @@ export default function ShiftsPage() {
   }
 
   function printSchedule() {
-    const html = `<html dir="rtl"><head><title>جدول ${MONTHS_AR[viewMonth]} ${viewYear}</title>
+    // ✅ جديد: عنوان الطباعة يوضّح الفرع/القسم المختار (لو مش "الكل") - عشان يبان واضح إن الطباعة دي جزء بس
+    const scopeParts = [
+      filterBranch !== 'all' ? filterBranch : null,
+      filterDept !== 'all' ? filterDept : null,
+    ].filter(Boolean)
+    const scopeLabel = scopeParts.length > 0 ? ` — ${scopeParts.join(' — ')}` : ''
+    const html = `<html dir="rtl"><head><title>جدول ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</title>
     <style>body{font-family:Arial;font-size:11px;margin:20px}h2{text-align:center}
     table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px;text-align:center}
     th{background:#0A1628;color:white}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}</style></head>
-    <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}</h2>
+    <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</h2>
     <table><thead><tr><th style='text-align:right;min-width:120px'>الموظف</th><th style='min-width:80px'>الدوام</th>
     ${monthDays.map(d=>`<th style='min-width:28px'>${d.day}<br/><span style='font-size:8px'>${DAYS_SHORT[d.dow]}</span></th>`).join('')}</tr></thead>
-    <tbody>${employees.map(emp=>`<tr><td style="text-align:right;white-space:nowrap;font-weight:bold">${emp.name}${emp.name_en ? ' '+emp.name_en : ''}</td>
+    <tbody>${filteredScheduleEmployees.map(emp=>`<tr><td style="text-align:right;white-space:nowrap;font-weight:bold">${emp.name}${emp.name_en ? ' '+emp.name_en : ''}</td>
     <td style='text-align:center;font-size:10px;color:#555'>${(() => {
       const allSch = monthDays.map(d => getShift(emp.id, d.date)).filter(Boolean)
       if (allSch.length === 0) return '—'
@@ -1118,23 +1133,43 @@ export default function ShiftsPage() {
           {/* فلتر الفرع */}
           {branches.length > 1 && (
             <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
-              <button onClick={()=>setFilterBranch('all')} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterBranch==='all'?S.gold:S.border}`,background:filterBranch==='all'?S.gold3:'transparent',color:filterBranch==='all'?S.gold:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
+              <button onClick={()=>{setFilterBranch('all'); setFilterDept('all')}} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterBranch==='all'?S.gold:S.border}`,background:filterBranch==='all'?S.gold3:'transparent',color:filterBranch==='all'?S.gold:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
                 🌐 كل الفروع ({employees.length})
               </button>
               {branches.map(b=>(
-                <button key={b} onClick={()=>setFilterBranch(filterBranch===b?'all':b)} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterBranch===b?S.blue:S.border}`,background:filterBranch===b?S.blueB:'transparent',color:filterBranch===b?S.blue:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
+                <button key={b} onClick={()=>{setFilterBranch(filterBranch===b?'all':b); setFilterDept('all')}} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterBranch===b?S.blue:S.border}`,background:filterBranch===b?S.blueB:'transparent',color:filterBranch===b?S.blue:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
                   🏪 {b} ({employees.filter(e=>getBranchName(e)===b).length})
                 </button>
               ))}
             </div>
           )}
 
+          {/* ✅ جديد: فلتر القسم - يظهر بعد اختيار الفرع، ويحدّد الأقسام الموجودة فعليًا داخل الفرع المختار
+              (أو كل الأقسام لو "كل الفروع" مختارة). نفس هذا الاختيار تحترمه الطباعة كمان */}
+          {(() => {
+            const branchScopedEmps = employees.filter(e => filterBranch==='all' || getBranchName(e)===filterBranch)
+            const depts = [...new Set(branchScopedEmps.map(e => normalizeDept(e.department||'غير محدد')))]
+            if (depts.length <= 1) return null
+            return (
+              <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+                <button onClick={()=>setFilterDept('all')} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterDept==='all'?S.gold:S.border}`,background:filterDept==='all'?S.gold3:'transparent',color:filterDept==='all'?S.gold:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
+                  📋 كل الأقسام ({branchScopedEmps.length})
+                </button>
+                {depts.map(d=>(
+                  <button key={d} onClick={()=>setFilterDept(filterDept===d?'all':d)} style={{padding:'7px 16px',borderRadius:20,border:`1px solid ${filterDept===d?S.purple:S.border}`,background:filterDept===d?S.purpleB:'transparent',color:filterDept===d?S.purple:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:600}}>
+                    {d} ({branchScopedEmps.filter(e=>normalizeDept(e.department||'غير محدد')===d).length})
+                  </button>
+                ))}
+              </div>
+            )
+          })()}
+
           {loading?(
             <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳ جاري التحميل...</div>
           ):(
             /* عرض مقسم على الفروع */
             branches.filter(b=>filterBranch==='all'||b===filterBranch).map(branch=>{
-              const branchEmployees = employees.filter(e=>getBranchName(e)===branch)
+              const branchEmployees = employees.filter(e=>getBranchName(e)===branch && (filterDept==='all'||normalizeDept(e.department||'غير محدد')===filterDept))
               if (branchEmployees.length===0) return null
               return (
                 <div key={branch} style={{marginBottom:28}}>

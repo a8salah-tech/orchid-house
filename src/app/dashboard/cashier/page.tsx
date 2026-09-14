@@ -171,7 +171,7 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
     <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${totals.visaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</div><div class="value">MYR ${totals.visa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
-    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda/Shopee)</div><div class="value">MYR ${totals.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount || 0})</div><div class="value">MYR ${(totals.freeAmount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${(totals.deposits || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
@@ -265,7 +265,7 @@ function printAggregatedReport(title: string, subtitle: string, orders: Order[],
     <div class="summary-box"><div class="label">💵 Cash</div><div class="value">MYR ${totals.cash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">💳 Visa (Maybank ${totals.visaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${totals.visaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</div><div class="value">MYR ${totals.visa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">📱 Bank Transfer</div><div class="value">MYR ${totals.online.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
-    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda)</div><div class="value">MYR ${totals.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
+    <div class="summary-box"><div class="label">🧾 Credit (Grab/Foodpanda/Shopee)</div><div class="value">MYR ${totals.credit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">🏷️ Discounts</div><div class="value">MYR ${totals.discount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">🆓 Free Tables (${totals.freeCount})</div><div class="value">MYR ${totals.freeAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="summary-box"><div class="label">💰 Deposits</div><div class="value">MYR ${totals.deposits.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
@@ -463,10 +463,10 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         if (isAdminUser) setOrderBranchName((data as any)?.branches?.name || null)
       })
   }, [isAdminUser, order.table_id])
-  // ✅ Fix: لطاولات Grab/Foodpanda، الطريقة الافتراضية بقت "Credit" تلقائيًا من أول ما تفتح الفاتورة - بدل ما تفضل
+  // ✅ Fix: لطاولات Grab/Foodpanda/Shopee، الطريقة الافتراضية بقت "Credit" تلقائيًا من أول ما تفتح الفاتورة - بدل ما تفضل
   // "Cash" وتحتاج الكاشير يفتكر يغيّرها يدويًا كل مرة (ممكن ينسى فيتسجل غلط)
   const [method, setMethod] = useState<'cash' | 'visa' | 'online' | 'credit' | 'free'>(
-    () => /grab|foodpanda/i.test(order.tables?.name || '') ? 'credit' : 'cash'
+    () => /grab|foodpanda|shopee/i.test(order.tables?.name || '') ? 'credit' : 'cash'
   )
   // ✅ جديد: المبلغ اللي العميل دفعه كاش - لحساب الباقي (Change Due) تلقائيًا
   const [cashReceived, setCashReceived] = useState('')
@@ -617,9 +617,9 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const subtotal = order.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
   // ✅ جديد: طلبات التيك أواي (Foodpanda/Grab/Customer/Other) مالهاش رسوم خدمة خالص - مافيش خدمة طاولة أصلًا
   const isTakeawayOrder = order.tables?.section === 'takeaway'
-  // ✅ جديد: حسابات التوصيل الخارجية (Grab/Foodpanda) بتدفع للمطعم لاحقًا (تسوية دورية)، مش وقت قفل الفاتورة -
+  // ✅ جديد: حسابات التوصيل الخارجية (Grab/Foodpanda/Shopee) بتدفع للمطعم لاحقًا (تسوية دورية)، مش وقت قفل الفاتورة -
   // فمحتاجين نفرّق بينها وبين الكاش الحقيقي اللي في درج الكاشير
-  const isPlatformCreditOrder = /grab|foodpanda/i.test(order.tables?.name || '')
+  const isPlatformCreditOrder = /grab|foodpanda|shopee/i.test(order.tables?.name || '')
   // ✅ الخدمة والضريبة بيتحسبوا على السعر الأصلي (subtotal) دايمًا
   const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : subtotal * SERVICE_CHARGE_RATE
   const sst = discountType === 'free' ? 0 : subtotal * SST_RATE
@@ -706,8 +706,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     cash:   { code: '1101', name: 'الصندوق النقدي - الكاشير' },
     visa:   { code: '1111', name: 'مستحقات العملاء - بطاقات ائتمان' },
     online: { code: '1105', name: 'المدفوعات الإلكترونية المعلقة' },
-    // ✅ جديد: حساب مستقل لمبالغ Grab/Foodpanda الآجلة - عشان متتسجلش غلط كأنها كاش في الدرج
-    credit: { code: '1121', name: 'مستحقات منصات التوصيل - Grab/Foodpanda' },
+    // ✅ جديد: حساب مستقل لمبالغ Grab/Foodpanda/Shopee الآجلة - عشان متتسجلش غلط كأنها كاش في الدرج
+    credit: { code: '1121', name: 'مستحقات منصات التوصيل - Grab/Foodpanda/Shopee' },
   }
   async function createSalesJournalEntry(debitLines: { method: string; amount: number }[], salesAmt: number, serviceChargeAmt: number, sstAmt: number, tableName: string) {
     if (!orderBranchId) { console.error('createSalesJournalEntry: مفيش branch_id، هنتجاهل القيد التلقائي'); return }
@@ -1243,7 +1243,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
             {/* ✅ New: clarifies this amount will be collected later from the platform, not real cash/card right now */}
             {method === 'credit' && (
               <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 10, background: S.amberB, border: `1px solid ${S.amber}40`, fontSize: 12, color: S.amber }}>
-                🧾 This amount will be recorded as Credit and won't count as cash in the drawer — it will be collected from the platform (Grab/Foodpanda) during their periodic settlement.
+                🧾 This amount will be recorded as Credit and won't count as cash in the drawer — it will be collected from the platform (Grab/Foodpanda/Shopee) during their periodic settlement.
               </div>
             )}
             {/* ✅ جديد: لما الدفع كاش - نطلب المبلغ المستلم من العميل ونحسب الباقي تلقائيًا */}
@@ -3381,7 +3381,7 @@ export default function CashierPage() {
                             </div>
                             {dCredit > 0 && (
                               <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit (Grab/Foodpanda)</div>
+                                <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit (Grab/Foodpanda/Shopee)</div>
                                 <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dCredit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                               </div>
                             )}

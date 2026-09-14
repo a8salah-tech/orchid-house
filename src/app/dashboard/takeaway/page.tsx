@@ -26,6 +26,7 @@ const S = {
 function iconFor(name: string) {
   if (name.includes('Foodpanda')) return { icon: '🛵', color: '#D91C6E' }
   if (name.includes('Grab')) return { icon: '🚗', color: '#00B14F' }
+  if (name.includes('Shopee')) return { icon: '🛒', color: '#EE4D2D' }
   if (name.includes('Other')) return { icon: '📦', color: S.amber }
   return { icon: '👤', color: S.blue } // Customer 1-5
 }
@@ -269,8 +270,8 @@ export default function TakeAwayPage() {
       {/* ✅ جديد: نافذة تفاصيل الحساب - تفتح عند الضغط على أي بطاقة */}
       {selectedAccount && (() => {
         const { icon, color } = iconFor(selectedAccount.name)
-        // ✅ فودباندا وجراب بيدفعوا آجل (تسوية لاحقة من المنصة) - فقط هما محتاجين تتبع "استُلم المبلغ ولا لسه"
-        const isDeferredPayment = selectedAccount.name.includes('Foodpanda') || selectedAccount.name.includes('Grab')
+        // ✅ فودباندا وجراب وشوبي بيدفعوا آجل (تسوية لاحقة من المنصة) - هم بس محتاجين تتبع "استُلم المبلغ ولا لسه"
+        const isDeferredPayment = selectedAccount.name.includes('Foodpanda') || selectedAccount.name.includes('Grab') || selectedAccount.name.includes('Shopee')
         return (
           <div onClick={() => setSelectedAccount(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
             <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${color}60`, padding: 20, maxWidth: 420, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>

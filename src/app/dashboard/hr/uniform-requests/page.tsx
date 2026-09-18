@@ -22,10 +22,14 @@ const S = {
 }
 
 const ITEM_TYPES = [
-  { key: 'jacket', label: 'Jackets', label_ar: 'جاكيت', icon: '👨🏻‍🍳' },
-  { key: 'tshirt', label: 'T-shirts', label_ar: 'تيشيرت', icon: '👕' },
-  { key: 'cap',    label: 'Cap',      label_ar: 'كاب',     icon: '🧢' },
-  { key: 'apron',  label: 'Apron',    label_ar: 'مريول',   icon: '🎽' },
+  // ✅ المفتاح 'jacket' يبقى كما هو (بلا تغيير) للحفاظ على الطلبات وسجلات المخزون القديمة —
+  // كل ما تغيّر هو الاسم الظاهر ليوضّح إنه الجاكيت الأسود، بعد إضافة جاكيت أبيض كصنف مستقل
+  { key: 'jacket',       label: 'Black Jacket', label_ar: 'جاكيت أسود', icon: '👨🏻‍🍳' },
+  { key: 'jacket_white', label: 'White Jacket', label_ar: 'جاكيت أبيض', icon: '🥼' },
+  { key: 'tshirt',       label: 'T-shirts',     label_ar: 'تيشيرت',     icon: '👕' },
+  { key: 'cap',          label: 'Cap',          label_ar: 'كاب',        icon: '🧢' },
+  { key: 'apron',        label: 'Apron',        label_ar: 'مريول',      icon: '🎽' },
+  { key: 'vest_waiter',  label: 'Waiter Vest',  label_ar: 'سديرية ويتر', icon: '🦺' },
 ]
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL']
 
@@ -355,6 +359,14 @@ export default function UniformRequestsPage() {
     await fetchAll()
   }
 
+  // ✅ حذف نهائي لسجل إضافة مخزون — أدمن فقط (مش مدير الفرع، رغم إن مدير الفرع يقدر يضيف)
+  async function deleteStockEntry(entryId: string) {
+    if (!confirm('⚠️ هل أنت متأكد من حذف سجل الإضافة هذا نهائياً؟ لا يمكن التراجع عن هذا الإجراء.')) return
+    const { error } = await sb.from('uniform_stock_entries').delete().eq('id', entryId)
+    if (error) { alert('حدث خطأ أثناء الحذف: ' + error.message); return }
+    await fetchStock()
+  }
+
   function itemLabel(type: string) {
     const t = ITEM_TYPES.find(i => i.key === type)
     return t ? `${t.icon} ${t.label_ar}` : type
@@ -654,8 +666,18 @@ export default function UniformRequestsPage() {
                     🏪 {entry.branches?.name || '—'} · 👤 {entry.added_by_employee ? `${entry.added_by_employee.name}${entry.added_by_employee.name_en ? ' ' + entry.added_by_employee.name_en : ''}` : 'غير معروف'}
                   </div>
                 </div>
-                <div style={{ fontSize: 11, color: S.muted }}>
-                  📅 {new Date(entry.created_at).toLocaleString('ar-SA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ fontSize: 11, color: S.muted }}>
+                    📅 {new Date(entry.created_at).toLocaleString('ar-SA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  {/* ✅ زرار حذف سجل الإضافة نهائياً — أدمن فقط */}
+                  {isAdmin && (
+                    <button onClick={() => deleteStockEntry(entry.id)}
+                      title="حذف السجل نهائياً"
+                      style={{ background: 'transparent', border: `1px solid ${S.red}50`, borderRadius: '50%', width: 26, height: 26, color: S.red, cursor: 'pointer', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      ✕
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

@@ -22,10 +22,14 @@ const S = {
 }
 
 const ITEM_TYPES = [
-  { key: 'jacket', label: 'Jackets', label_ar: 'جاكيت', icon: '👨🏻‍🍳' },
-  { key: 'tshirt', label: 'T-shirts', label_ar: 'تيشيرت', icon: '👕' },
-  { key: 'cap',    label: 'Cap',      label_ar: 'كاب',     icon: '🧢' },
-  { key: 'apron',  label: 'Apron',    label_ar: 'مريول',   icon: '🎽' },
+  // ✅ المفتاح 'jacket' يبقى كما هو (بلا تغيير) للحفاظ على الطلبات وسجلات المخزون القديمة —
+  // كل ما تغيّر هو الاسم الظاهر ليوضّح إنه الجاكيت الأسود، بعد إضافة جاكيت أبيض كصنف مستقل
+  { key: 'jacket',       label: 'Black Jacket', label_ar: 'جاكيت أسود', icon: '👨🏻‍🍳' },
+  { key: 'jacket_white', label: 'White Jacket', label_ar: 'جاكيت أبيض', icon: '🥼' },
+  { key: 'tshirt',       label: 'T-shirts',     label_ar: 'تيشيرت',     icon: '👕' },
+  { key: 'cap',          label: 'Cap',          label_ar: 'كاب',        icon: '🧢' },
+  { key: 'apron',        label: 'Apron',        label_ar: 'مريول',      icon: '🎽' },
+  { key: 'vest_waiter',  label: 'Waiter Vest',  label_ar: 'سديرية ويتر', icon: '🦺' },
 ]
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL']
 

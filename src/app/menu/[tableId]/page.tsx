@@ -451,12 +451,6 @@ export default function CustomerMenuPage() {
 
   // ✅ New: dish rating system — stars and written comment for each item
   const [reviews, setReviews] = useState<Review[]>([])
-  const [newReviewStars, setNewReviewStars] = useState(0)
-  const [newReviewText, setNewReviewText] = useState('')
-  const [reviewerName, setReviewerName] = useState('')
-  const [reviewSubmitting, setReviewSubmitting] = useState(false)
-  const [reviewError, setReviewError] = useState('')
-  const [reviewSubmitted, setReviewSubmitted] = useState(false)
   // ✅ تقييم واحد لكل طبق لكل جهاز (يُحفظ محليًا) — + التقييمات الجديدة تروح "قيد المراجعة" وما تظهرش إلا بعد اعتماد الإدارة
   const [reviewedItemIds, setReviewedItemIds] = useState<Set<string>>(new Set())
   // ✅ تقييم شاشة "تم الطلب": اختيار النجوم يفتح خانة تعليق اختيارية قبل الإرسال
@@ -600,15 +594,6 @@ const filteredItems = items
     if (activeCat !== 'all' && !visibleCategoryIds.has(activeCat)) setActiveCat('all')
   }, [activeCat, visibleCategoryIds])
 
-  // ✅ New: reset the "add your rating" form every time the customer opens a different item
-  useEffect(() => {
-    setNewReviewStars(0)
-    setNewReviewText('')
-    setReviewerName('')
-    setReviewError('')
-    setReviewSubmitted(false)
-  }, [selectedItem?.id])
-
   function addToCart(item: MenuItem, size?: { id: string; name: string; name_en: string; price: number } | null) {
     setCart(p => {
       const ex = p.find(c => c.item.id === item.id && (size ? c.selectedSize?.id === size.id : !c.selectedSize))
@@ -659,19 +644,6 @@ const filteredItems = items
     return true
   }
 
-  async function submitReview() {
-    if (!selectedItem || newReviewStars < 1) { setReviewError(t('pick_stars_first')); return }
-    setReviewSubmitting(true)
-    setReviewError('')
-    const ok = await postReview(selectedItem.id, newReviewStars, newReviewText, reviewerName)
-    setReviewSubmitting(false)
-    if (!ok) { setReviewError(t('err_generic')); return }
-    setNewReviewStars(0)
-    setNewReviewText('')
-    setReviewerName('')
-    setReviewSubmitted(true)
-    setTimeout(() => setReviewSubmitted(false), 4000)
-  }
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
 
   // ✅ "Who's Paying the Bill?" game - real spinning wheel
@@ -1213,7 +1185,7 @@ const filteredItems = items
           <div style={{ fontSize:12, color:C.silver2, marginBottom:18 }}>{t('follow_s')}</div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             {[
-              { name:'Google', action:t('act_rate'), href:'https://www.google.com/maps/search/Orchid+House+Restaurant+Kuala+Lumpur', color:'#4285F4', type:'google' },
+              { name:'Google', action:t('act_rate'), href:'https://search.google.com/local/writereview?placeid=ChIJlZREt0M3zDERG_6CtesaFGk', color:'#4285F4', type:'google' },
               { name:'Instagram', action:t('act_follow'), href:'https://www.instagram.com/orchidofficial.my/', color:'#E1306C', type:'instagram' },
               { name:'Facebook', action:t('act_like'), href:'https://www.facebook.com/OrchidOfficial.my', color:'#1877F2', type:'facebook' },
               { name:'TripAdvisor', action:t('act_review'), href:'https://www.tripadvisor.com.eg/Restaurant_Review-g298570-d33055605-Reviews-Orchid_House_Restaurant-Kuala_Lumpur_Wilayah_Persekutuan.html', color:'#00AF87', type:'tripadvisor' },
@@ -1282,19 +1254,6 @@ const filteredItems = items
           <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en, selectedItem.name_ms, selectedItem.name_zh, selectedItem.name_ru)}</div>
           <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{lang === 'ar' ? selectedItem.name_en : selectedItem.name}</div>
 
-          {/* ✅ New: average item rating above the sheet */}
-          {(() => {
-            const { avg, count } = getItemRating(selectedItem.id)
-            return count > 0 ? (
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
-                <span style={{ fontSize:14, color:'#B8860B', fontWeight:800 }}>{'⭐'.repeat(Math.round(avg))}{'☆'.repeat(5 - Math.round(avg))}</span>
-                <span style={{ fontSize:12, color:C.silver2, fontWeight:700 }}>{avg.toFixed(1)} · {t('n_ratings', count)}</span>
-              </div>
-            ) : (
-              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>{t('no_ratings_yet')}</div>
-            )
-          })()}
-
           {(selectedItem.description_en || selectedItem.description) && (
             <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en, selectedItem.description_ms, selectedItem.description_zh, selectedItem.description_ru)}</div>
           )}
@@ -1336,59 +1295,6 @@ const filteredItems = items
             </div>
           </div>
 
-          {/* ✅ New: ratings section — star rating with written comment */}
-          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20 }}>
-            <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:6 }}>{t('ratings')}</div>
-            <div style={{ fontSize:11, color:C.silver2, lineHeight:1.6, marginBottom:14 }}>{t('review_hint')}</div>
-
-            {reviewedItemIds.has(selectedItem.id) || reviewSubmitted ? (
-              <div style={{ background:'#F0FDF4', border:`1px solid ${C.border2}`, borderRadius:14, padding:'14px', fontSize:12.5, color:'#16A34A', fontWeight:700, textAlign:'center', marginBottom:18 }}>
-                {reviewSubmitted ? t('review_thanks') : t('already_reviewed')}
-              </div>
-            ) : (
-            /* New rating submission form */
-            <div style={{ background:'#FAFEFE', border:`1px dashed ${C.border2}`, borderRadius:16, padding:'16px 14px', marginBottom:18 }}>
-              <div style={{ fontSize:12, color:C.silver2, marginBottom:8, fontWeight:600 }}>{t('rate_this')}</div>
-              <div style={{ display:'flex', gap:6, marginBottom:12 }}>
-                {[1,2,3,4,5].map(n => (
-                  <button key={n} onClick={() => setNewReviewStars(n)}
-                    style={{ background:'none', border:'none', cursor:'pointer', fontSize:26, padding:0, lineHeight:1, filter: n <= newReviewStars ? 'none' : 'grayscale(1) opacity(.4)' }}>
-                    ⭐
-                  </button>
-                ))}
-              </div>
-              <textarea value={newReviewText} onChange={e => setNewReviewText(e.target.value)}
-                placeholder={t('review_placeholder')}
-                rows={2}
-                style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px', fontSize:13, color:C.white, outline:'none', resize:'none', fontFamily:'inherit', marginBottom:8 }} />
-              <input value={reviewerName} onChange={e => setReviewerName(e.target.value)}
-                placeholder={t('your_name_opt')}
-                style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'9px 12px', fontSize:13, color:C.white, outline:'none', marginBottom:10 }} />
-              {reviewError && <div style={{ color:'#EF4444', fontSize:11.5, marginBottom:8 }}>{reviewError}</div>}
-              <button onClick={submitReview} disabled={reviewSubmitting}
-                style={{ width:'100%', background: reviewSubmitting ? C.border2 : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:12, padding:'11px', color:C.white, fontWeight:800, fontSize:13, cursor: reviewSubmitting ? 'not-allowed' : 'pointer' }}>
-                {reviewSubmitting ? t('submitting') : t('submit_review')}
-              </button>
-            </div>
-            )}
-
-            {/* List of written reviews */}
-            {reviews.filter(r => r.menu_item_id === selectedItem.id).length === 0 ? (
-              <div style={{ fontSize:12.5, color:C.silver2, textAlign:'center', padding:'10px 0' }}>{t('no_comments')}</div>
-            ) : (
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                {reviews.filter(r => r.menu_item_id === selectedItem.id).map(r => (
-                  <div key={r.id} style={{ border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                      <span style={{ fontSize:12.5, fontWeight:800, color:C.white }}>{r.reviewer_name || t('guest')}</span>
-                      <span style={{ fontSize:12, color:'#B8860B' }}>{'⭐'.repeat(r.stars)}</span>
-                    </div>
-                    {r.review_text && <div style={{ fontSize:12.5, color:C.silver2, lineHeight:1.6 }}>{r.review_text}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
         </div>
       </div>

@@ -53,6 +53,31 @@ function getMonthDateRange(month: { month: number; year: number }): { monthStart
   return { monthStart, monthEnd }
 }
 
+// ✅ يحوّل نص وقت "HH:MM" أو "HH:MM:SS" لعدد دقائق من منتصف الليل
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+// ✅ مدة الشيفت بالساعات من وقت البداية والنهاية — يدعم الشيفت العابر لمنتصف الليل (مثلاً 22:00 → 08:00 = 10 ساعات)
+function shiftDurationHours(start: string, end: string): number {
+  const s = timeToMinutes(start)
+  const e = timeToMinutes(end)
+  const diffMinutes = e > s ? e - s : (1440 - s) + e
+  return diffMinutes / 60
+}
+// ✅ القيمة الأكثر تكراراً في مصفوفة أرقام — تُستخدم لتحديد "شيفت الموظف الغالب" هذا الشهر
+function modeValue(arr: number[]): number | null {
+  if (arr.length === 0) return null
+  const counts = new Map<number, number>()
+  let best = arr[0], bestCount = 0
+  for (const v of arr) {
+    const c = (counts.get(v) || 0) + 1
+    counts.set(v, c)
+    if (c > bestCount) { bestCount = c; best = v }
+  }
+  return best
+}
+
 // ✅ يحسب إحصائيات الحضور من سجلات attendance خام: عدد أيام البصمة، أعلى يوم حضور (بالساعات)، وأقل يوم حضور
 type AttendanceStats = {
   checkinDays: number
@@ -92,6 +117,8 @@ type PayrollRecord = {
   allowance_2: number; allowance_2_label: string
   allowance_3: number; allowance_3_label: string
   absence_days: number; late_hours: number; early_exit_hours: number
+  // ✅ ساعات الدوام اليومية الفعلية لهذا الموظف (من شيفته) — قاسم حساب سعر الساعة بدل الرقم الثابت 8
+  daily_hours: number
   tax: number
   deduction_1: number; deduction_1_label: string
   deduction_2: number; deduction_2_label: string
@@ -115,6 +142,7 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
     allowance_2: 0, allowance_2_label: 'Allowance 2',
     allowance_3: 0, allowance_3_label: 'Allowance 3',
     absence_days: 0, late_hours: 0, early_exit_hours: 0,
+    daily_hours: 8,
     tax: 0,
     deduction_1: 0, deduction_1_label: 'Deduction 1',
     deduction_2: 0, deduction_2_label: 'Deduction 2',
@@ -200,7 +228,8 @@ function solidOver(rgba: string, baseHex: string = '#0F2040'): string {
 
 function calcRecord(r: PayrollRecord) {
   const dailyRate   = r.basic_salary / (r.working_days || 30)
-  const hourlyRate  = dailyRate / 8
+  // ✅ قاسم متغيّر حسب ساعات دوام الموظف الفعلية (من شيفته) بدل الرقم الثابت 8 لكل الموظفين
+  const hourlyRate  = dailyRate / (r.daily_hours || 8)
   const earnedBase  = dailyRate * r.days_worked
   const overtimePay = (dailyRate * r.overtime_days) + (hourlyRate * r.overtime_hours)
   const totalAllowances = r.allowance_1 + r.allowance_2 + r.allowance_3
@@ -450,6 +479,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
         <tbody>
           ${row('الراتب الأساسي / Basic Salary', fmt(record.basic_salary))}
           ${row('سعر اليوم / Daily Rate', fmt(c.dailyRate))}
+          ${row('ساعات الدوام اليومية / Daily Hours', String(record.daily_hours || 8))}
           ${row('سعر الساعة / Hourly Rate', fmt(c.hourlyRate))}
           ${row('المستحق الأساسي / Earned Base', fmt(c.earnedBase))}
           ${row('أيام إضافي / OT Days', String(record.overtime_days))}
@@ -756,14 +786,14 @@ export default function PayrollPage() {
 
     // ✅ الشيفتات المجدولة فعلياً لكل موظف هذا الشهر — لكي نحسب الغياب تلقائياً (شيفت مجدول ولم يُسجَّل له حضور)
     // بنفس منطق أدوات "كشف الغياب" و"فحص صحة الحضور" في صفحة الحضور والانصراف، بدون أي تدخل يدوي
-    async function fetchAllShiftSchedules(): Promise<{ employee_id: string; date: string; shift_id: string | null; custom_start: string | null }[]> {
+    async function fetchAllShiftSchedules(): Promise<{ employee_id: string; date: string; shift_id: string | null; custom_start: string | null; custom_end: string | null }[]> {
       if (empIds.length === 0) return []
       const PAGE_SIZE = 1000
-      let all: { employee_id: string; date: string; shift_id: string | null; custom_start: string | null }[] = []
+      let all: { employee_id: string; date: string; shift_id: string | null; custom_start: string | null; custom_end: string | null }[] = []
       let page = 0
       while (true) {
         const { data: batch } = await sb.from('shift_schedules')
-          .select('employee_id,date,shift_id,custom_start')
+          .select('employee_id,date,shift_id,custom_start,custom_end')
           .eq('status', 'confirmed')
           .gte('date', monthStart).lte('date', absenceCalcEnd)
           .in('employee_id', empIds)
@@ -777,7 +807,7 @@ export default function PayrollPage() {
       return all
     }
 
-    const [violRes, absRes, attendanceRows, scheduleRows] = await Promise.all([
+    const [violRes, absRes, attendanceRows, scheduleRows, shiftsRes] = await Promise.all([
       empIds.length > 0
         ? sb.from('violations').select('employee_id,amount').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
@@ -786,7 +816,29 @@ export default function PayrollPage() {
         : Promise.resolve({ data: [] }),
       fetchAllAttendanceRows(),
       fetchAllShiftSchedules(),
+      sb.from('shifts').select('id,start_time,end_time'),
     ])
+
+    // ✅ ساعات الدوام اليومية الفعلية لكل موظف هذا الشهر — من شيفته الغالب في shift_schedules
+    // (أو وقته المخصَّص custom_start/custom_end لو موجود)، بدل الرقم الثابت 8 لكل الموظفين
+    const shiftDurationMap: Record<string, number> = {}
+    for (const s of (shiftsRes.data || [])) {
+      if (s.start_time && s.end_time) shiftDurationMap[s.id] = shiftDurationHours(s.start_time, s.end_time)
+    }
+    const dailyHoursByEmp: Record<string, number[]> = {}
+    for (const s of scheduleRows) {
+      let hrs: number | null = null
+      if (s.custom_start && s.custom_end) hrs = shiftDurationHours(s.custom_start, s.custom_end)
+      else if (s.shift_id && shiftDurationMap[s.shift_id] != null) hrs = shiftDurationMap[s.shift_id]
+      if (hrs == null) continue
+      if (!dailyHoursByEmp[s.employee_id]) dailyHoursByEmp[s.employee_id] = []
+      dailyHoursByEmp[s.employee_id].push(hrs)
+    }
+    const dailyHoursMap: Record<string, number> = {}
+    for (const employeeId of Object.keys(dailyHoursByEmp)) {
+      const mode = modeValue(dailyHoursByEmp[employeeId])
+      if (mode != null) dailyHoursMap[employeeId] = mode
+    }
 
     // احسب خصم المخالفات والغياب لكل موظف
     const violMap: Record<string, number> = {}
@@ -907,6 +959,8 @@ export default function PayrollPage() {
         notes: noScheduleWarning,
         late_hours: lateHrs,
         early_exit_hours: earlyHrs,
+        // ✅ لو مفيش شيفت مسجَّل هذا الشهر بالذات، نبقي على آخر قيمة محفوظة (أو الافتراضي 8) بدل مسحها
+        daily_hours: dailyHoursMap[r.employee_id] || r.daily_hours || 8,
         deduction_1: violAmount,
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR)` : 'Violations',
         deduction_2: absAmount,
@@ -1601,6 +1655,7 @@ export default function PayrollPage() {
                     <div style={{ fontSize: 13, fontWeight: 800, color: S.green, marginBottom: 8 }}>💰 الاستحقاقات</div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>الراتب الأساسي</span><span>{fmt2(payslipRecord.basic_salary)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>سعر اليوم</span><span>{fmt2(c.dailyRate)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>ساعات الدوام اليومية</span><span>{payslipRecord.daily_hours || 8}h</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>سعر الساعة</span><span>{fmt2(c.hourlyRate)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>أيام/ساعات إضافي</span><span>{payslipRecord.overtime_days}d / {payslipRecord.overtime_hours}h</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>بدل إضافي</span><span>{fmt2(c.overtimePay)}</span></div>

@@ -32,6 +32,7 @@ type PayrollRecord = {
   allowance_2: number; allowance_2_label: string
   allowance_3: number; allowance_3_label: string
   absence_days: number; late_hours: number; early_exit_hours: number
+  daily_hours: number
   tax: number
   deduction_1: number; deduction_1_label: string
   deduction_2: number; deduction_2_label: string
@@ -45,7 +46,7 @@ type Employee = { id: string; name: string; name_en?: string; employee_number?: 
 
 function calcRecord(r: PayrollRecord) {
   const dailyRate   = r.basic_salary / (r.working_days || 30)
-  const hourlyRate  = dailyRate / 8
+  const hourlyRate  = dailyRate / (r.daily_hours || 8)
   const earnedBase  = dailyRate * r.days_worked
   const overtimePay = (dailyRate * r.overtime_days) + (hourlyRate * r.overtime_hours)
   const totalAllowances = r.allowance_1 + r.allowance_2 + r.allowance_3

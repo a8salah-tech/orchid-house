@@ -111,6 +111,7 @@ const TR: Record<Lang, Record<string, string>> = {
     follow_t: 'Did we make your evening special? 🌸', follow_s: 'Follow us & share your experience',
     act_rate: 'Rate us', act_follow: 'Follow', act_like: 'Like', act_review: 'Review', act_visit: 'Visit',
     gp_title: 'Enjoying your meal?', gp_sub: 'A quick Google review helps us a lot — it takes less than a minute.', gp_cta: '⭐ Rate us on Google', gp_later: 'Maybe later',
+    sg_title: 'Complete your meal?', sg_sub: 'Add something to go with your order', sg_skip: 'No thanks, continue', sg_add: 'Add {x} & continue',
   },
   ms: {
     lang_pick_title: 'Selamat Datang ke Orchid Group', lang_pick_sub: 'Sila pilih bahasa anda',
@@ -173,6 +174,7 @@ const TR: Record<Lang, Record<string, string>> = {
     follow_t: 'Adakah kami menjadikan malam anda istimewa? 🌸', follow_s: 'Ikuti kami & kongsi pengalaman anda',
     act_rate: 'Nilai kami', act_follow: 'Ikuti', act_like: 'Suka', act_review: 'Ulas', act_visit: 'Lawati',
     gp_title: 'Menikmati hidangan anda?', gp_sub: 'Ulasan Google yang ringkas sangat membantu kami — kurang seminit sahaja.', gp_cta: '⭐ Nilai kami di Google', gp_later: 'Mungkin nanti',
+    sg_title: 'Lengkapkan hidangan anda?', sg_sub: 'Tambah sesuatu untuk menemani pesanan anda', sg_skip: 'Tidak, terima kasih, teruskan', sg_add: 'Tambah {x} & teruskan',
   },
   ar: {
     lang_pick_title: 'أهلاً بكم في أوركيد جروب', lang_pick_sub: 'اختر لغتك',
@@ -235,6 +237,7 @@ const TR: Record<Lang, Record<string, string>> = {
     follow_t: 'هل جعلنا أمسيتك مميزة؟ 🌸', follow_s: 'تابعنا وشاركنا تجربتك',
     act_rate: 'قيّمنا', act_follow: 'تابع', act_like: 'أعجبني', act_review: 'راجعنا', act_visit: 'زيارة',
     gp_title: 'هل استمتعت بوجبتك؟', gp_sub: 'تقييم سريع على جوجل يساعدنا كثيراً ولا يستغرق أكثر من دقيقة.', gp_cta: '⭐ قيّمنا على جوجل', gp_later: 'لاحقاً',
+    sg_title: 'أكمل وجبتك؟', sg_sub: 'أضف شيئاً يناسب طلبك', sg_skip: 'لا، شكراً — تابع', sg_add: 'أضف {x} وتابع',
   },
   zh: {
     lang_pick_title: '欢迎光临兰花集团', lang_pick_sub: '请选择您的语言',
@@ -297,6 +300,7 @@ const TR: Record<Lang, Record<string, string>> = {
     follow_t: '我们让您的夜晚更加特别了吗？🌸', follow_s: '关注我们并分享您的体验',
     act_rate: '给我们评分', act_follow: '关注', act_like: '点赞', act_review: '评论', act_visit: '访问',
     gp_title: '用餐愉快吗？', gp_sub: '在 Google 上留下简短评价对我们帮助很大，只需不到一分钟。', gp_cta: '⭐ 在 Google 上评价我们', gp_later: '稍后再说',
+    sg_title: '要不要再来点？', sg_sub: '为您的订单再添一点搭配', sg_skip: '不用了，继续', sg_add: '添加 {x} 项并继续',
   },
   ru: {
     lang_pick_title: 'Добро пожаловать в Orchid Group', lang_pick_sub: 'Пожалуйста, выберите язык',
@@ -359,6 +363,7 @@ const TR: Record<Lang, Record<string, string>> = {
     follow_t: 'Мы сделали ваш вечер особенным? 🌸', follow_s: 'Подписывайтесь на нас и делитесь впечатлениями',
     act_rate: 'Оцените нас', act_follow: 'Подписаться', act_like: 'Нравится', act_review: 'Отзыв', act_visit: 'Посетить',
     gp_title: 'Понравилась еда?', gp_sub: 'Короткий отзыв в Google очень нам поможет — это займёт меньше минуты.', gp_cta: '⭐ Оцените нас в Google', gp_later: 'Может, позже',
+    sg_title: 'Дополнить заказ?', sg_sub: 'Добавьте что-нибудь к вашему заказу', sg_skip: 'Нет, спасибо, продолжить', sg_add: 'Добавить {x} и продолжить',
   },
 }
 // ✅ New: dish review — star rating (1-5) with an optional written comment and optional reviewer name
@@ -517,6 +522,15 @@ function CustomerMenuInner() {
   const [submitting, setSubmitting] = useState(false)
   // ✅ جديد: تأكيد وسيط قبل إرسال الطلب فعليًا - يوضّح للعميل أن الطلب سيُرسَل مباشرة للمطبخ فور الموافقة
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  // ✅ اقتراحات "أكمل وجبتك" قبل تأكيد أول طلب: القائمة تجي من /api/menu-suggestions (تلقائية من المبيعات)
+  const [suggestions, setSuggestions] = useState<{ starters: string[]; drinks: string[]; addons: string[]; desserts: string[]; bread: string | null } | null>(null)
+  const [showSuggest, setShowSuggest] = useState(false)
+  const [suggestList, setSuggestList] = useState<MenuItem[]>([])
+  const [suggestPicked, setSuggestPicked] = useState<Set<string>>(new Set())
+  const suggestShownRef = useRef(false)
+  useEffect(() => {
+    fetch('/api/menu-suggestions').then(r => r.json()).then(setSuggestions).catch(() => {})
+  }, [])
   const [orderNumber, setOrderNumber] = useState('')
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null)
   // ✅ New: Orchid Rewards system - customer enters just their mobile number (no password); if already registered they see their points,
@@ -682,6 +696,48 @@ const filteredItems = items
   useEffect(() => {
     if (activeCat !== 'all' && !visibleCategoryIds.has(activeCat)) setActiveCat('all')
   }, [activeCat, visibleCategoryIds])
+
+  // ✅ يختار حتى 5 اقتراحات مناسبة للسلة: بطاطس/مقبلة، مشروب (لو مفيش مشروب في السلة)، إضافة، خبز، حلوى —
+  // بدون أي صنف موجود في السلة أو خارج التوفر/الأقسام المتاحة الآن أو له أحجام
+  function buildSuggestions(): MenuItem[] {
+    if (!suggestions) return []
+    const inCart = new Set(cart.map(c => c.item.id))
+    const byId = new Map(items.map(i => [i.id, i]))
+    const pick = (ids: string[]): MenuItem | null => {
+      for (const id of ids) {
+        const it = byId.get(id)
+        if (it && !inCart.has(id) && visibleCategoryIds.has(it.category_id) && !(it.sizes || []).some(s => s.is_active)) return it
+      }
+      return null
+    }
+    const hasDrink = cart.some(c => categories.find(k => k.id === c.item.category_id)?.destination === 'bar')
+    return [
+      pick(suggestions.starters),
+      hasDrink ? null : pick(suggestions.drinks),
+      pick(suggestions.addons),
+      suggestions.bread ? pick([suggestions.bread]) : null,
+      pick(suggestions.desserts),
+    ].filter((x): x is MenuItem => !!x)
+  }
+  // ✅ زر "تأكيد الطلب" في السلة: أول طلب للطاولة يعرض الاقتراحات مرة واحدة، وبعدها التأكيد الوسيط المعتاد
+  function startConfirm() {
+    if (!confirmedOrderId && !suggestShownRef.current) {
+      const list = buildSuggestions()
+      if (list.length > 0) {
+        suggestShownRef.current = true
+        setSuggestList(list)
+        setSuggestPicked(new Set())
+        setShowSuggest(true)
+        return
+      }
+    }
+    setShowConfirmDialog(true)
+  }
+  function finishSuggest(add: boolean) {
+    if (add) suggestList.filter(i => suggestPicked.has(i.id)).forEach(i => addToCart(i, null))
+    setShowSuggest(false)
+    setShowConfirmDialog(true)
+  }
 
   function addToCart(item: MenuItem, size?: { id: string; name: string; name_en: string; price: number } | null) {
     setCart(p => {
@@ -1638,11 +1694,48 @@ const filteredItems = items
           </div>
           )
         })}
-        <button onClick={() => setShowConfirmDialog(true)} disabled={submitting}
+        <button onClick={startConfirm} disabled={submitting}
           style={{ width:'100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'17px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight:900, fontSize:16, color:C.white, boxShadow: submitting ? 'none' : `0 8px 32px ${C.glow2}` }}>
           {submitting ? t('placing_order') : t('confirm_order', cartCount)}
         </button>
       </div>
+      {showSuggest && (
+        <div style={{ position:'fixed', inset:0, zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.6)' }} onClick={() => setShowSuggest(false)} />
+          <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:'24px 24px 0 0', padding:'22px 18px 18px', width:'100%', maxWidth:520, maxHeight:'88dvh', overflowY:'auto', border:`1px solid ${C.border2}` }}>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:18, fontWeight:900, color:C.white, marginBottom:4, textAlign:'center' }}>{t('sg_title')}</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:12.5, color:C.silver2, marginBottom:16, textAlign:'center' }}>{t('sg_sub')}</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:16 }}>
+              {suggestList.map(it => {
+                const picked = suggestPicked.has(it.id)
+                return (
+                  <div key={it.id} style={{ display:'flex', alignItems:'center', gap:12, background:picked ? 'rgba(0,200,200,.10)' : 'rgba(255,255,255,.03)', border:`1px solid ${picked ? C.blue1 : C.border}`, borderRadius:16, padding:10 }}>
+                    {it.image_url && <img src={it.image_url} alt={it.name_en} style={{ width:52, height:52, borderRadius:12, objectFit:'cover', flexShrink:0 }} />}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div className={isRtl ? 'ar-text' : ''} style={{ fontWeight:800, fontSize:14, color:C.white }}>{dishName(it.name, it.name_en, it.name_ms, it.name_zh, it.name_ru)}</div>
+                      <div style={{ fontSize:12.5, color:C.blue2, fontWeight:700, marginTop:2 }}>MYR {it.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    </div>
+                    <button onClick={() => setSuggestPicked(prev => { const n = new Set(prev); if (n.has(it.id)) n.delete(it.id); else n.add(it.id); return n })}
+                      style={{ width:38, height:38, borderRadius:'50%', border:'none', flexShrink:0, cursor:'pointer', fontSize:20, fontWeight:700, color:C.white, background: picked ? '#16A34A' : `linear-gradient(135deg,${C.blue1},${C.blue2})` }}>
+                      {picked ? '✓' : '+'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            {suggestPicked.size > 0 && (
+              <button onClick={() => finishSuggest(true)}
+                style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'14px', cursor:'pointer', fontWeight:900, fontSize:15, color:C.white, marginBottom:8, boxShadow:`0 8px 24px ${C.glow2}` }}>
+                {t('sg_add', suggestPicked.size)}
+              </button>
+            )}
+            <button onClick={() => finishSuggest(false)}
+              style={{ width:'100%', background:'rgba(255,255,255,.06)', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:800, fontSize:14, color:C.silver2 }}>
+              {t('sg_skip')}
+            </button>
+          </div>
+        </div>
+      )}
       {/* ✅ جديد: تأكيد وسيط قبل إرسال الطلب فعليًا - يوضّح للعميل أن الطلب هيروح للمطبخ مباشرة،
           وبيدّيله فرصة يتراجع ويرجع لنفس السلة من غير ما يتلغي أي حاجة */}
       {showConfirmDialog && (

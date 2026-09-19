@@ -110,6 +110,7 @@ const TR: Record<Lang, Record<string, string>> = {
     game_fun_note: '🎉 Just for fun — not a real payment decision!', game_need_phone: 'Please enter a mobile number to play',
     follow_t: 'Did we make your evening special? 🌸', follow_s: 'Follow us & share your experience',
     act_rate: 'Rate us', act_follow: 'Follow', act_like: 'Like', act_review: 'Review', act_visit: 'Visit',
+    gp_title: 'Enjoying your meal?', gp_sub: 'A quick Google review helps us a lot — it takes less than a minute.', gp_cta: '⭐ Rate us on Google', gp_later: 'Maybe later',
   },
   ms: {
     lang_pick_title: 'Selamat Datang ke Orchid Group', lang_pick_sub: 'Sila pilih bahasa anda',
@@ -171,6 +172,7 @@ const TR: Record<Lang, Record<string, string>> = {
     game_fun_note: '🎉 Sekadar seronok — bukan keputusan pembayaran sebenar!', game_need_phone: 'Sila masukkan nombor telefon untuk bermain',
     follow_t: 'Adakah kami menjadikan malam anda istimewa? 🌸', follow_s: 'Ikuti kami & kongsi pengalaman anda',
     act_rate: 'Nilai kami', act_follow: 'Ikuti', act_like: 'Suka', act_review: 'Ulas', act_visit: 'Lawati',
+    gp_title: 'Menikmati hidangan anda?', gp_sub: 'Ulasan Google yang ringkas sangat membantu kami — kurang seminit sahaja.', gp_cta: '⭐ Nilai kami di Google', gp_later: 'Mungkin nanti',
   },
   ar: {
     lang_pick_title: 'أهلاً بكم في أوركيد جروب', lang_pick_sub: 'اختر لغتك',
@@ -232,6 +234,7 @@ const TR: Record<Lang, Record<string, string>> = {
     game_fun_note: '🎉 للمتعة فقط — ليست وسيلة لتحديد من يدفع فعلاً!', game_need_phone: 'يرجى إدخال رقم جوال للعب',
     follow_t: 'هل جعلنا أمسيتك مميزة؟ 🌸', follow_s: 'تابعنا وشاركنا تجربتك',
     act_rate: 'قيّمنا', act_follow: 'تابع', act_like: 'أعجبني', act_review: 'راجعنا', act_visit: 'زيارة',
+    gp_title: 'هل استمتعت بوجبتك؟', gp_sub: 'تقييم سريع على جوجل يساعدنا كثيراً ولا يستغرق أكثر من دقيقة.', gp_cta: '⭐ قيّمنا على جوجل', gp_later: 'لاحقاً',
   },
   zh: {
     lang_pick_title: '欢迎光临兰花集团', lang_pick_sub: '请选择您的语言',
@@ -293,6 +296,7 @@ const TR: Record<Lang, Record<string, string>> = {
     game_fun_note: '🎉 仅供娱乐 — 并非真实付款决定！', game_need_phone: '请输入手机号码以开始游戏',
     follow_t: '我们让您的夜晚更加特别了吗？🌸', follow_s: '关注我们并分享您的体验',
     act_rate: '给我们评分', act_follow: '关注', act_like: '点赞', act_review: '评论', act_visit: '访问',
+    gp_title: '用餐愉快吗？', gp_sub: '在 Google 上留下简短评价对我们帮助很大，只需不到一分钟。', gp_cta: '⭐ 在 Google 上评价我们', gp_later: '稍后再说',
   },
   ru: {
     lang_pick_title: 'Добро пожаловать в Orchid Group', lang_pick_sub: 'Пожалуйста, выберите язык',
@@ -354,6 +358,7 @@ const TR: Record<Lang, Record<string, string>> = {
     game_fun_note: '🎉 Просто ради развлечения — не настоящее решение об оплате!', game_need_phone: 'Введите номер телефона, чтобы играть',
     follow_t: 'Мы сделали ваш вечер особенным? 🌸', follow_s: 'Подписывайтесь на нас и делитесь впечатлениями',
     act_rate: 'Оцените нас', act_follow: 'Подписаться', act_like: 'Нравится', act_review: 'Отзыв', act_visit: 'Посетить',
+    gp_title: 'Понравилась еда?', gp_sub: 'Короткий отзыв в Google очень нам поможет — это займёт меньше минуты.', gp_cta: '⭐ Оцените нас в Google', gp_later: 'Может, позже',
   },
 }
 // ✅ New: dish review — star rating (1-5) with an optional written comment and optional reviewer name
@@ -379,7 +384,90 @@ function isCategoryAvailableNow(cat: Category): boolean {
   return true
 }
 
+const GOOGLE_REVIEW_URL = 'https://search.google.com/local/writereview?placeid=ChIJlZREt0M3zDERG_6CtesaFGk'
+const GOOGLE_PROMPT_DELAY_MS = 15 * 60 * 1000
+const GOOGLE_PROMPT_REPEAT_MS = 30 * 24 * 60 * 60 * 1000
+const GOOGLE_PROMPT_MAX_ANCHOR_AGE_MS = 6 * 60 * 60 * 1000
+const GOOGLE_ANCHOR_KEY = 'orchid_google_anchor'
+const GOOGLE_STATE_KEY = 'orchid_google_prompt'
+
+function saveGoogleAnchor(orderId: string, at: number) {
+  try {
+    const cur = JSON.parse(localStorage.getItem(GOOGLE_ANCHOR_KEY) || 'null')
+    if (cur?.orderId === orderId) return
+    localStorage.setItem(GOOGLE_ANCHOR_KEY, JSON.stringify({ orderId, at }))
+  } catch {}
+}
+
+// ✅ بعد 15 دقيقة من أول طلب: دعوة لتقييم المطعم على جوجل (تُلغى لو الطلب أُلغي، ومرة كل 30 يوماً لنفس الجهاز، وتتوقف نهائياً بعد الضغط على "قيّمنا")
+function GoogleReviewPrompt() {
+  const sbRef = useRef(createClient())
+  const [show, setShow] = useState(false)
+  const [lang, setLang] = useState<Lang>('en')
+
+  useEffect(() => {
+    let done = false
+    async function check() {
+      if (done) return
+      try {
+        const anchor = JSON.parse(localStorage.getItem(GOOGLE_ANCHOR_KEY) || 'null')
+        if (!anchor?.orderId || !anchor.at) return
+        const age = Date.now() - anchor.at
+        if (age < GOOGLE_PROMPT_DELAY_MS) return
+        if (age > GOOGLE_PROMPT_MAX_ANCHOR_AGE_MS) { done = true; return }
+        const st = JSON.parse(localStorage.getItem(GOOGLE_STATE_KEY) || 'null')
+        if (st?.rated) { done = true; return }
+        if (st?.dismissedAt && Date.now() - st.dismissedAt < GOOGLE_PROMPT_REPEAT_MS) { done = true; return }
+        done = true
+        const { data, error } = await sbRef.current.from('orders').select('status').eq('id', anchor.orderId).maybeSingle()
+        if (error) { done = false; return }
+        if (!data || data.status === 'cancelled') return
+        const saved = localStorage.getItem('orchid_menu_lang') as Lang | null
+        if (saved && TR[saved]) setLang(saved)
+        setShow(true)
+      } catch {}
+    }
+    check()
+    const id = setInterval(check, 30000)
+    const onVis = () => { if (document.visibilityState === 'visible') check() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { done = true; clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
+  }, [])
+
+  if (!show) return null
+  const tr = (k: string) => TR[lang][k] || TR.en[k]
+  const finish = (patch: Record<string, unknown>) => {
+    try { localStorage.setItem(GOOGLE_STATE_KEY, JSON.stringify(patch)); localStorage.removeItem(GOOGLE_ANCHOR_KEY) } catch {}
+    setShow(false)
+  }
+  return (
+    <div dir={lang === 'ar' ? 'rtl' : 'ltr'} style={{ position:'fixed', left:0, right:0, bottom:0, zIndex:9999, padding:'0 12px 12px', display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+      <div style={{ pointerEvents:'auto', width:'100%', maxWidth:420, background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:20, padding:'18px 18px 14px', boxShadow:'0 10px 40px rgba(0,0,0,.28)', textAlign:'center' }}>
+        <div style={{ fontSize:16, fontWeight:900, color:C.white, marginBottom:4 }}>{tr('gp_title')}</div>
+        <div style={{ fontSize:12.5, color:C.silver2, lineHeight:1.6, marginBottom:14 }}>{tr('gp_sub')}</div>
+        <a href={GOOGLE_REVIEW_URL} target="_blank" rel="noopener noreferrer" onClick={() => finish({ rated: true })}
+          style={{ display:'block', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius:14, padding:'12px', color:C.white, fontWeight:800, fontSize:14, textDecoration:'none', marginBottom:8 }}>
+          {tr('gp_cta')}
+        </a>
+        <button onClick={() => finish({ dismissedAt: Date.now() })}
+          style={{ background:'none', border:'none', color:C.silver2, fontSize:12.5, cursor:'pointer', padding:'6px 10px', fontFamily:'inherit' }}>
+          {tr('gp_later')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function CustomerMenuPage() {
+  return (
+    <>
+      <CustomerMenuInner />
+      <GoogleReviewPrompt />
+    </>
+  )
+}
+
+function CustomerMenuInner() {
   const params  = useParams()
   const tableId = params?.tableId as string
   const sbRef   = useRef(createClient())
@@ -547,7 +635,7 @@ export default function CustomerMenuPage() {
       // ✅ If the table already has an active order (not yet closed at the cashier), show the "Confirmed" screen directly
       // instead of the menu from scratch - the order stays visible to the customer as long as the table is open, even if they close and reopen the page
       const { data: existingOrders } = await sb.from('orders')
-        .select('id').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
+        .select('id, created_at').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
         .order('created_at', { ascending: false }).limit(1)
       const existing = existingOrders?.[0]
 
@@ -558,6 +646,7 @@ export default function CustomerMenuPage() {
 
       if (existing) {
         setConfirmedOrderId(existing.id)
+        saveGoogleAnchor(existing.id, new Date(existing.created_at).getTime())
         setOrderNumber(existing.id.slice(-6).toUpperCase())
         await fetchLiveOrderItems(existing.id)
         setPhase('done')
@@ -853,6 +942,7 @@ const filteredItems = items
       orderId = data.orderId
       setOrderNumber(data.orderNumber || orderId.slice(-6).toUpperCase())
       setConfirmedOrderId(orderId)
+      saveGoogleAnchor(orderId, Date.now())
       // ✅ الكارت يتفرغ بعد نجاح الطلب فقط
       setCart([])
       // ✅ البنود المتراكمة كاملة تجي من رد المسار مباشرة؛ وإلا نقرأها كالمعتاد

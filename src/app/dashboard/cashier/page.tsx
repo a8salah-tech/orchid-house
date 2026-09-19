@@ -503,6 +503,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const [moveSelectedIds, setMoveSelectedIds] = useState<Set<string>>(new Set())
   const [moveDestTableId, setMoveDestTableId] = useState('')
   const [movingItems, setMovingItems] = useState(false)
+  // ✅ الكمية المطلوب نقلها لكل صنف (الافتراضي = الكمية كاملة) — تسمح بنقل 1 من صنف كميته 2 مثلاً
+  const [moveQtyById, setMoveQtyById] = useState<Record<string, number>>({})
 
   async function moveSelectedItemsToTable() {
     if (moveSelectedIds.size === 0 || !moveDestTableId) return
@@ -538,8 +540,21 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
       const item = order.order_items.find(i => i.id === itemId)
       const moveNote = `📤 نُقل من ${sourceTableLabel} بواسطة ${fullName}`
       const combinedNotes = item?.notes ? `${item.notes} — ${moveNote}` : moveNote
-      const { error: moveItemError } = await sb.from('order_items').update({ order_id: destOrderId, notes: combinedNotes }).eq('id', itemId)
-      if (moveItemError) throw new Error('Failed to move item: ' + moveItemError.message)
+      const moveQty = item ? Math.min(Math.max(1, moveQtyById[itemId] ?? item.quantity), item.quantity) : 0
+      if (item && moveQty < item.quantity) {
+        // نقل جزئي: نقسم السطر — سطر جديد بالكمية المنقولة في الطلب الوجهة، ونقلّل كمية السطر الأصلي
+        const { data: originalItem, error: readItemError } = await sb.from('order_items').select('*').eq('id', itemId).maybeSingle()
+        if (readItemError || !originalItem) throw new Error('Failed to read item: ' + (readItemError?.message || 'not found'))
+        const rest: Record<string, unknown> = { ...(originalItem as Record<string, unknown>) }
+        delete rest.id
+        const { error: insertItemError } = await sb.from('order_items').insert([{ ...rest, order_id: destOrderId, quantity: moveQty, notes: combinedNotes }])
+        if (insertItemError) throw new Error('Failed to move item: ' + insertItemError.message)
+        const { error: reduceItemError } = await sb.from('order_items').update({ quantity: item.quantity - moveQty }).eq('id', itemId)
+        if (reduceItemError) throw new Error('Failed to reduce source item: ' + reduceItemError.message)
+      } else {
+        const { error: moveItemError } = await sb.from('order_items').update({ order_id: destOrderId, notes: combinedNotes }).eq('id', itemId)
+        if (moveItemError) throw new Error('Failed to move item: ' + moveItemError.message)
+      }
     }
 
     // ✅ إعادة حساب إجمالي الطلبين (المصدر والوجهة) بعد النقل
@@ -564,6 +579,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
 
     setShowMoveItems(false)
     setMoveSelectedIds(new Set())
+    setMoveQtyById({})
     setMoveDestTableId('')
     onPaid() // نعيد تحميل البيانات وإغلاق المودال، بنفس أثر إتمام أي عملية
     } catch (err: any) {
@@ -1429,15 +1445,33 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
             <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 10 }}>📤 اختر الأصناف المطلوب نقلها، ثم حدد الطاولة الوجهة</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
               {order.order_items.filter(i => i.status !== 'cancelled').map(item => (
-                <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={moveSelectedIds.has(item.id)}
-                    onChange={e => setMoveSelectedIds(prev => {
-                      const next = new Set(prev)
-                      if (e.target.checked) next.add(item.id); else next.delete(item.id)
-                      return next
-                    })} />
-                  <span style={{ fontSize: 12, color: S.white }}>{item.menu_items?.name_en || item.menu_items?.name || '⚠️ Removed Item'} ×{item.quantity} — MYR {(item.unit_price * item.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </label>
+                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                    <input type="checkbox" checked={moveSelectedIds.has(item.id)}
+                      onChange={e => {
+                        setMoveSelectedIds(prev => {
+                          const next = new Set(prev)
+                          if (e.target.checked) next.add(item.id); else next.delete(item.id)
+                          return next
+                        })
+                        setMoveQtyById(prev => ({ ...prev, [item.id]: item.quantity }))
+                      }} />
+                    <span style={{ fontSize: 12, color: S.white }}>{item.menu_items?.name_en || item.menu_items?.name || '⚠️ Removed Item'} ×{item.quantity} — MYR {(item.unit_price * item.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </label>
+                  {/* ✅ لو الكمية أكتر من 1 نقدر نختار كام قطعة ننقل بدل ما ننقل الكمية كاملة */}
+                  {moveSelectedIds.has(item.id) && item.quantity > 1 && (() => {
+                    const q = moveQtyById[item.id] ?? item.quantity
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button type="button" onClick={() => setMoveQtyById(prev => ({ ...prev, [item.id]: Math.max(1, q - 1) }))}
+                          style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 14 }}>−</button>
+                        <span style={{ color: S.amber, fontWeight: 800, fontSize: 13, minWidth: 34, textAlign: 'center' }}>{q}/{item.quantity}</span>
+                        <button type="button" onClick={() => setMoveQtyById(prev => ({ ...prev, [item.id]: Math.min(item.quantity, q + 1) }))}
+                          style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 14 }}>+</button>
+                      </div>
+                    )
+                  })()}
+                </div>
               ))}
             </div>
             <select value={moveDestTableId} onChange={e => setMoveDestTableId(e.target.value)}

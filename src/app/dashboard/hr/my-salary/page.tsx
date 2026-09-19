@@ -189,9 +189,10 @@ export default function MySalaryPage() {
 
       const peerRows = (records || []) as { employee_id: string; late_hours: number; early_hours: number; absence_days: number; has_deduction_2: boolean }[]
       const scored = peerRows.map((r) => {
-        // ✅ نفس معادلة "دور استلام المرتب" بالظبط: خصم التأخير + الانصراف المبكر (×3) + الغياب (×15) + خصم غياب
+        // ✅ نفس معادلة "دور استلام المرتب" بالظبط: خصم التأخير + الانصراف المبكر (×3) + كل يوم غياب (×15)
+        // (absence_days هنا تشمل الغياب التلقائي المحسوب من الشيفتات — تجمعه الدالة في قاعدة البيانات)
         const attendanceScore = employeesWithAnyAttendance.has(r.employee_id)
-          ? Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.early_hours || 0) * 3 - (r.absence_days || 0) * 15 - (r.has_deduction_2 ? 10 : 0))
+          ? Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.early_hours || 0) * 3 - (r.absence_days || 0) * 15)
           : 0
         // ✅ بلا تقييم معتمد = لا درجة افتراضية؛ الإجمالي = الانضباط، ويترتّب تحت كل من عنده تقييم
         const hasEval = r.employee_id in latestEvalByEmp

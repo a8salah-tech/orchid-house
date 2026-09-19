@@ -36,7 +36,7 @@ type RankedEmployee = {
   employee_id: string; name: string; role: string; department?: string | null
   employee_number?: string | null
   // ✅ جديد: ساعات الخروج المبكر - تُعرض بجانب التأخير (نفس مصدر البيانات المستخدم في صفحة الرواتب)
-  lateHours: number; earlyHours: number; absenceDays: number; hasAbsenceDeduction: boolean; hasAttended: boolean
+  lateHours: number; earlyHours: number; absenceDays: number; hasAttended: boolean
   attendanceScore: number; evalScore: number | null; hasEval: boolean; combined: number
 }
 
@@ -92,7 +92,7 @@ export default function PickupOrderPage() {
       const monthEnd = new Date(Date.UTC(selectedMonth.year, selectedMonth.month, 0)).toISOString().split('T')[0]
 
       const [{ data: records }, { data: evalsData }, { data: attData }] = await Promise.all([
-        sb.from('payroll_records').select('employee_id, late_hours, early_exit_hours, absence_days, deduction_2')
+        sb.from('payroll_records').select('employee_id, late_hours, early_exit_hours, absence_days, deduction_2_label')
           .eq('payroll_month_id', selectedMonth.id)
           .in('employee_id', empIds),
         sb.from('employee_evaluations').select('employee_id, total_score, month, year')
@@ -121,13 +121,15 @@ export default function PickupOrderPage() {
         .map(r => {
           const lateHours = r.late_hours || 0
           const earlyHours = r.early_exit_hours || 0
-          const absenceDays = r.absence_days || 0
-          const hasAbsenceDeduction = (r.deduction_2 || 0) > 0
+          // ✅ الغياب الحقيقي المحسوب تلقائياً من الشيفتات المجدولة مخزَّن كنص داخل deduction_2_label
+          // ("غياب بدون عذر (X يوم)")، وحقل absence_days يدوي نادراً ما يُملأ — نجمع الاثنين
+          const autoAbsentDays = parseInt((r.deduction_2_label || '').match(/(\d+)\s*يوم/)?.[1] || '0', 10)
+          const absenceDays = (r.absence_days || 0) + autoAbsentDays
           const hasAttended = employeesWithAnyAttendance.has(r.employee_id)
           // ✅ بدون أي بصمة حضور فعلية هذا الشهر، مفيش أساس نحسب عليه انضباط حضور - نعتبرها صفر، مش 100%
-          // ✅ الانصراف المبكر يُخصم مثل التأخير تمامًا (×3)
+          // ✅ الانصراف المبكر يُخصم مثل التأخير تمامًا (×3)، وكل يوم غياب يُخصم 15 نقطة
           const attendanceScore = hasAttended
-            ? Math.max(0, 100 - lateHours * 3 - earlyHours * 3 - absenceDays * 15 - (hasAbsenceDeduction ? 10 : 0))
+            ? Math.max(0, 100 - lateHours * 3 - earlyHours * 3 - absenceDays * 15)
             : 0
           const hasEval = r.employee_id in latestEvalByEmp
           // ✅ بلا تقييم = لا درجة افتراضية؛ الإجمالي = الانضباط فقط، ويترتّب تحت كل من عنده تقييم
@@ -139,7 +141,7 @@ export default function PickupOrderPage() {
           return {
             employee_id: r.employee_id, name: getFullName(emp), role: emp?.role || '',
             department: emp?.department, employee_number: emp?.employee_number,
-            lateHours, earlyHours, absenceDays, hasAbsenceDeduction, hasAttended, attendanceScore, evalScore, hasEval, combined,
+            lateHours, earlyHours, absenceDays, hasAttended, attendanceScore, evalScore, hasEval, combined,
           }
         })
       // ✅ من عنده تقييم أولاً (مرتّبين بالإجمالي)، ثم من بلا تقييم (مرتّبين بالانضباط)
@@ -165,6 +167,7 @@ export default function PickupOrderPage() {
         <td>${r.employee_number || '—'}</td>
         <td>${r.department || '—'}</td>
         <td>${r.hasAttended ? r.attendanceScore.toFixed(0) : 'لا يوجد بصمة حضور'}</td>
+        <td>${r.absenceDays > 0 ? r.absenceDays + ' يوم' : '0'}</td>
         <td>${r.hasEval ? (r.evalScore as number).toFixed(0) : 'لا يوجد تقييم'}</td>
         <td>${r.combined.toFixed(1)}</td>
       </tr>`).join('')
@@ -185,7 +188,7 @@ export default function PickupOrderPage() {
     <h2>🌸 Orchid House — دور استلام الرواتب نقداً</h2>
     <h3>${selectedBranch.name} · ${monthLabel} · ${ranked.length} موظف</h3>
     <table>
-      <thead><tr><th>الدور</th><th>الاسم</th><th>الرقم الوظيفي</th><th>القسم</th><th>نسبة الالتزام بالحضور</th><th>تقييم الأداء</th><th>الدرجة الإجمالية</th></tr></thead>
+      <thead><tr><th>الدور</th><th>الاسم</th><th>الرقم الوظيفي</th><th>القسم</th><th>نسبة الالتزام بالحضور</th><th>أيام الغياب</th><th>تقييم الأداء</th><th>الدرجة الإجمالية</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:24px;display:flex;justify-content:space-between;font-size:11px;color:#666">
@@ -249,12 +252,12 @@ export default function PickupOrderPage() {
             <span style={{ fontSize: 12, color: S.muted }}>{ranked.length} {isAr ? 'موظف' : 'employees'}</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
               <thead>
                 <tr style={{ background: S.navy3 }}>
                   {[
                     isAr ? 'الدور' : 'Order', isAr ? 'الموظف' : 'Employee', isAr ? 'القسم' : 'Department',
-                    isAr ? 'نسبة الالتزام بالحضور' : 'Attendance Score', isAr ? 'تقييم الأداء' : 'Evaluation',
+                    isAr ? 'نسبة الالتزام بالحضور' : 'Attendance Score', isAr ? 'أيام الغياب' : 'Absent Days', isAr ? 'تقييم الأداء' : 'Evaluation',
                     isAr ? 'الدرجة الإجمالية' : 'Combined Score',
                   ].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, whiteSpace: 'nowrap' }}>{h}</th>
@@ -290,6 +293,11 @@ export default function PickupOrderPage() {
                         // بدل ما نعرض "0" مجردة ممكن تتفهم غلط، أو الأسوأ لو كانت بتتحسب زي قبل الإصلاح (100%)
                         <span style={{ fontSize: 11, color: S.red, fontWeight: 700 }}>🚫 {isAr ? 'لا يوجد بصمة حضور' : 'No attendance recorded'}</span>
                       )}
+                    </td>
+                    <td style={{ padding: '14px 16px' }}>
+                      {r.absenceDays > 0
+                        ? <span style={{ fontSize: 13, fontWeight: 700, color: S.red }}>{r.absenceDays} {isAr ? 'يوم' : (r.absenceDays === 1 ? 'day' : 'days')}</span>
+                        : <span style={{ fontSize: 13, color: S.muted }}>0</span>}
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       {r.hasEval

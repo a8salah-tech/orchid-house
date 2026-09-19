@@ -499,7 +499,7 @@ function CustomerMenuInner() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem('orchid_menu_lang') as Lang | null
-      if (saved && (saved === 'ms' || saved === 'en' || saved === 'ar')) {
+      if (saved && TR[saved]) {
         setLangState(saved)
         setPhase(p => (p === 'language' ? 'welcome' : p))
       }

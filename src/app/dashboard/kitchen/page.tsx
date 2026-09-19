@@ -127,10 +127,10 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   // ✅ جديد: نجيب اسم الموظف الحالي عشان نسجّله كـ"مين نفّذ العملية"
-  const { employee } = useAuth()
+  const { employee, permissions } = useAuth()
   const actorName = employee?.name || employee?.name_en || 'Unknown'
-  // ✅ شاشة المطبخ (آيباد الكيوسك) ممنوعة من إلغاء الأصناف — إرجاع/استبدال فقط
-  const isKitchenDisplay = employee?.role === 'kitchen_display'
+  // ✅ الإلغاء للأدمن والمشرف العام فقط — باقي الأدوار (وشاشة المطبخ) إرجاع/استبدال فقط
+  const canCancel = permissions?.all === true || employee?.role === 'general_supervisor'
   const [action, setAction] = useState<'return' | 'cancel' | 'replace' | null>(null)
   const [qty, setQty] = useState(item.quantity)
   const [reason, setReason] = useState('')
@@ -141,7 +141,7 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
 
   async function confirm() {
     if (!action) return
-    if (isKitchenDisplay && action === 'cancel') return
+    if (!canCancel && action === 'cancel') return
     setSaving(true)
     // ✅ Fix: السبب كان بيفضل في ذاكرة المتصفح بس، ميتحفظش في قاعدة البيانات خالص - فيختفي بمجرد ما حد يقفل الصفحة
     // أو يفتحها من جهاز تاني. دلوقتي بنحفظه فعليًا في عمود cancel_reason (بغض النظر عن الحالة النهائية)
@@ -194,10 +194,10 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
           </button>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${isKitchenDisplay ? 2 : 3},1fr)`, gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${canCancel ? 3 : 2},1fr)`, gap: 10, marginBottom: 20 }}>
           {[
             { k: 'return', label: '↩️ Return', color: S.amber },
-            ...(isKitchenDisplay ? [] : [{ k: 'cancel', label: '❌ Cancel', color: S.red }]),
+            ...(canCancel ? [{ k: 'cancel', label: '❌ Cancel', color: S.red }] : []),
             { k: 'replace', label: '🔄 Replace', color: S.blue },
           ].map(a => (
             <button key={a.k} onClick={() => setAction(a.k as any)}

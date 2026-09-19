@@ -121,8 +121,10 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   // ✅ جديد: نجيب اسم الموظف الحالي عشان نسجّله كـ"مين نفّذ العملية"
-  const { employee } = useAuth()
+  const { employee, permissions } = useAuth()
   const actorName = employee?.name || employee?.name_en || 'Unknown'
+  // ✅ الإلغاء للأدمن والمشرف العام فقط
+  const canCancel = permissions?.all === true || employee?.role === 'general_supervisor'
   const [action, setAction] = useState<'return' | 'cancel' | 'replace' | null>(null)
   const [qty, setQty] = useState(item.quantity)
   const [reason, setReason] = useState('')
@@ -133,6 +135,7 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
 
   async function confirm() {
     if (!action) return
+    if (!canCancel && action === 'cancel') return
     setSaving(true)
     // ✅ Fix: السبب كان بيفضل في ذاكرة المتصفح بس، ميتحفظش في قاعدة البيانات خالص - فيختفي بمجرد ما حد يقفل الصفحة
     // أو يفتحها من جهاز تاني. دلوقتي بنحفظه فعليًا في عمود cancel_reason (بغض النظر عن الحالة النهائية)
@@ -185,10 +188,10 @@ function ItemActionModal({ item, orderId, onClose, onDone }: {
           </button>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${canCancel ? 3 : 2},1fr)`, gap: 10, marginBottom: 20 }}>
           {[
             { k: 'return', label: '↩️ Return', color: S.amber },
-            { k: 'cancel', label: '❌ Cancel', color: S.red },
+            ...(canCancel ? [{ k: 'cancel', label: '❌ Cancel', color: S.red }] : []),
             { k: 'replace', label: '🔄 Replace', color: S.blue },
           ].map(a => (
             <button key={a.k} onClick={() => setAction(a.k as any)}

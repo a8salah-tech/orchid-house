@@ -2826,7 +2826,7 @@ export default function CashierPage() {
   }
 
   async function doCancelOrder() {
-    if (!cancelOrderTarget || !cancelReason.trim()) return
+    if (!isAdmin || !cancelOrderTarget || !cancelReason.trim()) return
     setCancelSaving(true)
     const { data: cancelledOrders } = await sb.from('orders').update({ status: 'cancelled', cancel_reason: cancelReason.trim() })
       .eq('table_id', cancelOrderTarget.table_id).in('status', ['confirmed', 'preparing', 'ready']).select('id')
@@ -2847,7 +2847,7 @@ export default function CashierPage() {
   }
 
   async function doCancelItem() {
-    if (!cancelItemTarget || !cancelReason.trim()) return
+    if (!isAdmin || !cancelItemTarget || !cancelReason.trim()) return
     setCancelSaving(true)
     // ✅ Fix: لو الكمية المطلوب إلغاؤها أقل من إجمالي الصنف، نقسم السطر بدل ما نلغي الكل
     if (cancelItemQty < cancelItemTarget.totalQty) {
@@ -3759,9 +3759,12 @@ export default function CashierPage() {
                                       <button onClick={() => openChargeToEmployee(order.id, i.id, i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item', i.unit_price, i.quantity)}
                                         title="Charge this item to an employee"
                                         style={{ background: 'transparent', border: `1px solid ${S.amber}`, borderRadius: 6, color: S.amber, cursor: 'pointer', fontSize: 10, padding: '2px 6px' }}>👤</button>
-                                      <button onClick={() => { setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item', totalQty: i.quantity }); setCancelItemQty(i.quantity) }}
-                                        title="Cancel this item"
-                                        style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '2px 6px' }}>✕</button>
+                                      {/* ✅ الإلغاء للأدمن والمشرف العام فقط */}
+                                      {isAdmin && (
+                                        <button onClick={() => { setCancelItemTarget({ orderId: order.id, itemId: i.id, itemName: i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item', totalQty: i.quantity }); setCancelItemQty(i.quantity) }}
+                                          title="Cancel this item"
+                                          style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 6, color: S.red, cursor: 'pointer', fontSize: 10, padding: '2px 6px' }}>✕</button>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -3789,7 +3792,7 @@ export default function CashierPage() {
                             title="Charge the entire table to an employee"
                             style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🍽️👤</button>
                         )}
-                        {isCashierRole && ['confirmed','preparing'].includes(order.status) && (
+                        {isAdmin && ['confirmed','preparing'].includes(order.status) && (
                           <button onClick={() => setCancelOrderTarget(order)} style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
                         )}
                       </div>

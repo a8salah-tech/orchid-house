@@ -1245,14 +1245,27 @@ const filteredItems = items
         </button>
         <div style={{ overflowY:'auto' }}>
         {selectedItem.image_url && (
-          <div style={{ width:'100%', height:260, overflow:'hidden', position:'relative' }}>
-            <img src={selectedItem.image_url} alt={selectedItem.name_en} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-            <div style={{ position:'absolute', inset:0, background:`linear-gradient(to top,${C.bg2},transparent)` }} />
+          <div style={{ padding:'56px 20px 0' }}>
+            <div style={{ width:'100%', height:240, overflow:'hidden', borderRadius:16, border:`1px solid ${C.border2}` }}>
+              <img src={selectedItem.image_url} alt={selectedItem.name_en} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+            </div>
           </div>
         )}
         <div style={{ padding:'24px 24px 40px' }}>
           <div className="ar-text" style={{ fontSize:22, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(selectedItem.name, selectedItem.name_en, selectedItem.name_ms, selectedItem.name_zh, selectedItem.name_ru)}</div>
           <div className="ar-text" style={{ fontSize:13, color:C.blue2, marginBottom:6, fontWeight:600 }}>{lang === 'ar' ? selectedItem.name_en : selectedItem.name}</div>
+
+          {(() => {
+            const { avg, count } = getItemRating(selectedItem.id)
+            return count > 0 ? (
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
+                <span style={{ fontSize:14, color:'#B8860B', fontWeight:800 }}>{'⭐'.repeat(Math.round(avg))}{'☆'.repeat(5 - Math.round(avg))}</span>
+                <span style={{ fontSize:12, color:C.silver2, fontWeight:700 }}>{avg.toFixed(1)} · {t('n_ratings', count)}</span>
+              </div>
+            ) : (
+              <div style={{ fontSize:12, color:C.silver2, marginBottom:14 }}>{t('no_ratings_yet')}</div>
+            )
+          })()}
 
           {(selectedItem.description_en || selectedItem.description) && (
             <div style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{dishName(selectedItem.description, selectedItem.description_en, selectedItem.description_ms, selectedItem.description_zh, selectedItem.description_ru)}</div>
@@ -1295,6 +1308,25 @@ const filteredItems = items
             </div>
           </div>
 
+          {/* التقييمات والتعليقات المعتمدة — للقراءة فقط؛ إرسال التقييم يتم من شاشة "تم الطلب" */}
+          <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:20 }}>
+            <div style={{ fontSize:15, fontWeight:900, color:C.white, marginBottom:12 }}>{t('ratings')}</div>
+            {reviews.filter(r => r.menu_item_id === selectedItem.id).length === 0 ? (
+              <div style={{ fontSize:12.5, color:C.silver2, textAlign:'center', padding:'10px 0' }}>{t('no_comments')}</div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {reviews.filter(r => r.menu_item_id === selectedItem.id).map(r => (
+                  <div key={r.id} style={{ border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                      <span style={{ fontSize:12.5, fontWeight:800, color:C.white }}>{r.reviewer_name || t('guest')}</span>
+                      <span style={{ fontSize:12, color:'#B8860B' }}>{'⭐'.repeat(r.stars)}</span>
+                    </div>
+                    {r.review_text && <div style={{ fontSize:12.5, color:C.silver2, lineHeight:1.6 }}>{r.review_text}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         </div>
       </div>

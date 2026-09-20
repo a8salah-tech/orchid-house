@@ -390,59 +390,35 @@ function isCategoryAvailableNow(cat: Category): boolean {
 }
 
 const GOOGLE_REVIEW_URL = 'https://search.google.com/local/writereview?placeid=ChIJlZREt0M3zDERG_6CtesaFGk'
-const GOOGLE_PROMPT_DELAY_MS = 15 * 60 * 1000
 const GOOGLE_PROMPT_REPEAT_MS = 30 * 24 * 60 * 60 * 1000
-const GOOGLE_PROMPT_MAX_ANCHOR_AGE_MS = 6 * 60 * 60 * 1000
-const GOOGLE_ANCHOR_KEY = 'orchid_google_anchor'
 const GOOGLE_STATE_KEY = 'orchid_google_prompt'
+const GOOGLE_PROMPT_EVENT = 'orchid-google-prompt'
 
-function saveGoogleAnchor(orderId: string, at: number) {
-  try {
-    const cur = JSON.parse(localStorage.getItem(GOOGLE_ANCHOR_KEY) || 'null')
-    if (cur?.orderId === orderId) return
-    localStorage.setItem(GOOGLE_ANCHOR_KEY, JSON.stringify({ orderId, at }))
-  } catch {}
-}
-
-// ✅ بعد 15 دقيقة من أول طلب: دعوة لتقييم المطعم على جوجل (تُلغى لو الطلب أُلغي، ومرة كل 30 يوماً لنفس الجهاز، وتتوقف نهائياً بعد الضغط على "قيّمنا")
+// ✅ دعوة تقييم المطعم على جوجل: تظهر بعد تأكيد الجولة الثانية (أو ما بعدها) من الطلب — العميل وقتها يفتح الصفحة فعلاً وراضٍ غالباً.
+// مرة كل 30 يوماً لنفس الجهاز بعد «لاحقاً»، وتتوقف نهائياً بعد الضغط على «قيّمنا». تُطلَق من confirmOrder بحدث window.
 function GoogleReviewPrompt() {
-  const sbRef = useRef(createClient())
   const [show, setShow] = useState(false)
   const [lang, setLang] = useState<Lang>('en')
 
   useEffect(() => {
-    let done = false
-    async function check() {
-      if (done) return
+    const onTrigger = () => {
       try {
-        const anchor = JSON.parse(localStorage.getItem(GOOGLE_ANCHOR_KEY) || 'null')
-        if (!anchor?.orderId || !anchor.at) return
-        const age = Date.now() - anchor.at
-        if (age < GOOGLE_PROMPT_DELAY_MS) return
-        if (age > GOOGLE_PROMPT_MAX_ANCHOR_AGE_MS) { done = true; return }
         const st = JSON.parse(localStorage.getItem(GOOGLE_STATE_KEY) || 'null')
-        if (st?.rated) { done = true; return }
-        if (st?.dismissedAt && Date.now() - st.dismissedAt < GOOGLE_PROMPT_REPEAT_MS) { done = true; return }
-        done = true
-        const { data, error } = await sbRef.current.from('orders').select('status').eq('id', anchor.orderId).maybeSingle()
-        if (error) { done = false; return }
-        if (!data || data.status === 'cancelled') return
+        if (st?.rated) return
+        if (st?.dismissedAt && Date.now() - st.dismissedAt < GOOGLE_PROMPT_REPEAT_MS) return
         const saved = localStorage.getItem('orchid_menu_lang') as Lang | null
         if (saved && TR[saved]) setLang(saved)
         setShow(true)
       } catch {}
     }
-    check()
-    const id = setInterval(check, 30000)
-    const onVis = () => { if (document.visibilityState === 'visible') check() }
-    document.addEventListener('visibilitychange', onVis)
-    return () => { done = true; clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
+    window.addEventListener(GOOGLE_PROMPT_EVENT, onTrigger)
+    return () => window.removeEventListener(GOOGLE_PROMPT_EVENT, onTrigger)
   }, [])
 
   if (!show) return null
   const tr = (k: string) => TR[lang][k] || TR.en[k]
   const finish = (patch: Record<string, unknown>) => {
-    try { localStorage.setItem(GOOGLE_STATE_KEY, JSON.stringify(patch)); localStorage.removeItem(GOOGLE_ANCHOR_KEY) } catch {}
+    try { localStorage.setItem(GOOGLE_STATE_KEY, JSON.stringify(patch)) } catch {}
     setShow(false)
   }
   return (
@@ -649,7 +625,7 @@ function CustomerMenuInner() {
       // ✅ If the table already has an active order (not yet closed at the cashier), show the "Confirmed" screen directly
       // instead of the menu from scratch - the order stays visible to the customer as long as the table is open, even if they close and reopen the page
       const { data: existingOrders } = await sb.from('orders')
-        .select('id, created_at').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
+        .select('id').eq('table_id', tbl.id).in('status', ['confirmed', 'preparing', 'ready'])
         .order('created_at', { ascending: false }).limit(1)
       const existing = existingOrders?.[0]
 
@@ -660,7 +636,6 @@ function CustomerMenuInner() {
 
       if (existing) {
         setConfirmedOrderId(existing.id)
-        saveGoogleAnchor(existing.id, new Date(existing.created_at).getTime())
         setOrderNumber(existing.id.slice(-6).toUpperCase())
         await fetchLiveOrderItems(existing.id)
         setPhase('done')
@@ -969,6 +944,8 @@ const filteredItems = items
     if (!table || cart.length === 0) return
     // ✅ Fix (critical): immediate synchronous check — if a run is already in progress, stop right away with no delay
     if (isSubmittingRef.current) return
+    // ✅ لو الطاولة عندها طلب قائم بالفعل، فهذه جولة ثانية (أو أكثر) → بعد التأكيد نعرض دعوة تقييم جوجل
+    const isRepeatRound = !!confirmedOrderId
     isSubmittingRef.current = true
     setSubmitting(true)
 
@@ -1001,7 +978,6 @@ const filteredItems = items
       orderId = data.orderId
       setOrderNumber(data.orderNumber || orderId.slice(-6).toUpperCase())
       setConfirmedOrderId(orderId)
-      saveGoogleAnchor(orderId, Date.now())
       // ✅ الكارت يتفرغ بعد نجاح الطلب فقط
       setCart([])
       // ✅ البنود المتراكمة كاملة تجي من رد المسار مباشرة؛ وإلا نقرأها كالمعتاد
@@ -1033,6 +1009,7 @@ const filteredItems = items
     setPhase('done')
     isSubmittingRef.current = false
     setSubmitting(false)
+    if (isRepeatRound) setTimeout(() => window.dispatchEvent(new Event(GOOGLE_PROMPT_EVENT)), 2000)
   }
 
   const globalStyles = `

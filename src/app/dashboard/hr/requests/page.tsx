@@ -814,7 +814,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
 
     // ✅ تطبيق تصحيح الحضور تلقائياً عند الموافقة — يُثبَّت في جدول الحضور، وتُعاد فيه قيم التأخير/الخروج
     // المبكر بحسابها من الأوقات المصحَّحة مقابل الشيفت المجدول (نفس دوال صفحة الحضور)، ثم يتحدَّث كشف الراتب
-    if (newStatus === 'approved' && request.request_type === 'attendance_correction' && request.start_date) {
+    // ✅ شبكة أمان: لو وصل الطلب لـ"مكتمل" مباشرة من المعلّق (دون موافقة سابقة) يُطبَّق التصحيح أيضاً، حتى لا يضيع طلب
+    if ((newStatus === 'approved' || (newStatus === 'completed' && request.status !== 'approved')) && request.request_type === 'attendance_correction' && request.start_date) {
       const desc = request.description || ''
       const checkinMatch  = desc.match(/وقت الدخول الصحيح:\s*(\d{2}:\d{2})/)
       const checkoutMatch = desc.match(/وقت الخروج الصحيح:\s*(\d{2}:\d{2})/)
@@ -1192,20 +1193,25 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                       </div>
                     </>
                   ) : (
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => updateStatus('approved')} disabled={updating}
-                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                        ✅ موافقة
-                      </button>
-                      <button onClick={() => updateStatus('completed')} disabled={updating}
-                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                        🏁 اكتمل
-                      </button>
-                      <button onClick={() => setShowReject(true)}
-                        style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                        ❌ رفض
-                      </button>
-                    </div>
+                    // ✅ زران فقط (موافقة / رفض): "موافق عليه" هي الحالة النهائية لهذه الأنواع. كان هناك زر "اكتمل" ثالث
+                    // يخلط المديرين، وكان يغيّر الحالة دون تطبيق تصحيح الحضور. "اكتمل" باقٍ فقط لسلفة الراتب وزيادة الراتب.
+                    <>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => updateStatus('approved')} disabled={updating}
+                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          {request.request_type === 'attendance_correction' ? '✅ موافقة وتطبيق التصحيح على الحضور' : '✅ موافقة'}
+                        </button>
+                        <button onClick={() => setShowReject(true)}
+                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          ❌ رفض
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11, color: S.muted, marginTop: 8, lineHeight: 1.6 }}>
+                        {request.request_type === 'attendance_correction'
+                          ? 'الموافقة تعني القرار وتنفيذه معاً: يُعدَّل سجل الحضور فوراً، ولا تحتاج بعدها أي خطوة أخرى.'
+                          : 'الموافقة هي القرار النهائي، ولا تحتاج بعدها أي خطوة أخرى.'}
+                      </div>
+                    </>
                   )}
                 </>
               ) : (
@@ -1233,7 +1239,8 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
           )
         )}
 
-        {request.status === 'approved' && (
+        {/* ✅ "تأكيد الاكتمال" لمن له خطوة تنفيذ فعلية فقط (سلفة الراتب وزيادة الراتب) وبيد المعتمِد وحده — باقي الأنواع "موافق عليه" نهائية */}
+        {request.status === 'approved' && canTakeAction && (isSalaryRaise || isSalaryAdvance) && (
           <div style={{ marginBottom: 16 }}>
             {isSalaryRaise && (
               <div style={{ background: S.greenB, border: `1px solid ${S.green}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 12.5, color: S.green, lineHeight: 1.7 }}>

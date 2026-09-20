@@ -1283,7 +1283,8 @@ export default function EmployeeRequestsPage() {
   const isEmployee = !isAdmin && !isBranchManager && !isDeptManager && !isSupervisor
   // ✅ الرؤية وتقديم الطلب: تعتمد على صلاحية ديناميكية من صفحة "إدارة الصلاحيات" + admin دائمًا
   // (الاعتماد الفعلي/الموافقة يبقى مقصورًا على admin فقط بدون استثناء — داخل RequestDetailModal)
-  const canSeeSalaryIncrease = isAdmin || permissions?.salary_increase_requests === true
+  // ✅ طلب زيادة الراتب متاح لكل الموظفين (يمرّ بفحص الاستحقاق)، أما رؤية طلبات الآخرين والاعتماد فلمدير النظام فقط
+  const canSeeSalaryIncrease = true
   const canSeeSalaryAdvance  = isAdmin || permissions?.salary_advance_requests === true
 
   const [requests, setRequests] = useState<EmployeeRequest[]>([])
@@ -1513,6 +1514,8 @@ export default function EmployeeRequestsPage() {
       // ✅ الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط - المشرف ليس له اعتماد، مدير القسم فقط
       reqQuery = reqQuery.eq('employee_id', myId)
     }
+    // ✅ طلبات زيادة الراتب لا تُجلب لغير مدير النظام إلا طلبه الشخصي — فلا يراها مدير فرع أو قسم أو مشرف
+    if (!isAdmin) reqQuery = reqQuery.or(`request_type.neq.salary_increase,employee_id.eq.${myId}`)
 
     const [req, emp, br] = await Promise.all([
       reqQuery,
@@ -1637,7 +1640,7 @@ export default function EmployeeRequestsPage() {
           ).length})
         </button>
         {Object.entries(REQUEST_TYPES).filter(([key]) => key !== 'salary_increase' || canSeeSalaryIncrease).map(([key, cfg]) => {
-          const count = branchScopedRequests.filter(r => r.request_type === key).length
+          const count = branchScopedRequests.filter(r => r.request_type === key && !(key === 'salary_increase' && !isAdmin && r.employee_id !== currentUser?.id)).length
           if (count === 0) return null
           return (
             <button key={key} onClick={() => setFilterType(filterType === key ? 'all' : key)}

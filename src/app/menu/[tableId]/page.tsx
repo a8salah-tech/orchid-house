@@ -697,27 +697,30 @@ const filteredItems = items
     if (activeCat !== 'all' && !visibleCategoryIds.has(activeCat)) setActiveCat('all')
   }, [activeCat, visibleCategoryIds])
 
-  // ✅ يختار حتى 5 اقتراحات مناسبة للسلة: بطاطس/مقبلة، مشروب (لو مفيش مشروب في السلة)، إضافة، خبز، حلوى —
+  // ✅ يختار حتى 6 اقتراحات مناسبة للسلة: بطاطس/مقبلة، مشروبان باردان (واحد لو في السلة مشروب)، إضافة، خبز، حلوى —
   // بدون أي صنف موجود في السلة أو خارج التوفر/الأقسام المتاحة الآن أو له أحجام
   function buildSuggestions(): MenuItem[] {
     if (!suggestions) return []
     const inCart = new Set(cart.map(c => c.item.id))
     const byId = new Map(items.map(i => [i.id, i]))
-    const pick = (ids: string[]): MenuItem | null => {
+    const pickN = (ids: string[], n: number): MenuItem[] => {
+      const out: MenuItem[] = []
       for (const id of ids) {
+        if (out.length >= n) break
         const it = byId.get(id)
-        if (it && !inCart.has(id) && visibleCategoryIds.has(it.category_id) && !(it.sizes || []).some(s => s.is_active)) return it
+        if (it && !inCart.has(id) && visibleCategoryIds.has(it.category_id) && !(it.sizes || []).some(s => s.is_active)) out.push(it)
       }
-      return null
+      return out
     }
     const hasDrink = cart.some(c => categories.find(k => k.id === c.item.category_id)?.destination === 'bar')
     return [
-      pick(suggestions.starters),
-      hasDrink ? null : pick(suggestions.drinks),
-      pick(suggestions.addons),
-      suggestions.bread ? pick([suggestions.bread]) : null,
-      pick(suggestions.desserts),
-    ].filter((x): x is MenuItem => !!x)
+      ...pickN(suggestions.starters, 1),
+      // مشروبان باردان لو مفيش مشروب في السلة، ومشروب واحد مختلف لو فيه
+      ...pickN(suggestions.drinks, hasDrink ? 1 : 2),
+      ...pickN(suggestions.addons, 1),
+      ...(suggestions.bread ? pickN([suggestions.bread], 1) : []),
+      ...pickN(suggestions.desserts, 1),
+    ]
   }
   // ✅ زر "تأكيد الطلب" في السلة: أول طلب للطاولة يعرض الاقتراحات مرة واحدة، وبعدها التأكيد الوسيط المعتاد
   function startConfirm() {

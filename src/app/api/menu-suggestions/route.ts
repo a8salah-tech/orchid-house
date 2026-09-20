@@ -62,8 +62,9 @@ async function compute(): Promise<Suggestions> {
 
   return {
     starters: top(i => nameOf(i.category_id) === 'hot appetizers' && i.price >= MIN_PRICE),
-    drinks: top(i => catById.get(i.category_id)?.destination === 'bar' && i.price >= MIN_PRICE),
-    addons: top(i => nameOf(i.category_id) === 'add on' && i.price >= MIN_PRICE),
+    // المشروبات المقترحة: من قسم Cold Drinks فقط (أي نوع بارد)، والماء لا يُقترح — لا يرفع قيمة السلة
+    drinks: top(i => nameOf(i.category_id) === 'cold drinks' && i.price >= MIN_PRICE && !/water/i.test(i.name_en)),
+    addons: top(i => nameOf(i.category_id) === 'add on' && i.price >= MIN_PRICE && !/water/i.test(i.name_en)),
     desserts: top(i => nameOf(i.category_id) === 'dessert' && i.price >= MIN_PRICE),
     bread: bread?.id || null,
   }

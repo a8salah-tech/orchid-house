@@ -78,145 +78,251 @@ interface EmployeeRequest {
   approved_by: string; approved_at: string; rejection_reason: string
   // ✅ جديد: رابط التقرير الطبي المرفق (إجباري للإجازة المرضية فقط)
   attachment_url?: string | null
+  // ✅ طلب زيادة الراتب المنظَّم: النسبة المطلوبة/المعتمدة وصورة فحص الاستحقاق والإنجازات وقت التقديم
+  raise_percent?: number | null
+  raise_approved_percent?: number | null
+  raise_snapshot?: { total_score: number; expected_percent: number; requested_percent: number; current_salary: number; new_salary: number; reason: string; eval_avg: number | null; eval_count: number; absence_days: number; late_hours: number; violations: number; service_months: number; last_raise_at: string | null; achievements_points: number } | null
+  raise_achievements?: { label: string; applies: boolean; details: string }[] | null
   employees?: { name: string; name_en?: string; role: string; department: string; employee_number?: string; branch_id?: string; branches?: { name: string } }
 }
 
-// ══ Salary Increase Request Modal ══
+// ══ Salary Increase Request Modal — فحص الاستحقاق ثم تقديم إجباري الحقول ══
+// ✅ الفحص والتقديم والتحقق كلها على السيرفر (db/salary_raise_eligibility.sql): الدالتان app_salary_raise_check
+// و app_submit_salary_raise. هذه الواجهة تعرض النتيجة فقط، ولا يمكن إنشاء طلب زيادة بأي طريقة أخرى (تريغر يمنعها).
+type RaiseCheck = {
+  eligible: boolean; salary: number | null; join_date: string | null; service_months: number
+  eval_avg: number | null; eval_count: number; absence_days: number; late_hours: number; violations: number
+  last_request_at: string | null; next_allowed_at: string | null; tenure_opens_at: string | null; last_raise_at: string | null
+  ok: { tenure: boolean; eval: boolean; absence: boolean; late: boolean; violations: boolean; lock: boolean }
+  points: { eval: number; attendance: number; violations: number; tenure: number; base: number }
+  achievements: string[]
+}
+
+function fmtRaiseDate(v: string | null | undefined): string {
+  if (!v) return '—'
+  return new Date(v).toLocaleDateString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+function raiseErrorText(msg: string): string {
+  if (msg.includes('NOT_ELIGIBLE')) return 'لم تعد تستوفي شروط الاستحقاق. أعد فتح الصفحة لتحديث النتيجة.'
+  if (msg.includes('BAD_PERCENT')) return 'النسبة المطلوبة يجب أن تكون بين 5% و10%.'
+  if (msg.includes('REASON_REQUIRED')) return 'اكتب سبب الطلب (10 أحرف على الأقل).'
+  if (msg.includes('ACHIEVEMENT')) return 'أجب عن كل بنود الإنجازات، واكتب تفاصيل كل بند تختار له «ينطبق» (10 أحرف على الأقل).'
+  if (msg.includes('NO_SALARY')) return 'لا يوجد راتب مسجّل لك. تواصل مع الإدارة.'
+  return 'تعذّر تقديم الطلب: ' + msg
+}
+
 function SalaryIncreaseModal({ employee, onClose, onSaved }: {
   employee: Employee; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
+  const [check, setCheck] = useState<RaiseCheck | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [answers, setAnswers] = useState<{ applies: boolean | null; details: string }[]>(
+    Array.from({ length: 12 }, () => ({ applies: null, details: '' }))
+  )
+  const [percent, setPercent] = useState(7.5)
+  const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    current_salary: employee.salary?.toString() || '',
-    requested_salary: '',
-    reason: '',
-    achievements: '',
-    date_of_request: new Date().toISOString().split('T')[0],
-  })
-  // ✅ الراتب اتنقل لجدول employee_compensation المقفول — الموظف يقرأ صفه هو فقط
+  const [showErrors, setShowErrors] = useState(false)
+  const [nowMs] = useState(() => Date.now())
+
   useEffect(() => {
-    supabase.from('employee_compensation').select('salary').eq('employee_id', employee.id).maybeSingle()
-      .then(({ data }) => { if ((data as any)?.salary != null) setForm(p => ({ ...p, current_salary: String((data as any).salary) })) })
-  }, [employee.id])
+    supabase.rpc('app_salary_raise_check').then(({ data, error }) => {
+      if (error || !data) setLoadError('تعذّر فحص الاستحقاق: ' + (error?.message || 'لا توجد بيانات'))
+      else setCheck(data as RaiseCheck)
+      setLoading(false)
+    })
+  }, [])
 
-  const inp2: React.CSSProperties = {
-    width: '100%', background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.10)',
-    borderRadius: 10, padding: '10px 14px', fontSize: 13,
-    color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
-    boxSizing: 'border-box', direction: 'ltr',
-  }
+  const yesCount = answers.filter(a => a.applies === true).length
+  const achPoints = Math.round((yesCount / 12) * 25 * 10) / 10
+  const total = (check?.points.base || 0) + achPoints
+  const expected = total >= 90 ? 10 : total >= 80 ? 7.5 : 5
+  const salary = check?.salary || 0
+  const increase = Math.round(salary * percent) / 100
+  const bad = (a: { applies: boolean | null; details: string }) => a.applies === null || (a.applies === true && a.details.trim().length < 10)
+  const reasonBad = reason.trim().length < 10
+  const missingCount = answers.filter(bad).length + (reasonBad ? 1 : 0)
+  const fmt = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  async function save() {
-    if (!form.requested_salary || !form.reason) { alert('Please fill in all required fields'); return }
+  async function submit() {
+    if (missingCount > 0) { setShowErrors(true); return }
     setSaving(true)
-    const description = `SALARY INCREASE REQUEST
-
-Employee: ${employee.name} ${employee.name_en || ''}
-Employee ID: ${employee.employee_number || '—'}
-Position: ${employee.role}
-Department: ${employee.department || '—'}
-Years of Service: ${employee.join_date ? Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (365.25*24*60*60*1000)) : '—'}
-Date of Request: ${form.date_of_request}
-
-Current Salary: MYR ${form.current_salary || '—'}
-Requested Salary: MYR ${form.requested_salary}
-Increase Amount: MYR ${form.current_salary && form.requested_salary ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
-
-Reason: ${form.reason}
-
-Key Achievements: ${form.achievements || '—'}`
-
-    const { error } = await supabase.from('employee_requests').insert([{
-      employee_id: employee.id,
-      request_type: 'salary_increase',
-      title: 'Salary Increase Request',
-      description,
-      amount: parseFloat(form.requested_salary) || null,
-      status: 'pending',
-    }])
+    const { error } = await supabase.rpc('app_submit_salary_raise', {
+      p_percent: percent,
+      p_reason: reason.trim(),
+      p_achievements: answers.map(a => ({ applies: a.applies, details: a.applies ? a.details.trim() : '' })),
+    })
     setSaving(false)
-    if (error) { alert('Error: ' + error.message); return }
+    if (error) { alert(raiseErrorText(error.message)); return }
+    alert('✅ تم تقديم طلبك. لا يمكنك تقديم طلب آخر قبل مرور 3 أشهر، ويصل طلبك لمدير النظام فقط.')
     onSaved()
   }
 
-  const increase = form.current_salary && form.requested_salary
-    ? (parseFloat(form.requested_salary) - parseFloat(form.current_salary)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : null
+  const card: React.CSSProperties = { background: S.card, borderRadius: 12, padding: '14px 16px', marginBottom: 12 }
+  const banner = (color: string, bg: string, icon: string, title: string, sub: string) => (
+    <div style={{ background: bg, border: `1px solid ${color}55`, borderRadius: 12, padding: '14px 16px', marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
+      <div style={{ fontSize: 28 }}>{icon}</div>
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 800, color }}>{title}</div>
+        <div style={{ fontSize: 12.5, color, opacity: 0.9, marginTop: 2 }}>{sub}</div>
+      </div>
+    </div>
+  )
+  const progress = (fromIso: string | null, toIso: string | null, leftLabel: string) => {
+    if (!fromIso || !toIso) return null
+    const from = new Date(fromIso).getTime(), to = new Date(toIso).getTime()
+    const pct = Math.max(0, Math.min(100, ((nowMs - from) / (to - from)) * 100))
+    const daysLeft = Math.max(0, Math.ceil((to - nowMs) / 86400000))
+    return (
+      <div style={card}>
+        <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>{leftLabel}</div>
+        <div style={{ height: 8, borderRadius: 4, background: S.card2, overflow: 'hidden' }}><div style={{ width: `${pct}%`, height: '100%', background: S.amber }} /></div>
+        <div style={{ fontSize: 12, color: S.muted, marginTop: 6 }}>متبقي {daysLeft} يوم</div>
+      </div>
+    )
+  }
+
+  let body: React.ReactNode = null
+  if (loading) {
+    body = <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري فحص الاستحقاق...</div>
+  } else if (loadError || !check) {
+    body = <div style={{ ...card, color: S.red, fontSize: 13 }}>{loadError}</div>
+  } else if (!check.ok.tenure) {
+    body = (
+      <>
+        {banner(S.amber, S.amberB, '⏳', 'التقديم يفتح بعد إتمام شهر من التعيين', `يمكنك تقديم الطلب اعتباراً من ${fmtRaiseDate(check.tenure_opens_at)}.`)}
+        {progress(check.join_date, check.tenure_opens_at, 'مدة الانتظار منذ التعيين')}
+      </>
+    )
+  } else if (!check.ok.lock) {
+    body = (
+      <>
+        {banner(S.amber, S.amberB, '🔒', 'قدّمت طلباً مؤخراً', `قدّمت طلبك بتاريخ ${fmtRaiseDate(check.last_request_at)}. يفتح التقديم من جديد بتاريخ ${fmtRaiseDate(check.next_allowed_at)}.`)}
+        {progress(check.last_request_at, check.next_allowed_at, 'المدة المنقضية من آخر طلب')}
+      </>
+    )
+  } else {
+    const rows: { ok: boolean; label: string; value: string }[] = [
+      { ok: check.ok.tenure, label: 'مدة الخدمة', value: `${Math.floor(check.service_months)} شهر (المطلوب شهر فأكثر)` },
+      { ok: check.ok.eval, label: 'متوسط آخر التقييمات المعتمدة', value: check.eval_count === 0 ? 'لا يوجد تقييم معتمد بعد' : `${check.eval_avg} (${check.eval_count} من 3 تقييمات، المطلوب 80 فأكثر)` },
+      { ok: check.ok.absence, label: 'الغياب في آخر 3 أشهر', value: `${check.absence_days} يوم (المسموح يومان)` },
+      { ok: check.ok.late, label: 'التأخير في آخر 3 أشهر', value: `${check.late_hours} ساعة (المسموح 5)` },
+      { ok: check.ok.violations, label: 'المخالفات الفعّالة', value: check.violations === 0 ? 'لا يوجد' : `${check.violations} مخالفة قائمة` },
+      { ok: check.ok.lock, label: 'آخر طلب زيادة', value: check.last_request_at ? `بتاريخ ${fmtRaiseDate(check.last_request_at)}` : 'لم يُقدَّم من قبل' },
+    ]
+    const failed = rows.filter(r => !r.ok).length
+    const scoreRows: [string, number, number][] = [
+      ['متوسط التقييمات', check.points.eval, 40], ['الحضور (غياب وتأخير)', check.points.attendance, 20],
+      [`الإنجازات (${yesCount} من 12)`, achPoints, 25], ['سلامة السجل من المخالفات', check.points.violations, 10], ['مدة الخدمة', check.points.tenure, 5],
+    ]
+    body = (
+      <>
+        {check.eligible
+          ? banner(S.green, S.greenB, '✅', 'أنت مستحق لتقديم الطلب', `الزيادة المتوقعة حسب درجتك: ${expected}%${salary ? ` (نحو ${fmt(salary * expected / 100)} رينغت)` : ''}. النسبة متوقعة وليست مضمونة.`)
+          : banner(S.red, S.redB, '❌', 'غير مستحق حالياً', `لم يتحقق ${failed} من الشروط. أسباب عدم الاستحقاق ظاهرة أدناه.`)}
+
+        <div style={card}>
+          {rows.map((r, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: i ? `1px solid ${S.border}` : 'none', fontSize: 13 }}>
+              <span style={{ width: 20, height: 20, borderRadius: '50%', background: r.ok ? S.greenB : S.redB, color: r.ok ? S.green : S.red, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0 }}>{r.ok ? '✓' : '✕'}</span>
+              <span style={{ flex: 1, color: S.white }}>{r.label}</span>
+              <span style={{ color: S.muted, fontSize: 12 }}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+        {check.last_raise_at && <div style={{ fontSize: 12, color: S.muted, marginBottom: 12 }}>📊 آخر زيادة راتب مسجَّلة لك: {fmtRaiseDate(check.last_raise_at)}</div>}
+
+        {check.eligible ? (
+          <>
+            <div style={card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                <span style={{ fontWeight: 800, fontSize: 13, color: S.white }}>درجة الاستحقاق</span>
+                <span style={{ fontSize: 20, fontWeight: 800, color: total >= 70 ? S.green : S.amber }}>{Math.round(total * 10) / 10} / 100</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: S.card2, overflow: 'hidden', marginBottom: 10 }}><div style={{ width: `${Math.min(100, total)}%`, height: '100%', background: total >= 70 ? S.green : S.amber }} /></div>
+              {scoreRows.map(([l, v, m], i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0', color: S.muted }}><span>{l}</span><span>{v} من {m}</span></div>
+              ))}
+            </div>
+
+            <div style={card}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: S.white, marginBottom: 4 }}>إنجازاتك <span style={{ color: S.red }}>*</span></div>
+              <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>أجب عن كل بند. إن اخترت «ينطبق» فاكتب ما فعلت ومتى، وسيراجعه مدير النظام.</div>
+              {check.achievements.map((label, i) => {
+                const a = answers[i]
+                const invalid = showErrors && bad(a)
+                const set = (patch: Partial<typeof a>) => setAnswers(prev => prev.map((x, j) => j === i ? { ...x, ...patch } : x))
+                return (
+                  <div key={i} style={{ border: `1px solid ${invalid ? S.red : S.border}`, background: invalid ? S.redB : 'transparent', borderRadius: 10, padding: '9px 12px', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 13, color: S.white }}>{i + 1}. {label} <span style={{ color: S.red }}>*</span></span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => set({ applies: true })} style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', border: `1px solid ${a.applies === true ? S.green : S.border}`, background: a.applies === true ? S.greenB : 'transparent', color: a.applies === true ? S.green : S.muted }}>ينطبق</button>
+                        <button onClick={() => set({ applies: false, details: '' })} style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', border: `1px solid ${a.applies === false ? S.muted : S.border}`, background: a.applies === false ? S.card2 : 'transparent', color: a.applies === false ? S.white : S.muted }}>لا ينطبق</button>
+                      </div>
+                    </div>
+                    {a.applies === true && (
+                      <textarea style={{ ...inp, minHeight: 56, resize: 'vertical', marginTop: 8, borderColor: invalid ? S.red : 'rgba(255,255,255,0.10)' } as React.CSSProperties}
+                        value={a.details} onChange={e => set({ details: e.target.value })}
+                        placeholder="اكتب ماذا فعلت ومتى، بما لا يقل عن 10 أحرف (إجباري)" />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={card}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: S.white, marginBottom: 10 }}>طلبك</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                <label style={{ fontSize: 12, color: S.muted, minWidth: 110 }}>النسبة المطلوبة <span style={{ color: S.red }}>*</span></label>
+                <input type="range" min={5} max={10} step={0.5} value={percent} onChange={e => setPercent(parseFloat(e.target.value))} style={{ flex: 1 }} />
+                <span style={{ minWidth: 48, fontWeight: 800, color: S.white }}>{percent}%</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+                {[['الراتب الحالي', fmt(salary)], ['الزيادة', fmt(increase)], ['الراتب الجديد', fmt(salary + increase)]].map(([l, v]) => (
+                  <div key={l} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 11, color: S.muted }}>{l}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>سبب الطلب <span style={{ color: S.red }}>*</span></label>
+              <textarea style={{ ...inp, minHeight: 70, resize: 'vertical', borderColor: showErrors && reasonBad ? S.red : 'rgba(255,255,255,0.10)' } as React.CSSProperties}
+                value={reason} onChange={e => setReason(e.target.value)} placeholder="اكتب سبب طلبك، بما لا يقل عن 10 أحرف (إجباري)" />
+            </div>
+
+            {showErrors && missingCount > 0 && (
+              <div style={{ background: S.redB, border: `1px solid ${S.red}55`, color: S.red, borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 12 }}>
+                لا يمكن التقديم: {missingCount} حقول ناقصة، مظلّلة بالأحمر أعلاه.
+              </div>
+            )}
+            <button onClick={submit} disabled={saving}
+              style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
+              {saving ? '⏳ جاري التقديم...' : '📤 تقديم الطلب'}
+            </button>
+            <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>كل الحقول إجبارية. بعد التقديم لا يمكنك تقديم طلب آخر قبل 3 أشهر، ويصل الطلب لمدير النظام فقط.</div>
+          </>
+        ) : (
+          <div style={{ ...card, fontSize: 12.5, color: S.muted }}>لا يظهر نموذج الطلب لأن الشروط لم تتحقق. يُعاد الفحص تلقائياً في كل مرة تفتح فيها هذه الصفحة.</div>
+        )}
+      </>
+    )
+  }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
-      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 620, padding: 32, margin: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto', direction: 'rtl', fontFamily: 'Tajawal, sans-serif' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 680, padding: 28, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📈 Salary Increase Request</h2>
-            <p style={{ fontSize: 12, color: S.muted }}>Fill in your details and submit to management</p>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📈 طلب زيادة راتب</h2>
+            <div style={{ fontSize: 12, color: S.muted }}>{employee.name}{employee.name_en ? ' ' + employee.name_en : ''} · {employee.employee_number || '—'} · {employee.department || '—'}</div>
+            {check?.join_date && <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>تاريخ التعيين {fmtRaiseDate(check.join_date)} ({Math.floor(check.service_months)} شهراً)</div>}
           </div>
-          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36 }}>✕</button>
         </div>
-
-        {/* Employee Info — read only */}
-        <div style={{ background: S.card, borderRadius: 12, padding: '16px 18px', marginBottom: 20 }}>
-          <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 10 }}>👤 Employee Information</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {[
-              { label: 'Employee Name', value: `${employee.name}${employee.name_en ? ' ' + employee.name_en : ''}` },
-              { label: 'Employee ID', value: employee.employee_number || '—' },
-              { label: 'Position / Job Title', value: employee.role },
-              { label: 'Department', value: employee.department || '—' },
-              { label: 'Years of Service', value: employee.join_date ? `${Math.floor((Date.now() - new Date(employee.join_date).getTime()) / (365.25*24*60*60*1000))} year(s)` : '—' },
-              { label: 'Date of Request', value: form.date_of_request },
-            ].map((r, i) => (
-              <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 12px' }}>
-                <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{r.label}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{r.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Salary Details */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Current Salary (MYR)</label>
-              <input style={inp2} type="number" value={form.current_salary} onChange={e => setForm(p => ({ ...p, current_salary: e.target.value }))} placeholder="0.00" />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Requested Salary (MYR) *</label>
-              <input style={inp2} type="number" value={form.requested_salary} onChange={e => setForm(p => ({ ...p, requested_salary: e.target.value }))} placeholder="0.00" />
-            </div>
-          </div>
-
-          {increase && (
-            <div style={{ background: parseFloat(increase) > 0 ? S.greenB : S.redB, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: S.muted }}>Requested Increase</span>
-              <span style={{ fontSize: 14, fontWeight: 800, color: parseFloat(increase) > 0 ? S.green : S.red }}>MYR {increase}</span>
-            </div>
-          )}
-
-          <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Reason for Salary Increase Request *</label>
-            <textarea style={{ ...inp2, minHeight: 90, resize: 'vertical', direction: 'ltr' } as React.CSSProperties}
-              value={form.reason} onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
-              placeholder="Explain why you are requesting a salary increase..." />
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Key Achievements / Contributions (Optional)</label>
-            <textarea style={{ ...inp2, minHeight: 70, resize: 'vertical', direction: 'ltr' } as React.CSSProperties}
-              value={form.achievements} onChange={e => setForm(p => ({ ...p, achievements: e.target.value }))}
-              placeholder="List your key achievements..." />
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳ Submitting...' : '📤 Submit Request'}
-          </button>
-        </div>
+        {body}
       </div>
     </div>
   )
@@ -593,10 +699,13 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   const isOwnRequest = currentUser?.id === request.employee_id
   // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط - مثل ما هي بالظبط، من غير أي تغيير
   const isSalaryAdvance = request.request_type === 'salary_advance'
+  // ✅ طلب زيادة الراتب: الاعتماد والرؤية لمدير النظام فقط، والمعتمِد يقدر يوافق بنسبة مختلفة عن المطلوبة
+  const isSalaryRaise = request.request_type === 'salary_increase'
+  const [approvedPercent, setApprovedPercent] = useState(request.raise_percent != null ? String(request.raise_percent) : '')
   // ✅ مدير الفرع أصبح مخوَّلاً باعتماد طلبات سلفة الراتب لموظفي فرعه (لم يكن مضمَّناً هنا أبداً من قبل رغم
   // أن الاستعلام الأساسي في fetchAll() كان أصلاً يجلب له طلبات فرعه بس بشكل صحيح)
   const canTakeAction = !isOwnRequest && (
-    isSalaryAdvance ? (isAdmin || isBranchManager) : (isAdmin || isDeptManager)
+    isSalaryAdvance ? (isAdmin || isBranchManager) : isSalaryRaise ? !!isAdmin : (isAdmin || isDeptManager)
   )
 
   // ✅ دالة مشتركة لعكس أثر سلفة "completed" على الرواتب — تُستخدم عند تغيير الحالة بعيداً عن "completed"،
@@ -684,12 +793,21 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       if (!(request.description || '').includes('اعتمد ')) updatedDescription = (request.description || '') + note
     }
 
+    // ✅ زيادة الراتب: النسبة المعتمدة (قد تختلف عن المطلوبة) تُثبَّت مع الراتب الجديد المقابل لها
+    let raiseUpdate: { raise_approved_percent: number; amount: number } | null = null
+    if (isSalaryRaise && newStatus === 'approved' && request.raise_snapshot) {
+      const pct = parseFloat(approvedPercent)
+      if (!(pct > 0 && pct <= 20)) { alert('أدخل نسبة معتمدة صحيحة (أكبر من 0 وحتى 20%)'); return }
+      raiseUpdate = { raise_approved_percent: pct, amount: Math.round(request.raise_snapshot.current_salary * (1 + pct / 100) * 100) / 100 }
+    }
+
     setUpdating(true)
     await supabase.from('employee_requests').update({
       status: newStatus,
       approved_by: approvedBy || null,
       approved_at: ['approved', 'completed'].includes(newStatus) ? new Date().toISOString() : null,
       rejection_reason: newStatus === 'rejected' ? rejectionReason : null,
+      ...(raiseUpdate || {}),
       ...(finalAdvance != null ? { amount: finalAdvance } : {}),
       ...(updatedDescription != null ? { description: updatedDescription } : {}),
     }).eq('id', request.id)
@@ -939,6 +1057,41 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
           ))}
         </div>
 
+        {/* ✅ طلب زيادة الراتب: صورة فحص الاستحقاق وقت التقديم + الإنجازات كما كتبها الموظف */}
+        {isSalaryRaise && request.raise_snapshot && (() => {
+          const sn = request.raise_snapshot!
+          const ach = request.raise_achievements || []
+          const yes = ach.filter(a => a.applies)
+          const fm = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          return (
+            <div style={{ background: S.greenB, border: `1px solid ${S.green}30`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: S.green, fontWeight: 700, marginBottom: 10 }}>📈 فحص الاستحقاق وقت التقديم (لا يتغير لاحقاً)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+                {[
+                  { label: 'درجة الاستحقاق', value: `${sn.total_score} / 100` },
+                  { label: 'المتوقعة / المطلوبة', value: `${sn.expected_percent}% / ${sn.requested_percent}%` },
+                  { label: 'الراتب الحالي ← الجديد', value: `${fm(sn.current_salary)} ← ${fm(sn.new_salary)}` },
+                ].map((r, i) => (
+                  <div key={i} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '8px 12px' }}>
+                    <div style={{ fontSize: 10, color: S.muted, marginBottom: 2 }}>{r.label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{r.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 12.5, color: S.white, lineHeight: 1.9, marginBottom: 10 }}>
+                التقييم {sn.eval_avg ?? '—'} ({sn.eval_count} تقييم) · غياب {sn.absence_days} يوم · تأخير {sn.late_hours} ساعة · مخالفات فعّالة {sn.violations} · مدة الخدمة {Math.floor(sn.service_months)} شهراً
+                {sn.last_raise_at ? ` · آخر زيادة ${sn.last_raise_at}` : ' · لا توجد زيادة سابقة'}
+              </div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>الإنجازات التي ذكرها ({yes.length} من {ach.length}) — {sn.achievements_points} نقطة</div>
+              {yes.length === 0 ? <div style={{ fontSize: 12, color: S.muted }}>لم يذكر أي إنجاز.</div> : yes.map((a, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: S.white, lineHeight: 1.7, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 700 }}>{a.label}:</span> {a.details}
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+
         {/* تصحيح الحضور — عرض التفاصيل */}
         {request.request_type === 'attendance_correction' && (
           <div style={{ background: S.tealB, border: `1px solid ${S.teal}30`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
@@ -1016,6 +1169,28 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                         </button>
                       </div>
                     </>
+                  ) : isSalaryRaise ? (
+                    // ✅ زيادة الراتب: المعتمِد (مدير النظام) يوافق بنسبة المطلوب أو بنسبة أخرى، أو يرفض
+                    <>
+                      <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>النسبة المعتمدة (%)</div>
+                      <input style={{ ...inp, marginBottom: 4 }} type="number" min={0.5} max={20} step="0.5"
+                        value={approvedPercent} onChange={e => setApprovedPercent(e.target.value)} placeholder="0" />
+                      {request.raise_snapshot && (
+                        <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>
+                          المطلوب: {request.raise_percent}% · المتوقع: {request.raise_snapshot.expected_percent}% — الراتب الجديد بهذه النسبة: MYR {(Math.round(request.raise_snapshot.current_salary * (1 + (parseFloat(approvedPercent) || 0) / 100) * 100) / 100).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => updateStatus('approved')} disabled={updating}
+                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          ✅ موافقة بنسبة {parseFloat(approvedPercent) || 0}%
+                        </button>
+                        <button onClick={() => setShowReject(true)}
+                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                          ❌ رفض
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={() => updateStatus('approved')} disabled={updating}
@@ -1052,7 +1227,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             // ✅ صاحب الطلب نفسه، أو طلب سلفة راتب لمستخدم غير admin — لا تظهر أزرار الاعتماد على الإطلاق
             <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, textAlign: 'center' }}>
               <div style={{ fontSize: 13, color: S.amber, fontWeight: 700 }}>
-                {isOwnRequest ? '⏳ طلبك قيد المراجعة من الإدارة' : (isSalaryAdvance ? '🔒 هذا الطلب يحتاج اعتماد مدير النظام أو مدير الفرع' : '🔒 هذا الطلب يحتاج اعتماد مدير القسم أو مدير النظام')}
+                {isOwnRequest ? '⏳ طلبك قيد المراجعة من الإدارة' : (isSalaryAdvance ? '🔒 هذا الطلب يحتاج اعتماد مدير النظام أو مدير الفرع' : isSalaryRaise ? '🔒 هذا الطلب يحتاج اعتماد مدير النظام فقط' : '🔒 هذا الطلب يحتاج اعتماد مدير القسم أو مدير النظام')}
               </div>
             </div>
           )
@@ -1060,6 +1235,11 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
 
         {request.status === 'approved' && (
           <div style={{ marginBottom: 16 }}>
+            {isSalaryRaise && (
+              <div style={{ background: S.greenB, border: `1px solid ${S.green}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 12.5, color: S.green, lineHeight: 1.7 }}>
+                ✅ اعتُمدت الزيادة بنسبة {request.raise_approved_percent ?? request.raise_percent}% (الراتب الجديد MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). لا تُطبَّق تلقائياً على الراتب: سجّلها من ملف الموظف (زيادة راتب) ثم اضغط «تأكيد الاكتمال».
+              </div>
+            )}
             {isSalaryAdvance && canTakeAction && (
               <>
                 <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>المبلغ المعتمد (MYR)</div>

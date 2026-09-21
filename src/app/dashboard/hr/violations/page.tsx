@@ -125,7 +125,8 @@ export default function ViolationsPage() {
   // ✅ Fix: لازم نستبعد isBranchViewer هنا صراحةً - المشرف العام معاه صلاحية violations=true (لازمة
   // أصلاً عشان رابط الصفحة يظهر له)، فكان بيقع في هذا الشرط ويترجع لوضع "مخالفاتي أنا بس" بدل فرعه كامل
   const isSelfOnly = !canManage && !isBranchViewer && permissions?.violations === true
-  const canAdd = canManage
+  // ✅ المشرف العام يقدر يضيف مخالفة، لكنها تُسجَّل "بانتظار اعتماد مدير النظام" ولا تُخصم إلا بعد اعتماد الأدمن
+  const canAdd = canManage || isBranchViewer
   const canAccessPage = canManage || isSelfOnly || isBranchViewer
   const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
   // ✅ بعد اعتماد التقييم، يظهر تفاصيله بس لمدير القسم والأدمن (حتى مدير الفرع مايشوفوش بعد الاعتماد)
@@ -241,7 +242,7 @@ export default function ViolationsPage() {
     if (error) { console.error('violations error:', error.message); setLoading(false); return }
     if (vData && vData.length > 0) {
       const ids2 = [...new Set(vData.map(v => v.employee_id).concat(vData.map(v => v.created_by)).concat(vData.map(v => v.manager_approved_by)).filter(Boolean))]
-      const { data: empNames } = await sb.from('employees').select('id,name,name_en,department,employee_number').in('id', ids2 as string[])
+      const { data: empNames } = await sb.from('employees').select('id,name,name_en,department,employee_number,role').in('id', ids2 as string[])
       const empMap = Object.fromEntries((empNames || []).map(e => [e.id, e]))
       setViolations(vData.map(v => ({
         ...v,
@@ -250,6 +251,8 @@ export default function ViolationsPage() {
         empDept: empMap[v.employee_id]?.department || '',
         empNumber: empMap[v.employee_id]?.employee_number || '',
         creatorName: `${empMap[v.created_by]?.name || '—'} ${empMap[v.created_by]?.name_en || ''}`.trim(),
+        // ✅ مخالفات المشرف العام لا يعتمدها/يلغيها/يعيدها إلا مدير النظام
+        creatorRole: empMap[v.created_by]?.role || '',
         // ✅ جديد: الاسم الكامل (عربي + إنجليزي) لمن اعتمد المخالفة فعلياً — منفصل تماماً عن creatorName
         // (اللي بيسجّلها) لأنهم غالباً شخصين مختلفين، وكانت هوية المعتمِد غير معروضة في الواجهة إطلاقاً
         approverName: v.manager_approved_by
@@ -451,13 +454,13 @@ export default function ViolationsPage() {
       const { data: upData } = await sb.storage.from('employees').upload(path, attachmentFile, { upsert: true })
       if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); finalAttachment = urlData.publicUrl }
     }
-    // المشرف يسجل بحالة submitted، المدير يسجل مباشرة بحالة active
-    const initStatus = isSupervisor ? 'submitted' : 'active'
+    // المشرف والمشرف العام يسجّلان بحالة submitted (المشرف العام: اعتمادها لمدير النظام وحده)، المدير يسجل مباشرة بحالة active
+    const initStatus = (isSupervisor || isBranchViewer) ? 'submitted' : 'active'
     const { error } = await sb.from('violations').insert([{
       employee_id: form.employee_id, amount: parseFloat(form.amount),
       reason: form.reason, date: form.date, created_by: employee?.id,
       status: initStatus, attachment_url: finalAttachment || null,
-      submitted_at: isSupervisor ? new Date().toISOString() : null,
+      submitted_at: (isSupervisor || isBranchViewer) ? new Date().toISOString() : null,
     }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -583,6 +586,7 @@ export default function ViolationsPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {paginated.map(v => {
             const sysV = !v.created_by   // مخالفة من النظام (خصم تلقائي) — إلغاؤها لمدير النظام فقط
+            const gsV = v.creatorRole === 'general_supervisor'   // مخالفة سجّلها المشرف العام — اعتمادها/إلغاؤها لمدير النظام فقط
             return (
             <div key={v.id} style={{ background: v.status === 'cancelled' ? S.card : S.navy2, borderRadius: 14, border: `1px solid ${v.status === 'cancelled' ? S.border : S.red+'30'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flex: 1 }}>
@@ -613,21 +617,21 @@ export default function ViolationsPage() {
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: v.status === 'cancelled' ? S.muted : S.red }}>MYR {(v.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: v.status==='active'?S.red:v.status==='submitted'?S.amber:S.muted, background: v.status==='active'?S.redB:v.status==='submitted'?S.amberB:S.card, borderRadius: 20, padding: '2px 10px' }}>
-                    {v.status==='active'?(isAr?'نشطة':'Active'):v.status==='submitted'?(isAr?'بانتظار الاعتماد':'Pending Approval'):(isAr?'ملغاة':'Cancelled')}
+                    {v.status==='active'?(isAr?'نشطة':'Active'):v.status==='submitted'?(gsV?(isAr?'في انتظار اعتماد مدير النظام':'Pending system admin approval'):(isAr?'بانتظار الاعتماد':'Pending Approval')):(isAr?'ملغاة':'Cancelled')}
                   </span>
                 </div>
                 {/* Submitted - waiting manager approval (مخالفات النظام لا تمرّ بهذا المسار) */}
-                {v.status === 'submitted' && !sysV && isDeptManager && (
+                {v.status === 'submitted' && !sysV && !gsV && isDeptManager && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => returnViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ {isAr?'إعادة':'Return'}</button>
                     <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                   </div>
                 )}
                 {/* الأدمن يقدر يعتمد أي مخالفة معلّقة (بما فيها مخالفات نظام قديمة سُجّلت قبل تفعيل الخصم التلقائي)؛ مدير الفرع للمخالفات البشرية فقط */}
-                {v.status === 'submitted' && (isAdmin || (!sysV && isBranchManager)) && (
+                {v.status === 'submitted' && (isAdmin || (!sysV && !gsV && isBranchManager)) && (
                   <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                 )}
-                {(v.status === 'active' || v.status === 'submitted') && (sysV ? isAdmin : (isAdmin || isBranchManager || isDeptManager)) && (
+                {(v.status === 'active' || v.status === 'submitted') && (sysV ? isAdmin : (isAdmin || (!(gsV && v.status === 'submitted') && (isBranchManager || isDeptManager)))) && (
                   <button onClick={() => cancelViolation(v.id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                 )}
               </div>

@@ -105,19 +105,29 @@ function fmtRaiseDate(v: string | null | undefined): string {
   if (!v) return '—'
   return new Date(v).toLocaleDateString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric' })
 }
-function raiseErrorText(msg: string): string {
-  if (msg.includes('NOT_ELIGIBLE')) return 'لم تعد تستوفي شروط الاستحقاق. أعد فتح الصفحة لتحديث النتيجة.'
-  if (msg.includes('BAD_PERCENT')) return 'النسبة المطلوبة يجب أن تكون بين 5% و10%.'
-  if (msg.includes('REASON_REQUIRED')) return 'اكتب سبب الطلب (10 أحرف على الأقل).'
-  if (msg.includes('ACHIEVEMENT')) return 'أجب عن كل بنود الإنجازات، واكتب تفاصيل كل بند تختار له «ينطبق» (10 أحرف على الأقل).'
-  if (msg.includes('NO_SALARY')) return 'لا يوجد راتب مسجّل لك. تواصل مع الإدارة.'
-  return 'تعذّر تقديم الطلب: ' + msg
+function raiseErrorText(msg: string, isAr: boolean): string {
+  if (msg.includes('NOT_ELIGIBLE')) return isAr ? 'لم تعد تستوفي شروط الاستحقاق. أعد فتح الصفحة لتحديث النتيجة.' : 'You no longer meet the eligibility conditions. Reopen the page to refresh the result.'
+  if (msg.includes('BAD_PERCENT')) return isAr ? 'النسبة المطلوبة يجب أن تكون بين 5% و10%.' : 'The requested percentage must be between 5% and 10%.'
+  if (msg.includes('REASON_REQUIRED')) return isAr ? 'اكتب سبب الطلب (10 أحرف على الأقل).' : 'Write a reason for the request (at least 10 characters).'
+  if (msg.includes('ACHIEVEMENT')) return isAr ? 'أجب عن كل بنود الإنجازات، واكتب تفاصيل كل بند تختار له «ينطبق» (10 أحرف على الأقل).' : 'Answer every achievement item, and write details for each one marked "Applies" (at least 10 characters).'
+  if (msg.includes('NO_SALARY')) return isAr ? 'لا يوجد راتب مسجّل لك. تواصل مع الإدارة.' : 'No salary is recorded for you. Contact management.'
+  return (isAr ? 'تعذّر تقديم الطلب: ' : 'Could not submit the request: ') + msg
 }
+
+// ✅ الترجمة الإنجليزية للإنجازات الاثني عشر — للعرض فقط؛ الترتيب مطابق للمصفوفة العربية القادمة من السيرفر،
+// والتسمية المُخزَّنة عند التقديم تبقى دائماً من السيرفر (عربي) بصرف النظر عن اللغة المعروضة وقت التقديم
+const ACHIEVEMENTS_EN = [
+  'Training a new employee', 'Covering an extra shift', 'Suggesting an improvement that helped the restaurant',
+  'Thanks or a positive review from a customer', 'Zero order mistakes', 'Following hygiene standards',
+  'Successfully resolving a customer issue', 'Following uniform and appearance standards', 'Helping with anything else',
+  'Willing to work across more than one department', 'Completed a course or certificate', 'Employee of the month',
+]
 
 function SalaryIncreaseModal({ employee, onClose, onSaved }: {
   employee: Employee; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [check, setCheck] = useState<RaiseCheck | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -132,7 +142,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
 
   useEffect(() => {
     supabase.rpc('app_salary_raise_check').then(({ data, error }) => {
-      if (error || !data) setLoadError('تعذّر فحص الاستحقاق: ' + (error?.message || 'لا توجد بيانات'))
+      if (error || !data) setLoadError(error?.message || 'NO_DATA')
       else setCheck(data as RaiseCheck)
       setLoading(false)
     })
@@ -158,8 +168,8 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
       p_achievements: answers.map(a => ({ applies: a.applies, details: a.applies ? a.details.trim() : '' })),
     })
     setSaving(false)
-    if (error) { alert(raiseErrorText(error.message)); return }
-    alert('✅ تم تقديم طلبك، ويصل لمدير النظام فقط. لو اعتُمد، لا يمكنك تقديم طلب آخر قبل مرور 6 أشهر من تاريخه.')
+    if (error) { alert(raiseErrorText(error.message, isAr)); return }
+    alert(isAr ? '✅ تم تقديم طلبك، ويصل لمدير النظام فقط. لو اعتُمد، لا يمكنك تقديم طلب آخر قبل مرور 6 أشهر من تاريخه.' : '✅ Your request has been submitted and goes only to the system admin. If approved, you cannot submit another request until 6 months have passed from that date.')
     onSaved()
   }
 
@@ -177,7 +187,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
   const etaText = (resolvesAt: string | null) => {
     if (!resolvesAt) return ''
     const daysLeft = Math.max(0, Math.ceil((new Date(resolvesAt).getTime() - nowMs) / 86400000))
-    return ` — متوقع الاستيفاء خلال ${daysLeft} يوم (${fmtRaiseDate(resolvesAt)})`
+    return isAr ? ` — متوقع الاستيفاء خلال ${daysLeft} يوم (${fmtRaiseDate(resolvesAt)})` : ` — expected to resolve in ${daysLeft} day(s) (${fmtRaiseDate(resolvesAt)})`
   }
   const progress = (fromIso: string | null, toIso: string | null, leftLabel: string) => {
     if (!fromIso || !toIso) return null
@@ -188,49 +198,59 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
       <div style={card}>
         <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>{leftLabel}</div>
         <div style={{ height: 8, borderRadius: 4, background: S.card2, overflow: 'hidden' }}><div style={{ width: `${pct}%`, height: '100%', background: S.amber }} /></div>
-        <div style={{ fontSize: 12, color: S.muted, marginTop: 6 }}>متبقي {daysLeft} يوم</div>
+        <div style={{ fontSize: 12, color: S.muted, marginTop: 6 }}>{isAr ? `متبقي ${daysLeft} يوم` : `${daysLeft} day(s) left`}</div>
       </div>
     )
   }
 
   let body: React.ReactNode = null
   if (loading) {
-    body = <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ جاري فحص الاستحقاق...</div>
+    body = <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>{isAr ? '⏳ جاري فحص الاستحقاق...' : '⏳ Checking eligibility...'}</div>
   } else if (loadError || !check) {
-    body = <div style={{ ...card, color: S.red, fontSize: 13 }}>{loadError}</div>
+    body = <div style={{ ...card, color: S.red, fontSize: 13 }}>{(isAr ? 'تعذّر فحص الاستحقاق: ' : 'Could not check eligibility: ') + (loadError === 'NO_DATA' ? (isAr ? 'لا توجد بيانات' : 'no data') : loadError)}</div>
   } else if (!check.ok.tenure) {
     body = (
       <>
-        {banner(S.amber, S.amberB, '⏳', 'التقديم يفتح بعد إتمام شهر من التعيين', `يمكنك تقديم الطلب اعتباراً من ${fmtRaiseDate(check.tenure_opens_at)}.`)}
-        {progress(check.join_date, check.tenure_opens_at, 'مدة الانتظار منذ التعيين')}
+        {banner(S.amber, S.amberB, '⏳', isAr ? 'التقديم يفتح بعد إتمام شهر من التعيين' : 'Submission opens after one month of service',
+          isAr ? `يمكنك تقديم الطلب اعتباراً من ${fmtRaiseDate(check.tenure_opens_at)}.` : `You can submit the request starting ${fmtRaiseDate(check.tenure_opens_at)}.`)}
+        {progress(check.join_date, check.tenure_opens_at, isAr ? 'مدة الانتظار منذ التعيين' : 'Waiting period since joining')}
       </>
     )
   } else if (!check.ok.lock) {
     body = (
       <>
-        {banner(S.amber, S.amberB, '🔒', 'حصلت على زيادة مؤخراً', `آخر زيادة بتاريخ ${fmtRaiseDate(check.last_raise_at)} بمبلغ ${fmt(check.last_raise_amount || 0)} RM. يفتح التقديم من جديد بتاريخ ${fmtRaiseDate(check.next_allowed_at)} (بعد 6 أشهر من آخر زيادة).`)}
-        {progress(check.last_raise_at, check.next_allowed_at, 'المدة المنقضية من آخر زيادة')}
+        {banner(S.amber, S.amberB, '🔒', isAr ? 'حصلت على زيادة مؤخراً' : 'You received a raise recently',
+          isAr
+            ? `آخر زيادة بتاريخ ${fmtRaiseDate(check.last_raise_at)} بمبلغ ${fmt(check.last_raise_amount || 0)} RM. يفتح التقديم من جديد بتاريخ ${fmtRaiseDate(check.next_allowed_at)} (بعد 6 أشهر من آخر زيادة).`
+            : `Last raise on ${fmtRaiseDate(check.last_raise_at)} of RM ${fmt(check.last_raise_amount || 0)}. Submission reopens on ${fmtRaiseDate(check.next_allowed_at)} (6 months after the last raise).`)}
+        {progress(check.last_raise_at, check.next_allowed_at, isAr ? 'المدة المنقضية من آخر زيادة' : 'Time elapsed since last raise')}
       </>
     )
   } else {
     const rows: { ok: boolean; label: string; value: string }[] = [
-      { ok: check.ok.tenure, label: 'مدة الخدمة', value: `${Math.floor(check.service_months)} شهر (المطلوب شهر فأكثر)` },
-      { ok: check.ok.eval, label: 'متوسط آخر التقييمات المعتمدة', value: (check.eval_count === 0 ? 'لا يوجد تقييم معتمد بعد' : `${check.eval_avg} (${check.eval_count} من 3 تقييمات، المطلوب 80 فأكثر)`) + (check.ok.eval ? '' : ' — يحتاج تقييماً جديداً معتمداً (لا يتحسَّن بمرور الوقت وحده)') },
-      { ok: check.ok.absence, label: 'الغياب في آخر 3 أشهر', value: `${check.absence_days} يوم (المسموح يومان)` + (check.ok.absence ? '' : etaText(check.abs_resolves_at)) },
-      { ok: check.ok.late, label: 'التأخير في آخر 3 أشهر', value: `${check.late_hours} ساعة (المسموح 5)` + (check.ok.late ? '' : etaText(check.late_resolves_at)) },
-      { ok: check.ok.violations, label: 'المخالفات الفعّالة', value: (check.violations === 0 ? 'لا يوجد' : `${check.violations} مخالفة قائمة`) + (check.ok.violations ? '' : etaText(check.viol_resolves_at)) },
-      { ok: check.ok.lock, label: 'آخر زيادة راتب', value: check.last_raise_at ? `${fmtRaiseDate(check.last_raise_at)} — ${fmt(check.last_raise_amount || 0)} RM` : 'لا توجد زيادة سابقة' },
+      { ok: check.ok.tenure, label: isAr ? 'مدة الخدمة' : 'Length of service', value: isAr ? `${Math.floor(check.service_months)} شهر (المطلوب شهر فأكثر)` : `${Math.floor(check.service_months)} month(s) (1+ required)` },
+      { ok: check.ok.eval, label: isAr ? 'متوسط آخر التقييمات المعتمدة' : 'Average of last approved evaluations',
+        value: (check.eval_count === 0 ? (isAr ? 'لا يوجد تقييم معتمد بعد' : 'No approved evaluation yet') : (isAr ? `${check.eval_avg} (${check.eval_count} من 3 تقييمات، المطلوب 80 فأكثر)` : `${check.eval_avg} (${check.eval_count} of 3 evaluations, 80+ required)`))
+          + (check.ok.eval ? '' : (isAr ? ' — يحتاج تقييماً جديداً معتمداً (لا يتحسَّن بمرور الوقت وحده)' : ' — needs a new approved evaluation (does not resolve on its own over time)')) },
+      { ok: check.ok.absence, label: isAr ? 'الغياب في آخر 3 أشهر' : 'Absences in the last 3 months', value: (isAr ? `${check.absence_days} يوم (المسموح يومان)` : `${check.absence_days} day(s) (2 allowed)`) + (check.ok.absence ? '' : etaText(check.abs_resolves_at)) },
+      { ok: check.ok.late, label: isAr ? 'التأخير في آخر 3 أشهر' : 'Lateness in the last 3 months', value: (isAr ? `${check.late_hours} ساعة (المسموح 5)` : `${check.late_hours} hour(s) (5 allowed)`) + (check.ok.late ? '' : etaText(check.late_resolves_at)) },
+      { ok: check.ok.violations, label: isAr ? 'المخالفات الفعّالة' : 'Active violations', value: (check.violations === 0 ? (isAr ? 'لا يوجد' : 'None') : (isAr ? `${check.violations} مخالفة قائمة` : `${check.violations} active violation(s)`)) + (check.ok.violations ? '' : etaText(check.viol_resolves_at)) },
+      { ok: check.ok.lock, label: isAr ? 'آخر زيادة راتب' : 'Last salary raise', value: check.last_raise_at ? `${fmtRaiseDate(check.last_raise_at)} — ${fmt(check.last_raise_amount || 0)} RM` : (isAr ? 'لا توجد زيادة سابقة' : 'No previous raise') },
     ]
     const failed = rows.filter(r => !r.ok).length
     const scoreRows: [string, number, number][] = [
-      ['متوسط التقييمات', check.points.eval, 40], ['الحضور (غياب وتأخير)', check.points.attendance, 20],
-      [`الإنجازات (${yesCount} من 12)`, achPoints, 25], ['سلامة السجل من المخالفات', check.points.violations, 10], ['مدة الخدمة', check.points.tenure, 5],
+      [isAr ? 'متوسط التقييمات' : 'Evaluation average', check.points.eval, 40], [isAr ? 'الحضور (غياب وتأخير)' : 'Attendance (absence & lateness)', check.points.attendance, 20],
+      [isAr ? `الإنجازات (${yesCount} من 12)` : `Achievements (${yesCount} of 12)`, achPoints, 25],
+      [isAr ? 'سلامة السجل من المخالفات' : 'Clean record (no violations)', check.points.violations, 10], [isAr ? 'مدة الخدمة' : 'Length of service', check.points.tenure, 5],
     ]
     body = (
       <>
         {check.eligible
-          ? banner(S.green, S.greenB, '✅', 'أنت مستحق لتقديم الطلب', `الزيادة المتوقعة حسب درجتك: ${expected}%${salary ? ` (نحو ${fmt(salary * expected / 100)} رينغت)` : ''}. النسبة متوقعة وليست مضمونة.`)
-          : banner(S.red, S.redB, '❌', 'غير مستحق حالياً', `لم يتحقق ${failed} من الشروط. أسباب عدم الاستحقاق ظاهرة أدناه.`)}
+          ? banner(S.green, S.greenB, '✅', isAr ? 'أنت مستحق لتقديم الطلب' : 'You are eligible to submit a request',
+              isAr ? `الزيادة المتوقعة حسب درجتك: ${expected}%${salary ? ` (نحو ${fmt(salary * expected / 100)} رينغت)` : ''}. النسبة متوقعة وليست مضمونة.`
+                   : `Expected raise based on your score: ${expected}%${salary ? ` (about RM ${fmt(salary * expected / 100)})` : ''}. This is an estimate, not a guarantee.`)
+          : banner(S.red, S.redB, '❌', isAr ? 'غير مستحق حالياً' : 'Not currently eligible',
+              isAr ? `لم يتحقق ${failed} من الشروط. أسباب عدم الاستحقاق ظاهرة أدناه.` : `${failed} condition(s) not met. Reasons are shown below.`)}
 
         <div style={card}>
           {rows.map((r, i) => (
@@ -243,28 +263,32 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
         </div>
         {/* ✅ جديد: تاريخ الاستحقاق المتوقَّع الإجمالي — أقصى تاريخ بين كل الشروط الزمنية الفاشلة حالياً (بافتراض عدم تكرارها) */}
         {!check.eligible && check.next_possible_at && (
-          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>⏳ من المتوقع استيفاء الشروط الزمنية بحلول {fmtRaiseDate(check.next_possible_at)} (بافتراض عدم تكرار الغياب/التأخير/المخالفات).</div>
+          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>
+            {isAr
+              ? `⏳ من المتوقع استيفاء الشروط الزمنية بحلول ${fmtRaiseDate(check.next_possible_at)} (بافتراض عدم تكرار الغياب/التأخير/المخالفات).`
+              : `⏳ The time-based conditions are expected to be met by ${fmtRaiseDate(check.next_possible_at)} (assuming no further absence/lateness/violations).`}
+          </div>
         )}
         {!check.eligible && !check.ok.eval && !check.next_possible_at && (
-          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>⏳ الشروط الزمنية الأخرى مستوفاة؛ الباقي يحتاج تقييماً جديداً معتمداً.</div>
+          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>{isAr ? '⏳ الشروط الزمنية الأخرى مستوفاة؛ الباقي يحتاج تقييماً جديداً معتمداً.' : '⏳ All other time-based conditions are met; only a new approved evaluation is needed.'}</div>
         )}
 
         {check.eligible ? (
           <>
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-                <span style={{ fontWeight: 800, fontSize: 13, color: S.white }}>درجة الاستحقاق</span>
+                <span style={{ fontWeight: 800, fontSize: 13, color: S.white }}>{isAr ? 'درجة الاستحقاق' : 'Eligibility score'}</span>
                 <span style={{ fontSize: 20, fontWeight: 800, color: total >= 70 ? S.green : S.amber }}>{Math.round(total * 10) / 10} / 100</span>
               </div>
               <div style={{ height: 8, borderRadius: 4, background: S.card2, overflow: 'hidden', marginBottom: 10 }}><div style={{ width: `${Math.min(100, total)}%`, height: '100%', background: total >= 70 ? S.green : S.amber }} /></div>
               {scoreRows.map(([l, v, m], i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0', color: S.muted }}><span>{l}</span><span>{v} من {m}</span></div>
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0', color: S.muted }}><span>{l}</span><span>{isAr ? `${v} من ${m}` : `${v} of ${m}`}</span></div>
               ))}
             </div>
 
             <div style={card}>
-              <div style={{ fontWeight: 800, fontSize: 14, color: S.white, marginBottom: 4 }}>إنجازاتك <span style={{ color: S.red }}>*</span></div>
-              <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>أجب عن كل بند. إن اخترت «ينطبق» فاكتب ما فعلت ومتى، وسيراجعه مدير النظام.</div>
+              <div style={{ fontWeight: 800, fontSize: 14, color: S.white, marginBottom: 4 }}>{isAr ? 'إنجازاتك' : 'Your achievements'} <span style={{ color: S.red }}>*</span></div>
+              <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{isAr ? 'أجب عن كل بند. إن اخترت «ينطبق» فاكتب ما فعلت ومتى، وسيراجعه مدير النظام.' : 'Answer every item. If you choose "Applies", write what you did and when — the system admin will review it.'}</div>
               {check.achievements.map((label, i) => {
                 const a = answers[i]
                 const invalid = showErrors && bad(a)
@@ -272,16 +296,16 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
                 return (
                   <div key={i} style={{ border: `1px solid ${invalid ? S.red : S.border}`, background: invalid ? S.redB : 'transparent', borderRadius: 10, padding: '9px 12px', marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 13, color: S.white }}>{i + 1}. {label} <span style={{ color: S.red }}>*</span></span>
+                      <span style={{ fontSize: 13, color: S.white }}>{i + 1}. {isAr ? label : (ACHIEVEMENTS_EN[i] || label)} <span style={{ color: S.red }}>*</span></span>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => set({ applies: true })} style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', border: `1px solid ${a.applies === true ? S.green : S.border}`, background: a.applies === true ? S.greenB : 'transparent', color: a.applies === true ? S.green : S.muted }}>ينطبق</button>
-                        <button onClick={() => set({ applies: false, details: '' })} style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', border: `1px solid ${a.applies === false ? S.muted : S.border}`, background: a.applies === false ? S.card2 : 'transparent', color: a.applies === false ? S.white : S.muted }}>لا ينطبق</button>
+                        <button onClick={() => set({ applies: true })} style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', border: `1px solid ${a.applies === true ? S.green : S.border}`, background: a.applies === true ? S.greenB : 'transparent', color: a.applies === true ? S.green : S.muted }}>{isAr ? 'ينطبق' : 'Applies'}</button>
+                        <button onClick={() => set({ applies: false, details: '' })} style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', border: `1px solid ${a.applies === false ? S.muted : S.border}`, background: a.applies === false ? S.card2 : 'transparent', color: a.applies === false ? S.white : S.muted }}>{isAr ? 'لا ينطبق' : 'Does not apply'}</button>
                       </div>
                     </div>
                     {a.applies === true && (
                       <textarea style={{ ...inp, minHeight: 56, resize: 'vertical', marginTop: 8, borderColor: invalid ? S.red : 'rgba(255,255,255,0.10)' } as React.CSSProperties}
                         value={a.details} onChange={e => set({ details: e.target.value })}
-                        placeholder="اكتب ماذا فعلت ومتى، بما لا يقل عن 10 أحرف (إجباري)" />
+                        placeholder={isAr ? 'اكتب ماذا فعلت ومتى، بما لا يقل عن 10 أحرف (إجباري)' : 'Write what you did and when, at least 10 characters (required)'} />
                     )}
                   </div>
                 )
@@ -289,38 +313,38 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
             </div>
 
             <div style={card}>
-              <div style={{ fontWeight: 800, fontSize: 14, color: S.white, marginBottom: 10 }}>طلبك</div>
+              <div style={{ fontWeight: 800, fontSize: 14, color: S.white, marginBottom: 10 }}>{isAr ? 'طلبك' : 'Your request'}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                <label style={{ fontSize: 12, color: S.muted, minWidth: 110 }}>النسبة المطلوبة <span style={{ color: S.red }}>*</span></label>
+                <label style={{ fontSize: 12, color: S.muted, minWidth: 110 }}>{isAr ? 'النسبة المطلوبة' : 'Requested percentage'} <span style={{ color: S.red }}>*</span></label>
                 <input type="range" min={5} max={10} step={0.5} value={percent} onChange={e => setPercent(parseFloat(e.target.value))} style={{ flex: 1 }} />
                 <span style={{ minWidth: 48, fontWeight: 800, color: S.white }}>{percent}%</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
-                {[['الراتب الحالي', fmt(salary)], ['الزيادة', fmt(increase)], ['الراتب الجديد', fmt(salary + increase)]].map(([l, v]) => (
+                {[[isAr ? 'الراتب الحالي' : 'Current salary', fmt(salary)], [isAr ? 'الزيادة' : 'Increase', fmt(increase)], [isAr ? 'الراتب الجديد' : 'New salary', fmt(salary + increase)]].map(([l, v]) => (
                   <div key={l} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '8px 10px' }}>
                     <div style={{ fontSize: 11, color: S.muted }}>{l}</div>
                     <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{v}</div>
                   </div>
                 ))}
               </div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>سبب الطلب <span style={{ color: S.red }}>*</span></label>
+              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{isAr ? 'سبب الطلب' : 'Reason for request'} <span style={{ color: S.red }}>*</span></label>
               <textarea style={{ ...inp, minHeight: 70, resize: 'vertical', borderColor: showErrors && reasonBad ? S.red : 'rgba(255,255,255,0.10)' } as React.CSSProperties}
-                value={reason} onChange={e => setReason(e.target.value)} placeholder="اكتب سبب طلبك، بما لا يقل عن 10 أحرف (إجباري)" />
+                value={reason} onChange={e => setReason(e.target.value)} placeholder={isAr ? 'اكتب سبب طلبك، بما لا يقل عن 10 أحرف (إجباري)' : 'Write your reason, at least 10 characters (required)'} />
             </div>
 
             {showErrors && missingCount > 0 && (
               <div style={{ background: S.redB, border: `1px solid ${S.red}55`, color: S.red, borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 12 }}>
-                لا يمكن التقديم: {missingCount} حقول ناقصة، مظلّلة بالأحمر أعلاه.
+                {isAr ? `لا يمكن التقديم: ${missingCount} حقول ناقصة، مظلّلة بالأحمر أعلاه.` : `Cannot submit: ${missingCount} field(s) missing, highlighted in red above.`}
               </div>
             )}
             <button onClick={submit} disabled={saving}
               style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
-              {saving ? '⏳ جاري التقديم...' : '📤 تقديم الطلب'}
+              {saving ? (isAr ? '⏳ جاري التقديم...' : '⏳ Submitting...') : (isAr ? '📤 تقديم الطلب' : '📤 Submit request')}
             </button>
-            <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>كل الحقول إجبارية. يصل الطلب لمدير النظام فقط، ولو اعتُمد لا تقدر تقدّم طلباً آخر قبل مرور 6 أشهر من تاريخه.</div>
+            <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>{isAr ? 'كل الحقول إجبارية. يصل الطلب لمدير النظام فقط، ولو اعتُمد لا تقدر تقدّم طلباً آخر قبل مرور 6 أشهر من تاريخه.' : 'All fields are required. The request goes only to the system admin, and if approved you cannot submit another one until 6 months have passed from that date.'}</div>
           </>
         ) : (
-          <div style={{ ...card, fontSize: 12.5, color: S.muted }}>لا يظهر نموذج الطلب لأن الشروط لم تتحقق. يُعاد الفحص تلقائياً في كل مرة تفتح فيها هذه الصفحة.</div>
+          <div style={{ ...card, fontSize: 12.5, color: S.muted }}>{isAr ? 'لا يظهر نموذج الطلب لأن الشروط لم تتحقق. يُعاد الفحص تلقائياً في كل مرة تفتح فيها هذه الصفحة.' : 'The request form is hidden because the conditions are not met. Eligibility is re-checked automatically every time you open this page.'}</div>
         )}
       </>
     )
@@ -331,9 +355,9 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 680, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>📈 طلب زيادة راتب</h2>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{isAr ? '📈 طلب زيادة راتب' : '📈 Salary Raise Request'}</h2>
             <div style={{ fontSize: 12, color: S.muted }}>{employee.name}{employee.name_en ? ' ' + employee.name_en : ''} · {employee.employee_number || '—'} · {employee.department || '—'}</div>
-            {check?.join_date && <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>تاريخ التعيين {fmtRaiseDate(check.join_date)} ({Math.floor(check.service_months)} شهراً)</div>}
+            {check?.join_date && <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{isAr ? `تاريخ التعيين ${fmtRaiseDate(check.join_date)} (${Math.floor(check.service_months)} شهراً)` : `Join date ${fmtRaiseDate(check.join_date)} (${Math.floor(check.service_months)} month(s))`}</div>}
           </div>
           <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36 }}>✕</button>
         </div>

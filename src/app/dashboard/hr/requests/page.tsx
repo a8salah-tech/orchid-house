@@ -81,7 +81,7 @@ interface EmployeeRequest {
   // ✅ طلب زيادة الراتب المنظَّم: النسبة المطلوبة/المعتمدة وصورة فحص الاستحقاق والإنجازات وقت التقديم
   raise_percent?: number | null
   raise_approved_percent?: number | null
-  raise_snapshot?: { total_score: number; expected_percent: number; requested_percent: number; current_salary: number; new_salary: number; reason: string; eval_avg: number | null; eval_count: number; absence_days: number; late_hours: number; violations: number; service_months: number; last_raise_at: string | null; achievements_points: number } | null
+  raise_snapshot?: { total_score: number; expected_percent: number; requested_percent: number; current_salary: number; new_salary: number; reason: string; eval_avg: number | null; eval_count: number; absence_days: number; late_hours: number; violations: number; service_months: number; last_raise_at: string | null; last_raise_amount?: number | null; achievements_points: number } | null
   raise_achievements?: { label: string; applies: boolean; details: string }[] | null
   employees?: { name: string; name_en?: string; role: string; department: string; employee_number?: string; branch_id?: string; branches?: { name: string } }
 }
@@ -92,7 +92,10 @@ interface EmployeeRequest {
 type RaiseCheck = {
   eligible: boolean; salary: number | null; join_date: string | null; service_months: number
   eval_avg: number | null; eval_count: number; absence_days: number; late_hours: number; violations: number
-  last_request_at: string | null; next_allowed_at: string | null; tenure_opens_at: string | null; last_raise_at: string | null
+  last_request_at: string | null; next_allowed_at: string | null; tenure_opens_at: string | null
+  last_raise_at: string | null; last_raise_amount: number | null
+  // ✅ جديد: تقدير "هيرجع مستحق إمتى" لكل شرط زمني فشل حالياً، وتاريخ الاستحقاق المتوقَّع الإجمالي
+  abs_resolves_at: string | null; late_resolves_at: string | null; viol_resolves_at: string | null; next_possible_at: string | null
   ok: { tenure: boolean; eval: boolean; absence: boolean; late: boolean; violations: boolean; lock: boolean }
   points: { eval: number; attendance: number; violations: number; tenure: number; base: number }
   achievements: string[]
@@ -156,7 +159,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
     })
     setSaving(false)
     if (error) { alert(raiseErrorText(error.message)); return }
-    alert('✅ تم تقديم طلبك. لا يمكنك تقديم طلب آخر قبل مرور 3 أشهر، ويصل طلبك لمدير النظام فقط.')
+    alert('✅ تم تقديم طلبك، ويصل لمدير النظام فقط. لو اعتُمد، لا يمكنك تقديم طلب آخر قبل مرور 6 أشهر من تاريخه.')
     onSaved()
   }
 
@@ -170,6 +173,12 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
       </div>
     </div>
   )
+  // ✅ جديد: نص "متوقع بعد X يوم (تاريخ)" يُضاف بجانب أي شرط زمني فشل حالياً وله تاريخ استحقاق متوقَّع
+  const etaText = (resolvesAt: string | null) => {
+    if (!resolvesAt) return ''
+    const daysLeft = Math.max(0, Math.ceil((new Date(resolvesAt).getTime() - nowMs) / 86400000))
+    return ` — متوقع الاستيفاء خلال ${daysLeft} يوم (${fmtRaiseDate(resolvesAt)})`
+  }
   const progress = (fromIso: string | null, toIso: string | null, leftLabel: string) => {
     if (!fromIso || !toIso) return null
     const from = new Date(fromIso).getTime(), to = new Date(toIso).getTime()
@@ -199,18 +208,18 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
   } else if (!check.ok.lock) {
     body = (
       <>
-        {banner(S.amber, S.amberB, '🔒', 'قدّمت طلباً مؤخراً', `قدّمت طلبك بتاريخ ${fmtRaiseDate(check.last_request_at)}. يفتح التقديم من جديد بتاريخ ${fmtRaiseDate(check.next_allowed_at)}.`)}
-        {progress(check.last_request_at, check.next_allowed_at, 'المدة المنقضية من آخر طلب')}
+        {banner(S.amber, S.amberB, '🔒', 'حصلت على زيادة مؤخراً', `آخر زيادة بتاريخ ${fmtRaiseDate(check.last_raise_at)} بمبلغ ${fmt(check.last_raise_amount || 0)} RM. يفتح التقديم من جديد بتاريخ ${fmtRaiseDate(check.next_allowed_at)} (بعد 6 أشهر من آخر زيادة).`)}
+        {progress(check.last_raise_at, check.next_allowed_at, 'المدة المنقضية من آخر زيادة')}
       </>
     )
   } else {
     const rows: { ok: boolean; label: string; value: string }[] = [
       { ok: check.ok.tenure, label: 'مدة الخدمة', value: `${Math.floor(check.service_months)} شهر (المطلوب شهر فأكثر)` },
-      { ok: check.ok.eval, label: 'متوسط آخر التقييمات المعتمدة', value: check.eval_count === 0 ? 'لا يوجد تقييم معتمد بعد' : `${check.eval_avg} (${check.eval_count} من 3 تقييمات، المطلوب 80 فأكثر)` },
-      { ok: check.ok.absence, label: 'الغياب في آخر 3 أشهر', value: `${check.absence_days} يوم (المسموح يومان)` },
-      { ok: check.ok.late, label: 'التأخير في آخر 3 أشهر', value: `${check.late_hours} ساعة (المسموح 5)` },
-      { ok: check.ok.violations, label: 'المخالفات الفعّالة', value: check.violations === 0 ? 'لا يوجد' : `${check.violations} مخالفة قائمة` },
-      { ok: check.ok.lock, label: 'آخر طلب زيادة', value: check.last_request_at ? `بتاريخ ${fmtRaiseDate(check.last_request_at)}` : 'لم يُقدَّم من قبل' },
+      { ok: check.ok.eval, label: 'متوسط آخر التقييمات المعتمدة', value: (check.eval_count === 0 ? 'لا يوجد تقييم معتمد بعد' : `${check.eval_avg} (${check.eval_count} من 3 تقييمات، المطلوب 80 فأكثر)`) + (check.ok.eval ? '' : ' — يحتاج تقييماً جديداً معتمداً (لا يتحسَّن بمرور الوقت وحده)') },
+      { ok: check.ok.absence, label: 'الغياب في آخر 3 أشهر', value: `${check.absence_days} يوم (المسموح يومان)` + (check.ok.absence ? '' : etaText(check.abs_resolves_at)) },
+      { ok: check.ok.late, label: 'التأخير في آخر 3 أشهر', value: `${check.late_hours} ساعة (المسموح 5)` + (check.ok.late ? '' : etaText(check.late_resolves_at)) },
+      { ok: check.ok.violations, label: 'المخالفات الفعّالة', value: (check.violations === 0 ? 'لا يوجد' : `${check.violations} مخالفة قائمة`) + (check.ok.violations ? '' : etaText(check.viol_resolves_at)) },
+      { ok: check.ok.lock, label: 'آخر زيادة راتب', value: check.last_raise_at ? `${fmtRaiseDate(check.last_raise_at)} — ${fmt(check.last_raise_amount || 0)} RM` : 'لا توجد زيادة سابقة' },
     ]
     const failed = rows.filter(r => !r.ok).length
     const scoreRows: [string, number, number][] = [
@@ -232,7 +241,13 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
             </div>
           ))}
         </div>
-        {check.last_raise_at && <div style={{ fontSize: 12, color: S.muted, marginBottom: 12 }}>📊 آخر زيادة راتب مسجَّلة لك: {fmtRaiseDate(check.last_raise_at)}</div>}
+        {/* ✅ جديد: تاريخ الاستحقاق المتوقَّع الإجمالي — أقصى تاريخ بين كل الشروط الزمنية الفاشلة حالياً (بافتراض عدم تكرارها) */}
+        {!check.eligible && check.next_possible_at && (
+          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>⏳ من المتوقع استيفاء الشروط الزمنية بحلول {fmtRaiseDate(check.next_possible_at)} (بافتراض عدم تكرار الغياب/التأخير/المخالفات).</div>
+        )}
+        {!check.eligible && !check.ok.eval && !check.next_possible_at && (
+          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>⏳ الشروط الزمنية الأخرى مستوفاة؛ الباقي يحتاج تقييماً جديداً معتمداً.</div>
+        )}
 
         {check.eligible ? (
           <>
@@ -302,7 +317,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
               style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
               {saving ? '⏳ جاري التقديم...' : '📤 تقديم الطلب'}
             </button>
-            <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>كل الحقول إجبارية. بعد التقديم لا يمكنك تقديم طلب آخر قبل 3 أشهر، ويصل الطلب لمدير النظام فقط.</div>
+            <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>كل الحقول إجبارية. يصل الطلب لمدير النظام فقط، ولو اعتُمد لا تقدر تقدّم طلباً آخر قبل مرور 6 أشهر من تاريخه.</div>
           </>
         ) : (
           <div style={{ ...card, fontSize: 12.5, color: S.muted }}>لا يظهر نموذج الطلب لأن الشروط لم تتحقق. يُعاد الفحص تلقائياً في كل مرة تفتح فيها هذه الصفحة.</div>
@@ -1081,7 +1096,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
               </div>
               <div style={{ fontSize: 12.5, color: S.white, lineHeight: 1.9, marginBottom: 10 }}>
                 التقييم {sn.eval_avg ?? '—'} ({sn.eval_count} تقييم) · غياب {sn.absence_days} يوم · تأخير {sn.late_hours} ساعة · مخالفات فعّالة {sn.violations} · مدة الخدمة {Math.floor(sn.service_months)} شهراً
-                {sn.last_raise_at ? ` · آخر زيادة ${sn.last_raise_at}` : ' · لا توجد زيادة سابقة'}
+                {sn.last_raise_at ? ` · آخر زيادة ${sn.last_raise_at} (${fm(sn.last_raise_amount || 0)} RM)` : ' · لا توجد زيادة سابقة'}
               </div>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>الإنجازات التي ذكرها ({yes.length} من {ach.length}) — {sn.achievements_points} نقطة</div>
               {yes.length === 0 ? <div style={{ fontSize: 12, color: S.muted }}>لم يذكر أي إنجاز.</div> : yes.map((a, i) => (

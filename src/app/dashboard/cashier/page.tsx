@@ -386,7 +386,7 @@ function ShiftItemSummaryModal({ data, onClose }: {
   )
 }
 
-type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null }
+type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null; section?: string | null }
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
@@ -394,6 +394,9 @@ type Order = {
   service_charge: number; sst_amount: number; shift: string
   notes: string; created_at: string; confirmed_at: string; paid_at?: string
   customer_id?: string | null; cancel_reason?: string | null; paid_by_name?: string | null
+  // ✅ طاولة "كنسلة": من طلب الإلغاء ولماذا (بانتظار اعتماد مدير النظام)، ومن اعتمده لو تم فعلاً
+  cancel_requested_by_name?: string | null; cancel_requested_at?: string | null; cancel_from_table_name?: string | null
+  cancel_approved_by_name?: string | null; cancel_approved_at?: string | null
   tables: { number: number; name: string; section?: string | null }
   order_items: OrderItem[]
 }
@@ -472,10 +475,11 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const [cashReceived, setCashReceived] = useState('')
   // ✅ جديد: تحديد البنك لما تكون طريقة الدفع فيزا - عشان تقرير اليومية يقدر يفرّق بين البنكين
   const [cardBank, setCardBank] = useState<'maybank' | 'bsn' | ''>('')
-  const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>('none')
-  const [discountValue, setDiscountValue] = useState('')
+  // ✅ طاولة الموظفين: خصم 30% ثابت مفروض من أول فتح للفاتورة (بلا تدخل الكاشير، ولا يُدمج مع أي خصم آخر)
+  const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>(() => order.tables?.section === 'staff' ? 'percent' : 'none')
+  const [discountValue, setDiscountValue] = useState(() => order.tables?.section === 'staff' ? '30' : '')
   // ✅ جديد: سبب الخصم أو الفري - إلزامي عشان يبقى واضح ليه اتعمل، ويظهر في Closed وتقرير الشيفت
-  const [discountReason, setDiscountReason] = useState('')
+  const [discountReason, setDiscountReason] = useState(() => order.tables?.section === 'staff' ? 'طاولة موظفين — خصم تلقائي 30%' : '')
   const [saving, setSaving] = useState(false)
   const [customers, setCustomers] = useState<any[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
@@ -633,11 +637,13 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const subtotal = order.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
   // ✅ جديد: طلبات التيك أواي (Foodpanda/Grab/Customer/Other) مالهاش رسوم خدمة خالص - مافيش خدمة طاولة أصلًا
   const isTakeawayOrder = order.tables?.section === 'takeaway'
+  // ✅ طاولة الموظفين: بلا رسوم خدمة، وخصم 30% ثابت مفروض تلقائياً (بدون تدخل الكاشير، ولا يُدمج مع أي خصم آخر)
+  const isStaffTable = order.tables?.section === 'staff'
   // ✅ جديد: حسابات التوصيل الخارجية (Grab/Foodpanda/Shopee) بتدفع للمطعم لاحقًا (تسوية دورية)، مش وقت قفل الفاتورة -
   // فمحتاجين نفرّق بينها وبين الكاش الحقيقي اللي في درج الكاشير
   const isPlatformCreditOrder = /grab|foodpanda|shopee/i.test(order.tables?.name || '')
   // ✅ الخدمة والضريبة بيتحسبوا على السعر الأصلي (subtotal) دايمًا
-  const serviceCharge = (discountType === 'free' || isTakeawayOrder) ? 0 : subtotal * SERVICE_CHARGE_RATE
+  const serviceCharge = (discountType === 'free' || isTakeawayOrder || isStaffTable) ? 0 : subtotal * SERVICE_CHARGE_RATE
   const sst = discountType === 'free' ? 0 : subtotal * SST_RATE
   // ✅ Fix حرج جدًا: نسبة الخصم (%) بقت تتحسب على *الإجمالي الكلي* (سعر + خدمة + ضريبة)، مش على السعر
   // الأساسي بس - عشان "خصم 50%" يبقى فعلاً نص قيمة الفاتورة كاملة شاملة الضرائب، مش نص السعر الأساسي بس
@@ -1203,28 +1209,37 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         {/* Discount */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Discount</div>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${canUseFree ? 4 : 3}, 1fr)`, gap: 8, marginBottom: 10 }}>
-            {[
-              { k: 'none', label: 'None' },
-              { k: 'amount', label: 'Amount' },
-              { k: 'percent', label: '%' },
-              ...(canUseFree ? [{ k: 'free', label: '🎁 Free' }] : []),
-            ].map(d => (
-              <button key={d.k} onClick={() => setDiscountType(d.k as any)}
-                style={{ padding: '8px', borderRadius: 8, border: `1px solid ${discountType === d.k ? S.amber : S.border}`, background: discountType === d.k ? S.amberB : 'transparent', color: discountType === d.k ? S.amber : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: discountType === d.k ? 700 : 400 }}>
-                {d.label}
-              </button>
-            ))}
-          </div>
-          {(discountType === 'amount' || discountType === 'percent') && (
-            <input style={inp} type="number" value={discountValue} onChange={e => setDiscountValue(e.target.value)}
-              placeholder={discountType === 'percent' ? 'Discount %' : 'Amount Discount MYR'} />
-          )}
-          {/* ✅ جديد: سبب الخصم/الفري - إلزامي، وبيظهر بعد كده في Closed وتقرير الشيفت عشان يبقى واضح ليه اتعمل */}
-          {(discountType === 'amount' || discountType === 'percent' || discountType === 'free') && (
-            <input style={{ ...inp, marginTop: 8, borderColor: !discountReason.trim() ? S.red + '60' : undefined }}
-              value={discountReason} onChange={e => setDiscountReason(e.target.value)}
-              placeholder={discountType === 'free' ? 'Why is this free? (required)' : 'Why this discount? (required)'} />
+          {isStaffTable ? (
+            // ✅ طاولة الموظفين: خصم 30% ثابت مفروض تلقائياً، مقفول بلا تعديل من الكاشير
+            <div style={{ background: S.amberB, border: `1px solid ${S.amber}60`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: S.amber, fontWeight: 700 }}>
+              👥 Staff table — fixed 30% discount applied automatically
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${canUseFree ? 4 : 3}, 1fr)`, gap: 8, marginBottom: 10 }}>
+                {[
+                  { k: 'none', label: 'None' },
+                  { k: 'amount', label: 'Amount' },
+                  { k: 'percent', label: '%' },
+                  ...(canUseFree ? [{ k: 'free', label: '🎁 Free' }] : []),
+                ].map(d => (
+                  <button key={d.k} onClick={() => setDiscountType(d.k as any)}
+                    style={{ padding: '8px', borderRadius: 8, border: `1px solid ${discountType === d.k ? S.amber : S.border}`, background: discountType === d.k ? S.amberB : 'transparent', color: discountType === d.k ? S.amber : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: discountType === d.k ? 700 : 400 }}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+              {(discountType === 'amount' || discountType === 'percent') && (
+                <input style={inp} type="number" value={discountValue} onChange={e => setDiscountValue(e.target.value)}
+                  placeholder={discountType === 'percent' ? 'Discount %' : 'Amount Discount MYR'} />
+              )}
+              {/* ✅ جديد: سبب الخصم/الفري - إلزامي، وبيظهر بعد كده في Closed وتقرير الشيفت عشان يبقى واضح ليه اتعمل */}
+              {(discountType === 'amount' || discountType === 'percent' || discountType === 'free') && (
+                <input style={{ ...inp, marginTop: 8, borderColor: !discountReason.trim() ? S.red + '60' : undefined }}
+                  value={discountReason} onChange={e => setDiscountReason(e.target.value)}
+                  placeholder={discountType === 'free' ? 'Why is this free? (required)' : 'Why this discount? (required)'} />
+              )}
+            </>
           )}
         </div>
 
@@ -2342,7 +2357,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
@@ -2404,7 +2419,7 @@ export default function CashierPage() {
   // من قاعدة البيانات لسه مش متزامنة تمامًا (تأخير طبيعي بسيط)، منمنعهاش من إرجاع الطلب المدفوع للشاشة بالغلط
   const recentlyPaidTableIdsRef = useRef<Set<string>>(new Set())
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -2479,7 +2494,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -2546,7 +2561,7 @@ export default function CashierPage() {
       if (new Date(sEnd).getTime() > new Date(ordersRangeEnd).getTime()) ordersRangeEnd = sEnd
     }
 
-    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
     // والملغية (مالهاش paid_at) بتفضل محصورة في اليوم المطلوب بس (created_at)
     const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
@@ -2717,6 +2732,66 @@ export default function CashierPage() {
   const [cancelItemQty, setCancelItemQty] = useState(1)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelSaving, setCancelSaving] = useState(false)
+
+  // ✅ جديد: "كنسلة" — أي كاشير يقدر يبدأ إلغاء بنقل الطلب لطاولة "كنسلة" مع سبب إجباري، لكن الإلغاء الفعلي
+  // (خصمه من الإحصائيات) لا يتم إلا باعتماد مدير النظام/المشرف العام. لو رفض، يبقى الطلب نشطاً على طاولة كنسلة نفسها.
+  const [cancelMoveOrder, setCancelMoveOrder] = useState<Order | null>(null)
+  const [cancelMoveReason, setCancelMoveReason] = useState('')
+  const [cancelMoveSaving, setCancelMoveSaving] = useState(false)
+
+  async function moveOrderToCancelHub() {
+    if (!cancelMoveOrder || !cancelMoveReason.trim()) return
+    setCancelMoveSaving(true)
+    const order = cancelMoveOrder
+    const oldTableId = order.table_id
+    const oldTableName = order.tables?.name || `Table ${order.tables?.number}`
+    const currentTable = tables.find(t => t.id === oldTableId)
+    const cancelHub = tables.find(t => t.section === 'cancel_hub' && t.branch_id === currentTable?.branch_id)
+    if (!cancelHub) {
+      alert('⚠️ لا توجد طاولة "كنسلة" مُعرَّفة لهذا الفرع — شغّل db/cashier_staff_and_cancel_tables.sql أولاً')
+      setCancelMoveSaving(false)
+      return
+    }
+    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'غير معروف'
+    const { error } = await sb.from('orders').update({
+      table_id: cancelHub.id,
+      cancel_reason: cancelMoveReason.trim(),
+      cancel_requested_by_name: fullName,
+      cancel_requested_at: new Date().toISOString(),
+      cancel_from_table_name: oldTableName,
+    }).eq('id', order.id)
+    if (error) { alert('خطأ: ' + error.message); setCancelMoveSaving(false); return }
+    // نحرر الطاولة الأصلية لو مفيش طلبات نشطة تانية عليها (نفس منطق التحويل العادي)
+    const { data: remaining } = await sb.from('orders').select('id').eq('table_id', oldTableId).in('status', ['confirmed', 'preparing', 'ready'])
+    if (!remaining || remaining.length === 0) {
+      await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null }).eq('id', oldTableId)
+    }
+    setCancelMoveSaving(false)
+    setCancelMoveOrder(null)
+    setCancelMoveReason('')
+    fetchAll()
+  }
+
+  // ✅ اعتماد الإلغاء نهائياً — مدير النظام/المشرف العام فقط
+  async function approveCancelHub(order: Order) {
+    if (!confirm(`تأكيد اعتماد إلغاء الطلب من ${order.cancel_from_table_name || 'الطاولة'}؟`)) return
+    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'غير معروف'
+    await sb.from('order_items').update({ status: 'cancelled', cancel_reason: order.cancel_reason, cancelled_at: new Date().toISOString(), action_by: fullName }).eq('order_id', order.id).neq('status', 'cancelled')
+    await sb.from('orders').update({
+      status: 'cancelled',
+      cancel_approved_by_name: fullName, cancel_approved_at: new Date().toISOString(),
+    }).eq('id', order.id)
+    fetchAll()
+  }
+
+  // ✅ رفض طلب الإلغاء — يبقى الطلب نشطاً على طاولة "كنسلة" نفسها (كما طلب المستخدم)
+  async function rejectCancelHub(order: Order) {
+    if (!confirm('رفض طلب الإلغاء؟ سيبقى الطلب نشطاً على طاولة "كنسلة".')) return
+    await sb.from('orders').update({
+      cancel_reason: null, cancel_requested_by_name: null, cancel_requested_at: null, cancel_from_table_name: null,
+    }).eq('id', order.id)
+    fetchAll()
+  }
 
   // ✅ جديد: تحميل صنف على موظف (خطأ في الطلب أو وجبة شخصية) - الصنف يتشال من فاتورة العميل
   // ويتسجل فورًا كمخالفة "active" على نفس جدول المخالفات، فينزل من راتب الموظف ويظهر في "راتبي"
@@ -3558,6 +3633,11 @@ export default function CashierPage() {
                       })
                       const sExpPaid = sExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
                       const sExpPending = sExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
+                      // ✅ جديد: عدد ومبلغ الطلبات الملغاة، وإجمالي طاولة الموظفين لهذا الشيفت
+                      const sCancelledOrders = sessOrders.filter(o => o.status === 'cancelled')
+                      const sCancelledAmount = sCancelledOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
+                      const sStaffOrders = sessPaidOrders.filter(o => o.tables?.section === 'staff')
+                      const sStaffAmount = sStaffOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
                       return (
                         <div key={session.id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
                           <div style={{ padding: '14px 16px', background: S.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
@@ -3612,6 +3692,18 @@ export default function CashierPage() {
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>💰 Deposits</div>
                                   <div style={{ fontSize: 13, fontWeight: 800, color: S.teal }}>MYR {sDepositsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                </div>
+                              )}
+                              {sStaffOrders.length > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>👥 Staff Table ({sStaffOrders.length})</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.teal }}>MYR {sStaffAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                </div>
+                              )}
+                              {sCancelledOrders.length > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 10, color: S.muted }}>❌ Cancelled ({sCancelledOrders.length})</div>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sCancelledAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
                               <div style={{ textAlign: 'center' }}>
@@ -3771,6 +3863,20 @@ export default function CashierPage() {
                         </div>
                       </div>
 
+                      {/* ✅ طلب إلغاء معلّق (نُقل لطاولة "كنسلة") — يظهر لمدير النظام/المشرف العام بزرَّي اعتماد/رفض */}
+                      {order.cancel_requested_by_name && order.status !== 'cancelled' && (
+                        <div style={{ background: S.amberB, borderBottom: `1px solid ${S.amber}40`, padding: '10px 16px' }}>
+                          <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 2 }}>⏳ بانتظار اعتماد مدير النظام للإلغاء — نُقل من {order.cancel_from_table_name || '—'}</div>
+                          <div style={{ fontSize: 11, color: S.muted, marginBottom: isAdmin ? 8 : 0 }}>السبب: {order.cancel_reason || '—'} · بواسطة: {order.cancel_requested_by_name}</div>
+                          {isAdmin && (
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button onClick={() => approveCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ اعتماد الإلغاء</button>
+                              <button onClick={() => rejectCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ رفض</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <div style={{ padding: '10px 16px' }}>
                         {groupItemsByRound(order.order_items).map((round, ri) => (
                           <div key={ri}>
@@ -3825,6 +3931,11 @@ export default function CashierPage() {
                           <button onClick={() => openChargeWholeOrderToEmployee(order)}
                             title="Charge the entire table to an employee"
                             style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🍽️👤</button>
+                        )}
+                        {/* ✅ جديد: أي كاشير يقدر يبدأ إلغاء بنقل الطلب لطاولة "كنسلة" (سبب إجباري) — لا يُنفَّذ فعلياً إلا باعتماد مدير النظام */}
+                        {isCashierRole && ['confirmed','preparing','ready'].includes(order.status) && order.tables?.section !== 'cancel_hub' && !order.cancel_requested_by_name && (
+                          <button onClick={() => setCancelMoveOrder(order)} title="Move to Cancellation table"
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
                         )}
                         {isAdmin && ['confirmed','preparing'].includes(order.status) && (
                           <button onClick={() => setCancelOrderTarget(order)} style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
@@ -4287,6 +4398,28 @@ export default function CashierPage() {
       )}
 
       {/* ✅ مودال سبب الإلغاء الإجباري - للفاتورة الكاملة أو لصنف واحد */}
+      {/* ✅ جديد: نقل الطلب لطاولة "كنسلة" — متاح لأي كاشير، سبب إجباري، لا يُلغى فعلياً إلا باعتماد مدير النظام */}
+      {cancelMoveOrder && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, width: '100%', maxWidth: 400, padding: 28, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <div style={{ fontSize: 40, marginBottom: 14 }}>🗑️</div>
+            <div style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 10 }}>
+              نقل لطاولة «كنسلة» — {cancelMoveOrder.tables?.name || `Table ${cancelMoveOrder.tables?.number}`}
+            </div>
+            <div style={{ color: S.amber, fontSize: 11.5, marginBottom: 16, lineHeight: 1.6 }}>سبب النقل (سيكون سبب الإلغاء) إجباري. الطلب لن يُلغى فعلياً إلا بعد موافقة مدير النظام.</div>
+            <textarea style={{ width: '100%', boxSizing: 'border-box', background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: '#0A1628', outline: 'none', fontFamily: 'Tajawal, sans-serif', minHeight: 80, resize: 'vertical', marginBottom: 20, direction: 'rtl' }}
+              value={cancelMoveReason} onChange={e => setCancelMoveReason(e.target.value)} placeholder="سبب الإلغاء..." />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { setCancelMoveOrder(null); setCancelMoveReason('') }} style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+              <button onClick={moveOrderToCancelHub} disabled={cancelMoveSaving || !cancelMoveReason.trim()}
+                style={{ flex: 1, padding: '11px', borderRadius: 12, border: 'none', background: !cancelMoveReason.trim() ? S.border : S.amber, color: S.navy, cursor: !cancelMoveReason.trim() ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+                {cancelMoveSaving ? '⏳...' : 'نقل'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(cancelOrderTarget || cancelItemTarget) && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.red}`, width: '100%', maxWidth: 400, padding: 28, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>

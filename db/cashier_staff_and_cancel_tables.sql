@@ -1,5 +1,5 @@
 -- ══════════════════════════════════════════════════════════════════════════════
---  طاولة الموظفين (خصم تلقائي 30% + بدون رسم خدمة) + طاولة "كنسلة" (تجميع طلبات
+--  طاولة الموظفين (خصم تلقائي 30% + بدون رسم خدمة) + طاولة "Cancellation" (تجميع طلبات
 --  الإلغاء المعلَّقة بانتظار اعتماد مدير النظام/المشرف العام) — واحدة من كل نوع لكل فرع نشط
 -- ══════════════════════════════════════════════════════════════════════════════
 --  • tables.section = 'staff'      → الكاشير يستثنيها من رسم الخدمة ويفرض خصم 30% ثابت.
@@ -31,7 +31,7 @@ begin
     if not exists (select 1 from tables where branch_id = b.id and section = 'cancel_hub') then
       select coalesce(max(number), 0) + 1 into v_next from tables where branch_id = b.id;
       insert into tables (number, name, is_active, status, section, branch_id)
-      values (v_next, 'كنسلة', true, 'available', 'cancel_hub', b.id);
+      values (v_next, 'Cancellation', true, 'available', 'cancel_hub', b.id);
     end if;
   end loop;
 end $$;

@@ -394,7 +394,7 @@ type Order = {
   service_charge: number; sst_amount: number; shift: string
   notes: string; created_at: string; confirmed_at: string; paid_at?: string
   customer_id?: string | null; cancel_reason?: string | null; paid_by_name?: string | null
-  // ✅ طاولة "كنسلة": من طلب الإلغاء ولماذا (بانتظار اعتماد مدير النظام)، ومن اعتمده لو تم فعلاً
+  // ✅ طاولة "Cancellation": من طلب الإلغاء ولماذا (بانتظار اعتماد مدير النظام)، ومن اعتمده لو تم فعلاً
   cancel_requested_by_name?: string | null; cancel_requested_at?: string | null; cancel_from_table_name?: string | null
   cancel_approved_by_name?: string | null; cancel_approved_at?: string | null
   tables: { number: number; name: string; section?: string | null }
@@ -2733,8 +2733,8 @@ export default function CashierPage() {
   const [cancelReason, setCancelReason] = useState('')
   const [cancelSaving, setCancelSaving] = useState(false)
 
-  // ✅ جديد: "كنسلة" — أي كاشير يقدر يبدأ إلغاء بنقل الطلب لطاولة "كنسلة" مع سبب إجباري، لكن الإلغاء الفعلي
-  // (خصمه من الإحصائيات) لا يتم إلا باعتماد مدير النظام/المشرف العام. لو رفض، يبقى الطلب نشطاً على طاولة كنسلة نفسها.
+  // ✅ جديد: "Cancellation" — أي كاشير يقدر يبدأ إلغاء بنقل الطلب لطاولة "Cancellation" مع سبب إجباري، لكن
+  // الإلغاء الفعلي (خصمه من الإحصائيات) لا يتم إلا باعتماد مدير النظام/المشرف العام. لو رفض، يبقى الطلب نشطاً على نفس الطاولة.
   const [cancelMoveOrder, setCancelMoveOrder] = useState<Order | null>(null)
   const [cancelMoveReason, setCancelMoveReason] = useState('')
   const [cancelMoveSaving, setCancelMoveSaving] = useState(false)
@@ -2748,11 +2748,11 @@ export default function CashierPage() {
     const currentTable = tables.find(t => t.id === oldTableId)
     const cancelHub = tables.find(t => t.section === 'cancel_hub' && t.branch_id === currentTable?.branch_id)
     if (!cancelHub) {
-      alert('⚠️ لا توجد طاولة "كنسلة" مُعرَّفة لهذا الفرع — شغّل db/cashier_staff_and_cancel_tables.sql أولاً')
+      alert('⚠️ No "Cancellation" table defined for this branch — run db/cashier_staff_and_cancel_tables.sql first')
       setCancelMoveSaving(false)
       return
     }
-    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'غير معروف'
+    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'Unknown'
     const { error } = await sb.from('orders').update({
       table_id: cancelHub.id,
       cancel_reason: cancelMoveReason.trim(),
@@ -2760,7 +2760,7 @@ export default function CashierPage() {
       cancel_requested_at: new Date().toISOString(),
       cancel_from_table_name: oldTableName,
     }).eq('id', order.id)
-    if (error) { alert('خطأ: ' + error.message); setCancelMoveSaving(false); return }
+    if (error) { alert('Error: ' + error.message); setCancelMoveSaving(false); return }
     // نحرر الطاولة الأصلية لو مفيش طلبات نشطة تانية عليها (نفس منطق التحويل العادي)
     const { data: remaining } = await sb.from('orders').select('id').eq('table_id', oldTableId).in('status', ['confirmed', 'preparing', 'ready'])
     if (!remaining || remaining.length === 0) {
@@ -2774,8 +2774,8 @@ export default function CashierPage() {
 
   // ✅ اعتماد الإلغاء نهائياً — مدير النظام/المشرف العام فقط
   async function approveCancelHub(order: Order) {
-    if (!confirm(`تأكيد اعتماد إلغاء الطلب من ${order.cancel_from_table_name || 'الطاولة'}؟`)) return
-    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'غير معروف'
+    if (!confirm(`Confirm cancellation approval for the order from ${order.cancel_from_table_name || 'the table'}?`)) return
+    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'Unknown'
     await sb.from('order_items').update({ status: 'cancelled', cancel_reason: order.cancel_reason, cancelled_at: new Date().toISOString(), action_by: fullName }).eq('order_id', order.id).neq('status', 'cancelled')
     await sb.from('orders').update({
       status: 'cancelled',
@@ -2784,9 +2784,9 @@ export default function CashierPage() {
     fetchAll()
   }
 
-  // ✅ رفض طلب الإلغاء — يبقى الطلب نشطاً على طاولة "كنسلة" نفسها (كما طلب المستخدم)
+  // ✅ رفض طلب الإلغاء — يبقى الطلب نشطاً على طاولة "Cancellation" نفسها (كما طلب المستخدم)
   async function rejectCancelHub(order: Order) {
-    if (!confirm('رفض طلب الإلغاء؟ سيبقى الطلب نشطاً على طاولة "كنسلة".')) return
+    if (!confirm('Reject this cancellation request? The order will stay active on the "Cancellation" table.')) return
     await sb.from('orders').update({
       cancel_reason: null, cancel_requested_by_name: null, cancel_requested_at: null, cancel_from_table_name: null,
     }).eq('id', order.id)
@@ -3863,15 +3863,15 @@ export default function CashierPage() {
                         </div>
                       </div>
 
-                      {/* ✅ طلب إلغاء معلّق (نُقل لطاولة "كنسلة") — يظهر لمدير النظام/المشرف العام بزرَّي اعتماد/رفض */}
+                      {/* ✅ طلب إلغاء معلّق (نُقل لطاولة "Cancellation") — يظهر لمدير النظام/المشرف العام بزرَّي اعتماد/رفض */}
                       {order.cancel_requested_by_name && order.status !== 'cancelled' && (
                         <div style={{ background: S.amberB, borderBottom: `1px solid ${S.amber}40`, padding: '10px 16px' }}>
-                          <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 2 }}>⏳ بانتظار اعتماد مدير النظام للإلغاء — نُقل من {order.cancel_from_table_name || '—'}</div>
-                          <div style={{ fontSize: 11, color: S.muted, marginBottom: isAdmin ? 8 : 0 }}>السبب: {order.cancel_reason || '—'} · بواسطة: {order.cancel_requested_by_name}</div>
+                          <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 2 }}>⏳ Pending system admin approval — moved from {order.cancel_from_table_name || '—'}</div>
+                          <div style={{ fontSize: 11, color: S.muted, marginBottom: isAdmin ? 8 : 0 }}>Reason: {order.cancel_reason || '—'} · By: {order.cancel_requested_by_name}</div>
                           {isAdmin && (
                             <div style={{ display: 'flex', gap: 8 }}>
-                              <button onClick={() => approveCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ اعتماد الإلغاء</button>
-                              <button onClick={() => rejectCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ رفض</button>
+                              <button onClick={() => approveCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
+                              <button onClick={() => rejectCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ Reject</button>
                             </div>
                           )}
                         </div>
@@ -3932,7 +3932,7 @@ export default function CashierPage() {
                             title="Charge the entire table to an employee"
                             style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🍽️👤</button>
                         )}
-                        {/* ✅ جديد: أي كاشير يقدر يبدأ إلغاء بنقل الطلب لطاولة "كنسلة" (سبب إجباري) — لا يُنفَّذ فعلياً إلا باعتماد مدير النظام */}
+                        {/* ✅ جديد: أي كاشير يقدر يبدأ إلغاء بنقل الطلب لطاولة "Cancellation" (سبب إجباري) — لا يُنفَّذ فعلياً إلا باعتماد مدير النظام */}
                         {isCashierRole && ['confirmed','preparing','ready'].includes(order.status) && order.tables?.section !== 'cancel_hub' && !order.cancel_requested_by_name && (
                           <button onClick={() => setCancelMoveOrder(order)} title="Move to Cancellation table"
                             style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
@@ -4398,22 +4398,22 @@ export default function CashierPage() {
       )}
 
       {/* ✅ مودال سبب الإلغاء الإجباري - للفاتورة الكاملة أو لصنف واحد */}
-      {/* ✅ جديد: نقل الطلب لطاولة "كنسلة" — متاح لأي كاشير، سبب إجباري، لا يُلغى فعلياً إلا باعتماد مدير النظام */}
+      {/* ✅ جديد: نقل الطلب لطاولة "Cancellation" — متاح لأي كاشير، سبب إجباري، لا يُلغى فعلياً إلا باعتماد مدير النظام */}
       {cancelMoveOrder && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, width: '100%', maxWidth: 400, padding: 28, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
             <div style={{ fontSize: 40, marginBottom: 14 }}>🗑️</div>
             <div style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 10 }}>
-              نقل لطاولة «كنسلة» — {cancelMoveOrder.tables?.name || `Table ${cancelMoveOrder.tables?.number}`}
+              Move to &quot;Cancellation&quot; — {cancelMoveOrder.tables?.name || `Table ${cancelMoveOrder.tables?.number}`}
             </div>
-            <div style={{ color: S.amber, fontSize: 11.5, marginBottom: 16, lineHeight: 1.6 }}>سبب النقل (سيكون سبب الإلغاء) إجباري. الطلب لن يُلغى فعلياً إلا بعد موافقة مدير النظام.</div>
-            <textarea style={{ width: '100%', boxSizing: 'border-box', background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: '#0A1628', outline: 'none', fontFamily: 'Tajawal, sans-serif', minHeight: 80, resize: 'vertical', marginBottom: 20, direction: 'rtl' }}
-              value={cancelMoveReason} onChange={e => setCancelMoveReason(e.target.value)} placeholder="سبب الإلغاء..." />
+            <div style={{ color: S.amber, fontSize: 11.5, marginBottom: 16, lineHeight: 1.6 }}>The reason for the move (will be the cancellation reason) is required. The order won&apos;t actually be cancelled until the system admin approves it.</div>
+            <textarea style={{ width: '100%', boxSizing: 'border-box', background: '#F4FAF9', border: '1px solid rgba(15,60,60,0.15)', borderRadius: 10, padding: '9px 14px', fontSize: 13, color: '#0A1628', outline: 'none', fontFamily: 'Tajawal, sans-serif', minHeight: 80, resize: 'vertical', marginBottom: 20 }}
+              value={cancelMoveReason} onChange={e => setCancelMoveReason(e.target.value)} placeholder="Reason for cancellation..." />
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setCancelMoveOrder(null); setCancelMoveReason('') }} style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+              <button onClick={() => { setCancelMoveOrder(null); setCancelMoveReason('') }} style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
               <button onClick={moveOrderToCancelHub} disabled={cancelMoveSaving || !cancelMoveReason.trim()}
                 style={{ flex: 1, padding: '11px', borderRadius: 12, border: 'none', background: !cancelMoveReason.trim() ? S.border : S.amber, color: S.navy, cursor: !cancelMoveReason.trim() ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
-                {cancelMoveSaving ? '⏳...' : 'نقل'}
+                {cancelMoveSaving ? '⏳...' : 'Move'}
               </button>
             </div>
           </div>

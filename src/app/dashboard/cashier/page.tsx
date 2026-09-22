@@ -394,6 +394,8 @@ type Order = {
   // ✅ طاولة "Cancellation": من طلب الإلغاء ولماذا (بانتظار اعتماد مدير النظام)، ومن اعتمده لو تم فعلاً
   cancel_requested_by_name?: string | null; cancel_requested_at?: string | null; cancel_from_table_name?: string | null
   cancel_approved_by_name?: string | null; cancel_approved_at?: string | null
+  // ✅ جديد: مين من الكاشير نقل هذا الطلب لطاولة Staff أو Cancellation، ومن أي طاولة
+  moved_by_name?: string | null; moved_at?: string | null; moved_from_table_name?: string | null
   // ✅ نسب الخدمة/الضريبة/الخصم صارت لكل طاولة (من صفحة Table Management) بدل ثابت عام لكل المطعم
   tables: { number: number; name: string; section?: string | null; service_charge_percent?: number | null; sst_percent?: number | null; discount_percent?: number | null }
   order_items: OrderItem[]
@@ -440,7 +442,7 @@ function lastOrderTime(order?: Order | null): string | null {
 }
 
 // ══ Payment Modal ══
-function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tables }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onPaymentStart?: (tableId: string) => void; onTransfer: (order: Order) => void; tables?: TableRow[] }) {
+function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tables, activeShiftCashierName }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onPaymentStart?: (tableId: string) => void; onTransfer: (order: Order) => void; tables?: TableRow[]; activeShiftCashierName?: string | null }) {
   const sb = createClient()
   const { employee, permissions } = useAuth()
   // ✅ Fix: مساعد الكاشير (assistant_cashier) بقى نفس مستوى موظف/مشرف الصالة بالظبط - مش صلاحيات كاشير كاملة
@@ -526,8 +528,10 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     const destTable = (tables || []).find(t => t.id === moveDestTableId)
     if (!destTable) return
     const isCancelDest = destTable.section === 'cancel_hub'
+    const isStaffDest = destTable.section === 'staff'
     setMovingItems(true)
-    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'Unknown'
+    // ✅ الحساب غالباً مشترك بين أكتر من كاشير - الهوية الحقيقية هي اسم اللي بدأ الشيفت، مش اسم الحساب نفسه
+    const fullName = activeShiftCashierName || employee?.name || 'Unknown'
     const sourceTableLabel = order.tables?.name || `Table ${order.tables?.number}`
 
     // ✅ Fix حرج جدًا: Supabase مابيرميش استثناء تلقائي لما السيرفر يرفض الطلب - كنا لاقيناها قبل كده في
@@ -558,6 +562,14 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         const { error: destTableError } = await sb.from('tables').update({ status: 'occupied', current_order_id: destOrderId, occupied_since: new Date().toISOString() }).eq('id', destTable.id)
         if (destTableError) throw new Error('Failed to occupy destination table: ' + destTableError.message)
       }
+    }
+    // ✅ جديد: على طاولتَي "Staff" و"Cancellation" — نسجّل دايمًا مين من الكاشير نقل آخر نقلة (بغض النظر عن
+    // إنشاء طلب جديد أو الإضافة لطلب موجود بالفعل)، عشان يُعرف مين نقلها بالظبط
+    if (isStaffDest || isCancelDest) {
+      const { error: attribError } = await sb.from('orders').update({
+        moved_by_name: fullName, moved_at: new Date().toISOString(), moved_from_table_name: sourceTableLabel,
+      }).eq('id', destOrderId)
+      if (attribError) throw new Error('Failed to record who moved the order: ' + attribError.message)
     }
 
     // ✅ ننقل كل صنف مختار: نغيّر order_id بتاعه للطلب الوجهة، ونضيف ملاحظة توضح المصدر ومين نقله
@@ -2406,7 +2418,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
@@ -2468,7 +2480,7 @@ export default function CashierPage() {
   // من قاعدة البيانات لسه مش متزامنة تمامًا (تأخير طبيعي بسيط)، منمنعهاش من إرجاع الطلب المدفوع للشاشة بالغلط
   const recentlyPaidTableIdsRef = useRef<Set<string>>(new Set())
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -2543,7 +2555,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -2610,7 +2622,7 @@ export default function CashierPage() {
       if (new Date(sEnd).getTime() > new Date(ordersRangeEnd).getTime()) ordersRangeEnd = sEnd
     }
 
-    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
     // والملغية (مالهاش paid_at) بتفضل محصورة في اليوم المطلوب بس (created_at)
     const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
@@ -3893,6 +3905,13 @@ export default function CashierPage() {
                         </div>
                       )}
 
+                      {/* ✅ جديد: طاولة "Staff" — نوضّح مين من الكاشير نقل آخر نقلة عليها ومن أي طاولة */}
+                      {order.tables?.section === 'staff' && order.moved_by_name && (
+                        <div style={{ background: S.tealB, borderBottom: `1px solid ${S.teal}40`, padding: '10px 16px' }}>
+                          <div style={{ fontSize: 12, color: S.teal, fontWeight: 700 }}>👥 Moved from {order.moved_from_table_name || '—'} · By: {order.moved_by_name}</div>
+                        </div>
+                      )}
+
                       <div style={{ padding: '10px 16px' }}>
                         {groupItemsByRound(order.order_items).map((round, ri) => (
                           <div key={ri}>
@@ -3962,7 +3981,7 @@ export default function CashierPage() {
       </div>
 
       {/* Modals */}
-      {payOrder && <PaymentModal order={payOrder} tables={tables}
+      {payOrder && <PaymentModal order={payOrder} tables={tables} activeShiftCashierName={activeShiftCashierName}
         onPaymentStart={(tableId) => {
           // ✅ Fix حرج: نستبعد الطاولة من أول لحظة تبدأ فيها عملية الدفع (قبل ما تخلص خالص) - عشان أي
           // تحديث شاشة يحصل أثناء خطوات الدفع (زي دمج طلب مكرر في Split Payment) ميرجّعش الطلب بالغلط

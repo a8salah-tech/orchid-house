@@ -22,7 +22,8 @@ const S = {
 }
 
 type TableStatus = 'available' | 'reserved' | 'occupied'
-type Table = { id: string; number: number; name: string; is_active: boolean; status: TableStatus; section?: string; pos_x?: number; pos_y?: number; branch_id?: string }
+// ✅ جديد: نسب الخدمة والضريبة والخصم صارت قابلة للتحكم لكل طاولة على حدة (بدل ثابت عام لكل المطعم)
+type Table = { id: string; number: number; name: string; is_active: boolean; status: TableStatus; section?: string; pos_x?: number; pos_y?: number; branch_id?: string; service_charge_percent?: number; sst_percent?: number; discount_percent?: number }
 
 const STATUS: Record<TableStatus, { label: string; color: string; bg: string; dot: string }> = {
   available: { label: 'Available', color: '#22C55E', bg: 'rgba(34,197,94,0.10)', dot: '#22C55E' },
@@ -264,7 +265,41 @@ export default function TablesPage() {
   const [newName, setNewName] = useState('')
   const [newSection, setNewSection] = useState('outdoor')
   const [newBranch, setNewBranch] = useState('')
+  // ✅ جديد: نسب الخدمة/الضريبة/الخصم عند إضافة طاولة جديدة (افتراضياً 10%/6%/0%)
+  const [newServicePct, setNewServicePct] = useState('10')
+  const [newSstPct, setNewSstPct] = useState('6')
+  const [newDiscountPct, setNewDiscountPct] = useState('0')
   const [saving, setSaving]   = useState(false)
+  // ✅ جديد: تعديل طاولة موجودة — الاسم ونسب الخدمة/الضريبة/الخصم
+  const [editTable, setEditTable] = useState<Table | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editServicePct, setEditServicePct] = useState('10')
+  const [editSstPct, setEditSstPct] = useState('6')
+  const [editDiscountPct, setEditDiscountPct] = useState('0')
+  const [editSaving, setEditSaving] = useState(false)
+
+  function openEdit(table: Table) {
+    setEditTable(table)
+    setEditName(table.name || '')
+    setEditServicePct(String(table.service_charge_percent ?? 10))
+    setEditSstPct(String(table.sst_percent ?? 6))
+    setEditDiscountPct(String(table.discount_percent ?? 0))
+  }
+
+  async function saveEdit() {
+    if (!editTable) return
+    setEditSaving(true)
+    const { error } = await sb.from('tables').update({
+      name: editName.trim() || `Table ${editTable.number}`,
+      service_charge_percent: parseFloat(editServicePct) || 0,
+      sst_percent: parseFloat(editSstPct) || 0,
+      discount_percent: parseFloat(editDiscountPct) || 0,
+    }).eq('id', editTable.id)
+    setEditSaving(false)
+    if (error) { alert('Error saving table: ' + error.message); return }
+    setEditTable(null)
+    fetchTables()
+  }
   const [filter, setFilter]   = useState<TableStatus | 'all'>('all')
   const [activeBranch, setActiveBranch] = useState<string>('all')
 
@@ -307,10 +342,14 @@ export default function TablesPage() {
       status: 'available',
       section: newSection,
       branch_id: newBranch,
+      service_charge_percent: parseFloat(newServicePct) || 0,
+      sst_percent: parseFloat(newSstPct) || 0,
+      discount_percent: parseFloat(newDiscountPct) || 0,
     }])
     setSaving(false)
     if (error) { alert('Error adding table: ' + error.message); return }
     setNewNum(''); setNewName(''); setShowAdd(false)
+    setNewServicePct('10'); setNewSstPct('6'); setNewDiscountPct('0')
     fetchTables()
   }
 
@@ -563,12 +602,67 @@ export default function TablesPage() {
                   {SECTIONS.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
                 </select>
               </div>
+              {/* ✅ جديد: نسب الخدمة/الضريبة/الخصم — افتراضياً 10%/6%/0% مثل باقي المطعم، وقابلة للتعديل هنا */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>Service %</label>
+                  <input type="number" style={inp} value={newServicePct} onChange={e => setNewServicePct(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>SST %</label>
+                  <input type="number" style={inp} value={newSstPct} onChange={e => setNewSstPct(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>Discount %</label>
+                  <input type="number" style={inp} value={newDiscountPct} onChange={e => setNewDiscountPct(e.target.value)} />
+                </div>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={addTable} disabled={saving || !newNum || !newBranch} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 {saving ? '⏳' : '✅ Add'}
               </button>
               <button onClick={() => setShowAdd(false)} style={{ padding: '11px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: تعديل طاولة — الاسم ونسب الخدمة/الضريبة/الخصم */}
+      {editTable && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 28, width: 360 }}>
+            <h2 style={{ color: S.white, fontSize: 16, fontWeight: 700, marginBottom: 20 }}>✏️ Edit Table {editTable.number}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+              <div>
+                <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 4 }}>Name</label>
+                <input style={inp} placeholder="VIP Table, Terrace..." value={editName} onChange={e => setEditName(e.target.value)} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>Service %</label>
+                  <input type="number" style={inp} value={editServicePct} onChange={e => setEditServicePct(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>SST %</label>
+                  <input type="number" style={inp} value={editSstPct} onChange={e => setEditSstPct(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }}>Discount %</label>
+                  <input type="number" style={inp} value={editDiscountPct} onChange={e => setEditDiscountPct(e.target.value)} />
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.6 }}>
+                A discount above 0% is applied automatically at checkout for every order on this table, and the cashier can&apos;t change it.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={saveEdit} disabled={editSaving} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                {editSaving ? '⏳' : '💾 Save'}
+              </button>
+              <button onClick={() => setEditTable(null)} style={{ padding: '11px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>
                 Cancel
               </button>
             </div>
@@ -604,7 +698,8 @@ export default function TablesPage() {
                       <div style={{ width: 140, height: 140, background: '#f5f5f5', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 12 }}>⏳</div>
                     )}
                   </div>
-                  <div style={{ position: 'absolute', bottom: -16, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg, #1E6FA8, #4BB8F0)', color: '#fff', borderRadius: 30, padding: '6px 22px', fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(75,184,240,0.4)', letterSpacing: 0.5 }}>
+                  <div onClick={() => openEdit(table)} title="Click to edit name, service charge, SST & discount"
+                    style={{ position: 'absolute', bottom: -16, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg, #1E6FA8, #4BB8F0)', color: '#fff', borderRadius: 30, padding: '6px 22px', fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(75,184,240,0.4)', letterSpacing: 0.5, cursor: 'pointer' }}>
                     {table.name || `Table ${table.number}`}
                   </div>
                 </div>
@@ -618,7 +713,14 @@ export default function TablesPage() {
                       </button>
                     ))}
                   </div>
+                  {/* ✅ جديد: تلخيص سريع للنسب المضبوطة على هذه الطاولة */}
+                  <div style={{ fontSize: 10, color: S.muted, textAlign: 'center', marginBottom: 8 }}>
+                    Service {table.service_charge_percent ?? 10}% · SST {table.sst_percent ?? 6}%{(table.discount_percent ?? 0) > 0 ? ` · 🏷️ ${table.discount_percent}% off` : ''}
+                  </div>
                   <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => openEdit(table)} style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13 }}>
+                      ✏️
+                    </button>
                     <button onClick={() => printQR(table)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid #4BB8F0', background: 'rgba(75,184,240,0.12)', color: '#4BB8F0', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                       🖨️ Print
                     </button>

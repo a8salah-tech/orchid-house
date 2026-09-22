@@ -54,9 +54,6 @@ const S = {
   pageBg: '#F4FAF9',
 }
 
-const SERVICE_CHARGE_RATE = 0.10
-const SST_RATE = 0.06
-
 // ✅ تجميع أصناف الطلب في "جولات" منفصلة — لو الفاصل الزمني بين صنف والتالي أكتر من دقيقتين، تعتبر جولة طلب جديدة
 // (يحصل ده لما عميل تاني على نفس الطاولة يطلب طلب إضافي بعد فترة)
 function groupItemsByRound(items: OrderItem[]): OrderItem[][] {
@@ -386,7 +383,7 @@ function ShiftItemSummaryModal({ data, onClose }: {
   )
 }
 
-type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null; section?: string | null }
+type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null; section?: string | null; service_charge_percent?: number | null; sst_percent?: number | null; discount_percent?: number | null }
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
@@ -397,7 +394,8 @@ type Order = {
   // ✅ طاولة "Cancellation": من طلب الإلغاء ولماذا (بانتظار اعتماد مدير النظام)، ومن اعتمده لو تم فعلاً
   cancel_requested_by_name?: string | null; cancel_requested_at?: string | null; cancel_from_table_name?: string | null
   cancel_approved_by_name?: string | null; cancel_approved_at?: string | null
-  tables: { number: number; name: string; section?: string | null }
+  // ✅ نسب الخدمة/الضريبة/الخصم صارت لكل طاولة (من صفحة Table Management) بدل ثابت عام لكل المطعم
+  tables: { number: number; name: string; section?: string | null; service_charge_percent?: number | null; sst_percent?: number | null; discount_percent?: number | null }
   order_items: OrderItem[]
 }
 type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; or_code?: string; menu_categories?: { name: string } | { name: string }[]
@@ -475,11 +473,12 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   const [cashReceived, setCashReceived] = useState('')
   // ✅ جديد: تحديد البنك لما تكون طريقة الدفع فيزا - عشان تقرير اليومية يقدر يفرّق بين البنكين
   const [cardBank, setCardBank] = useState<'maybank' | 'bsn' | ''>('')
-  // ✅ طاولة الموظفين: خصم 30% ثابت مفروض من أول فتح للفاتورة (بلا تدخل الكاشير، ولا يُدمج مع أي خصم آخر)
-  const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>(() => order.tables?.section === 'staff' ? 'percent' : 'none')
-  const [discountValue, setDiscountValue] = useState(() => order.tables?.section === 'staff' ? '30' : '')
+  // ✅ لو الطاولة معاها نسبة خصم ثابتة (من صفحة Table Management) بتتفرض تلقائياً من أول فتح للفاتورة، بلا تدخل الكاشير
+  const initialTableDiscount = order.tables?.discount_percent || 0
+  const [discountType, setDiscountType] = useState<'none' | 'amount' | 'percent' | 'free'>(() => initialTableDiscount > 0 ? 'percent' : 'none')
+  const [discountValue, setDiscountValue] = useState(() => initialTableDiscount > 0 ? String(initialTableDiscount) : '')
   // ✅ جديد: سبب الخصم أو الفري - إلزامي عشان يبقى واضح ليه اتعمل، ويظهر في Closed وتقرير الشيفت
-  const [discountReason, setDiscountReason] = useState(() => order.tables?.section === 'staff' ? 'طاولة موظفين — خصم تلقائي 30%' : '')
+  const [discountReason, setDiscountReason] = useState(() => initialTableDiscount > 0 ? `${order.tables?.name || 'الطاولة'} — خصم تلقائي ${initialTableDiscount}%` : '')
   const [saving, setSaving] = useState(false)
   const [customers, setCustomers] = useState<any[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
@@ -659,16 +658,20 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
   ).slice(0, 8)
 
   const subtotal = order.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
-  // ✅ جديد: طلبات التيك أواي (Foodpanda/Grab/Customer/Other) مالهاش رسوم خدمة خالص - مافيش خدمة طاولة أصلًا
-  const isTakeawayOrder = order.tables?.section === 'takeaway'
-  // ✅ طاولة الموظفين: بلا رسوم خدمة، وخصم 30% ثابت مفروض تلقائياً (بدون تدخل الكاشير، ولا يُدمج مع أي خصم آخر)
+  // ✅ طاولة الموظفين والتيك أواي (وأي طاولة أخرى) بلا رسوم خدمة/خصم حسب نسبها المضبوطة في Table Management —
+  // isStaffTable باقية بس للتحكم في شكل واجهة الخصم المقفولة (شوف tableDiscountPercent تحت)
   const isStaffTable = order.tables?.section === 'staff'
   // ✅ جديد: حسابات التوصيل الخارجية (Grab/Foodpanda/Shopee) بتدفع للمطعم لاحقًا (تسوية دورية)، مش وقت قفل الفاتورة -
   // فمحتاجين نفرّق بينها وبين الكاش الحقيقي اللي في درج الكاشير
   const isPlatformCreditOrder = /grab|foodpanda|shopee/i.test(order.tables?.name || '')
+  // ✅ جديد: نسب الخدمة/الضريبة صارت قابلة للتعديل لكل طاولة من صفحة Table Management (بدل ثابت عام 10%/6%)
+  const tableServicePercent = order.tables?.service_charge_percent ?? 10
+  const tableSstPercent = order.tables?.sst_percent ?? 6
+  // ✅ خصم ثابت اختياري لكل طاولة — لو محدد (>0) بيتفرض تلقائياً ومقفول بلا تعديل الكاشير
+  const tableDiscountPercent = order.tables?.discount_percent || 0
   // ✅ الخدمة والضريبة بيتحسبوا على السعر الأصلي (subtotal) دايمًا
-  const serviceCharge = (discountType === 'free' || isTakeawayOrder || isStaffTable) ? 0 : subtotal * SERVICE_CHARGE_RATE
-  const sst = discountType === 'free' ? 0 : subtotal * SST_RATE
+  const serviceCharge = (discountType === 'free' || tableServicePercent <= 0) ? 0 : subtotal * (tableServicePercent / 100)
+  const sst = (discountType === 'free' || tableSstPercent <= 0) ? 0 : subtotal * (tableSstPercent / 100)
   // ✅ Fix حرج جدًا: نسبة الخصم (%) بقت تتحسب على *الإجمالي الكلي* (سعر + خدمة + ضريبة)، مش على السعر
   // الأساسي بس - عشان "خصم 50%" يبقى فعلاً نص قيمة الفاتورة كاملة شاملة الضرائب، مش نص السعر الأساسي بس
   // (اللي كان بيدي نسبة خصم فعلية أقل من اللي الموظف كاتبها)
@@ -1104,8 +1107,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     <div class="line"></div>
     <div class="row"><span>Subtotal</span><span>MYR ${subtotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
     ${discountType !== 'free' ? `
-    ${!isTakeawayOrder ? `<div class="row"><span>Service Charge (10%)</span><span>MYR ${serviceCharge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
-    <div class="row"><span>SST (6%)</span><span>MYR ${sst.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+    ${tableServicePercent > 0 ? `<div class="row"><span>Service Charge (${tableServicePercent}%)</span><span>MYR ${serviceCharge.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+    ${tableSstPercent > 0 ? `<div class="row"><span>SST (${tableSstPercent}%)</span><span>MYR ${sst.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
     ` : ''}
     ${discountAmt > 0 ? `<div class="row"><span>Discount</span><span>- MYR ${discountAmt.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
     <div class="line"></div>
@@ -1119,7 +1122,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     <div class="line"></div>
     <div class="center" style="font-size:10px;margin-top:10px">
       Thank you for dining with us!<br>
-      All prices subject to 10% service charge & 6% SST
+      ${(tableServicePercent > 0 || tableSstPercent > 0) ? `All prices subject to${tableServicePercent > 0 ? ` ${tableServicePercent}% service charge` : ''}${tableServicePercent > 0 && tableSstPercent > 0 ? ' &amp;' : ''}${tableSstPercent > 0 ? ` ${tableSstPercent}% SST` : ''}` : ''}
     </div>
     <script>window.onload=()=>window.print()<\/script>
     </body></html>`)
@@ -1233,10 +1236,10 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         {/* Discount */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Discount</div>
-          {isStaffTable ? (
-            // ✅ طاولة الموظفين: خصم 30% ثابت مفروض تلقائياً، مقفول بلا تعديل من الكاشير
+          {tableDiscountPercent > 0 ? (
+            // ✅ الطاولة معاها نسبة خصم ثابتة مضبوطة من Table Management — مفروضة تلقائياً، مقفولة بلا تعديل من الكاشير
             <div style={{ background: S.amberB, border: `1px solid ${S.amber}60`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: S.amber, fontWeight: 700 }}>
-              👥 Staff table — fixed 30% discount applied automatically
+              {isStaffTable ? '👥' : '🪑'} {order.tables?.name || 'This table'} — fixed {tableDiscountPercent}% discount applied automatically
             </div>
           ) : (
             <>
@@ -1463,8 +1466,8 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 20 }}>
           {[
             { label: 'Subtotal', value: subtotal, color: S.white },
-            discountType !== 'free' && !isTakeawayOrder ? { label: 'Service Charge (10%)', value: serviceCharge, color: S.muted } : null,
-            discountType !== 'free' ? { label: 'SST 6%', value: sst, color: S.muted } : null,
+            discountType !== 'free' && tableServicePercent > 0 ? { label: `Service Charge (${tableServicePercent}%)`, value: serviceCharge, color: S.muted } : null,
+            discountType !== 'free' && tableSstPercent > 0 ? { label: `SST ${tableSstPercent}%`, value: sst, color: S.muted } : null,
             discountAmt > 0 ? { label: 'Discount', value: -discountAmt, color: S.red } : null,
           ].filter(Boolean).map((row, i) => row && (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13 }}>
@@ -2403,7 +2406,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
@@ -2465,7 +2468,7 @@ export default function CashierPage() {
   // من قاعدة البيانات لسه مش متزامنة تمامًا (تأخير طبيعي بسيط)، منمنعهاش من إرجاع الطلب المدفوع للشاشة بالغلط
   const recentlyPaidTableIdsRef = useRef<Set<string>>(new Set())
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -2540,7 +2543,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -2607,7 +2610,7 @@ export default function CashierPage() {
       if (new Date(sEnd).getTime() > new Date(ordersRangeEnd).getTime()) ordersRangeEnd = sEnd
     }
 
-    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
     // والملغية (مالهاش paid_at) بتفضل محصورة في اليوم المطلوب بس (created_at)
     const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
@@ -3256,9 +3259,12 @@ export default function CashierPage() {
                       // ✅ Fix حرج: السعر الظاهر على البطاقة كان بيعرض total_amount الخام بس (سعر الأصناف
                       // من غير خدمة أو ضريبة، لأن دول بيتحسبوا بس وقت الدفع الفعلي). دلوقتي بنحسبهم هنا
                       // للعرض بس، عشان الرقم الظاهر يطابق المبلغ الحقيقي اللي العميل هيدفعه فعليًا
-                      const isTakeaway = (table as any).section === 'takeaway'
+                      const svcPct = table.service_charge_percent ?? 10
+                      const sstPct = table.sst_percent ?? 6
+                      const discPct = table.discount_percent || 0
                       const raw = activeOrder.total_amount || 0
-                      const withFees = raw + (isTakeaway ? 0 : raw * SERVICE_CHARGE_RATE) + raw * SST_RATE
+                      const preDiscount = raw + (svcPct > 0 ? raw * svcPct / 100 : 0) + (sstPct > 0 ? raw * sstPct / 100 : 0)
+                      const withFees = discPct > 0 ? preDiscount * (1 - discPct / 100) : preDiscount
                       return <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {withFees.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     })()}
                     {/* ✅ Fix: الدمج/فك الدمج يقتصر على الكاشير بس، لكن زرار + (إضافة طلب على طاولة مشغولة)

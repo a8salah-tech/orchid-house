@@ -10,19 +10,12 @@ const sb = createBrowserClient(
 )
 
 const EXEMPT_ROLES = ['admin', 'branch_manager', 'cashier', 'kitchen_display']
-const READ_SECONDS = 8
 
 type Pending = { id: string; title: string; title_en: string; content: string; content_en: string; department: string }
 
 function PolicyCard({ policy, total, employeeId, onDone }: { policy: Pending; total: number; employeeId: string; onDone: (id: string) => void }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [left, setLeft] = useState(READ_SECONDS)
-
-  useEffect(() => {
-    const t = setInterval(() => setLeft(s => (s > 0 ? s - 1 : 0)), 1000)
-    return () => clearInterval(t)
-  }, [])
 
   async function confirm() {
     setSaving(true); setError('')
@@ -51,9 +44,9 @@ function PolicyCard({ policy, total, employeeId, onDone }: { policy: Pending; to
         </div>
         <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
           {error && <div style={{ color: '#EF4444', fontSize: 12, marginBottom: 8 }}>{error}</div>}
-          <button onClick={confirm} disabled={saving || left > 0}
-            style={{ width: '100%', padding: 13, borderRadius: 12, border: 'none', background: left > 0 || saving ? 'rgba(255,255,255,.1)' : 'linear-gradient(135deg,#22C55E,#14B8A6)', color: '#FAFAF8', cursor: left > 0 || saving ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 14, fontFamily: 'Tajawal, sans-serif' }}>
-            {saving ? '⏳...' : left > 0 ? `اقرأ السياسة... (${left})` : '✅ قرأت وفهمت والتزم بهذه السياسة'}
+          <button onClick={confirm} disabled={saving}
+            style={{ width: '100%', padding: 13, borderRadius: 12, border: 'none', background: saving ? 'rgba(255,255,255,.1)' : 'linear-gradient(135deg,#22C55E,#14B8A6)', color: '#FAFAF8', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 14, fontFamily: 'Tajawal, sans-serif' }}>
+            {saving ? '⏳...' : '✅ قرأت وفهمت والتزم بهذه السياسة'}
           </button>
         </div>
       </div>

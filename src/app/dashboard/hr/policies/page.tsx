@@ -189,10 +189,12 @@ function AckModal({ policy, onClose }: { policy: Policy; onClose: () => void }) 
   const [employees, setEmployees] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
+  const EMP_FIELDS = 'name, name_en, employee_number, department, role, branches(name)'
+
   useEffect(() => {
     Promise.all([
-      sb.from('policy_acknowledgments').select('employee_id, acknowledged_at, employees(name, role)').eq('policy_id', policy.id),
-      sb.from('employees').select('id, name, role').eq('is_active', true).order('name'),
+      sb.from('policy_acknowledgments').select(`employee_id, acknowledged_at, employees(${EMP_FIELDS})`).eq('policy_id', policy.id),
+      sb.from('employees').select(`id, ${EMP_FIELDS}`).eq('is_active', true).order('name'),
     ]).then(([acksRes, empsRes]) => {
       setAcks(acksRes.data || [])
       setEmployees(empsRes.data || [])
@@ -201,7 +203,24 @@ function AckModal({ policy, onClose }: { policy: Policy; onClose: () => void }) 
   }, [])
 
   const ackedIds = new Set(acks.map((a: any) => a.employee_id))
-  const notAcked = employees.filter(e => !ackedIds.has(e.id))
+  // السياسة العامة (الإدارة) تخص الجميع؛ سياسة القسم تخص موظفي ذلك القسم فقط
+  const audience = employees.filter(e => e.role !== 'admin' && (policy.department === 'الإدارة' || e.department === policy.department))
+  const notAcked = audience.filter(e => !ackedIds.has(e.id))
+
+  function EmpInfo({ e, color }: { e: { name?: string; name_en?: string; employee_number?: string; department?: string; branches?: { name?: string } | null } | null | undefined; color: string }) {
+    const full = [e?.name, e?.name_en].filter(Boolean).join(' — ')
+    const dept = DEPARTMENTS.find(d => d.key === e?.department)
+    return (
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: S.white, fontWeight: 700 }}>{full || '—'}</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 4, fontSize: 11, color }}>
+          <span>🆔 {e?.employee_number || '—'}</span>
+          <span>🏬 {e?.branches?.name || '—'}</span>
+          <span>{dept?.icon || '🏢'} {dept?.label || e?.department || '—'}</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
@@ -219,7 +238,7 @@ function AckModal({ policy, onClose }: { policy: Policy; onClose: () => void }) 
           {[
             { label: 'قرأوا', value: acks.length, color: S.green, bg: S.greenB },
             { label: 'لم يقرأوا', value: notAcked.length, color: S.red, bg: S.redB },
-            { label: 'الإجمالي', value: employees.length, color: S.white, bg: S.card },
+            { label: 'المعنيون', value: audience.length, color: S.white, bg: S.card },
           ].map((s, i) => (
             <div key={i} style={{ background: s.bg, borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
               <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -235,9 +254,9 @@ function AckModal({ policy, onClose }: { policy: Policy; onClose: () => void }) 
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: S.green, marginBottom: 8 }}>✅ قرأوا السياسة</div>
                 {acks.map((a: any, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: S.greenB, borderRadius: 10, marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, color: S.white, fontWeight: 600 }}>{a.employees?.name}</span>
-                    <span style={{ fontSize: 11, color: S.muted }}>{new Date(a.acknowledged_at).toLocaleDateString('ar-SA')}</span>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '8px 12px', background: S.greenB, borderRadius: 10, marginBottom: 6 }}>
+                    <EmpInfo e={a.employees} color={S.muted} />
+                    <span style={{ fontSize: 11, color: S.muted, flexShrink: 0 }}>{new Date(a.acknowledged_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</span>
                   </div>
                 ))}
               </div>
@@ -248,9 +267,8 @@ function AckModal({ policy, onClose }: { policy: Policy; onClose: () => void }) 
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: S.red, marginBottom: 8 }}>❌ لم يقرأوا بعد</div>
                 {notAcked.map((e, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: S.redB, borderRadius: 10, marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, color: S.white }}>{e.name}</span>
-                    <span style={{ fontSize: 11, color: S.muted }}>{e.role}</span>
+                  <div key={i} style={{ padding: '8px 12px', background: S.redB, borderRadius: 10, marginBottom: 6 }}>
+                    <EmpInfo e={e} color={S.muted} />
                   </div>
                 ))}
               </div>

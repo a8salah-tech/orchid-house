@@ -210,7 +210,7 @@ export default function ViolationsPage() {
     const empIds = (empData || []).map((e: any) => e.id)
     let workingIds = new Set<string>()
     if (empIds.length > 0) {
-      const { data: attData } = await sb.from('attendance').select('employee_id').eq('date', today).not('check_in_time', 'is', null).is('check_out_time', null).in('employee_id', empIds)
+      const { data: attData } = await sb.from('attendance').select('employee_id').eq('date', today).not('check_in_time', 'is', null).or(`check_out_time.is.null,check_out_time.gt.${new Date().toISOString()}`).in('employee_id', empIds)
       workingIds = new Set((attData || []).map((a: any) => a.employee_id))
     }
     setWorkingEmployeeIds(workingIds)

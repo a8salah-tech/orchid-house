@@ -185,7 +185,8 @@ function MyAttendanceCard() {
       sb.from('branches').select('id,name,latitude,longitude,radius_meters').eq('is_active', true),
       // أولاً: هل يوجد شيفت مفتوح (دخول بدون خروج) من اليوم أو من يوم سابق (شيفت ليلي عابر لمنتصف الليل)؟
       sb.from('attendance').select('*').eq('employee_id', employee.id)
-        .not('check_in_time', 'is', null).is('check_out_time', null)
+        .not('check_in_time', 'is', null)
+        .or(`check_out_time.is.null,check_out_time.gt.${new Date().toISOString()}`)
         .order('date', { ascending: false }).limit(1).maybeSingle(),
       // ✅ ممكن يكون فيه أكتر من صف لنفس اليوم دلوقتي (شيفت ليلي + شيفت جديد لنفس اليوم)، فلازم .order()+.limit(1)
       // قبل .maybeSingle() — وإلا الاستعلام يطلع خطأ فوري بمجرد ما يوجد أكتر من صف واحد لنفس التاريخ
@@ -212,6 +213,11 @@ function MyAttendanceCard() {
       }
     }
     // لو يوجد شيفت مفتوح (من اليوم أو من يوم سابق)، اعرضه كالحالة الحالية. غير ذلك اعرض صف اليوم (سواء فاضي أو مكتمل)
+    // ✅ تصحيح حضور اعتُمد وفيه وقت خروج لم يأتِ بعد (مثلاً نهاية الشيفت): السجل يبقى "مفتوحاً" من ناحية الشاشة
+    // حتى يظهر زر Check Out ويسجّل الموظف خروجه الفعلي (يحلّ وقته الحقيقي محل وقت المدير). لو ما سجّلش يبقى وقت المدير كاحتياط.
+    if (effectiveTodayRecord?.check_out_time && new Date(effectiveTodayRecord.check_out_time).getTime() > Date.now()) {
+      effectiveTodayRecord = { ...effectiveTodayRecord, check_out_time: null }
+    }
     setToday(effectiveTodayRecord)
     setHistory(hist.data || [])
 
@@ -290,7 +296,7 @@ function MyAttendanceCard() {
         .select('id, date')
         .eq('employee_id', employee.id)
         .not('check_in_time', 'is', null)
-        .is('check_out_time', null)
+        .or(`check_out_time.is.null,check_out_time.gt.${new Date().toISOString()}`)
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -451,7 +457,7 @@ function MyAttendanceCard() {
         .select('id, date, check_in_time')
         .eq('employee_id', employee.id)
         .not('check_in_time', 'is', null)
-        .is('check_out_time', null)
+        .or(`check_out_time.is.null,check_out_time.gt.${new Date().toISOString()}`)
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle()

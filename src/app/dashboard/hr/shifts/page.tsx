@@ -921,7 +921,7 @@ export default function ShiftsPage() {
             .select('*, employees(id,name,name_en,department,branches(name))')
             .eq('date', today)
             .not('check_in_time', 'is', null)
-            .is('check_out_time', null)
+            .or(`check_out_time.is.null,check_out_time.gt.${new Date().toISOString()}`)
             .in('employee_id', chunk)
           attChunks.push(...(attChunk||[]))
         }

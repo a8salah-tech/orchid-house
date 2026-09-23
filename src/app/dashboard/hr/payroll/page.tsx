@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
+import { normalizeKind, VIOLATION_KIND_META, type ViolationKind } from '../../../../lib/violationKind'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -135,6 +136,8 @@ type PayrollRecord = {
   deduction_1: number; deduction_1_label: string
   deduction_2: number; deduction_2_label: string
   deduction_3: number; deduction_3_label: string
+  // ✅ خصومات الكاشير منفصلة عن المخالفات العادية (deduction_1): وجبات شخصية + أخطاء في الطلب — تُحسب تلقائياً من violations.kind
+  personal_meal_deduction: number; order_mistake_deduction: number
   advance: number; advance_balance: number
   carried_forward: number
   amount_due: number; amount_paid: number
@@ -159,6 +162,7 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
     deduction_1: 0, deduction_1_label: 'Deduction 1',
     deduction_2: 0, deduction_2_label: 'Deduction 2',
     deduction_3: 0, deduction_3_label: 'Deduction 3',
+    personal_meal_deduction: 0, order_mistake_deduction: 0,
     advance: 0, advance_balance: 0, carried_forward: 0,
     amount_due: 0, amount_paid: 0,
     work_insurance: emp.work_insurance || 0,
@@ -250,7 +254,7 @@ function calcRecord(r: PayrollRecord) {
   // ✅ خصم التأخير والخروج المبكر: مبلغ ثابت (LATE_HOUR_PENALTY = 20) لكل ساعة، بغض النظر عن راتب الموظف
   const lateDed     = LATE_HOUR_PENALTY * r.late_hours
   const earlyDed    = LATE_HOUR_PENALTY * r.early_exit_hours
-  const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + r.advance
+  const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + (r.personal_meal_deduction || 0) + (r.order_mistake_deduction || 0) + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
   // ✅ جبر الكسور: المبلغ المستحق فقط يُقرَّب لأعلى رينغيت كامل (Math.ceil) لصالح الموظف —
   // صافي الراتب وباقي الخانات تظل بقيمتها الدقيقة بالقروش
@@ -367,6 +371,8 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
       <Cell value={record.deduction_1}      onChange={v => set('deduction_1', v)}      readOnly={readOnly} />
       <Cell value={record.deduction_2}      onChange={v => set('deduction_2', v)}      readOnly={readOnly} />
       <Cell value={record.deduction_3}      onChange={v => set('deduction_3', v)}      readOnly={readOnly} />
+      <td style={{ ...thStyle, color: VIOLATION_KIND_META.personal_meal.color, textAlign: 'center' }} title="وجبات شخصية من الكاشير — تُحسب تلقائياً">{fmt(record.personal_meal_deduction || 0)}</td>
+      <td style={{ ...thStyle, color: VIOLATION_KIND_META.order_mistake.color, textAlign: 'center' }} title="أخطاء في الطلب من الكاشير — تُحسب تلقائياً">{fmt(record.order_mistake_deduction || 0)}</td>
       <td style={{ ...thStyle, color: S.red, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{fmt(calc.totalDeductions)}</td>
       <Cell value={record.advance}          onChange={v => set('advance', v)}          readOnly={readOnly} />
       <Cell value={record.advance_balance}  onChange={v => set('advance_balance', v)}  readOnly={readOnly} />
@@ -515,6 +521,8 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
           ${record.deduction_1 > 0 ? row(record.deduction_1_label || 'Deduction 1', fmt(record.deduction_1)) : ''}
           ${record.deduction_2 > 0 ? row(record.deduction_2_label || 'Deduction 2', fmt(record.deduction_2)) : ''}
           ${record.deduction_3 > 0 ? row(record.deduction_3_label || 'Deduction 3', fmt(record.deduction_3)) : ''}
+          ${(record.personal_meal_deduction || 0) > 0 ? row('🍽️ وجبات شخصية (كاشير) / Personal Meals', fmt(record.personal_meal_deduction)) : ''}
+          ${(record.order_mistake_deduction || 0) > 0 ? row('🧾 أخطاء طلب (كاشير) / Order Mistakes', fmt(record.order_mistake_deduction)) : ''}
           ${record.advance > 0 ? row('سلفة / Advance', fmt(record.advance)) : ''}
           ${row('إجمالي الاستقطاعات / Total Deductions', fmt(c.totalDeductions), true)}
         </tbody>
@@ -637,6 +645,7 @@ export default function PayrollPage() {
   const [payslipScheduleInfo, setPayslipScheduleInfo] = useState<{ leaveDates: string[]; absentDates: string[] } | null>(null)
   // ✅ نافذة تفاصيل المخالفات — تُفتح عند الضغط على سطر "مخالفات" في قسيمة الراتب
   const [showViolationDetails, setShowViolationDetails] = useState(false)
+  const [violationDetailsKind, setViolationDetailsKind] = useState<ViolationKind>('violation')
   const [violationDetailsList, setViolationDetailsList] = useState<{ date: string; amount: number; reason: string; status: string }[]>([])
   const [loadingViolationDetails, setLoadingViolationDetails] = useState(false)
   // ✅ نافذة تفاصيل أيام التأخير/الخروج المبكر — تُفتح عند الضغط على سطر "تأخير" أو "خروج مبكر" في قسيمة الراتب
@@ -852,7 +861,7 @@ export default function PayrollPage() {
 
     const [violRes, absRes, attendanceRows, scheduleRows, shiftsRes] = await Promise.all([
       empIds.length > 0
-        ? sb.from('violations').select('employee_id,amount').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
+        ? sb.from('violations').select('employee_id,amount,kind').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
       empIds.length > 0
         ? sb.from('absences').select('employee_id').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
@@ -885,8 +894,13 @@ export default function PayrollPage() {
 
     // احسب خصم المخالفات والغياب لكل موظف
     const violMap: Record<string, number> = {}
-    for (const v of (violRes.data || [])) {
-      violMap[v.employee_id] = (violMap[v.employee_id] || 0) + (v.amount || 0)
+    // ✅ خصومات الكاشير (وجبات شخصية / أخطاء طلب) منفصلة عن المخالفات العادية
+    const mealMap: Record<string, number> = {}
+    const mistakeMap: Record<string, number> = {}
+    for (const v of (violRes.data || []) as { employee_id: string; amount: number | null; kind?: string | null }[]) {
+      const k = normalizeKind(v.kind)
+      const target = k === 'personal_meal' ? mealMap : k === 'order_mistake' ? mistakeMap : violMap
+      target[v.employee_id] = (target[v.employee_id] || 0) + (v.amount || 0)
     }
     const manualAbsMap: Record<string, number> = {}
     for (const a of (absRes.data || [])) {
@@ -1005,6 +1019,8 @@ export default function PayrollPage() {
         // ✅ لو مفيش شيفت مسجَّل هذا الشهر بالذات، نبقي على آخر قيمة محفوظة (أو الافتراضي 8) بدل مسحها
         daily_hours: dailyHoursMap[r.employee_id] || r.daily_hours || 8,
         deduction_1: violAmount,
+        personal_meal_deduction: parseFloat((mealMap[r.employee_id] || 0).toFixed(2)),
+        order_mistake_deduction: parseFloat((mistakeMap[r.employee_id] || 0).toFixed(2)),
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR)` : 'Violations',
         deduction_2: absAmount,
         deduction_2_label: absDays > 0 ? `غياب بدون عذر (${absDays} يوم)` : 'Absences',
@@ -1082,7 +1098,7 @@ export default function PayrollPage() {
         <td style="font-weight:bold;color:#2e7d32">${fmt(c.totalEarnings)}</td>
         <td>${r.absence_days}</td><td>${r.late_hours}</td><td>${r.early_exit_hours}</td>
         <td>${fmt(r.insurance)}</td><td>${fmt(r.tax)}</td>
-        <td>${fmt(r.deduction_1)}</td><td>${fmt(r.deduction_2)}</td><td>${fmt(r.deduction_3)}</td>
+        <td>${fmt(r.deduction_1)}</td><td>${fmt(r.deduction_2)}</td><td>${fmt(r.deduction_3)}</td><td>${fmt(r.personal_meal_deduction || 0)}</td><td>${fmt(r.order_mistake_deduction || 0)}</td>
         <td style="font-weight:bold;color:#c62828">${fmt(c.totalDeductions)}</td>
         <td style="font-weight:bold;color:#0277bd">${fmt(c.netSalary)}</td>
         <td>${fmt(r.work_insurance)}</td>
@@ -1101,10 +1117,10 @@ export default function PayrollPage() {
       <th>ID</th><th>Employee</th><th>Basic</th><th>Ins.</th><th>Daily</th><th>Hourly</th>
       <th>OT Days</th><th>OT Hrs</th><th>A1</th><th>A2</th><th>A3</th><th>Total Earn.</th>
       <th>Absent</th><th>Late</th><th>Early</th><th>Ins.</th><th>Tax</th>
-      <th>D1</th><th>D2</th><th>D3</th><th>Total Ded.</th><th>Net</th><th>Work Ins.</th>
+      <th>D1</th><th>D2</th><th>D3</th><th>Meals</th><th>Order err.</th><th>Total Ded.</th><th>Net</th><th>Work Ins.</th>
     </tr></thead><tbody>${rows}
     <tr class="total-row"><td colspan="11" style="text-align:right">TOTAL</td>
-      <td>${fmt(totals.earnings)}</td><td colspan="8"></td>
+      <td>${fmt(totals.earnings)}</td><td colspan="10"></td>
       <td>${fmt(totals.deductions)}</td><td>${fmt(totals.net)}</td><td></td>
     </tr></tbody></table>
     <div style="margin-top:20px;display:flex;justify-content:space-between;font-size:11px">
@@ -1118,8 +1134,9 @@ export default function PayrollPage() {
   }
 
   // ✅ جلب تفاصيل المخالفات الفعلية لموظف معيّن في الشهر المحدَّد — نفس فلتر الحساب الأساسي (status='active')
-  async function openViolationDetails(employeeId: string) {
+  async function openViolationDetails(employeeId: string, kind: ViolationKind = 'violation') {
     if (!selectedMonth) return
+    setViolationDetailsKind(kind)
     setShowViolationDetails(true)
     setLoadingViolationDetails(true)
     const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
@@ -1127,6 +1144,7 @@ export default function PayrollPage() {
       .select('date, amount, reason, status')
       .eq('employee_id', employeeId)
       .eq('status', 'active')
+      .eq('kind', kind)
       .gte('date', monthStart).lte('date', monthEnd)
       .order('date', { ascending: false })
     setViolationDetailsList(data || [])
@@ -1337,6 +1355,8 @@ export default function PayrollPage() {
       ded1: acc.ded1 + r.deduction_1,
       ded2: acc.ded2 + r.deduction_2,
       ded3: acc.ded3 + r.deduction_3,
+      meals: acc.meals + (r.personal_meal_deduction || 0),
+      mistakes: acc.mistakes + (r.order_mistake_deduction || 0),
       deductions: acc.deductions + c.totalDeductions,
       advance: acc.advance + r.advance,
       advanceBalance: acc.advanceBalance + r.advance_balance,
@@ -1349,7 +1369,7 @@ export default function PayrollPage() {
     }
   }, {
     basicSalary: 0, insurance: 0, otDays: 0, otHours: 0, allowance1: 0, allowance2: 0, allowance3: 0,
-    earnings: 0, absenceDays: 0, lateHours: 0, earlyExitHours: 0, tax: 0, ded1: 0, ded2: 0, ded3: 0,
+    earnings: 0, absenceDays: 0, lateHours: 0, earlyExitHours: 0, tax: 0, ded1: 0, ded2: 0, ded3: 0, meals: 0, mistakes: 0,
     deductions: 0, advance: 0, advanceBalance: 0, carriedForward: 0, net: 0, due: 0, paid: 0, balance: 0, workInsurance: 0,
   }), [visibleRecords])
 
@@ -1631,7 +1651,7 @@ export default function PayrollPage() {
                       <th colSpan={4} style={thGroupStyle('rgba(201,168,76,0.3)')}>Basic Info</th>
                       <th colSpan={6} style={thGroupStyle('rgba(34,197,94,0.2)')}>Earnings</th>
                       <th style={thGroupStyle('rgba(34,197,94,0.35)')}>Total Earnings</th>
-                      <th colSpan={7} style={thGroupStyle('rgba(239,68,68,0.2)')}>Deductions</th>
+                      <th colSpan={9} style={thGroupStyle('rgba(239,68,68,0.2)')}>Deductions</th>
                       <th style={thGroupStyle('rgba(239,68,68,0.35)')}>Total Ded.</th>
                       <th colSpan={3} style={thGroupStyle('rgba(245,158,11,0.2)')}>Advances</th>
                       <th style={thGroupStyle('rgba(20,184,166,0.4)')}>Net Salary</th>
@@ -1659,6 +1679,8 @@ export default function PayrollPage() {
                       <th style={thStyleRow2}>Ded 1</th>
                       <th style={thStyleRow2}>Ded 2</th>
                       <th style={thStyleRow2}>Ded 3</th>
+                      <th style={thStyleRow2} title="وجبات شخصية من الكاشير">🍽️ Meals</th>
+                      <th style={thStyleRow2} title="أخطاء في الطلب من الكاشير">🧾 Order err.</th>
                       <th style={{ ...thStyleRow2, background: solidOver('rgba(239,68,68,0.35)') }}>Total</th>
                       <th style={thStyleRow2}>Advance</th>
                       <th style={thStyleRow2}>Adv Balance</th>
@@ -1704,6 +1726,8 @@ export default function PayrollPage() {
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.ded1)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.ded2)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.ded3)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.meals)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.mistakes)}</td>
                       <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.red, textAlign: 'center', fontSize: 13 }}>{fmt(totals.deductions)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.advance)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.advanceBalance)}</td>
@@ -1814,6 +1838,18 @@ export default function PayrollPage() {
                     )}
                     {payslipRecord.deduction_2 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_2_label}</span><span>{fmt2(payslipRecord.deduction_2)}</span></div>}
                     {payslipRecord.deduction_3 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.deduction_3_label}</span><span>{fmt2(payslipRecord.deduction_3)}</span></div>}
+                    {(payslipRecord.personal_meal_deduction || 0) > 0 && (
+                      <div style={{ ...rowStyle, cursor: 'pointer' }} onClick={() => openViolationDetails(payslipRecord.employee_id, 'personal_meal')} title="اضغط لعرض تفاصيل الوجبات الشخصية">
+                        <span style={{ color: VIOLATION_KIND_META.personal_meal.color, textDecoration: 'underline dotted' }}>🍽️ وجبات شخصية (كاشير) 🔍</span>
+                        <span>{fmt2(payslipRecord.personal_meal_deduction)}</span>
+                      </div>
+                    )}
+                    {(payslipRecord.order_mistake_deduction || 0) > 0 && (
+                      <div style={{ ...rowStyle, cursor: 'pointer' }} onClick={() => openViolationDetails(payslipRecord.employee_id, 'order_mistake')} title="اضغط لعرض تفاصيل أخطاء الطلب">
+                        <span style={{ color: VIOLATION_KIND_META.order_mistake.color, textDecoration: 'underline dotted' }}>🧾 أخطاء طلب (كاشير) 🔍</span>
+                        <span>{fmt2(payslipRecord.order_mistake_deduction)}</span>
+                      </div>
+                    )}
                     {payslipRecord.advance > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>سلفة</span><span>{fmt2(payslipRecord.advance)}</span></div>}
                     <div style={{ ...rowStyle, fontWeight: 800, color: S.red, borderBottom: 'none' }}><span>إجمالي الاستقطاعات</span><span>{fmt2(c.totalDeductions)}</span></div>
                   </div>
@@ -1921,13 +1957,13 @@ export default function PayrollPage() {
             style={{ background: S.navy2, border: `1px solid ${S.red}50`, borderRadius: 16, padding: 22, maxWidth: 440, width: '100%', maxHeight: '70vh', overflowY: 'auto' }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>⚠️ تفاصيل المخالفات</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: VIOLATION_KIND_META[violationDetailsKind].color }}>{VIOLATION_KIND_META[violationDetailsKind].icon} {violationDetailsKind === 'violation' ? 'تفاصيل المخالفات' : violationDetailsKind === 'personal_meal' ? 'تفاصيل الوجبات الشخصية' : 'تفاصيل أخطاء الطلب'}</div>
               <button onClick={() => setShowViolationDetails(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             {loadingViolationDetails ? (
               <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>⏳ جاري التحميل...</div>
             ) : violationDetailsList.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>لا توجد مخالفات نشطة مسجَّلة لهذا الشهر</div>
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>{violationDetailsKind === 'violation' ? 'لا توجد مخالفات نشطة مسجَّلة لهذا الشهر' : 'لا توجد سجلات نشطة مسجَّلة لهذا الشهر'}</div>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
                 {violationDetailsList.map((v, i) => (

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
+import { VIOLATION_KIND_META, normalizeKind, type ViolationKind } from '../../../../lib/violationKind'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -154,6 +155,8 @@ export default function ViolationsPage() {
   const [attachmentUrl, setAttachmentUrl] = useState('')
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'violations'|'evaluations'|'absences'|'dept_violations'>('violations')
+  // ✅ فلتر النوع: مخالفات عادية / وجبات شخصية (من الكاشير) / أخطاء طلب (من الكاشير)
+  const [filterKind, setFilterKind] = useState<'all' | ViolationKind>('all')
   const [evalEmps, setEvalEmps] = useState<any[]>([])
   // ✅ بحث بالاسم أو رقم الموظف داخل قايمة التقييمات
   const [evalSearch, setEvalSearch] = useState('')
@@ -497,7 +500,13 @@ export default function ViolationsPage() {
     </div>
   )
 
-  const filtered = violations.filter(v => filterEmp === 'all' || v.employee_id === filterEmp)
+  const byEmp = violations.filter(v => filterEmp === 'all' || v.employee_id === filterEmp)
+  const filtered = byEmp.filter(v => filterKind === 'all' || normalizeKind(v.kind) === filterKind)
+  // إجماليات النشطة لكل نوع (بغض النظر عن النوع المختار، عشان الأزرار تعرض أرقامها دايماً)
+  const kindStats = (['violation', 'personal_meal', 'order_mistake'] as ViolationKind[]).map(k => {
+    const rows = byEmp.filter(v => normalizeKind(v.kind) === k)
+    return { k, count: rows.length, active: rows.filter(v => v.status === 'active').reduce((s, v) => s + (v.amount || 0), 0) }
+  })
   const totalAmount = filtered.filter(v => v.status === 'active').reduce((s, v) => s + (v.amount || 0), 0)
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -567,6 +576,18 @@ export default function ViolationsPage() {
         ))}
       </div>
 
+      {/* ✅ فصل المخالفات عن وجبات/أخطاء الكاشير */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        {[{ k: 'all' as const, label: isAr ? 'الكل' : 'All', icon: '📋', color: S.white, count: byEmp.length, amount: null as number | null },
+          ...kindStats.map(ks => ({ k: ks.k, label: isAr ? VIOLATION_KIND_META[ks.k].ar : VIOLATION_KIND_META[ks.k].en, icon: VIOLATION_KIND_META[ks.k].icon, color: VIOLATION_KIND_META[ks.k].color, count: ks.count, amount: ks.active as number | null }))
+        ].map(c => (
+          <button key={c.k} onClick={() => { setFilterKind(c.k); setPage(0) }}
+            style={{ padding: '8px 14px', borderRadius: 20, border: `1px solid ${filterKind === c.k ? c.color : S.border}`, background: filterKind === c.k ? c.color + '20' : 'transparent', color: filterKind === c.k ? c.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {c.icon} {c.label} ({c.count}){c.amount !== null && c.amount > 0 ? ` · MYR ${c.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
+          </button>
+        ))}
+      </div>
+
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <input style={{ ...inp, width: 'auto' }} type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
@@ -594,9 +615,15 @@ export default function ViolationsPage() {
             return (
             <div key={v.id} style={{ background: v.status === 'cancelled' ? S.card : S.navy2, borderRadius: 14, border: `1px solid ${v.status === 'cancelled' ? S.border : S.red+'30'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flex: 1 }}>
-                <div style={{ width: 44, height: 44, borderRadius: '50%', background: S.redB, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>⚠️</div>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: VIOLATION_KIND_META[normalizeKind(v.kind)].bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{VIOLATION_KIND_META[normalizeKind(v.kind)].icon}</div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn}{v.empNumber ? ` (#${v.empNumber})` : ''} — {v.empDept}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 2 }}>{v.empName} {v.empNameEn}{v.empNumber ? ` (#${v.empNumber})` : ''} — {v.empDept}
+                    {normalizeKind(v.kind) !== 'violation' && (
+                      <span style={{ marginRight: 8, marginLeft: 8, fontSize: 10, fontWeight: 700, color: VIOLATION_KIND_META[normalizeKind(v.kind)].color, background: VIOLATION_KIND_META[normalizeKind(v.kind)].bg, borderRadius: 20, padding: '2px 9px' }}>
+                        {VIOLATION_KIND_META[normalizeKind(v.kind)].icon} {isAr ? VIOLATION_KIND_META[normalizeKind(v.kind)].ar : VIOLATION_KIND_META[normalizeKind(v.kind)].en}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{v.reason}</div>
                   <div style={{ fontSize: 13, color: S.muted }}>📅 {v.date} · <span style={{ color: S.white, fontWeight: 600 }}>{isAr ? 'بواسطة' : 'by'}: {sysV ? (isAr ? '🤖 النظام (خصم تلقائي)' : '🤖 System (auto)') : v.creatorName}</span></div>
                   {sysV && !isAdmin && (v.status === 'active' || v.status === 'submitted') && (

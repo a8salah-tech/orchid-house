@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
+import { sumByKind } from '../../../../lib/violationKind'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,6 +38,8 @@ type PayrollRecord = {
   deduction_1: number; deduction_1_label: string
   deduction_2: number; deduction_2_label: string
   deduction_3: number; deduction_3_label: string
+  // ✅ خصومات الكاشير منفصلة عن المخالفات العادية: وجبات شخصية + أخطاء في الطلب
+  personal_meal_deduction?: number; order_mistake_deduction?: number
   advance: number; advance_balance: number
   carried_forward: number
   amount_due: number; amount_paid: number
@@ -55,7 +58,7 @@ function calcRecord(r: PayrollRecord) {
   const hourPenalty = 20 // 20 MYR لكل ساعة تأخير أو خروج مبكر — مبلغ ثابت مستقل عن الراتب (نفس صفحة الرواتب)
   const lateDed     = hourPenalty * r.late_hours
   const earlyDed    = hourPenalty * r.early_exit_hours
-  const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + r.advance
+  const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + (r.personal_meal_deduction || 0) + (r.order_mistake_deduction || 0) + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
   const amountDue   = netSalary > 0 ? netSalary : 0
   const balance     = amountDue - r.amount_paid
@@ -111,11 +114,13 @@ export default function MySalaryPage() {
       // ✅ نجلب late_minutes و early_minutes الجاهزة والمخزَّنة مباشرة بدل إعادة حسابها من الصفر هنا — نفس القيمة
       // بالضبط اللي صفحة الرواتب الإدارية بتعتمد عليها، عشان الأرقام تتطابق دائماً ولا تختلف حسب مصدر الحساب
       sb.from('attendance').select('check_in_time,date,late_minutes,early_minutes').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
-      sb.from('violations').select('amount').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
+      sb.from('violations').select('amount,kind').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
     ]).then(([recRes, attRes, violRes]) => {
       const record = recRes.data
       // احسب المخالفات النشطة فقط
-      const activeViolationsTotal = (violRes.data || []).reduce((s: number, v: any) => s + (v.amount || 0), 0)
+      // ✅ المخالفات العادية منفصلة عن خصومات الكاشير (وجبات شخصية / أخطاء طلب)
+      const byKind = sumByKind((violRes.data || []) as { amount?: number | null; kind?: string | null }[])
+      const activeViolationsTotal = byKind.violation
       const attData = attRes.data || []
 
       // ✅ إجمالي التأخير = مجموع late_minutes المخزَّنة فعلياً في جدول الحضور (نفس مصدر الحقيقة الوحيد المستخدم
@@ -136,6 +141,8 @@ export default function MySalaryPage() {
           late_hours: lateHours,
           early_exit_hours: earlyHours,
           deduction_1: activeViolationsTotal,
+          personal_meal_deduction: parseFloat(byKind.personal_meal.toFixed(2)),
+          order_mistake_deduction: parseFloat(byKind.order_mistake.toFixed(2)),
           deduction_1_label: activeViolationsTotal > 0 ? `مخالفات (${activeViolationsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR)` : 'Violations',
         })
         setRealPresentDays(realPresentDaysCount)
@@ -228,6 +235,8 @@ export default function MySalaryPage() {
     { label: isAr ? 'خصم الخروج المبكر' : 'Early Leave Deduction', value: myRecord.early_exit_hours > 0 ? (c?.earlyDed || 0) : 0, color: S.red },
     { label: isAr ? 'سلفة' : 'Advance', value: myRecord.advance || 0, color: S.amber },
     { label: myRecord.deduction_1_label || (isAr ? 'خصم 1' : 'Deduction 1'), value: myRecord.deduction_1 || 0, color: S.red },
+    { label: isAr ? '🍽️ وجبات شخصية (من الكاشير)' : '🍽️ Personal meals (cashier)', value: myRecord.personal_meal_deduction || 0, color: S.amber },
+    { label: isAr ? '🧾 أخطاء في الطلب (من الكاشير)' : '🧾 Order mistakes (cashier)', value: myRecord.order_mistake_deduction || 0, color: S.purple },
     { label: myRecord.deduction_2_label || (isAr ? 'خصم 2' : 'Deduction 2'), value: myRecord.deduction_2 || 0, color: S.red },
     { label: myRecord.deduction_3_label || (isAr ? 'خصم 3' : 'Deduction 3'), value: myRecord.deduction_3 || 0, color: S.red },
     { label: isAr ? 'ضريبة' : 'Tax', value: myRecord.tax || 0, color: S.red },

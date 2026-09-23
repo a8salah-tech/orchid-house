@@ -2951,6 +2951,7 @@ export default function CashierPage() {
     if (chargeRemaining > 0) {
       const { error } = await sb.from('violations').insert([{
         employee_id: chargeEmployeeId, amount: chargeRemaining, reason: fullReason,
+        kind: chargeType === 'mistake' ? 'order_mistake' : 'personal_meal',
         date: new Date().toISOString().split('T')[0], created_by: employee?.id, status: 'active',
       }])
       if (error) { setChargeSaving(false); alert('❌ ' + error.message); return }

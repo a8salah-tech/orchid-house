@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
+import { VIOLATION_KIND_META, normalizeKind, sumByKind } from '../../../../lib/violationKind'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -181,7 +182,12 @@ export default function MySchedulePage() {
 
   const totalEarlyHours = Math.floor(totalEarlyMins / 60)
   const totalEarlyRemMins = totalEarlyMins % 60
-  const totalViolationsAmount = violations.filter(v => v.status === 'active').reduce((s, v) => s + (v.amount || 0), 0)
+  // ✅ المخالفات العادية منفصلة عن خصومات الكاشير (وجبات شخصية / أخطاء طلب)
+  const activeViolations = violations.filter(v => v.status === 'active')
+  const violationsOnly = activeViolations.filter(v => normalizeKind(v.kind) === 'violation')
+  const totalViolationsAmount = violationsOnly.reduce((s, v) => s + (v.amount || 0), 0)
+  const cashierKindTotals = sumByKind(activeViolations)
+  const cashierChargesCount = activeViolations.length - violationsOnly.length
 
   const MONTHS = isAr ? MONTHS_AR : MONTHS_EN
   const DAYS = isAr ? DAYS_AR : DAYS_EN
@@ -372,14 +378,17 @@ export default function MySchedulePage() {
                       </div>
                     )}
                     {/* المخالفات هنا كلها معتمدة (active) — الفلترة تمت عند الجلب */}
-                    {getDayViolations(d.date).map((v, vi) => (
-                      <div key={vi} style={{ fontSize: 11, marginTop: 4, background: S.redB, borderRadius: 8, padding: '4px 10px', border: `1px solid ${S.red+'40'}` }}>
-                        <span style={{ color: S.red, fontWeight: 700 }}>
-                          ⚠️ {isAr ? 'مخالفة:' : 'Violation:'} MYR {(v.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {getDayViolations(d.date).map((v, vi) => {
+                      const km = VIOLATION_KIND_META[normalizeKind(v.kind)]
+                      return (
+                      <div key={vi} style={{ fontSize: 11, marginTop: 4, background: km.bg, borderRadius: 8, padding: '4px 10px', border: `1px solid ${km.color}40` }}>
+                        <span style={{ color: km.color, fontWeight: 700 }}>
+                          {km.icon} {isAr ? km.ar : km.en}: MYR {(v.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                         <span style={{ color: S.muted, marginRight: 6 }}> — {v.reason}</span>
                       </div>
-                    ))}
+                      )
+                    })}
                     {hasShift && !att?.check_in_time && d.date < todayStr && (
                       <div style={{ fontSize: 11, color: S.red }}>❌ {isAr ? 'لم يتم تسجيل الحضور' : 'No check-in recorded'}</div>
                     )}
@@ -450,6 +459,24 @@ export default function MySchedulePage() {
             </div>
           )}
 
+          {cashierChargesCount > 0 && (
+            <div style={{ background: 'rgba(245,158,11,0.08)', border: `1px solid ${S.amber}40`, borderRadius: 14, padding: '16px 20px', marginTop: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: S.amber, marginBottom: 8 }}>
+                🍽️ {isAr ? 'ملخص خصومات الكاشير (وجبات وأخطاء الطلب)' : 'Cashier Charges Summary (meals & order mistakes)'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ background: 'rgba(245,158,11,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.amber }}>MYR {cashierKindTotals.personal_meal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>🍽️ {isAr ? 'وجبات شخصية' : 'Personal meals'}</div>
+                </div>
+                <div style={{ background: 'rgba(139,92,246,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.purple }}>MYR {cashierKindTotals.order_mistake.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>🧾 {isAr ? 'أخطاء في الطلب' : 'Order mistakes'}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {totalViolationsAmount > 0 && (
             <div style={{ background: 'rgba(239,68,68,0.08)', border: `1px solid ${S.red}40`, borderRadius: 14, padding: '16px 20px', marginTop: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: S.red, marginBottom: 8 }}>
@@ -457,7 +484,7 @@ export default function MySchedulePage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{violations.filter(v => v.status === 'active').length}</div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: S.red }}>{violationsOnly.length}</div>
                   <div style={{ fontSize: 11, color: S.muted }}>{isAr ? 'عدد المخالفات' : 'Total Violations'}</div>
                 </div>
                 <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>

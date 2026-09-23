@@ -2624,9 +2624,10 @@ export default function CashierPage() {
 
     const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
-    // والملغية (مالهاش paid_at) بتفضل محصورة في اليوم المطلوب بس (created_at)
+    // والملغية (مالهاش paid_at) بتتحدد بـ created_at من بداية اليوم الفعلي لحد نهاية النطاق الموسّع (ordersRangeEnd) —
+    // مش dayEnd — وإلا طلب اتلغى بعد نص الليل داخل شيفت بدأ قبله يقع في فجوة: ما يظهرش في شيفته ولا في اليوم اللي بعده
     const { data: oData } = await sb.from('orders').select(SEL_CLOSED)
-      .or(`and(status.eq.paid,paid_at.gte.${ordersRangeStart},paid_at.lte.${ordersRangeEnd}),and(status.eq.cancelled,created_at.gte.${effectiveDayStart},created_at.lte.${dayEnd})`)
+      .or(`and(status.eq.paid,paid_at.gte.${ordersRangeStart},paid_at.lte.${ordersRangeEnd}),and(status.eq.cancelled,created_at.gte.${effectiveDayStart},created_at.lte.${ordersRangeEnd})`)
       // ✅ الترتيب بقى حسب وقت القفل الفعلي (paid_at) - مش وقت فتح الطلب - عشان الفواتير تظهر بترتيب زمني صحيح
       .order('paid_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })

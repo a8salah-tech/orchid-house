@@ -394,6 +394,7 @@ type Order = {
   // ✅ طاولة "Cancellation": من طلب الإلغاء ولماذا (بانتظار اعتماد مدير النظام)، ومن اعتمده لو تم فعلاً
   cancel_requested_by_name?: string | null; cancel_requested_at?: string | null; cancel_from_table_name?: string | null
   cancel_approved_by_name?: string | null; cancel_approved_at?: string | null
+  cancel_rejected_by_name?: string | null; cancel_rejected_at?: string | null
   // ✅ جديد: مين من الكاشير نقل هذا الطلب لطاولة Staff أو Cancellation، ومن أي طاولة
   moved_by_name?: string | null; moved_at?: string | null; moved_from_table_name?: string | null
   // ✅ نسب الخدمة/الضريبة/الخصم صارت لكل طاولة (من صفحة Table Management) بدل ثابت عام لكل المطعم
@@ -2418,7 +2419,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
@@ -2480,7 +2481,7 @@ export default function CashierPage() {
   // من قاعدة البيانات لسه مش متزامنة تمامًا (تأخير طبيعي بسيط)، منمنعهاش من إرجاع الطلب المدفوع للشاشة بالغلط
   const recentlyPaidTableIdsRef = useRef<Set<string>>(new Set())
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -2555,7 +2556,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -2622,7 +2623,7 @@ export default function CashierPage() {
       if (new Date(sEnd).getTime() > new Date(ordersRangeEnd).getTime()) ordersRangeEnd = sEnd
     }
 
-    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
     // والملغية (مالهاش paid_at) بتتحدد بـ created_at من بداية اليوم الفعلي لحد نهاية النطاق الموسّع (ordersRangeEnd) —
     // مش dayEnd — وإلا طلب اتلغى بعد نص الليل داخل شيفت بدأ قبله يقع في فجوة: ما يظهرش في شيفته ولا في اليوم اللي بعده
@@ -2813,8 +2814,10 @@ export default function CashierPage() {
   // ✅ رفض طلب الإلغاء — يبقى الطلب نشطاً على طاولة "Cancellation" نفسها (كما طلب المستخدم)
   async function rejectCancelHub(order: Order) {
     if (!confirm('Reject this cancellation request? The order will stay active on the "Cancellation" table.')) return
+    // ✅ نُبقي السبب واسم من طلب الإلغاء والطاولة المصدر كما هي (سجل ما حدث)، ونسجّل فقط من رفض ومتى
+    const rejectorName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'Unknown'
     await sb.from('orders').update({
-      cancel_reason: null, cancel_requested_by_name: null, cancel_requested_at: null, cancel_from_table_name: null,
+      cancel_rejected_by_name: rejectorName, cancel_rejected_at: new Date().toISOString(),
     }).eq('id', order.id)
     fetchAll()
   }
@@ -3870,7 +3873,7 @@ export default function CashierPage() {
                     if (filtered.indexOf(order) !== firstIdx) return null
                     const hubOrders = filtered.filter(o => o.table_id === order.table_id)
                     const hubBranchName = isAdmin ? branches.find(b => b.id === tables.find(t => t.id === order.table_id)?.branch_id)?.name : null
-                    const pendingCount = hubOrders.filter(o => o.cancel_requested_by_name && o.status !== 'cancelled').length
+                    const pendingCount = hubOrders.filter(o => o.cancel_requested_by_name && !o.cancel_rejected_at && o.status !== 'cancelled').length
                     const cancelledCount = hubOrders.filter(o => o.status === 'cancelled').length
                     const hubTotal = hubOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
                     return (
@@ -3886,7 +3889,7 @@ export default function CashierPage() {
                           <div style={{ color: S.red, fontWeight: 800, fontSize: 15 }}>MYR {hubTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         </div>
                         {hubOrders.map((o, oi) => {
-                          const isPending = !!o.cancel_requested_by_name && o.status !== 'cancelled'
+                          const isPending = !!o.cancel_requested_by_name && !o.cancel_rejected_at && o.status !== 'cancelled'
                           const isCancelled = o.status === 'cancelled'
                           const accent = isCancelled ? S.red : isPending ? S.amber : S.muted
                           return (
@@ -3895,7 +3898,7 @@ export default function CashierPage() {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                   <span style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{o.id.slice(-6).toUpperCase()}</span>
                                   <span style={{ background: accent + '22', color: accent, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                                    {isCancelled ? '❌ Cancelled' : isPending ? '⏳ Pending approval' : '↩️ Rejected — still active'}
+                                    {isCancelled ? '❌ Cancelled' : isPending ? '⏳ Pending approval' : `↩️ Rejected${o.cancel_rejected_by_name ? ' by ' + o.cancel_rejected_by_name : ''} — still active`}
                                   </span>
                                   <span style={{ fontSize: 11, color: S.muted }}>ago {timeAgo(o.created_at)}</span>
                                 </div>
@@ -3969,7 +3972,7 @@ export default function CashierPage() {
                       </div>
 
                       {/* ✅ طلب إلغاء معلّق (نُقل لطاولة "Cancellation") — يظهر لمدير النظام/المشرف العام بزرَّي اعتماد/رفض */}
-                      {order.cancel_requested_by_name && order.status !== 'cancelled' && (
+                      {order.cancel_requested_by_name && !order.cancel_rejected_at && order.status !== 'cancelled' && (
                         <div style={{ background: S.amberB, borderBottom: `1px solid ${S.amber}40`, padding: '10px 16px' }}>
                           <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 2 }}>⏳ Pending system admin approval — moved from {order.cancel_from_table_name || '—'}</div>
                           <div style={{ fontSize: 11, color: S.muted, marginBottom: isAdmin ? 8 : 0 }}>Reason: {order.cancel_reason || '—'} · By: {order.cancel_requested_by_name}</div>

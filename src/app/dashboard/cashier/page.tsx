@@ -3863,6 +3863,81 @@ export default function CashierPage() {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
                 {filtered.map(order => {
+                  // ✅ طاولة "Cancellation": كل طلباتها تظهر مجمّعة في كارت واحد (بدل كارت لكل طلب)، وفي كل طلب سبب الإلغاء
+                  // ومن أي طاولة نُقل ومن طلبه ومن اعتمده — بدل ما تختفي التفاصيل بعد الاعتماد
+                  if (order.tables?.section === 'cancel_hub') {
+                    const firstIdx = filtered.findIndex(o => o.table_id === order.table_id && o.tables?.section === 'cancel_hub')
+                    if (filtered.indexOf(order) !== firstIdx) return null
+                    const hubOrders = filtered.filter(o => o.table_id === order.table_id)
+                    const hubBranchName = isAdmin ? branches.find(b => b.id === tables.find(t => t.id === order.table_id)?.branch_id)?.name : null
+                    const pendingCount = hubOrders.filter(o => o.cancel_requested_by_name && o.status !== 'cancelled').length
+                    const cancelledCount = hubOrders.filter(o => o.status === 'cancelled').length
+                    const hubTotal = hubOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
+                    return (
+                      <div key={'hub-' + order.table_id} style={{ gridColumn: '1 / -1', background: S.navy2, borderRadius: 16, border: `1px solid ${S.red}50`, overflow: 'hidden' }}>
+                        <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <span style={{ color: S.white, fontWeight: 800, fontSize: 15 }}>🚫 {order.tables?.name || 'Cancellation'}</span>
+                              {hubBranchName && <span style={{ background: S.purpleB, color: S.purple, borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>🏢 {hubBranchName}</span>}
+                            </div>
+                            <div style={{ fontSize: 11, color: S.muted }}>{hubOrders.length} order{hubOrders.length === 1 ? '' : 's'}{pendingCount > 0 ? ` · ⏳ ${pendingCount} pending approval` : ''}{cancelledCount > 0 ? ` · ❌ ${cancelledCount} cancelled` : ''}</div>
+                          </div>
+                          <div style={{ color: S.red, fontWeight: 800, fontSize: 15 }}>MYR {hubTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        </div>
+                        {hubOrders.map((o, oi) => {
+                          const isPending = !!o.cancel_requested_by_name && o.status !== 'cancelled'
+                          const isCancelled = o.status === 'cancelled'
+                          const accent = isCancelled ? S.red : isPending ? S.amber : S.muted
+                          return (
+                            <div key={o.id} style={{ padding: '12px 16px', borderTop: oi === 0 ? 'none' : `1px solid ${S.border}` }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{o.id.slice(-6).toUpperCase()}</span>
+                                  <span style={{ background: accent + '22', color: accent, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                                    {isCancelled ? '❌ Cancelled' : isPending ? '⏳ Pending approval' : '↩️ Rejected — still active'}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: S.muted }}>ago {timeAgo(o.created_at)}</span>
+                                </div>
+                                <span style={{ color: S.gold, fontWeight: 800, fontSize: 13 }}>MYR {(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              </div>
+                              {(o.cancel_requested_by_name || o.moved_by_name || o.cancel_reason) && (
+                                <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
+                                  <div style={{ fontSize: 12, color: S.white, lineHeight: 1.6 }}>📝 <b>Reason:</b> {o.cancel_reason || '—'}</div>
+                                  <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
+                                    Moved from {o.cancel_from_table_name || o.moved_from_table_name || '—'} · By: {o.cancel_requested_by_name || o.moved_by_name || '—'}
+                                    {isCancelled && o.cancel_approved_by_name ? ` · ✅ Approved by: ${o.cancel_approved_by_name}` : ''}
+                                  </div>
+                                </div>
+                              )}
+                              <div>
+                                {(o.order_items || []).map(i => (
+                                  <div key={i.id} style={{ fontSize: 12, padding: '2px 0', color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
+                                    {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                                    {i.notes && <span style={{ color: S.gold, fontSize: 10 }}> · 📝 {i.notes}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                              {isPending && isAdmin && (
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                  <button onClick={() => approveCancelHub(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
+                                  <button onClick={() => rejectCancelHub(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ Reject</button>
+                                </div>
+                              )}
+                              {!isPending && !isCancelled && ['confirmed', 'preparing', 'ready'].includes(o.status) && (
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                  <button onClick={() => setPayOrder(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 Pay</button>
+                                  {isAdmin && ['confirmed', 'preparing'].includes(o.status) && (
+                                    <button onClick={() => setCancelOrderTarget(o)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  }
                   const st = STATUS_LABELS[order.status] || STATUS_LABELS['confirmed']
                   // ✅ اسم الفرع الحقيقي للطاولة دي - عشان الأدمن يفرّق بين "Table 1" بتاعة House و"Table 1" بتاعة KLCC (نفس الاسم بالظبط في الفروع)
                   const orderBranchName = isAdmin ? branches.find(b => b.id === tables.find(t => t.id === order.table_id)?.branch_id)?.name : null

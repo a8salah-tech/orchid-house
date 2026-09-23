@@ -3874,7 +3874,7 @@ export default function CashierPage() {
                     const cancelledCount = hubOrders.filter(o => o.status === 'cancelled').length
                     const hubTotal = hubOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
                     return (
-                      <div key={'hub-' + order.table_id} style={{ gridColumn: '1 / -1', background: S.navy2, borderRadius: 16, border: `1px solid ${S.red}50`, overflow: 'hidden' }}>
+                      <div key={'hub-' + order.table_id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.red}50`, overflow: 'hidden' }}>
                         <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -3928,7 +3928,7 @@ export default function CashierPage() {
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                   <button onClick={() => setPayOrder(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 Pay</button>
                                   {isAdmin && ['confirmed', 'preparing'].includes(o.status) && (
-                                    <button onClick={() => setCancelOrderTarget(o)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
+                                    <button onClick={() => approveCancelHub(o)} title="Cancel this order (no reason needed)" style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
                                   )}
                                 </div>
                               )}

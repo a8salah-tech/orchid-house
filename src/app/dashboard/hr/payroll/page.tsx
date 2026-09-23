@@ -441,7 +441,7 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   )
 }
 
-function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null, scheduleInfo?: { leaveDates: string[]; absentDates: string[] } | null): string {
+function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null, scheduleInfo?: { leaveDates: string[]; absentDates: string[] } | null, correctionsCount?: number): string {
   const c = calcRecord(record)
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const row = (label: string, value: string, bold = false) => `
@@ -537,7 +537,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
       </tr>
       <tr>
         <td class="lbl">أقل يوم حضور / Lowest Day</td><td class="val">${attStats.minDay ? `${attStats.minDay.date} (${fmtDuration(attStats.minDay.minutes)})` : '—'}</td>
-        <td class="lbl"></td><td class="val"></td>
+        <td class="lbl">مرات تصحيح الحضور / Corrections</td><td class="val">${correctionsCount || 0}</td>
       </tr>
     </table>` : ''}
 
@@ -611,15 +611,21 @@ export default function PayrollPage() {
   // ✅ إحصائيات البصمة (أيام البصمة، أعلى/أقل يوم حضور) لتقرير الراتب المفتوح حالياً
   const [payslipAttStats, setPayslipAttStats] = useState<AttendanceStats | null>(null)
   const [loadingPayslipAtt, setLoadingPayslipAtt] = useState(false)
+  // ✅ عدد مرات تصحيح الحضور المُطبَّقة فعلياً لهذا الموظف خلال هذا الشهر — لعرضها في ملخص البصمة والطباعة
+  const [payslipCorrectionsCount, setPayslipCorrectionsCount] = useState(0)
   // ✅ تفاصيل الإجازات الرسمية وأيام الغياب الفعلية (بتواريخها) لتقرير الراتب المفتوح حالياً
   const [payslipScheduleInfo, setPayslipScheduleInfo] = useState<{ leaveDates: string[]; absentDates: string[] } | null>(null)
   // ✅ نافذة تفاصيل المخالفات — تُفتح عند الضغط على سطر "مخالفات" في قسيمة الراتب
   const [showViolationDetails, setShowViolationDetails] = useState(false)
   const [violationDetailsList, setViolationDetailsList] = useState<{ date: string; amount: number; reason: string; status: string }[]>([])
   const [loadingViolationDetails, setLoadingViolationDetails] = useState(false)
+  // ✅ نافذة تفاصيل أيام التأخير/الخروج المبكر — تُفتح عند الضغط على سطر "تأخير" أو "خروج مبكر" في قسيمة الراتب
+  const [showAttDaysDetails, setShowAttDaysDetails] = useState<'late' | 'early' | null>(null)
+  const [attDaysDetailsList, setAttDaysDetailsList] = useState<{ date: string; minutes: number; check_in_time: string | null; check_out_time: string | null }[]>([])
+  const [loadingAttDaysDetails, setLoadingAttDaysDetails] = useState(false)
 
   useEffect(() => {
-    if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); setPayslipScheduleInfo(null); return }
+    if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); setPayslipScheduleInfo(null); setPayslipCorrectionsCount(0); return }
     let cancelled = false
     setLoadingPayslipAtt(true)
     const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
@@ -632,10 +638,17 @@ export default function PayrollPage() {
         .eq('employee_id', payslipRecord.employee_id)
         .eq('status', 'confirmed')
         .gte('date', monthStart).lte('date', monthEnd),
-    ]).then(([attRes, schedRes]) => {
+      // ✅ عدد مرات تصحيح الحضور المُطبَّقة فعلياً (approved، أو completed قديماً قبل تعديل زر "اكتمل") على أيام هذا الشهر
+      sb.from('employee_requests').select('id', { count: 'exact', head: true })
+        .eq('employee_id', payslipRecord.employee_id)
+        .eq('request_type', 'attendance_correction')
+        .in('status', ['approved', 'completed'])
+        .gte('start_date', monthStart).lte('start_date', monthEnd),
+    ]).then(([attRes, schedRes, corrRes]) => {
       if (cancelled) return
       const attRows = attRes.data || []
       setPayslipAttStats(computeAttendanceStats(attRows))
+      setPayslipCorrectionsCount(corrRes.count || 0)
 
       const attendedDates = new Set(attRows.filter(r => r.check_in_time).map(r => String(r.date).slice(0, 10)))
       // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
@@ -1090,6 +1103,29 @@ export default function PayrollPage() {
     setLoadingViolationDetails(false)
   }
 
+  // ✅ جلب أيام التأخير أو الخروج المبكر الفعلية (بتواريخها ومدتها) لموظف معيّن في الشهر المحدَّد —
+  // نفس مصدر البيانات (attendance.late_minutes / early_minutes) المُستخدَم في حساب الخصم نفسه
+  async function openAttDaysDetails(employeeId: string, type: 'late' | 'early') {
+    if (!selectedMonth) return
+    setShowAttDaysDetails(type)
+    setLoadingAttDaysDetails(true)
+    const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
+    const col = type === 'late' ? 'late_minutes' : 'early_minutes'
+    const { data } = await sb.from('attendance')
+      .select('date, late_minutes, early_minutes, check_in_time, check_out_time')
+      .eq('employee_id', employeeId)
+      .gt(col, 0)
+      .gte('date', monthStart).lte('date', monthEnd)
+      .order('date', { ascending: false })
+    setAttDaysDetailsList((data || []).map((r: { date: string; late_minutes: number | null; early_minutes: number | null; check_in_time: string | null; check_out_time: string | null }) => ({
+      date: String(r.date).slice(0, 10),
+      minutes: type === 'late' ? (r.late_minutes || 0) : (r.early_minutes || 0),
+      check_in_time: r.check_in_time,
+      check_out_time: r.check_out_time,
+    })))
+    setLoadingAttDaysDetails(false)
+  }
+
   function printSinglePayslip(record: PayrollRecord) {
     if (!selectedMonth) return
     const emp = empMap[record.employee_id]
@@ -1100,7 +1136,7 @@ export default function PayrollPage() {
     <title>Payslip - ${emp?.name || ''} - ${monthName} ${selectedMonth.year}</title>
     <style>${PAYSLIP_PRINT_STYLE}</style>
     </head><body>
-    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats, payslipScheduleInfo)}
+    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats, payslipScheduleInfo, payslipCorrectionsCount)}
     <script>window.onload=function(){window.print()}<\/script>
     </body></html>`)
     win.document.close()
@@ -1147,6 +1183,24 @@ export default function PayrollPage() {
       if (data.length < PAGE_SIZE) break
       page++
     }
+    // ✅ نجيب عدد مرات تصحيح الحضور المُطبَّقة فعلياً لكل الموظفين مرة واحدة كذلك — لعرضها في كل قسيمة
+    let corrRows: { employee_id: string }[] = []
+    page = 0
+    while (true) {
+      const { data } = await sb.from('employee_requests')
+        .select('employee_id')
+        .eq('request_type', 'attendance_correction')
+        .in('status', ['approved', 'completed'])
+        .gte('start_date', monthStart).lte('start_date', monthEnd)
+        .order('id').range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+      if (!data || data.length === 0) break
+      corrRows = corrRows.concat(data)
+      if (data.length < PAGE_SIZE) break
+      page++
+    }
+    const correctionsByEmp: Record<string, number> = {}
+    for (const r of corrRows) correctionsByEmp[r.employee_id] = (correctionsByEmp[r.employee_id] || 0) + 1
+
     function buildScheduleInfo(employeeId: string) {
       const attendedDates = new Set((attByEmp[employeeId] || []).filter(a => a.check_in_time).map(a => String(a.date).slice(0, 10)))
       // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
@@ -1169,7 +1223,7 @@ export default function PayrollPage() {
     }
 
     const allHTML = visibleRecords.filter(r => empMap[r.employee_id]).map(r =>
-      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []), buildScheduleInfo(r.employee_id))
+      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []), buildScheduleInfo(r.employee_id), correctionsByEmp[r.employee_id] || 0)
     ).join('')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Payslips - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>
@@ -1645,7 +1699,7 @@ export default function PayrollPage() {
                     </div>
                   )}
                 </div>
-                <button onClick={() => { setPayslipRecord(null); setShowViolationDetails(false) }} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+                <button onClick={() => { setPayslipRecord(null); setShowViolationDetails(false); setShowAttDaysDetails(null) }} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
               </div>
 
               {/* Body */}
@@ -1673,8 +1727,22 @@ export default function PayrollPage() {
                     </span>
                     <span>{fmt2(c.absenceDed)}</span>
                   </div>
-                    <div style={rowStyle}><span style={{ color: S.muted }}>تأخير ({payslipRecord.late_hours} س)</span><span>{fmt2(c.lateDed)}</span></div>
-                    <div style={rowStyle}><span style={{ color: S.muted }}>خروج مبكر ({payslipRecord.early_exit_hours} س)</span><span>{fmt2(c.earlyDed)}</span></div>
+                    <div
+                      style={{ ...rowStyle, cursor: payslipRecord.late_hours > 0 ? 'pointer' : 'default' }}
+                      onClick={() => payslipRecord.late_hours > 0 && openAttDaysDetails(payslipRecord.employee_id, 'late')}
+                      title={payslipRecord.late_hours > 0 ? 'اضغط لعرض أيام التأخير' : undefined}
+                    >
+                      <span style={{ color: S.muted, textDecoration: payslipRecord.late_hours > 0 ? 'underline dotted' : 'none' }}>تأخير ({payslipRecord.late_hours} س){payslipRecord.late_hours > 0 ? ' 🔍' : ''}</span>
+                      <span>{fmt2(c.lateDed)}</span>
+                    </div>
+                    <div
+                      style={{ ...rowStyle, cursor: payslipRecord.early_exit_hours > 0 ? 'pointer' : 'default' }}
+                      onClick={() => payslipRecord.early_exit_hours > 0 && openAttDaysDetails(payslipRecord.employee_id, 'early')}
+                      title={payslipRecord.early_exit_hours > 0 ? 'اضغط لعرض أيام الخروج المبكر' : undefined}
+                    >
+                      <span style={{ color: S.muted, textDecoration: payslipRecord.early_exit_hours > 0 ? 'underline dotted' : 'none' }}>خروج مبكر ({payslipRecord.early_exit_hours} س){payslipRecord.early_exit_hours > 0 ? ' 🔍' : ''}</span>
+                      <span>{fmt2(c.earlyDed)}</span>
+                    </div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>التأمينات</span><span>{fmt2(payslipRecord.insurance)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>الضريبة</span><span>{fmt2(payslipRecord.tax)}</span></div>
                     {payslipRecord.deduction_1 > 0 && (
@@ -1717,11 +1785,15 @@ export default function PayrollPage() {
                     <>
                       <div style={rowStyle}><span style={{ color: S.muted }}>أيام البصمة</span><span>{payslipAttStats.checkinDays} يوم</span></div>
                       <div style={rowStyle}><span style={{ color: S.muted }}>أعلى يوم حضور</span><span>{payslipAttStats.maxDay ? `${payslipAttStats.maxDay.date} (${fmtDuration(payslipAttStats.maxDay.minutes)})` : '—'}</span></div>
-                      <div style={{ ...rowStyle, borderBottom: 'none' }}><span style={{ color: S.muted }}>أقل يوم حضور</span><span>{payslipAttStats.minDay ? `${payslipAttStats.minDay.date} (${fmtDuration(payslipAttStats.minDay.minutes)})` : '—'}</span></div>
+                      <div style={rowStyle}><span style={{ color: S.muted }}>أقل يوم حضور</span><span>{payslipAttStats.minDay ? `${payslipAttStats.minDay.date} (${fmtDuration(payslipAttStats.minDay.minutes)})` : '—'}</span></div>
+                      <div style={{ ...rowStyle, borderBottom: 'none' }}><span style={{ color: S.muted }}>مرات تصحيح الحضور</span><span>{payslipCorrectionsCount}</span></div>
                     </>
                   ) : (
                     <>
                       <div style={{ fontSize: 12, color: S.muted }}>لا توجد بصمة مسجّلة لهذا الموظف في هذا الشهر.</div>
+                      {payslipCorrectionsCount > 0 && (
+                        <div style={{ ...rowStyle, borderBottom: 'none', marginTop: 8 }}><span style={{ color: S.muted }}>مرات تصحيح الحضور</span><span>{payslipCorrectionsCount}</span></div>
+                      )}
                       {payslipRecord.deduction_2 === 0 && (
                         <div style={{ marginTop: 10, background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 8, padding: '10px 12px', fontSize: 11, color: S.red, lineHeight: 1.8 }}>
                           ⚠️ تحذير: لا توجد أي بصمة لهذا الموظف طوال الشهر، ولم يُسجَّل له أي خصم غياب حتى الآن.
@@ -1763,7 +1835,7 @@ export default function PayrollPage() {
 
               {/* Footer */}
               <div style={{ padding: '14px 22px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
-                <button onClick={() => { setPayslipRecord(null); setShowViolationDetails(false) }} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+                <button onClick={() => { setPayslipRecord(null); setShowViolationDetails(false); setShowAttDaysDetails(null) }} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
                 <button onClick={() => printSinglePayslip(payslipRecord)} style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة هذا الموظف</button>
               </div>
             </div>
@@ -1803,6 +1875,49 @@ export default function PayrollPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderTop: `1px solid ${S.border}`, marginTop: 4 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>الإجمالي</span>
                   <span style={{ fontSize: 15, fontWeight: 900, color: S.red }}>{violationDetailsList.reduce((s, v) => s + v.amount, 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ✅ نافذة تفاصيل أيام التأخير/الخروج المبكر — تُفتح عند الضغط على سطر "تأخير" أو "خروج مبكر" في قسيمة الراتب */}
+      {showAttDaysDetails && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 700, padding: 20 }}
+          onClick={() => setShowAttDaysDetails(null)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: S.navy2, border: `1px solid ${S.amber}50`, borderRadius: 16, padding: 22, maxWidth: 440, width: '100%', maxHeight: '70vh', overflowY: 'auto' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>{showAttDaysDetails === 'late' ? '⏰ تفاصيل أيام التأخير' : '🏃 تفاصيل أيام الخروج المبكر'}</div>
+              <button onClick={() => setShowAttDaysDetails(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            {loadingAttDaysDetails ? (
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>⏳ جاري التحميل...</div>
+            ) : attDaysDetailsList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>لا توجد أيام {showAttDaysDetails === 'late' ? 'تأخير' : 'خروج مبكر'} مسجَّلة لهذا الشهر</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {attDaysDetailsList.map((d, i) => (
+                  <div key={i} style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 10, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: S.muted }}>📅 {d.date}</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: S.amber }}>{fmtDuration(d.minutes)}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: S.muted, direction: 'ltr', textAlign: 'right' }}>
+                      {d.check_in_time ? new Date(d.check_in_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                      {' → '}
+                      {d.check_out_time ? new Date(d.check_out_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderTop: `1px solid ${S.border}`, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>الإجمالي</span>
+                  <span style={{ fontSize: 15, fontWeight: 900, color: S.amber }}>{fmtDuration(attDaysDetailsList.reduce((s, d) => s + d.minutes, 0))}</span>
                 </div>
               </div>
             )}

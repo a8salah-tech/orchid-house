@@ -876,8 +876,10 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
           // ✅ شيفت ليلي: لو الخروج أصغر من الدخول رقميًا، فالخروج في اليوم التالي
           let checkoutDate = request.start_date
           if (checkinMatch?.[1] && checkoutMatch[1] <= checkinMatch[1]) {
-            const nextDay = new Date(request.start_date + 'T00:00:00')
-            nextDay.setDate(nextDay.getDate() + 1)
+            // ✅ حساب اليوم التالي بـ UTC بحت — النسخة القديمة كانت بتبني التاريخ بتوقيت الجهاز المحلي (ماليزيا +8)
+            // ثم تحوّله لـ ISO/UTC، فيرجع اليوم نفسه بدل التالي، وينتهي الخروج قبل الدخول بـ14 ساعة في الشيفتات الليلية
+            const nextDay = new Date(request.start_date + 'T00:00:00Z')
+            nextDay.setUTCDate(nextDay.getUTCDate() + 1)
             checkoutDate = nextDay.toISOString().split('T')[0]
           }
           correctedCheckOut = `${checkoutDate}T${checkoutMatch[1]}:00+08:00`

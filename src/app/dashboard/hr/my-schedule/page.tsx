@@ -56,11 +56,32 @@ function isSuspiciousShiftDuration(start: string | null, end: string | null): bo
   return durationMin > 16 * 60 // أكثر من 16 ساعة متواصلة يُعتبر مشكوكاً فيه ويستحق المراجعة
 }
 
+// ✅ "نسيان الخروج" الحقيقي فقط: سجل دخول بلا خروج وعدّى وقت نهاية شيفته + ساعة سماح. النسخة القديمة كانت تحذّر أي سجل
+// بتاريخ قبل اليوم، فالموظف اللي شغّال في شيفت ليلي بعد منتصف الليل (وهو في دوامه النظامي) كان يشوف التحذير بالغلط.
+// من غير شيفت معروف نعتمد نفس عتبة النظام: أكثر من 16 ساعة من الدخول.
+function isForgottenCheckout(a: { date: string; check_in_time: string | null; check_out_time: string | null }, sch: { custom_start?: string | null; custom_end?: string | null; shifts?: { start_time?: string | null; end_time?: string | null } | null } | undefined, nowMs: number): boolean {
+  if (!a.check_in_time || a.check_out_time) return false
+  const inMs = new Date(a.check_in_time).getTime()
+  const GRACE_MS = 60 * 60 * 1000
+  const start = sch?.custom_start || sch?.shifts?.start_time
+  const end = sch?.custom_end || sch?.shifts?.end_time
+  if (start && end) {
+    let endDate = String(a.date).slice(0, 10)
+    if (end.slice(0, 5) <= start.slice(0, 5)) {
+      const n = new Date(endDate + 'T00:00:00Z'); n.setUTCDate(n.getUTCDate() + 1); endDate = n.toISOString().slice(0, 10)
+    }
+    const endMs = new Date(`${endDate}T${end.slice(0, 5)}:00+08:00`).getTime()
+    return nowMs > Math.max(endMs, inMs) + GRACE_MS
+  }
+  return nowMs - inMs > 16 * 60 * 60 * 1000
+}
+
 export default function MySchedulePage() {
   const sb = createClient()
   const { employee } = useAuth()
   const { isAr } = useLang()
   const now = new Date()
+  const [nowMs] = useState(() => Date.now())
 
   const [viewMonth, setViewMonth] = useState(now.getMonth())
   const [viewYear, setViewYear] = useState(now.getFullYear())
@@ -145,12 +166,12 @@ export default function MySchedulePage() {
   const incompleteRecordsCount = useMemo(() => {
     const H16 = 16 * 60 * 60 * 1000
     return attendance.filter(a => {
-      if (a.check_in_time && !a.check_out_time) return String(a.date).slice(0, 10) < todayStr
+      if (a.check_in_time && !a.check_out_time) return isForgottenCheckout(a, schedules.find(x => String(x.date).slice(0, 10) === String(a.date).slice(0, 10)), nowMs)
       if (a.check_in_time && a.check_out_time)
         return (new Date(a.check_out_time).getTime() - new Date(a.check_in_time).getTime()) > H16
       return false
     }).length
-  }, [attendance, todayStr])
+  }, [attendance, schedules, nowMs])
 
   // ✅ نظير إجمالي التأخير الشهري تمامًا لكن للخروج المبكر — القيمة المخزَّنة مباشرة
   const totalEarlyMins = useMemo(
@@ -266,7 +287,7 @@ export default function MySchedulePage() {
             const HOURS_16_MS = 16 * 60 * 60 * 1000
             const abnormalRow = attRows.find(a => a.check_in_time && a.check_out_time &&
               (new Date(a.check_out_time).getTime() - new Date(a.check_in_time).getTime()) > HOURS_16_MS)
-            const forgotCheckout = attRows.some(a => a.check_in_time && !a.check_out_time) && d.date < todayStr
+            const forgotCheckout = attRows.some(a => isForgottenCheckout(a, sch, nowMs))
             const attNote = attRows.map(a => a.notes).find(n => typeof n === 'string' && n.trim()) as string | undefined
 
             if (!sch && !att) return (

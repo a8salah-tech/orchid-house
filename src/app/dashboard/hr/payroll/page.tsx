@@ -101,6 +101,18 @@ function computeAttendanceStats(rows: { date: string; check_in_time: string | nu
 function fmtDuration(mins: number): string {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
+// ✅ تقدير تقريبي لعدد "مرات" حفظ جدول الشيفتات من صفوف shift_schedules الخام (بلا سجل تغييرات حقيقي في قاعدة
+// البيانات): نجمّع الصفوف حسب (من حفظ + دقيقة الحفظ) — كل مجموعة تمثّل عملية حفظ واحدة (كل صفوفها تُدرَج معاً في نفس الثانية تقريباً)
+function groupShiftSaveBatches(rows: { created_at: string; assigned_by: string | null }[]): { count: number; assignedByIds: string[] } {
+  const keys = new Set<string>()
+  const assignedByIds = new Set<string>()
+  for (const r of rows) {
+    const minuteKey = String(r.created_at).slice(0, 16) // YYYY-MM-DDTHH:MM
+    keys.add(`${r.assigned_by || 'unknown'}|${minuteKey}`)
+    if (r.assigned_by) assignedByIds.add(r.assigned_by)
+  }
+  return { count: keys.size, assignedByIds: [...assignedByIds] }
+}
 type Branch = { id: string; name: string }
 type Employee = {
   id: string; name: string; name_en?: string; employee_number?: string
@@ -441,7 +453,7 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   )
 }
 
-function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null, scheduleInfo?: { leaveDates: string[]; absentDates: string[] } | null, correctionsCount?: number): string {
+function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null, scheduleInfo?: { leaveDates: string[]; absentDates: string[] } | null, correctionsCount?: number, shiftChanges?: { count: number; names: string[] }): string {
   const c = calcRecord(record)
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const row = (label: string, value: string, bold = false) => `
@@ -539,6 +551,10 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
         <td class="lbl">أقل يوم حضور / Lowest Day</td><td class="val">${attStats.minDay ? `${attStats.minDay.date} (${fmtDuration(attStats.minDay.minutes)})` : '—'}</td>
         <td class="lbl">مرات تصحيح الحضور / Corrections</td><td class="val">${correctionsCount || 0}</td>
       </tr>
+      <tr>
+        <td class="lbl">مرات تغيير الشيفت (تقديري) / Shift Changes (est.)</td><td class="val">${shiftChanges?.count || 0}</td>
+        <td class="lbl">بواسطة / By</td><td class="val">${shiftChanges?.names.length ? shiftChanges.names.join('، ') : '—'}</td>
+      </tr>
     </table>` : ''}
 
     ${scheduleInfo && (scheduleInfo.leaveDates.length > 0 || scheduleInfo.absentDates.length > 0) ? `
@@ -613,6 +629,10 @@ export default function PayrollPage() {
   const [loadingPayslipAtt, setLoadingPayslipAtt] = useState(false)
   // ✅ عدد مرات تصحيح الحضور المُطبَّقة فعلياً لهذا الموظف خلال هذا الشهر — لعرضها في ملخص البصمة والطباعة
   const [payslipCorrectionsCount, setPayslipCorrectionsCount] = useState(0)
+  // ✅ تقدير تقريبي لعدد "مرات" حفظ/تغيير جدول شيفتات هذا الموظف خلال هذا الشهر، وأسماء من قام بالحفظ —
+  // shift_schedules يُحذف ويُعاد إدراجه بالكامل في كل مرة يُحفظ فيها الجدول (لا يوجد سجل تغييرات حقيقي)،
+  // فنُقدِّر "مرة تغيير" بتجميع الصفوف حسب (من حفظ + دقيقة الحفظ) — كل مجموعة = عملية حفظ واحدة، حتى لو أول مرة
+  const [payslipShiftChanges, setPayslipShiftChanges] = useState<{ count: number; names: string[] }>({ count: 0, names: [] })
   // ✅ تفاصيل الإجازات الرسمية وأيام الغياب الفعلية (بتواريخها) لتقرير الراتب المفتوح حالياً
   const [payslipScheduleInfo, setPayslipScheduleInfo] = useState<{ leaveDates: string[]; absentDates: string[] } | null>(null)
   // ✅ نافذة تفاصيل المخالفات — تُفتح عند الضغط على سطر "مخالفات" في قسيمة الراتب
@@ -625,7 +645,7 @@ export default function PayrollPage() {
   const [loadingAttDaysDetails, setLoadingAttDaysDetails] = useState(false)
 
   useEffect(() => {
-    if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); setPayslipScheduleInfo(null); setPayslipCorrectionsCount(0); return }
+    if (!payslipRecord || !selectedMonth) { setPayslipAttStats(null); setPayslipScheduleInfo(null); setPayslipCorrectionsCount(0); setPayslipShiftChanges({ count: 0, names: [] }); return }
     let cancelled = false
     setLoadingPayslipAtt(true)
     const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
@@ -633,8 +653,9 @@ export default function PayrollPage() {
       sb.from('attendance').select('date,check_in_time,check_out_time')
         .eq('employee_id', payslipRecord.employee_id)
         .gte('date', monthStart).lte('date', monthEnd),
-      // ✅ الشيفتات المجدولة فعلياً لهذا الموظف هذا الشهر — لكي نفصل أيام الإجازة الرسمية عن أيام الغياب الحقيقية
-      sb.from('shift_schedules').select('date,shift_id,custom_start')
+      // ✅ الشيفتات المجدولة فعلياً لهذا الموظف هذا الشهر — لكي نفصل أيام الإجازة الرسمية عن أيام الغياب الحقيقية،
+      // وكمان created_at/assigned_by لتقدير عدد مرات حفظ/تغيير الجدول ومن قام بها
+      sb.from('shift_schedules').select('date,shift_id,custom_start,created_at,assigned_by')
         .eq('employee_id', payslipRecord.employee_id)
         .eq('status', 'confirmed')
         .gte('date', monthStart).lte('date', monthEnd),
@@ -644,11 +665,20 @@ export default function PayrollPage() {
         .eq('request_type', 'attendance_correction')
         .in('status', ['approved', 'completed'])
         .gte('start_date', monthStart).lte('start_date', monthEnd),
-    ]).then(([attRes, schedRes, corrRes]) => {
+    ]).then(async ([attRes, schedRes, corrRes]) => {
       if (cancelled) return
       const attRows = attRes.data || []
       setPayslipAttStats(computeAttendanceStats(attRows))
       setPayslipCorrectionsCount(corrRes.count || 0)
+
+      const { count: shiftChangeCount, assignedByIds } = groupShiftSaveBatches(schedRes.data || [])
+      let shiftChangeNames: string[] = []
+      if (assignedByIds.length > 0) {
+        const { data: byData } = await sb.from('employees').select('id,name,name_en').in('id', assignedByIds)
+        shiftChangeNames = (byData || []).map(e => `${e.name}${e.name_en ? ' ' + e.name_en : ''}`)
+      }
+      if (cancelled) return
+      setPayslipShiftChanges({ count: shiftChangeCount, names: shiftChangeNames })
 
       const attendedDates = new Set(attRows.filter(r => r.check_in_time).map(r => String(r.date).slice(0, 10)))
       // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
@@ -1136,7 +1166,7 @@ export default function PayrollPage() {
     <title>Payslip - ${emp?.name || ''} - ${monthName} ${selectedMonth.year}</title>
     <style>${PAYSLIP_PRINT_STYLE}</style>
     </head><body>
-    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats, payslipScheduleInfo, payslipCorrectionsCount)}
+    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats, payslipScheduleInfo, payslipCorrectionsCount, payslipShiftChanges)}
     <script>window.onload=function(){window.print()}<\/script>
     </body></html>`)
     win.document.close()
@@ -1169,12 +1199,13 @@ export default function PayrollPage() {
       attByEmp[a.employee_id].push(a)
     }
 
-    // ✅ نجيب الشيفتات المجدولة لكل الموظفين مرة واحدة كذلك — لفصل أيام الإجازة عن أيام الغياب الفعلية في كل قسيمة
-    let schedRows: { employee_id: string; date: string; shift_id: string | null; custom_start: string | null }[] = []
+    // ✅ نجيب الشيفتات المجدولة لكل الموظفين مرة واحدة كذلك — لفصل أيام الإجازة عن أيام الغياب الفعلية في كل قسيمة،
+    // وكمان created_at/assigned_by لتقدير عدد مرات حفظ/تغيير الجدول ومن قام بها لكل موظف
+    let schedRows: { employee_id: string; date: string; shift_id: string | null; custom_start: string | null; created_at: string; assigned_by: string | null }[] = []
     page = 0
     while (true) {
       const { data } = await sb.from('shift_schedules')
-        .select('employee_id,date,shift_id,custom_start')
+        .select('employee_id,date,shift_id,custom_start,created_at,assigned_by')
         .eq('status', 'confirmed')
         .gte('date', monthStart).lte('date', monthEnd)
         .order('id').range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
@@ -1182,6 +1213,32 @@ export default function PayrollPage() {
       schedRows = schedRows.concat(data)
       if (data.length < PAGE_SIZE) break
       page++
+    }
+    const schedByEmp: Record<string, typeof schedRows> = {}
+    for (const s of schedRows) {
+      if (!schedByEmp[s.employee_id]) schedByEmp[s.employee_id] = []
+      schedByEmp[s.employee_id].push(s)
+    }
+    const shiftChangeCountByEmp: Record<string, number> = {}
+    const shiftChangeIdsByEmp: Record<string, string[]> = {}
+    const allAssignedByIds = new Set<string>()
+    for (const employeeId of Object.keys(schedByEmp)) {
+      const { count, assignedByIds } = groupShiftSaveBatches(schedByEmp[employeeId])
+      shiftChangeCountByEmp[employeeId] = count
+      shiftChangeIdsByEmp[employeeId] = assignedByIds
+      assignedByIds.forEach(id => allAssignedByIds.add(id))
+    }
+    const shiftChangesByEmp: Record<string, { count: number; names: string[] }> = {}
+    if (allAssignedByIds.size > 0) {
+      const { data: byData } = await sb.from('employees').select('id,name,name_en').in('id', [...allAssignedByIds])
+      const nameById = Object.fromEntries((byData || []).map(e => [e.id, `${e.name}${e.name_en ? ' ' + e.name_en : ''}`]))
+      for (const employeeId of Object.keys(shiftChangeCountByEmp)) {
+        shiftChangesByEmp[employeeId] = { count: shiftChangeCountByEmp[employeeId], names: shiftChangeIdsByEmp[employeeId].map(id => nameById[id]).filter(Boolean) }
+      }
+    } else {
+      for (const employeeId of Object.keys(shiftChangeCountByEmp)) {
+        shiftChangesByEmp[employeeId] = { count: shiftChangeCountByEmp[employeeId], names: [] }
+      }
     }
     // ✅ نجيب عدد مرات تصحيح الحضور المُطبَّقة فعلياً لكل الموظفين مرة واحدة كذلك — لعرضها في كل قسيمة
     let corrRows: { employee_id: string }[] = []
@@ -1223,7 +1280,7 @@ export default function PayrollPage() {
     }
 
     const allHTML = visibleRecords.filter(r => empMap[r.employee_id]).map(r =>
-      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []), buildScheduleInfo(r.employee_id), correctionsByEmp[r.employee_id] || 0)
+      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []), buildScheduleInfo(r.employee_id), correctionsByEmp[r.employee_id] || 0, shiftChangesByEmp[r.employee_id] || { count: 0, names: [] })
     ).join('')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Payslips - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>
@@ -1786,13 +1843,23 @@ export default function PayrollPage() {
                       <div style={rowStyle}><span style={{ color: S.muted }}>أيام البصمة</span><span>{payslipAttStats.checkinDays} يوم</span></div>
                       <div style={rowStyle}><span style={{ color: S.muted }}>أعلى يوم حضور</span><span>{payslipAttStats.maxDay ? `${payslipAttStats.maxDay.date} (${fmtDuration(payslipAttStats.maxDay.minutes)})` : '—'}</span></div>
                       <div style={rowStyle}><span style={{ color: S.muted }}>أقل يوم حضور</span><span>{payslipAttStats.minDay ? `${payslipAttStats.minDay.date} (${fmtDuration(payslipAttStats.minDay.minutes)})` : '—'}</span></div>
-                      <div style={{ ...rowStyle, borderBottom: 'none' }}><span style={{ color: S.muted }}>مرات تصحيح الحضور</span><span>{payslipCorrectionsCount}</span></div>
+                      <div style={rowStyle}><span style={{ color: S.muted }}>مرات تصحيح الحضور</span><span>{payslipCorrectionsCount}</span></div>
+                      <div style={{ ...rowStyle, borderBottom: 'none' }}>
+                        <span style={{ color: S.muted }}>مرات تغيير الشيفت (تقديري)</span>
+                        <span>{payslipShiftChanges.count}{payslipShiftChanges.names.length > 0 ? ` — بواسطة: ${payslipShiftChanges.names.join('، ')}` : ''}</span>
+                      </div>
                     </>
                   ) : (
                     <>
                       <div style={{ fontSize: 12, color: S.muted }}>لا توجد بصمة مسجّلة لهذا الموظف في هذا الشهر.</div>
                       {payslipCorrectionsCount > 0 && (
-                        <div style={{ ...rowStyle, borderBottom: 'none', marginTop: 8 }}><span style={{ color: S.muted }}>مرات تصحيح الحضور</span><span>{payslipCorrectionsCount}</span></div>
+                        <div style={{ ...rowStyle, marginTop: 8 }}><span style={{ color: S.muted }}>مرات تصحيح الحضور</span><span>{payslipCorrectionsCount}</span></div>
+                      )}
+                      {payslipShiftChanges.count > 0 && (
+                        <div style={{ ...rowStyle, borderBottom: 'none', marginTop: payslipCorrectionsCount > 0 ? 0 : 8 }}>
+                          <span style={{ color: S.muted }}>مرات تغيير الشيفت (تقديري)</span>
+                          <span>{payslipShiftChanges.count}{payslipShiftChanges.names.length > 0 ? ` — بواسطة: ${payslipShiftChanges.names.join('، ')}` : ''}</span>
+                        </div>
                       )}
                       {payslipRecord.deduction_2 === 0 && (
                         <div style={{ marginTop: 10, background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 8, padding: '10px 12px', fontSize: 11, color: S.red, lineHeight: 1.8 }}>

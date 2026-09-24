@@ -1141,6 +1141,42 @@ const filteredItems = items
   )
 
   // ══ Language selection — أول شاشة يشوفها العميل بعد مسح الكيو آر ══
+  // ✅ شريط الأصناف المميّزة (يُعرض في شاشة المنيو وشاشة تأكيد الطلب)
+  const renderFeatured = (bottomPad: number) => {
+        const featuredItems = FEATURED_ITEM_IDS
+          .map(id => items.find(i => i.id === id))
+          .filter((i): i is MenuItem => !!i && i.is_available !== false && !(i.sizes || []).some(sz => sz.is_active)
+            && (visibleCategoryIds.has(i.category_id) || !categories.some(c => c.id === i.category_id)))
+        if (featuredItems.length === 0) return null
+        return (
+          <div style={{ padding:`0 0 ${bottomPad}px`, maxWidth:560, margin:'0 auto' }}>
+            <div className={isRtl ? 'ar-text' : ''} style={{ textAlign:'center', fontSize:16, fontWeight:900, color:C.white, marginBottom:12 }}>{t('featured_title')}</div>
+            <div className="featured-marquee" style={{ overflow:'hidden', direction:'ltr', padding:'6px 0 16px' }}>
+              <div className="featured-track">
+                {[...featuredItems, ...featuredItems].map((item, idx) => {
+                  const price = item.price * (1 - (item.discount_percent || 0) / 100)
+                  return (
+                    <div key={item.id + '-' + idx} onClick={() => setFeaturedPick(item)}
+                      style={{ width:150, marginRight:12, flexShrink:0, background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:18, overflow:'hidden', cursor:'pointer', boxShadow:'0 6px 18px rgba(0,0,0,.35)' }}>
+                      <div style={{ position:'relative', width:'100%', height:112, background:'rgba(255,255,255,.04)' }}>
+                        {item.image_url
+                          ? <img src={item.image_url} alt={dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                          : <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', fontSize:40 }}>🍰</div>}
+                        <div style={{ position:'absolute', bottom:8, right:8, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:900, boxShadow:`0 4px 12px ${C.glow}` }}>+</div>
+                      </div>
+                      <div style={{ padding:'9px 10px 11px', direction: isRtl ? 'rtl' : 'ltr' }}>
+                        <div className="ar-text" style={{ fontSize:12, fontWeight:800, color:C.white, lineHeight:1.3, height:32, overflow:'hidden' }}>{dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)}</div>
+                        <div style={{ fontSize:12.5, fontWeight:900, color:C.blue2, marginTop:4 }}>MYR {price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+  }
+
   // ✅ نوافذ مشتركة بين شاشة المنيو وشاشة السلة (تأكيد الصنف المميّز + إشعار السقف/الحظر + إشعار الإضافة)
   const globalNotices = (
     <>
@@ -1155,7 +1191,7 @@ const filteredItems = items
             <div style={{ display:'flex', gap:10 }}>
               <button onClick={() => setFeaturedPick(null)}
                 style={{ flex:1, background:'rgba(255,255,255,.06)', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:800, fontSize:14, color:C.silver2 }}>{t('featured_no')}</button>
-              <button onClick={() => { const it = featuredPick; setFeaturedPick(null); addToCart(it, null); setFeaturedToast(true); setTimeout(() => setFeaturedToast(false), 2000) }}
+              <button onClick={() => { const it = featuredPick; setFeaturedPick(null); addToCart(it, null); if (phase === 'done') setPhase('cart'); setFeaturedToast(true); setTimeout(() => setFeaturedToast(false), 2000) }}
                 style={{ flex:1, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:900, fontSize:14, color:C.white }}>{t('featured_yes')}</button>
             </div>
           </div>
@@ -1485,7 +1521,9 @@ const filteredItems = items
             ))}
           </div>
         </div>
+        <div style={{ marginTop:24 }}>{renderFeatured(0)}</div>
       </div>
+      {globalNotices}
     </div>
   )
 
@@ -2053,41 +2091,8 @@ const filteredItems = items
         })}
       </div>
 
-      {/* ✨ شريط الأصناف المميّزة — 4 بطاقات تتحرك من اليسار لليمين، والضغط على بطاقة يفتح تأكيد ثم يضيفها للطلب مباشرة */}
-      {(() => {
-        const featuredItems = FEATURED_ITEM_IDS
-          .map(id => items.find(i => i.id === id))
-          .filter((i): i is MenuItem => !!i && i.is_available !== false && !(i.sizes || []).some(sz => sz.is_active)
-            && (visibleCategoryIds.has(i.category_id) || !categories.some(c => c.id === i.category_id)))
-        if (featuredItems.length === 0) return null
-        return (
-          <div style={{ padding:'0 0 120px', maxWidth:560, margin:'0 auto' }}>
-            <div className={isRtl ? 'ar-text' : ''} style={{ textAlign:'center', fontSize:16, fontWeight:900, color:C.white, marginBottom:12 }}>{t('featured_title')}</div>
-            <div className="featured-marquee" style={{ overflow:'hidden', direction:'ltr', padding:'6px 0 16px' }}>
-              <div className="featured-track">
-                {[...featuredItems, ...featuredItems].map((item, idx) => {
-                  const price = item.price * (1 - (item.discount_percent || 0) / 100)
-                  return (
-                    <div key={item.id + '-' + idx} onClick={() => setFeaturedPick(item)}
-                      style={{ width:150, marginRight:12, flexShrink:0, background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:18, overflow:'hidden', cursor:'pointer', boxShadow:'0 6px 18px rgba(0,0,0,.35)' }}>
-                      <div style={{ position:'relative', width:'100%', height:112, background:'rgba(255,255,255,.04)' }}>
-                        {item.image_url
-                          ? <img src={item.image_url} alt={dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
-                          : <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', fontSize:40 }}>🍰</div>}
-                        <div style={{ position:'absolute', bottom:8, right:8, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:900, boxShadow:`0 4px 12px ${C.glow}` }}>+</div>
-                      </div>
-                      <div style={{ padding:'9px 10px 11px', direction: isRtl ? 'rtl' : 'ltr' }}>
-                        <div className="ar-text" style={{ fontSize:12, fontWeight:800, color:C.white, lineHeight:1.3, height:32, overflow:'hidden' }}>{dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)}</div>
-                        <div style={{ fontSize:12.5, fontWeight:900, color:C.blue2, marginTop:4 }}>MYR {price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )
-      })()}
+      {/* ✨ شريط الأصناف المميّزة — 4 بطاقات تتحرك من اليسار لليمين (شاشة المنيو + شاشة تأكيد الطلب) */}
+      {renderFeatured(120)}
 
       {/* ✅ New: floating "+1" animation layer when adding to cart */}
       {flyingPlusOnes.map(f => (

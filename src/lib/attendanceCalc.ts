@@ -84,16 +84,59 @@ export async function computeLateInfo(
   return { status, late_minutes: status === 'late' ? diffMins : 0 }
 }
 
+// إذن خروج مبكر معتمد لهذا الشيفت: يرجّع لحظة (ms) ساعة الخروج المسموح بها لو وُجد إذن معتمد يقع داخل نافذة الشيفت.
+// نفحص أذونات (تاريخ-1، تاريخ، تاريخ+1) لنفس سبب resolveShiftWindow (تاريخ صف الحضور قد يكون مزاحًا بيوم في الشيفت الليلي).
+// لو الاستعلام فشل لأي سبب (مثلاً العمود لسه ما اتضافش) نتصرف كأنه مفيش إذن.
+async function findExitPermitMs(
+  sb: SB, employeeId: string, dateStr: string, win: { startMs: number; endMs: number },
+): Promise<number | null> {
+  const [y, mo, d] = dateStr.split('-').map(Number)
+  const baseUtc = Date.UTC(y, mo - 1, d)
+  const dayStrs = [-1, 0, 1].map(off => new Date(baseUtc + off * 86400000).toISOString().slice(0, 10))
+  const { data, error } = await sb.from('employee_requests')
+    .select('start_date, permit_time')
+    .eq('employee_id', employeeId)
+    .eq('request_type', 'early_exit_permit')
+    .in('status', ['approved', 'completed'])
+    .in('start_date', dayStrs)
+  if (error || !data) return null
+  for (const r of data as unknown as { start_date: string; permit_time: string | null }[]) {
+    if (!r.permit_time) continue
+    const [ph, pm] = r.permit_time.split(':').map(Number)
+    const [sy, sm, sd] = String(r.start_date).slice(0, 10).split('-').map(Number)
+    // ساعة الإذن قد تقع في اليوم نفسه أو التالي (شيفت ليلي) — نختار اللي داخل نافذة الشيفت
+    for (const off of [0, 1]) {
+      const ms = Date.UTC(sy, sm - 1, sd + off, ph, pm || 0, 0) - 8 * 60 * 60 * 1000
+      if (ms > win.startMs && ms < win.endMs) return ms
+    }
+  }
+  return null
+}
+
 // نظير computeLateInfo لكن للخروج المبكر — يقارن وقت الخروج بموعد نهاية الشيفت المطابق للبصمة.
 // نُثبّت الشيفت على وقت الدخول لو متاح (أدق في تحديد أي شيفت)، وإلا على وقت الخروج.
+// مع إذن خروج مبكر معتمد:
+//   • خرج عند/بعد ساعة الإذن → early_minutes = 0، و permit_minutes = الدقائق الفعلية الناقصة عن نهاية الشيفت (بحد أقصى مدة الإذن)
+//   • خرج قبل ساعة الإذن     → permit_minutes = مدة الإذن كاملة، و early_minutes = الجزء الأبكر من الإذن فقط
+//   • ما خرجش مبكراً (ضمن سماح الـ10 دقائق من نهاية الشيفت) → لا شيء
+// permit_minutes تُخصم بسعر ساعة الموظف الحقيقي، و early_minutes بالمبلغ الثابت للساعة (بدون إذن).
 export async function computeEarlyInfo(
   sb: SB, employeeId: string, dateStr: string, checkOutIso: string, checkInIso?: string | null,
-): Promise<{ early_minutes: number }> {
+): Promise<{ early_minutes: number; permit_minutes: number }> {
   const win = await resolveShiftWindow(sb, employeeId, dateStr, checkInIso || checkOutIso)
-  if (!win) return { early_minutes: 0 }
-  const diffMins = Math.floor((win.endMs - new Date(checkOutIso).getTime()) / 60000)
+  if (!win) return { early_minutes: 0, permit_minutes: 0 }
+  const checkOutMs = new Date(checkOutIso).getTime()
+  const diffMins = Math.floor((win.endMs - checkOutMs) / 60000)
   // صمام أمان أخير: لا يتجاوز مدة الشيفت (لو المطابقة فشلت لأي سبب)
-  if (diffMins >= win.durationMins) return { early_minutes: 0 }
+  if (diffMins >= win.durationMins) return { early_minutes: 0, permit_minutes: 0 }
+
+  const permitMs = await findExitPermitMs(sb, employeeId, dateStr, win)
   // grace period 10 دقائق
-  return { early_minutes: diffMins > 10 ? diffMins : 0 }
+  if (permitMs === null) return { early_minutes: diffMins > 10 ? diffMins : 0, permit_minutes: 0 }
+  if (diffMins <= 10) return { early_minutes: 0, permit_minutes: 0 }
+
+  const permitMins = Math.floor((win.endMs - permitMs) / 60000)
+  if (checkOutMs >= permitMs) return { early_minutes: 0, permit_minutes: Math.min(permitMins, diffMins) }
+  const beforePermit = Math.floor((permitMs - checkOutMs) / 60000)
+  return { early_minutes: beforePermit > 10 ? beforePermit : 0, permit_minutes: permitMins }
 }

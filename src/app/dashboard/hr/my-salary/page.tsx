@@ -40,6 +40,8 @@ type PayrollRecord = {
   deduction_3: number; deduction_3_label: string
   // ✅ خصومات الكاشير منفصلة عن المخالفات العادية: وجبات شخصية + أخطاء في الطلب
   personal_meal_deduction?: number; order_mistake_deduction?: number
+  // ✅ ساعات إذن الخروج المبكر — تُخصم بسعر ساعتك الحقيقي (مش المبلغ الثابت 20 للساعة)
+  exit_permit_hours?: number
   advance: number; advance_balance: number
   carried_forward: number
   amount_due: number; amount_paid: number
@@ -58,11 +60,12 @@ function calcRecord(r: PayrollRecord) {
   const hourPenalty = 20 // 20 MYR لكل ساعة تأخير أو خروج مبكر — مبلغ ثابت مستقل عن الراتب (نفس صفحة الرواتب)
   const lateDed     = hourPenalty * r.late_hours
   const earlyDed    = hourPenalty * r.early_exit_hours
-  const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + (r.personal_meal_deduction || 0) + (r.order_mistake_deduction || 0) + r.advance
+  const permitDed   = hourlyRate * (r.exit_permit_hours || 0)
+  const totalDeductions = absenceDed + lateDed + earlyDed + permitDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + (r.personal_meal_deduction || 0) + (r.order_mistake_deduction || 0) + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
   const amountDue   = netSalary > 0 ? netSalary : 0
   const balance     = amountDue - r.amount_paid
-  return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, totalDeductions, netSalary, amountDue, balance }
+  return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, permitDed, totalDeductions, netSalary, amountDue, balance }
 }
 
 
@@ -113,9 +116,11 @@ export default function MySalaryPage() {
       sb.from('payroll_records').select('*').eq('payroll_month_id', selectedMonth.id).eq('employee_id', myId).maybeSingle(),
       // ✅ نجلب late_minutes و early_minutes الجاهزة والمخزَّنة مباشرة بدل إعادة حسابها من الصفر هنا — نفس القيمة
       // بالضبط اللي صفحة الرواتب الإدارية بتعتمد عليها، عشان الأرقام تتطابق دائماً ولا تختلف حسب مصدر الحساب
-      sb.from('attendance').select('check_in_time,date,late_minutes,early_minutes').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
+      sb.from('attendance').select('check_in_time,date,late_minutes,early_minutes,permit_minutes').eq('employee_id', myId).not('check_in_time','is',null).gte('date', monthStart).lte('date', monthEnd),
+      // موظف الراتب الثابت لا يُخصم منه إذن الخروج (نفس قاعدة الرواتب)
+      sb.from('employees').select('fixed_salary').eq('id', myId).maybeSingle(),
       sb.from('violations').select('amount,kind').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
-    ]).then(([recRes, attRes, violRes]) => {
+    ]).then(([recRes, attRes, empRes, violRes]) => {
       const record = recRes.data
       // احسب المخالفات النشطة فقط
       // ✅ المخالفات العادية منفصلة عن خصومات الكاشير (وجبات شخصية / أخطاء طلب)
@@ -130,6 +135,8 @@ export default function MySalaryPage() {
       // ✅ جديد: نظير حساب التأخير تمامًا لكن لدقائق الخروج المبكر — نفس مصدر الحقيقة الوحيد (early_minutes المخزَّنة)
       const totalEarlyMinutes = attData.reduce((s: number, a: any) => s + (a.early_minutes || 0), 0)
       const earlyHours = parseFloat((totalEarlyMinutes / 60).toFixed(2))
+      const totalPermitMinutes = attData.reduce((s: number, a: { permit_minutes?: number | null }) => s + (a.permit_minutes || 0), 0)
+      const permitHours = empRes.data?.fixed_salary ? 0 : parseFloat((totalPermitMinutes / 60).toFixed(2))
 
       // ✅ عدد أيام الحضور الفعلي الحقيقي (أيام مختلفة سُجِّل فيها دخول بالبصمة) — مختلف تماماً عن days_worked
       // المخزَّن في السجل (وهو رقم مرتبط بمناسبة الراتب/التناسب الشهري، وليس عدّاً حقيقياً لأيام الحضور)
@@ -140,6 +147,7 @@ export default function MySalaryPage() {
           ...record,
           late_hours: lateHours,
           early_exit_hours: earlyHours,
+          exit_permit_hours: permitHours,
           deduction_1: activeViolationsTotal,
           personal_meal_deduction: parseFloat(byKind.personal_meal.toFixed(2)),
           order_mistake_deduction: parseFloat(byKind.order_mistake.toFixed(2)),
@@ -233,6 +241,7 @@ export default function MySalaryPage() {
     { label: isAr ? 'خصم الغياب' : 'Absence Deduction', value: myRecord.absence_days > 0 ? (c?.absenceDed || 0) : 0, color: S.red },
     { label: isAr ? 'خصم التأخير' : 'Lateness Deduction', value: myRecord.late_hours > 0 ? (c?.lateDed || 0) : 0, color: S.red },
     { label: isAr ? 'خصم الخروج المبكر' : 'Early Leave Deduction', value: myRecord.early_exit_hours > 0 ? (c?.earlyDed || 0) : 0, color: S.red },
+    { label: isAr ? `🚪 إذن خروج مبكر (${myRecord.exit_permit_hours || 0} س بسعر ساعتك)` : `🚪 Early exit permit (${myRecord.exit_permit_hours || 0} h at your hourly rate)`, value: (myRecord.exit_permit_hours || 0) > 0 ? (c?.permitDed || 0) : 0, color: S.amber },
     { label: isAr ? 'سلفة' : 'Advance', value: myRecord.advance || 0, color: S.amber },
     { label: myRecord.deduction_1_label || (isAr ? 'خصم 1' : 'Deduction 1'), value: myRecord.deduction_1 || 0, color: S.red },
     { label: isAr ? '🍽️ وجبات شخصية (من الكاشير)' : '🍽️ Personal meals (cashier)', value: myRecord.personal_meal_deduction || 0, color: S.amber },

@@ -48,6 +48,7 @@ const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: str
   attendance_correction: { label: 'تصحيح حضور', label_en: 'Attendance Correction', icon: '🕐', color: S.teal, bg: S.tealB, hasDates: true },
   salary_increase: { label: 'زيادة راتب', label_en: 'Salary Increase', icon: '📈', color: S.green, bg: S.greenB, hasAmount: true },
   salary_advance:  { label: 'سلفة راتب', label_en: 'Salary Advance',   icon: '💸', color: S.gold,  bg: S.gold3,  hasAmount: true },
+  early_exit_permit: { label: 'إذن خروج مبكر', label_en: 'Early Exit Permit', icon: '🚪', color: S.amber, bg: S.amberB, hasDates: true },
   shift_assigned:  { label: 'تعيين شيفت', label_en: 'Shift Assigned',  icon: '🗓️', color: S.blue,  bg: S.blueB },
 }
 
@@ -491,7 +492,10 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
     start_date: initialType === 'attendance_correction' ? new Date().toISOString().slice(0, 10) : '',
     end_date: '',
     correct_checkin: '', correct_checkout: '',
+    // ✅ إذن خروج مبكر: ساعة الخروج المطلوبة
+    permit_time: '',
   })
+  const isSingleDate = form.request_type === 'attendance_correction' || form.request_type === 'early_exit_permit'
 
   const reqType = REQUEST_TYPES[form.request_type]
   // ✅ تاريخ اليوم بصيغة YYYY-MM-DD — نستخدمه كحد أدنى/أقصى في خانات التاريخ، وفي التحقق وقت الحفظ
@@ -507,6 +511,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
     if (!form.employee_id || !form.request_type) { alert('يرجى اختيار الموظف ونوع الطلب'); return }
     if (!form.description) { alert('يرجى إدخال تفاصيل الطلب'); return }
     if (form.request_type === 'attendance_correction' && !form.start_date) { alert('يرجى تحديد تاريخ الحضور المراد تصحيحه'); return }
+    if (form.request_type === 'early_exit_permit' && (!form.start_date || !form.permit_time)) { alert('يرجى تحديد تاريخ الإذن وساعة الخروج المطلوبة'); return }
     // ✅ جديد: إرفاق التقرير الطبي إجباري للإجازة المرضية فقط
     if (form.request_type === 'leave_sick' && !attachment) { alert('يرجى إرفاق تقرير طبي من الطبيب أو المستشفى'); return }
     // ✅ تحقق فعلي وقت الحفظ (مش بس قيد الواجهة min/max اللي ممكن يتلف بالتعديل المباشر على الصفحة) —
@@ -537,11 +542,16 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
       ? `\n\nتاريخ الحضور: ${form.start_date}\nوقت الدخول الصحيح: ${form.correct_checkin || '—'}\nوقت الخروج الصحيح: ${form.correct_checkout || '—'}`
       : ''
 
+    const permitInfo = form.request_type === 'early_exit_permit'
+      ? `\n\nتاريخ الإذن: ${form.start_date}\nوقت الخروج المطلوب: ${form.permit_time || '—'}\n(يُخصم الوقت الفعلي المتبقي من الشيفت بسعر ساعة الموظف، عند الخروج الفعلي فقط)`
+      : ''
+
     const { error } = await supabase.from('employee_requests').insert([{
       employee_id: form.employee_id,
       request_type: form.request_type,
       title: form.title || reqType.label,
-      description: form.description + correctionInfo,
+      description: form.description + correctionInfo + permitInfo,
+      permit_time: form.request_type === 'early_exit_permit' ? (form.permit_time || null) : null,
       amount: form.amount ? parseFloat(form.amount) : null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
@@ -630,7 +640,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
                 <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>
-                  {form.request_type === 'attendance_correction' ? 'تاريخ الحضور *' : 'من تاريخ'}
+                  {form.request_type === 'attendance_correction' ? 'تاريخ الحضور *' : form.request_type === 'early_exit_permit' ? 'تاريخ الإذن *' : 'من تاريخ'}
                 </label>
                 {form.request_type === 'attendance_correction' ? (
                   // ✅ تصحيح الحضور: يسمح باختيار اليوم الحالي أو الأمس فقط (min/max بنفس القيمة تقريباً) —
@@ -648,7 +658,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
                   />
                 )}
               </div>
-              {form.request_type !== 'attendance_correction' && (
+              {!isSingleDate && (
                 <div>
                   <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>إلى تاريخ</label>
                   <input
@@ -658,7 +668,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
                   />
                 </div>
               )}
-              {daysCount > 0 && form.request_type !== 'attendance_correction' && (
+              {daysCount > 0 && !isSingleDate && (
                 <div style={{ gridColumn: '1/-1', background: S.blueB, borderRadius: 10, padding: '10px 14px', display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 13, color: S.muted }}>عدد الأيام</span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: S.blue }}>{daysCount} يوم</span>
@@ -685,6 +695,18 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
               </div>
               <div style={{ fontSize: 11, color: S.muted, marginTop: 8 }}>
                 Leave empty if you only want to correct one time
+              </div>
+            </div>
+          )}
+
+          {/* حقل إذن الخروج المبكر */}
+          {form.request_type === 'early_exit_permit' && (
+            <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 12 }}>🚪 وقت الخروج المطلوب</div>
+              <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.permit_time}
+                onChange={e => setForm(p => ({ ...p, permit_time: e.target.value }))} />
+              <div style={{ fontSize: 11, color: S.muted, marginTop: 8, lineHeight: 1.7 }}>
+                عند الموافقة يُخصم الوقت الفعلي الذي غادرت فيه قبل نهاية شيفتك بسعر ساعتك (وليس 20 MYR للساعة)، فقط إن خرجت فعلاً. ولا يُخصم شيء إن أكملت شيفتك.
               </div>
             </div>
           )}
@@ -785,15 +807,41 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
     const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
     const { data: att } = await supabase.from('attendance')
-      .select('late_minutes, early_minutes').eq('employee_id', employeeId)
+      .select('late_minutes, early_minutes, permit_minutes').eq('employee_id', employeeId)
       .gte('date', monthStart).lte('date', monthEnd)
     const totalLate = (att || []).reduce((s: number, a: any) => s + (a.late_minutes || 0), 0)
     const totalEarly = (att || []).reduce((s: number, a: any) => s + (a.early_minutes || 0), 0)
+    const totalPermit = (att || []).reduce((s: number, a: { permit_minutes?: number | null }) => s + (a.permit_minutes || 0), 0)
+    // ✅ موظف الراتب الثابت لا يُخصم منه إذن الخروج (نفس قاعدة باقي خصومات الحضور)
+    const { data: empRow } = await supabase.from('employees').select('fixed_salary').eq('id', employeeId).maybeSingle()
     await supabase.from('payroll_records').update({
       late_hours: parseFloat((totalLate / 60).toFixed(2)),
       early_exit_hours: parseFloat((totalEarly / 60).toFixed(2)),
+      exit_permit_hours: empRow?.fixed_salary ? 0 : parseFloat((totalPermit / 60).toFixed(2)),
     }).eq('id', rec.id)
     return 'updated'
+  }
+
+  // ✅ إذن خروج مبكر: عند أي تغيير في حالته (موافقة/رفض/حذف) نعيد حساب دقائق الخروج المبكر والإذن لحضور ذلك اليوم
+  // (لو الموظف خرج فعلاً)، ثم نحدّث كشف الراتب — الخصم على الخروج الفعلي فقط
+  async function recomputePermitAttendance() {
+    if (request.request_type !== 'early_exit_permit' || !request.start_date) return
+    const next = new Date(request.start_date + 'T00:00:00Z'); next.setUTCDate(next.getUTCDate() + 1)
+    const dates = [request.start_date, next.toISOString().slice(0, 10)]
+    const { data: rows } = await supabase.from('attendance')
+      .select('id, date, check_in_time, check_out_time, early_minutes, permit_minutes')
+      .eq('employee_id', request.employee_id).in('date', dates)
+      .not('check_in_time', 'is', null).not('check_out_time', 'is', null)
+    for (const r of (rows || []) as { id: string; date: string; check_in_time: string; check_out_time: string; early_minutes: number | null; permit_minutes: number | null }[]) {
+      const { early_minutes, permit_minutes } = await computeEarlyInfo(supabase, request.employee_id, r.date, r.check_out_time, r.check_in_time)
+      if (early_minutes !== (r.early_minutes || 0) || permit_minutes !== (r.permit_minutes || 0)) {
+        await supabase.from('attendance').update({ early_minutes, permit_minutes }).eq('id', r.id)
+      }
+    }
+    const syncResult = await syncCorrectionToPayroll(request.employee_id, request.start_date)
+    if (syncResult === 'finalized') {
+      alert('⚠️ تم تحديث الحضور، لكن كشف راتب هذا الشهر مُعتمَد (Finalized) — لن يتحدث خصم إذن الخروج فيه تلقائياً. يُرجى مراجعته يدوياً في صفحة الرواتب.')
+    }
   }
 
   async function deleteRequest() {
@@ -802,6 +850,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     // وإلا يبقى المبلغ عالقاً في الرواتب للأبد رغم اختفاء الطلب نفسه من السجل
     await reverseAdvanceFromPayroll()
     await supabase.from('employee_requests').delete().eq('id', request.id)
+    await recomputePermitAttendance()
     onDelete()
   }
 
@@ -901,8 +950,9 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
           updateData.late_minutes = late_minutes
         }
         if (finalCheckOut) {
-          const { early_minutes } = await computeEarlyInfo(supabase, request.employee_id, request.start_date, finalCheckOut, finalCheckIn)
+          const { early_minutes, permit_minutes } = await computeEarlyInfo(supabase, request.employee_id, request.start_date, finalCheckOut, finalCheckIn)
           updateData.early_minutes = early_minutes
+          updateData.permit_minutes = permit_minutes
         }
 
         if (existingAttendance?.id) {
@@ -920,6 +970,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
         }
       }
     }
+
+    await recomputePermitAttendance()
 
     // ✅ خصم سلفة الراتب تلقائيًا من راتب شهر الاعتماد نفسه (وليس شهر السداد الفعلي)
     // مثال: السلفة تُعتمد 25 مايو → تُخصم من راتب شهر مايو (الذي يُسلَّم فعليًا في يونيو)

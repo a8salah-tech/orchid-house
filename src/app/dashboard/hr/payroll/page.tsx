@@ -138,6 +138,8 @@ type PayrollRecord = {
   deduction_3: number; deduction_3_label: string
   // ✅ خصومات الكاشير منفصلة عن المخالفات العادية (deduction_1): وجبات شخصية + أخطاء في الطلب — تُحسب تلقائياً من violations.kind
   personal_meal_deduction: number; order_mistake_deduction: number
+  // ✅ ساعات إذن الخروج المبكر المعتمد (تُخصم بسعر ساعة الموظف الحقيقي، مش بالمبلغ الثابت للتأخير/الخروج المبكر)
+  exit_permit_hours: number
   advance: number; advance_balance: number
   carried_forward: number
   amount_due: number; amount_paid: number
@@ -163,6 +165,7 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
     deduction_2: 0, deduction_2_label: 'Deduction 2',
     deduction_3: 0, deduction_3_label: 'Deduction 3',
     personal_meal_deduction: 0, order_mistake_deduction: 0,
+    exit_permit_hours: 0,
     advance: 0, advance_balance: 0, carried_forward: 0,
     amount_due: 0, amount_paid: 0,
     work_insurance: emp.work_insurance || 0,
@@ -254,13 +257,15 @@ function calcRecord(r: PayrollRecord) {
   // ✅ خصم التأخير والخروج المبكر: مبلغ ثابت (LATE_HOUR_PENALTY = 20) لكل ساعة، بغض النظر عن راتب الموظف
   const lateDed     = LATE_HOUR_PENALTY * r.late_hours
   const earlyDed    = LATE_HOUR_PENALTY * r.early_exit_hours
-  const totalDeductions = absenceDed + lateDed + earlyDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + (r.personal_meal_deduction || 0) + (r.order_mistake_deduction || 0) + r.advance
+  // ✅ إذن الخروج: بسعر ساعة الموظف (hourlyRate) — بعكس التأخير/الخروج المبكر بلا إذن (مبلغ ثابت لكل ساعة)
+  const permitDed   = hourlyRate * (r.exit_permit_hours || 0)
+  const totalDeductions = absenceDed + lateDed + earlyDed + permitDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + (r.personal_meal_deduction || 0) + (r.order_mistake_deduction || 0) + r.advance
   const netSalary   = totalEarnings - totalDeductions + r.carried_forward
   // ✅ جبر الكسور: المبلغ المستحق فقط يُقرَّب لأعلى رينغيت كامل (Math.ceil) لصالح الموظف —
   // صافي الراتب وباقي الخانات تظل بقيمتها الدقيقة بالقروش
   const amountDue   = netSalary > 0 ? Math.ceil(netSalary) : 0
   const balance     = amountDue - r.amount_paid
-  return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, totalDeductions, netSalary, amountDue, balance }
+  return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, permitDed, totalDeductions, netSalary, amountDue, balance }
 }
 
 function Cell({ value, onChange, readOnly = false, extra, minWidth = 80 }: { value: any; onChange: (v: any) => void; readOnly?: boolean; extra?: React.ReactNode; minWidth?: number }) {
@@ -373,6 +378,7 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
       <Cell value={record.deduction_3}      onChange={v => set('deduction_3', v)}      readOnly={readOnly} />
       <td style={{ ...thStyle, color: VIOLATION_KIND_META.personal_meal.color, textAlign: 'center' }} title="وجبات شخصية من الكاشير — تُحسب تلقائياً">{fmt(record.personal_meal_deduction || 0)}</td>
       <td style={{ ...thStyle, color: VIOLATION_KIND_META.order_mistake.color, textAlign: 'center' }} title="أخطاء في الطلب من الكاشير — تُحسب تلقائياً">{fmt(record.order_mistake_deduction || 0)}</td>
+      <td style={{ ...thStyle, color: S.amber, textAlign: 'center' }} title="ساعات إذن الخروج المبكر — تُخصم بسعر ساعة الموظف">{fmt(record.exit_permit_hours || 0)}</td>
       <td style={{ ...thStyle, color: S.red, fontWeight: 800, textAlign: 'center', minWidth: 90 }}>{fmt(calc.totalDeductions)}</td>
       <Cell value={record.advance}          onChange={v => set('advance', v)}          readOnly={readOnly} />
       <Cell value={record.advance_balance}  onChange={v => set('advance_balance', v)}  readOnly={readOnly} />
@@ -516,6 +522,7 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
           ${row('غياب يدوي إضافي / Additional Manual Absence', `${record.absence_days} (${fmt(c.absenceDed)})`)}
           ${row('تأخير (ساعات) / Late Hours', `${record.late_hours} (${fmt(c.lateDed)})`)}
           ${row('خروج مبكر / Early Exit (h)', `${record.early_exit_hours} (${fmt(c.earlyDed)})`)}
+          ${(record.exit_permit_hours || 0) > 0 ? row('🚪 إذن خروج مبكر / Early Exit Permit (h)', `${record.exit_permit_hours} (${fmt(c.permitDed)})`) : ''}
           ${row('التأمينات / Insurance', fmt(record.insurance))}
           ${row('الضريبة / Tax', fmt(record.tax))}
           ${record.deduction_1 > 0 ? row(record.deduction_1_label || 'Deduction 1', fmt(record.deduction_1)) : ''}
@@ -649,7 +656,7 @@ export default function PayrollPage() {
   const [violationDetailsList, setViolationDetailsList] = useState<{ date: string; amount: number; reason: string; status: string }[]>([])
   const [loadingViolationDetails, setLoadingViolationDetails] = useState(false)
   // ✅ نافذة تفاصيل أيام التأخير/الخروج المبكر — تُفتح عند الضغط على سطر "تأخير" أو "خروج مبكر" في قسيمة الراتب
-  const [showAttDaysDetails, setShowAttDaysDetails] = useState<'late' | 'early' | null>(null)
+  const [showAttDaysDetails, setShowAttDaysDetails] = useState<'late' | 'early' | 'permit' | null>(null)
   const [attDaysDetailsList, setAttDaysDetailsList] = useState<{ date: string; minutes: number; check_in_time: string | null; check_out_time: string | null }[]>([])
   const [loadingAttDaysDetails, setLoadingAttDaysDetails] = useState(false)
 
@@ -816,14 +823,14 @@ export default function PayrollPage() {
 
     // ✅ جلب سجلات الحضور على دفعات (Pagination) — Supabase بيحدّ أي select بـ 1000 صف افتراضياً،
     // وممكن يتخطى الـ 1000 بسهولة مع أكتر من 200 موظف × 31 يوم، فكنا بنفوّت جزء كبير من البيانات من غير ما نلاحظ
-    async function fetchAllAttendanceRows(): Promise<{ employee_id: string; date: string; check_in_time: string | null; late_minutes: number; early_minutes: number }[]> {
+    async function fetchAllAttendanceRows(): Promise<{ employee_id: string; date: string; check_in_time: string | null; late_minutes: number; early_minutes: number; permit_minutes: number }[]> {
       if (empIds.length === 0) return []
       const PAGE_SIZE = 1000
-      let all: { employee_id: string; date: string; check_in_time: string | null; late_minutes: number; early_minutes: number }[] = []
+      let all: { employee_id: string; date: string; check_in_time: string | null; late_minutes: number; early_minutes: number; permit_minutes: number }[] = []
       let page = 0
       while (true) {
         const { data: batch } = await sb.from('attendance')
-          .select('employee_id,date,check_in_time,late_minutes,early_minutes')
+          .select('employee_id,date,check_in_time,late_minutes,early_minutes,permit_minutes')
           .gte('date', monthStart).lte('date', monthEnd)
           .in('employee_id', empIds)
           .order('id')
@@ -915,6 +922,11 @@ export default function PayrollPage() {
     const earlyMap: Record<string, number> = {}
     for (const a of attendanceRows) {
       earlyMap[a.employee_id] = (earlyMap[a.employee_id] || 0) + (a.early_minutes || 0)
+    }
+    // ✅ دقائق إذن الخروج المبكر (تُخصم بسعر ساعة الموظف)
+    const permitMap: Record<string, number> = {}
+    for (const a of attendanceRows) {
+      permitMap[a.employee_id] = (permitMap[a.employee_id] || 0) + (a.permit_minutes || 0)
     }
 
     // ✅ الغياب التلقائي: شيفت مجدول (بعد استبعاد أيام الإجازة) ولم يُسجَّل له حضور فعلي —
@@ -1016,6 +1028,8 @@ export default function PayrollPage() {
         notes: noScheduleWarning,
         late_hours: lateHrs,
         early_exit_hours: earlyHrs,
+        // موظف الراتب الثابت: ما يُخصم منه إذن الخروج (نفس قاعدة باقي خصومات الحضور)
+        exit_permit_hours: isFixedSalary ? 0 : parseFloat(((permitMap[r.employee_id] || 0) / 60).toFixed(2)),
         // ✅ لو مفيش شيفت مسجَّل هذا الشهر بالذات، نبقي على آخر قيمة محفوظة (أو الافتراضي 8) بدل مسحها
         daily_hours: dailyHoursMap[r.employee_id] || r.daily_hours || 8,
         deduction_1: violAmount,
@@ -1098,7 +1112,7 @@ export default function PayrollPage() {
         <td style="font-weight:bold;color:#2e7d32">${fmt(c.totalEarnings)}</td>
         <td>${r.absence_days}</td><td>${r.late_hours}</td><td>${r.early_exit_hours}</td>
         <td>${fmt(r.insurance)}</td><td>${fmt(r.tax)}</td>
-        <td>${fmt(r.deduction_1)}</td><td>${fmt(r.deduction_2)}</td><td>${fmt(r.deduction_3)}</td><td>${fmt(r.personal_meal_deduction || 0)}</td><td>${fmt(r.order_mistake_deduction || 0)}</td>
+        <td>${fmt(r.deduction_1)}</td><td>${fmt(r.deduction_2)}</td><td>${fmt(r.deduction_3)}</td><td>${fmt(r.personal_meal_deduction || 0)}</td><td>${fmt(r.order_mistake_deduction || 0)}</td><td>${fmt(r.exit_permit_hours || 0)}</td>
         <td style="font-weight:bold;color:#c62828">${fmt(c.totalDeductions)}</td>
         <td style="font-weight:bold;color:#0277bd">${fmt(c.netSalary)}</td>
         <td>${fmt(r.work_insurance)}</td>
@@ -1117,10 +1131,10 @@ export default function PayrollPage() {
       <th>ID</th><th>Employee</th><th>Basic</th><th>Ins.</th><th>Daily</th><th>Hourly</th>
       <th>OT Days</th><th>OT Hrs</th><th>A1</th><th>A2</th><th>A3</th><th>Total Earn.</th>
       <th>Absent</th><th>Late</th><th>Early</th><th>Ins.</th><th>Tax</th>
-      <th>D1</th><th>D2</th><th>D3</th><th>Meals</th><th>Order err.</th><th>Total Ded.</th><th>Net</th><th>Work Ins.</th>
+      <th>D1</th><th>D2</th><th>D3</th><th>Meals</th><th>Order err.</th><th>Permit h</th><th>Total Ded.</th><th>Net</th><th>Work Ins.</th>
     </tr></thead><tbody>${rows}
     <tr class="total-row"><td colspan="11" style="text-align:right">TOTAL</td>
-      <td>${fmt(totals.earnings)}</td><td colspan="10"></td>
+      <td>${fmt(totals.earnings)}</td><td colspan="11"></td>
       <td>${fmt(totals.deductions)}</td><td>${fmt(totals.net)}</td><td></td>
     </tr></tbody></table>
     <div style="margin-top:20px;display:flex;justify-content:space-between;font-size:11px">
@@ -1153,21 +1167,21 @@ export default function PayrollPage() {
 
   // ✅ جلب أيام التأخير أو الخروج المبكر الفعلية (بتواريخها ومدتها) لموظف معيّن في الشهر المحدَّد —
   // نفس مصدر البيانات (attendance.late_minutes / early_minutes) المُستخدَم في حساب الخصم نفسه
-  async function openAttDaysDetails(employeeId: string, type: 'late' | 'early') {
+  async function openAttDaysDetails(employeeId: string, type: 'late' | 'early' | 'permit') {
     if (!selectedMonth) return
     setShowAttDaysDetails(type)
     setLoadingAttDaysDetails(true)
     const { monthStart, monthEnd } = getMonthDateRange(selectedMonth)
-    const col = type === 'late' ? 'late_minutes' : 'early_minutes'
+    const col = type === 'late' ? 'late_minutes' : type === 'permit' ? 'permit_minutes' : 'early_minutes'
     const { data } = await sb.from('attendance')
-      .select('date, late_minutes, early_minutes, check_in_time, check_out_time')
+      .select('date, late_minutes, early_minutes, permit_minutes, check_in_time, check_out_time')
       .eq('employee_id', employeeId)
       .gt(col, 0)
       .gte('date', monthStart).lte('date', monthEnd)
       .order('date', { ascending: false })
-    setAttDaysDetailsList((data || []).map((r: { date: string; late_minutes: number | null; early_minutes: number | null; check_in_time: string | null; check_out_time: string | null }) => ({
+    setAttDaysDetailsList((data || []).map((r: { date: string; late_minutes: number | null; early_minutes: number | null; permit_minutes: number | null; check_in_time: string | null; check_out_time: string | null }) => ({
       date: String(r.date).slice(0, 10),
-      minutes: type === 'late' ? (r.late_minutes || 0) : (r.early_minutes || 0),
+      minutes: type === 'late' ? (r.late_minutes || 0) : type === 'permit' ? (r.permit_minutes || 0) : (r.early_minutes || 0),
       check_in_time: r.check_in_time,
       check_out_time: r.check_out_time,
     })))
@@ -1357,6 +1371,7 @@ export default function PayrollPage() {
       ded3: acc.ded3 + r.deduction_3,
       meals: acc.meals + (r.personal_meal_deduction || 0),
       mistakes: acc.mistakes + (r.order_mistake_deduction || 0),
+      permitHours: acc.permitHours + (r.exit_permit_hours || 0),
       deductions: acc.deductions + c.totalDeductions,
       advance: acc.advance + r.advance,
       advanceBalance: acc.advanceBalance + r.advance_balance,
@@ -1369,7 +1384,7 @@ export default function PayrollPage() {
     }
   }, {
     basicSalary: 0, insurance: 0, otDays: 0, otHours: 0, allowance1: 0, allowance2: 0, allowance3: 0,
-    earnings: 0, absenceDays: 0, lateHours: 0, earlyExitHours: 0, tax: 0, ded1: 0, ded2: 0, ded3: 0, meals: 0, mistakes: 0,
+    earnings: 0, absenceDays: 0, lateHours: 0, earlyExitHours: 0, tax: 0, ded1: 0, ded2: 0, ded3: 0, meals: 0, mistakes: 0, permitHours: 0,
     deductions: 0, advance: 0, advanceBalance: 0, carriedForward: 0, net: 0, due: 0, paid: 0, balance: 0, workInsurance: 0,
   }), [visibleRecords])
 
@@ -1651,7 +1666,7 @@ export default function PayrollPage() {
                       <th colSpan={4} style={thGroupStyle('rgba(201,168,76,0.3)')}>Basic Info</th>
                       <th colSpan={6} style={thGroupStyle('rgba(34,197,94,0.2)')}>Earnings</th>
                       <th style={thGroupStyle('rgba(34,197,94,0.35)')}>Total Earnings</th>
-                      <th colSpan={9} style={thGroupStyle('rgba(239,68,68,0.2)')}>Deductions</th>
+                      <th colSpan={10} style={thGroupStyle('rgba(239,68,68,0.2)')}>Deductions</th>
                       <th style={thGroupStyle('rgba(239,68,68,0.35)')}>Total Ded.</th>
                       <th colSpan={3} style={thGroupStyle('rgba(245,158,11,0.2)')}>Advances</th>
                       <th style={thGroupStyle('rgba(20,184,166,0.4)')}>Net Salary</th>
@@ -1681,6 +1696,7 @@ export default function PayrollPage() {
                       <th style={thStyleRow2}>Ded 3</th>
                       <th style={thStyleRow2} title="وجبات شخصية من الكاشير">🍽️ Meals</th>
                       <th style={thStyleRow2} title="أخطاء في الطلب من الكاشير">🧾 Order err.</th>
+                      <th style={thStyleRow2} title="ساعات إذن الخروج المبكر (بسعر ساعة الموظف)">🚪 Permit (h)</th>
                       <th style={{ ...thStyleRow2, background: solidOver('rgba(239,68,68,0.35)') }}>Total</th>
                       <th style={thStyleRow2}>Advance</th>
                       <th style={thStyleRow2}>Adv Balance</th>
@@ -1728,6 +1744,7 @@ export default function PayrollPage() {
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.ded3)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.meals)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.mistakes)}</td>
+                      <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.permitHours)}</td>
                       <td style={{ padding: '10px', border: `1px solid ${S.border}`, color: S.red, textAlign: 'center', fontSize: 13 }}>{fmt(totals.deductions)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.advance)}</td>
                       <td style={{ padding: '8px', border: `1px solid ${S.border}`, textAlign: 'center', fontSize: 12 }}>{fmt(totals.advanceBalance)}</td>
@@ -1824,6 +1841,12 @@ export default function PayrollPage() {
                       <span style={{ color: S.muted, textDecoration: payslipRecord.early_exit_hours > 0 ? 'underline dotted' : 'none' }}>خروج مبكر ({payslipRecord.early_exit_hours} س){payslipRecord.early_exit_hours > 0 ? ' 🔍' : ''}</span>
                       <span>{fmt2(c.earlyDed)}</span>
                     </div>
+                    {(payslipRecord.exit_permit_hours || 0) > 0 && (
+                      <div style={{ ...rowStyle, cursor: 'pointer' }} onClick={() => openAttDaysDetails(payslipRecord.employee_id, 'permit')} title="اضغط لعرض أيام إذن الخروج">
+                        <span style={{ color: S.amber, textDecoration: 'underline dotted' }}>🚪 إذن خروج مبكر ({payslipRecord.exit_permit_hours} س) 🔍</span>
+                        <span>{fmt2(c.permitDed)}</span>
+                      </div>
+                    )}
                     <div style={rowStyle}><span style={{ color: S.muted }}>التأمينات</span><span>{fmt2(payslipRecord.insurance)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>الضريبة</span><span>{fmt2(payslipRecord.tax)}</span></div>
                     {payslipRecord.deduction_1 > 0 && (
@@ -1996,13 +2019,13 @@ export default function PayrollPage() {
             style={{ background: S.navy2, border: `1px solid ${S.amber}50`, borderRadius: 16, padding: 22, maxWidth: 440, width: '100%', maxHeight: '70vh', overflowY: 'auto' }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>{showAttDaysDetails === 'late' ? '⏰ تفاصيل أيام التأخير' : '🏃 تفاصيل أيام الخروج المبكر'}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>{showAttDaysDetails === 'late' ? '⏰ تفاصيل أيام التأخير' : showAttDaysDetails === 'permit' ? '🚪 تفاصيل أيام إذن الخروج' : '🏃 تفاصيل أيام الخروج المبكر'}</div>
               <button onClick={() => setShowAttDaysDetails(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             {loadingAttDaysDetails ? (
               <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>⏳ جاري التحميل...</div>
             ) : attDaysDetailsList.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>لا توجد أيام {showAttDaysDetails === 'late' ? 'تأخير' : 'خروج مبكر'} مسجَّلة لهذا الشهر</div>
+              <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>لا توجد أيام {showAttDaysDetails === 'late' ? 'تأخير' : showAttDaysDetails === 'permit' ? 'إذن خروج' : 'خروج مبكر'} مسجَّلة لهذا الشهر</div>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
                 {attDaysDetailsList.map((d, i) => (

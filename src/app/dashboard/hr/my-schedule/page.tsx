@@ -288,6 +288,8 @@ export default function MySchedulePage() {
             const isLate = lateMins > 0
             const earlyMins = attRows.reduce((s, a) => s + (a.early_minutes || 0), 0)
             const isEarly = earlyMins > 0
+            // ✅ دقائق إذن الخروج المبكر المعتمد الفعلية هذا اليوم — تُخصم بسعر ساعة الموظف (مش خروج مبكر بلا إذن)
+            const permitMins = attRows.reduce((s, a) => s + (a.permit_minutes || 0), 0)
 
             // ✅ رصد سجل غير طبيعي — عشان اليوم ما يبانش سليم بينما فيه مشكلة (نسيان خروج / مدة وهمية زي 24 ساعة)
             const HOURS_16_MS = 16 * 60 * 60 * 1000
@@ -351,6 +353,11 @@ export default function MySchedulePage() {
                     {isEarly && (
                       <div style={{ fontSize: 12, color: S.red, fontWeight: 700, background: S.redB, borderRadius: 8, padding: '3px 10px', display: 'inline-block', marginTop: 3 }}>
                         🚪 {isAr ? `خروج مبكر ${earlyMins} دقيقة` : `Early leave ${earlyMins} min`}
+                      </div>
+                    )}
+                    {permitMins > 0 && (
+                      <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, background: S.amberB, borderRadius: 8, padding: '3px 10px', display: 'inline-block', marginTop: 3 }}>
+                        🚪 {isAr ? `إذن خروج مبكر ${permitMins} دقيقة (يُخصم بسعر ساعتك)` : `Early exit permit ${permitMins} min (deducted at your hourly rate)`}
                       </div>
                     )}
                     {suspiciousShift && (

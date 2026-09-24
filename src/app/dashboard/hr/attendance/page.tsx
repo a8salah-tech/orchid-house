@@ -512,7 +512,7 @@ function MyAttendanceCard() {
     }
 
     // ✅ نفس منطق حساب التأخير لكن للخروج المبكر - يقارن وقت الخروج الفعلي بموعد نهاية الشيفت
-    const { early_minutes } = await computeEarlyInfo(sb, employeeId, dateStr, checkOutIso, openRow?.check_in_time)
+    const { early_minutes, permit_minutes } = await computeEarlyInfo(sb, employeeId, dateStr, checkOutIso, openRow?.check_in_time)
     const noteToSet = shortShiftNote ?? forgotNote
     const { error } = await sb.from('attendance')
       .update({
@@ -521,6 +521,7 @@ function MyAttendanceCard() {
         check_out_lng:      lng,
         check_out_distance: Math.round(dist),
         early_minutes,
+        permit_minutes,
         updated_at:         nowIso,
         ...(noteToSet ? { notes: noteToSet } : {}),
       })
@@ -1104,10 +1105,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       for (let i = 0; i < monthRecords.length; i++) {
         const rec = monthRecords[i]
         const { status, late_minutes } = await computeLateInfo(sb, rec.employee_id, rec.date, rec.check_in_time!)
-        const updatePayload: { status: string; late_minutes: number; early_minutes?: number } = { status, late_minutes }
+        const updatePayload: { status: string; late_minutes: number; early_minutes?: number; permit_minutes?: number } = { status, late_minutes }
         if (rec.check_out_time) {
-          const { early_minutes } = await computeEarlyInfo(sb, rec.employee_id, rec.date, rec.check_out_time, rec.check_in_time)
+          const { early_minutes, permit_minutes } = await computeEarlyInfo(sb, rec.employee_id, rec.date, rec.check_out_time, rec.check_in_time)
           updatePayload.early_minutes = early_minutes
+          updatePayload.permit_minutes = permit_minutes
         }
         const { error: updErr } = await sb.from('attendance').update(updatePayload).eq('id', rec.id)
         if (!updErr) updated++
@@ -1377,8 +1379,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (editingCell.field === 'check_out_time') {
       const rec = records.find(r => r.id === editingCell.recordId)
       if (rec) {
-        const { early_minutes } = await computeEarlyInfo(sb, rec.employee_id, rec.date, utcIso, rec.check_in_time)
+        const { early_minutes, permit_minutes } = await computeEarlyInfo(sb, rec.employee_id, rec.date, utcIso, rec.check_in_time)
         updatePayload.early_minutes = early_minutes
+        updatePayload.permit_minutes = permit_minutes
       }
     }
     const { error } = await sb.from('attendance').update(updatePayload).eq('id', editingCell.recordId)
@@ -1431,9 +1434,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     // ✅ نحسب حالة الحضور ودقائق التأخير للسجل اليدوي بنفس منطق تسجيل الدخول الذاتي، بدل ما تفضل صفر افتراضياً
     const { status, late_minutes } = await computeLateInfo(sb, empId, date, checkInUtc)
     // ✅ جديد: نفس المبدأ لدقائق الخروج المبكر، لو تم إدخال وقت خروج
-    const early_minutes = checkOutUtc ? (await computeEarlyInfo(sb, empId, date, checkOutUtc, checkInUtc)).early_minutes : 0
+    const earlyInfo = checkOutUtc ? await computeEarlyInfo(sb, empId, date, checkOutUtc, checkInUtc) : { early_minutes: 0, permit_minutes: 0 }
+    const early_minutes = earlyInfo.early_minutes
+    const permit_minutes = earlyInfo.permit_minutes
     const { error } = await sb.from('attendance').insert([{
-      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes, early_minutes, is_manual: true,
+      employee_id: empId, date, check_in_time: checkInUtc, check_out_time: checkOutUtc, status, late_minutes, early_minutes, permit_minutes, is_manual: true,
     }])
     if (error) { alert('حصل خطأ: ' + error.message); return }
     setAddingAttendanceFor(null)

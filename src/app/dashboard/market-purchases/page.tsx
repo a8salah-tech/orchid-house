@@ -36,6 +36,9 @@ const STATUS_CFG: Record<string, { label: string; icon: string; color: string; b
   rejected:  { label: 'مرفوض',        icon: '❌', color: S.red,   bg: S.redB },
 }
 
+// ✅ "تم التسليم" و"تم التسليم جزئيًا" كلاهما طلب استُلم فعلاً — للإحصائيات وعرض صور الاستلام وإعادة الطلب
+const isDeliveredStatus = (s: string) => s === 'delivered' || s === 'partially_delivered'
+
 interface Product { id: string; name: string; name_en?: string; current_stock: number; unit_id?: string; units?: { symbol: string } }
 interface RequestItem {
   id: string; product_id: string | null; item_name: string | null; requested_quantity: number; requested_unit_id: string
@@ -426,13 +429,25 @@ export default function MarketPurchasesPage() {
     const hasUnavailableItems = (receivingReq.market_purchase_request_items || []).some(it => it.is_unavailable)
     const finalStatus = hasUnavailableItems ? 'partially_delivered' : 'delivered'
 
-    await sb.from('market_purchase_requests').update({
-      status: finalStatus, delivered_at: new Date().toISOString(),
+    const deliverPayload = {
+      delivered_at: new Date().toISOString(),
       // ✅ Fix: delivered_image_url (الحقل القديم) بيتسجّل بأول صورة للتوافق مع أي كود قديم، ومصفوفة
       // delivered_image_urls الجديدة بتحفظ كل الصور
       delivered_image_url: uploadedUrls[0], delivered_image_urls: uploadedUrls,
       received_by: currentUser?.id, received_at: new Date().toISOString(),
-    }).eq('id', receivingReq.id)
+    }
+    // ✅ Fix: التحديث كان بيفشل بصمت لما الطلب فيه صنف "غير متاح" (حالة partially_delivered مرفوضة من قاعدة البيانات)،
+    // فالطلب يرجع كما كان بلا أي رسالة. الآن: لو رُفضت الحالة الجزئية نسجّل الطلب "تم التسليم" (الأصناف غير المتاحة تفضل
+    // معلّمة عليه فيبان إنه جزئي)، ولو فشل التحديث تماماً نوقف ونعرض الخطأ بدل ما نتظاهر بالنجاح
+    let upd = await sb.from('market_purchase_requests').update({ status: finalStatus, ...deliverPayload }).eq('id', receivingReq.id)
+    if (upd.error && finalStatus === 'partially_delivered') {
+      upd = await sb.from('market_purchase_requests').update({ status: 'delivered', ...deliverPayload }).eq('id', receivingReq.id)
+    }
+    if (upd.error) {
+      setConfirming(false)
+      alert('تعذّر تأكيد الاستلام: ' + upd.error.message)
+      return
+    }
     // ✅ جديد: إشعار للإدارة بمتابعة اكتمال الطلب، وإشعار لمقدّم الطلب لو مختلف عن الشخص اللي أكد الاستلام
     await sendNotifToRole('admin', '📦 تم استلام طلب مشتريات السوق', `تم تأكيد استلام الطلب #${receivingReq.request_number || ''}`)
     if (receivingReq.requested_by && receivingReq.requested_by !== currentUser?.id) {
@@ -576,7 +591,7 @@ export default function MarketPurchasesPage() {
       if (!groups[bId]) groups[bId] = { branchId: bId, branchName: bName, requestCount: 0, itemCount: 0, deliveredCount: 0, deliveryHours: [] }
       groups[bId].requestCount += 1
       groups[bId].itemCount += (r.market_purchase_request_items || []).length
-      if (r.status === 'delivered') {
+      if (isDeliveredStatus(r.status)) {
         groups[bId].deliveredCount += 1
         if (r.delivered_at) groups[bId].deliveryHours.push((new Date(r.delivered_at).getTime() - new Date(r.requested_at).getTime()) / (1000 * 60 * 60))
       }
@@ -701,7 +716,7 @@ export default function MarketPurchasesPage() {
       .sort((a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime())
 
     const totalRequests = filtered.length
-    const delivered = filtered.filter(r => r.status === 'delivered')
+    const delivered = filtered.filter(r => isDeliveredStatus(r.status))
     const rejected = filtered.filter(r => r.status === 'rejected')
     const pending = filtered.filter(r => r.status === 'pending')
     const purchased = filtered.filter(r => r.status === 'purchased')
@@ -885,7 +900,7 @@ export default function MarketPurchasesPage() {
       const dateKey = r.effective_date || myDateKey(r.requested_at)
       if (!map[dateKey]) map[dateKey] = { total: 0, received: 0, pending: 0, purchased: 0 }
       map[dateKey].total++
-      if (r.status === 'delivered') map[dateKey].received++
+      if (isDeliveredStatus(r.status)) map[dateKey].received++
       else if (r.status === 'purchased') map[dateKey].purchased++
       else if (r.status === 'pending') map[dateKey].pending++
     }
@@ -1104,7 +1119,7 @@ export default function MarketPurchasesPage() {
                     {/* ✅ جديد (إضافة فقط): عدد الأصناف في هذا الطلب تحديدًا */}
                     <span style={{ background: S.card, color: S.muted, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>📦 {(req.market_purchase_request_items || []).length} صنف</span>
                     {/* ✅ جديد (إضافة فقط): إعادة الطلب بعد التنفيذ - تظهر فقط للحالات المكتملة */}
-                    {['delivered', 'purchased', 'rejected'].includes(req.status) && (
+                    {['delivered', 'partially_delivered', 'purchased', 'rejected'].includes(req.status) && (
                       <button onClick={() => reorderRequest(req)} title="إعادة هذا الطلب"
                         style={{ background: S.blueB, border: `1px solid ${S.blue}`, borderRadius: 8, color: S.blue, cursor: 'pointer', fontSize: 11, padding: '4px 10px', fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                         🔁 إعادة الطلب
@@ -1149,7 +1164,7 @@ export default function MarketPurchasesPage() {
                     ✅ تأكيد الاستلام + رفع صورة
                   </button>
                 )}
-                {req.status === 'delivered' && ((req.delivered_image_urls && req.delivered_image_urls.length > 0) || req.delivered_image_url) && (
+                {isDeliveredStatus(req.status) && ((req.delivered_image_urls && req.delivered_image_urls.length > 0) || req.delivered_image_url) && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {(req.delivered_image_urls && req.delivered_image_urls.length > 0 ? req.delivered_image_urls : [req.delivered_image_url!]).map((url, i) => (
                       <a key={i} href={url} target="_blank" rel="noreferrer">

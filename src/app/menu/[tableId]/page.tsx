@@ -103,6 +103,7 @@ const TR: Record<Lang, Record<string, string>> = {
     guest: 'Guest', n_ratings: '{x} ratings', no_ratings_yet: '🆕 No ratings yet — be the first to rate this dish',
     err_order_send: '⚠️ Something went wrong sending your order. Please try again or call the waiter.',
     err_blocked: '⚠️ Your order cannot be sent right now. Please ask the waiter to help you.',
+    ok_btn: 'OK',
     err_qty_limit: '⚠️ Maximum 30 per item. For larger orders please ask the waiter.',
     err_order_too_big: '⚠️ This order is too large to send from the menu. Please ask the waiter to help you.',
     game_teaser_t: "While you wait… Who's Paying the Bill?", game_teaser_s: 'Spin the wheel and let fate decide! 🎉',
@@ -169,6 +170,7 @@ const TR: Record<Lang, Record<string, string>> = {
     guest: 'Tetamu', n_ratings: '{x} penilaian', no_ratings_yet: '🆕 Belum ada penilaian — jadi yang pertama menilai hidangan ini',
     err_order_send: '⚠️ Sesuatu tidak kena semasa menghantar pesanan anda. Sila cuba lagi atau panggil pelayan.',
     err_blocked: '⚠️ Pesanan anda tidak dapat dihantar sekarang. Sila minta pelayan membantu anda.',
+    ok_btn: 'OK',
     err_qty_limit: '⚠️ Maksimum 30 bagi setiap item. Untuk pesanan lebih besar, sila minta pelayan.',
     err_order_too_big: '⚠️ Pesanan ini terlalu besar untuk dihantar melalui menu. Sila minta pelayan membantu anda.',
     game_teaser_t: 'Sementara menunggu… Siapa Bayar Bil?', game_teaser_s: 'Pusing roda dan biar takdir menentukan! 🎉',
@@ -235,6 +237,7 @@ const TR: Record<Lang, Record<string, string>> = {
     guest: 'ضيف', n_ratings: '{x} تقييم', no_ratings_yet: '🆕 لا توجد تقييمات بعد — كن أول من يقيّم هذا الطبق',
     err_order_send: '⚠️ حدث خطأ أثناء إرسال طلبك. يرجى المحاولة مرة أخرى أو مناداة النادل.',
     err_blocked: '⚠️ لا يمكن إرسال طلبك حالياً. يرجى طلب المساعدة من النادل.',
+    ok_btn: 'موافق',
     err_qty_limit: '⚠️ الحد الأقصى 30 للصنف الواحد. للطلبات الأكبر يرجى طلب المساعدة من النادل.',
     err_order_too_big: '⚠️ هذا الطلب كبير جداً لإرساله من المنيو. يرجى طلب المساعدة من النادل.',
     game_teaser_t: 'في انتظار طلبك… مَن سيدفع الفاتورة؟', game_teaser_s: 'أدر العجلة ودَع الحظ يقرر! 🎉',
@@ -301,6 +304,7 @@ const TR: Record<Lang, Record<string, string>> = {
     guest: '访客', n_ratings: '{x}条评价', no_ratings_yet: '🆕 暂无评价 — 成为第一位评价此菜品的人',
     err_order_send: '⚠️ 订单发送失败，请重试或呼叫服务员。',
     err_blocked: '⚠️ 您的订单目前无法发送，请联系服务员协助。',
+    ok_btn: '好的',
     err_qty_limit: '⚠️ 每种菜品最多 30 份。大额订单请联系服务员。',
     err_order_too_big: '⚠️ 此订单过大，无法通过菜单发送，请联系服务员协助。',
     game_teaser_t: '等待期间…谁来买单？', game_teaser_s: '转动转盘，让命运来决定！🎉',
@@ -367,6 +371,7 @@ const TR: Record<Lang, Record<string, string>> = {
     guest: 'Гость', n_ratings: '{x} отзывов', no_ratings_yet: '🆕 Пока нет отзывов — станьте первым, кто оценит это блюдо',
     err_order_send: '⚠️ Не удалось отправить заказ. Попробуйте ещё раз или позовите официанта.',
     err_blocked: '⚠️ Сейчас невозможно отправить заказ. Пожалуйста, обратитесь к официанту.',
+    ok_btn: 'ОК',
     err_qty_limit: '⚠️ Максимум 30 порций одного блюда. Для больших заказов обратитесь к официанту.',
     err_order_too_big: '⚠️ Этот заказ слишком большой для отправки через меню. Пожалуйста, обратитесь к официанту.',
     game_teaser_t: 'Пока вы ждёте… Кто оплатит счёт?', game_teaser_s: 'Крутите колесо и пусть решит судьба! 🎉',
@@ -527,6 +532,8 @@ function CustomerMenuInner() {
   const [submitting, setSubmitting] = useState(false)
   // ✅ جديد: تأكيد وسيط قبل إرسال الطلب فعليًا - يوضّح للعميل أن الطلب سيُرسَل مباشرة للمطبخ فور الموافقة
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  // ✅ رسائل السقف/الحظر تظهر في نافذة وسط الشاشة بدل alert المتصفح
+  const [limitNotice, setLimitNotice] = useState<string | null>(null)
   // ✅ اقتراحات "أكمل وجبتك" قبل تأكيد أول طلب: القائمة تجي من /api/menu-suggestions (تلقائية من المبيعات)
   const [suggestions, setSuggestions] = useState<{ starters: string[]; drinks: string[]; addons: string[]; desserts: string[]; bread: string | null } | null>(null)
   const [showSuggest, setShowSuggest] = useState(false)
@@ -749,7 +756,7 @@ const filteredItems = items
   function addToCart(item: MenuItem, size?: { id: string; name: string; name_en: string; price: number } | null) {
     // ✅ سقف الكمية للصنف الواحد (مجموع أحجامه) — ما نسمحش بمئات الوحدات من زر "+"
     const inCart = cart.filter(c => c.item.id === item.id).reduce((s, c) => s + c.quantity, 0)
-    if (inCart >= MAX_ITEM_QTY) { alert(t('err_qty_limit')); return }
+    if (inCart >= MAX_ITEM_QTY) { setLimitNotice(t('err_qty_limit')); return }
     setCart(p => {
       const ex = p.find(c => c.item.id === item.id && (size ? c.selectedSize?.id === size.id : !c.selectedSize))
       if (ex) return p.map(c => c.item.id === item.id && (size ? c.selectedSize?.id === size.id : !c.selectedSize) ? { ...c, quantity: c.quantity + 1 } : c)
@@ -1005,13 +1012,13 @@ const filteredItems = items
       if (res.status === 400 && (data?.code === 'QTY_LIMIT' || data?.code === 'ORDER_TOO_BIG')) {
         isSubmittingRef.current = false
         setSubmitting(false)
-        alert(t(data.code === 'QTY_LIMIT' ? 'err_qty_limit' : 'err_order_too_big'))
+        setLimitNotice(t(data.code === 'QTY_LIMIT' ? 'err_qty_limit' : 'err_order_too_big'))
         return
       }
       if (res.status === 403 && data?.code === 'BLOCKED') {
         isSubmittingRef.current = false
         setSubmitting(false)
-        alert(t('err_blocked'))
+        setLimitNotice(t('err_blocked'))
         return
       }
       if (!res.ok || !data?.orderId) {
@@ -1780,6 +1787,20 @@ const filteredItems = items
                 {t('confirm_dialog_yes')}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {limitNotice && (
+        <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} onClick={() => setLimitNotice(null)} />
+          <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:24, padding:'28px 24px', maxWidth:380, width:'100%', border:`1px solid ${C.border2}`, textAlign:'center' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>⚠️</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:15, fontWeight:700, color:C.white, lineHeight:1.8, marginBottom:22 }}>{limitNotice.replace(/^⚠️\s*/, '')}</div>
+            <button onClick={() => setLimitNotice(null)}
+              style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:900, fontSize:14, color:C.white }}>
+              {t('ok_btn')}
+            </button>
           </div>
         </div>
       )}

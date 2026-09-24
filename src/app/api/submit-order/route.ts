@@ -15,6 +15,11 @@ type IncomingItem = { menuItemId: string; quantity: number; sizeId?: string | nu
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// ✅ سقف طلبات المنيو (QR): كمية الصنف الواحد في الإرسال الواحد، وقيمة الإرسال الواحد.
+// (أعلى كمية حقيقية مدفوعة 21، وأعلى إجمالي طلب حقيقي كان حفلة بـ5,555 — الكاشير/النادل غير مقيّدين بهذا)
+const MAX_ITEM_QTY = 30
+const MAX_SUBMISSION_TOTAL = 3000
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -56,6 +61,13 @@ export async function POST(req: NextRequest) {
     }))
     if (items.some((it) => !it.menuItemId || !Number.isFinite(it.quantity) || it.quantity < 1)) {
       return NextResponse.json({ error: 'بنود غير صالحة' }, { status: 400 })
+    }
+
+    // سقف الكمية لكل صنف (مجموع كل أحجامه في نفس الإرسال)
+    const qtyPerItem = new Map<string, number>()
+    for (const it of items) qtyPerItem.set(it.menuItemId, (qtyPerItem.get(it.menuItemId) || 0) + it.quantity)
+    if ([...qtyPerItem.values()].some((q) => q > MAX_ITEM_QTY)) {
+      return NextResponse.json({ error: 'quantity limit', code: 'QTY_LIMIT', max: MAX_ITEM_QTY }, { status: 400 })
     }
 
     const menuItemIds = [...new Set(items.map((i) => i.menuItemId))]
@@ -125,6 +137,9 @@ export async function POST(req: NextRequest) {
       })
     }
     serverTotal = parseFloat(serverTotal.toFixed(2))
+    if (serverTotal > MAX_SUBMISSION_TOTAL) {
+      return NextResponse.json({ error: 'order too large', code: 'ORDER_TOO_BIG', max: MAX_SUBMISSION_TOTAL }, { status: 400 })
+    }
 
     // ── طلب نشِط قائم على نفس الطاولة؟ ──
     const { data: existingOrders } = await sb

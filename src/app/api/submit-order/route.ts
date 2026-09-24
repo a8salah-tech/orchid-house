@@ -21,9 +21,25 @@ export async function POST(req: NextRequest) {
     const tableId: string = body?.tableId
     const rawItems: IncomingItem[] = Array.isArray(body?.items) ? body.items : []
     const customerId: string | null = body?.customerId || null
+    const deviceId: string | null = typeof body?.deviceId === 'string' && body.deviceId.length <= 100 ? body.deviceId : null
 
     if (!tableId) return NextResponse.json({ error: 'رقم الطاولة مفقود' }, { status: 400 })
     if (rawItems.length === 0) return NextResponse.json({ error: 'السلة فارغة' }, { status: 400 })
+
+    // ── حظر الأجهزة/العناوين: جهاز أو IP محظور (من صفحة مراقبة الطلبات) لا يقدر يرسل طلب ──
+    // لو فشل الاستعلام (مثلاً الجدول لسه ما اتعملش) نكمّل عادي بدل ما نوقف الطلبات كلها
+    try {
+      const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || null
+      const checks: [string, string][] = []
+      if (deviceId && /^[A-Za-z0-9-]+$/.test(deviceId)) checks.push(['device', deviceId])
+      if (ip) checks.push(['ip', ip])
+      for (const [kind, value] of checks) {
+        const { data: blocked, error: blockErr } = await sb.from('blocked_clients').select('expires_at').eq('kind', kind).eq('value', value)
+        if (!blockErr && (blocked || []).some((b: { expires_at: string | null }) => !b.expires_at || new Date(b.expires_at).getTime() > Date.now())) {
+          return NextResponse.json({ error: 'blocked', code: 'BLOCKED' }, { status: 403 })
+        }
+      }
+    } catch { /* fail-open */ }
 
     // ── تحقق الطاولة ──
     const { data: tableRow, error: tableErr } = await sb

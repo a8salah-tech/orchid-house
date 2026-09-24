@@ -20,7 +20,9 @@ const S = {
   card: 'rgba(255,255,255,0.04)',
 }
 
-type ClientMeta = { ip_address: string | null; user_agent: string | null; device_model: string | null; created_at?: string | null }
+type ClientMeta = { ip_address: string | null; user_agent: string | null; device_model: string | null; device_id?: string | null; created_at?: string | null }
+type BlockedClient = { id: string; kind: 'device' | 'ip'; value: string; reason: string | null; expires_at: string | null; blocked_by_name: string | null; created_at: string }
+type BlockTarget = { meta: ClientMeta; tableName: string }
 type ActiveTable = {
   id: string; number: number; name: string; section: string; branch_id: string
   current_order_id: string; occupied_since: string | null
@@ -62,6 +64,15 @@ export default function OrderMonitorPage() {
   const [loading, setLoading] = useState(true)
   // ✅ آخر مرة اتحدّثت فيها البيانات - عشان الأدمن يعرف الداتا فريش قد إيه
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  // ✅ حظر الأجهزة/العناوين: القائمة الحالية + نافذة الحظر
+  const [blocked, setBlocked] = useState<BlockedClient[]>([])
+  const [blockTarget, setBlockTarget] = useState<BlockTarget | null>(null)
+  const [blockDevice, setBlockDevice] = useState(true)
+  const [blockIp, setBlockIp] = useState(false)
+  const [ipDuration, setIpDuration] = useState<'24h' | '7d' | 'forever'>('24h')
+  const [blockReason, setBlockReason] = useState('')
+  const [blockSaving, setBlockSaving] = useState(false)
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   const fetchActive = useCallback(async () => {
     setLoading(true)
@@ -115,7 +126,51 @@ export default function OrderMonitorPage() {
     setLoading(false)
   }, [sb])
 
-  useEffect(() => { if (employee) fetchActive() }, [employee, fetchActive])
+  const fetchBlocked = useCallback(async () => {
+    const { data } = await sb.from('blocked_clients').select('*').order('created_at', { ascending: false })
+    setBlocked((data || []) as BlockedClient[])
+    setNowMs(Date.now())
+  }, [sb])
+
+  useEffect(() => { if (employee) { fetchActive(); fetchBlocked() } }, [employee, fetchActive, fetchBlocked])
+
+  const isBlockActive = (b: BlockedClient) => !b.expires_at || new Date(b.expires_at).getTime() > nowMs
+  const isMetaBlocked = (m: ClientMeta) => blocked.some(b => isBlockActive(b) && ((b.kind === 'device' && !!m.device_id && b.value === m.device_id) || (b.kind === 'ip' && !!m.ip_address && b.value === m.ip_address)))
+
+  function openBlock(meta: ClientMeta, tableName: string) {
+    setBlockTarget({ meta, tableName })
+    setBlockDevice(!!meta.device_id)
+    setBlockIp(!meta.device_id)
+    setIpDuration('24h')
+    setBlockReason('')
+  }
+
+  async function confirmBlock() {
+    if (!blockTarget) return
+    const m = blockTarget.meta
+    const rows: { kind: 'device' | 'ip'; value: string; reason: string | null; expires_at: string | null; blocked_by_name: string | null }[] = []
+    const reason = blockReason.trim() || null
+    const byName = employee?.name || null
+    if (blockDevice && m.device_id) rows.push({ kind: 'device', value: m.device_id, reason, expires_at: null, blocked_by_name: byName })
+    if (blockIp && m.ip_address) {
+      const ms = ipDuration === '24h' ? 24 * 3600 * 1000 : ipDuration === '7d' ? 7 * 24 * 3600 * 1000 : 0
+      rows.push({ kind: 'ip', value: m.ip_address, reason, expires_at: ms ? new Date(Date.now() + ms).toISOString() : null, blocked_by_name: byName })
+    }
+    if (rows.length === 0) { alert('اختر ما تريد حظره'); return }
+    setBlockSaving(true)
+    const { error } = await sb.from('blocked_clients').upsert(rows, { onConflict: 'kind,value' })
+    setBlockSaving(false)
+    if (error) { alert('تعذّر الحظر: ' + error.message); return }
+    setBlockTarget(null)
+    fetchBlocked()
+  }
+
+  async function unblock(id: string) {
+    if (!confirm('رفع الحظر عن هذا الجهاز/العنوان؟')) return
+    const { error } = await sb.from('blocked_clients').delete().eq('id', id)
+    if (error) { alert('تعذّر رفع الحظر: ' + error.message); return }
+    fetchBlocked()
+  }
 
   // ✅ تحديث حي - أي تغيير في الطاولات أو الأوردرات أو بيانات الجهاز يحدّث الشاشة تلقائيًا من غير ما الأدمن يعمل رفرش يدوي
   useEffect(() => {
@@ -212,12 +267,75 @@ export default function OrderMonitorPage() {
                       <div style={{ color: S.muted, marginTop: 3 }}>
                         {m.device_model ? `📱 ${m.device_model} — ` : ''}{summarizeUserAgent(m.user_agent)}
                       </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 8 }}>
+                        <span style={{ color: S.muted, fontSize: 10 }}>{m.device_id ? `🔑 ${m.device_id.slice(0, 8)}…` : 'بلا رمز جهاز (طلب قديم)'}</span>
+                        {isMetaBlocked(m)
+                          ? <span style={{ fontSize: 10, color: S.red, fontWeight: 700 }}>🚫 محظور</span>
+                          : <button onClick={() => openBlock(m, t.name)} style={{ padding: '4px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🚫 حظر</button>}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* 🚫 قائمة المحظورين */}
+      <div style={{ marginTop: 28, background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: S.white, marginBottom: 10 }}>🚫 المحظورون ({blocked.filter(isBlockActive).length})</div>
+        {blocked.length === 0 ? (
+          <div style={{ fontSize: 12, color: S.muted }}>لا يوجد محظورون.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {blocked.map(b => (
+              <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, background: S.card, borderRadius: 10, padding: '8px 12px', opacity: isBlockActive(b) ? 1 : 0.5, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, color: S.white }}>
+                  <div style={{ fontWeight: 700 }}>{b.kind === 'device' ? '📱 جهاز' : '🌐 IP'} — <span dir="ltr">{b.kind === 'device' ? b.value.slice(0, 8) + '…' : b.value}</span></div>
+                  <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
+                    {b.reason ? `السبب: ${b.reason} · ` : ''}بواسطة {b.blocked_by_name || '—'} · {new Date(b.created_at).toLocaleDateString('en-GB')} · {b.expires_at ? (isBlockActive(b) ? `ينتهي ${new Date(b.expires_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}` : 'انتهى') : 'دائم'}
+                  </div>
+                </div>
+                <button onClick={() => unblock(b.id)} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>رفع الحظر</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* نافذة الحظر */}
+      {blockTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setBlockTarget(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.red}50`, borderRadius: 16, padding: 22, maxWidth: 440, width: '100%' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.red, marginBottom: 4 }}>🚫 حظر من إرسال الطلبات</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 14, lineHeight: 1.7 }}>
+              {blockTarget.tableName} · 🌐 {blockTarget.meta.ip_address || '—'} · {blockTarget.meta.device_model ? `📱 ${blockTarget.meta.device_model} · ` : ''}{summarizeUserAgent(blockTarget.meta.user_agent)}
+            </div>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: blockTarget.meta.device_id ? S.white : S.muted, marginBottom: 10, cursor: blockTarget.meta.device_id ? 'pointer' : 'default' }}>
+              <input type="checkbox" checked={blockDevice} disabled={!blockTarget.meta.device_id} onChange={e => setBlockDevice(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>حظر الجهاز (دائم){!blockTarget.meta.device_id && <span style={{ display: 'block', fontSize: 10, color: S.amber }}>هذا الطلب قديم بلا رمز جهاز — لا يمكن حظر جهازه، ويمكن حظر عنوانه مؤقتاً فقط.</span>}</span>
+            </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: S.white, marginBottom: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={blockIp} onChange={e => setBlockIp(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>حظر عنوان الـ IP أيضاً</span>
+            </label>
+            {blockIp && (
+              <div style={{ marginRight: 24, marginBottom: 10 }}>
+                <select value={ipDuration} onChange={e => setIpDuration(e.target.value as '24h' | '7d' | 'forever')} style={{ background: S.navy3, color: S.white, border: `1px solid ${S.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                  <option value="24h">24 ساعة</option>
+                  <option value="7d">7 أيام</option>
+                  <option value="forever">دائم</option>
+                </select>
+                <div style={{ fontSize: 10, color: S.amber, marginTop: 6, lineHeight: 1.6 }}>⚠️ عناوين الجوال يشترك فيها عملاء كثيرون وتتغير — الأفضل مؤقتاً. لا تحظر عنوان المطعم.</div>
+              </div>
+            )}
+            <input value={blockReason} onChange={e => setBlockReason(e.target.value)} placeholder="السبب (اختياري)" style={{ width: '100%', background: S.card, border: `1px solid ${S.border}`, borderRadius: 8, padding: '9px 12px', color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', marginBottom: 14, boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={confirmBlock} disabled={blockSaving} style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: blockSaving ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>{blockSaving ? '⏳...' : '🚫 تأكيد الحظر'}</button>
+              <button onClick={() => setBlockTarget(null)} style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

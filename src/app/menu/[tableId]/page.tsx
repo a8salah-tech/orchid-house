@@ -102,6 +102,7 @@ const TR: Record<Lang, Record<string, string>> = {
     submitting: 'Submitting…', submit_review: 'Submit Review', no_comments: 'No comments yet',
     guest: 'Guest', n_ratings: '{x} ratings', no_ratings_yet: '🆕 No ratings yet — be the first to rate this dish',
     err_order_send: '⚠️ Something went wrong sending your order. Please try again or call the waiter.',
+    err_blocked: '⚠️ Your order cannot be sent right now. Please ask the waiter to help you.',
     game_teaser_t: "While you wait… Who's Paying the Bill?", game_teaser_s: 'Spin the wheel and let fate decide! 🎉',
     game_play: '🎮 Play the Game', game_short_t: "🎲 Who's Paying?", game_bill_goes: 'And the bill goes to…',
     game_share: '📤 Share the result', game_again: '🔄 Play Again', game_people: 'Number of People',
@@ -165,6 +166,7 @@ const TR: Record<Lang, Record<string, string>> = {
     submitting: 'Menghantar…', submit_review: 'Hantar Ulasan', no_comments: 'Tiada komen lagi',
     guest: 'Tetamu', n_ratings: '{x} penilaian', no_ratings_yet: '🆕 Belum ada penilaian — jadi yang pertama menilai hidangan ini',
     err_order_send: '⚠️ Sesuatu tidak kena semasa menghantar pesanan anda. Sila cuba lagi atau panggil pelayan.',
+    err_blocked: '⚠️ Pesanan anda tidak dapat dihantar sekarang. Sila minta pelayan membantu anda.',
     game_teaser_t: 'Sementara menunggu… Siapa Bayar Bil?', game_teaser_s: 'Pusing roda dan biar takdir menentukan! 🎉',
     game_play: '🎮 Main Permainan', game_short_t: '🎲 Siapa Bayar?', game_bill_goes: 'Dan bil jatuh kepada…',
     game_share: '📤 Kongsi keputusan', game_again: '🔄 Main Lagi', game_people: 'Bilangan Orang',
@@ -228,6 +230,7 @@ const TR: Record<Lang, Record<string, string>> = {
     submitting: 'جارٍ الإرسال…', submit_review: 'إرسال التقييم', no_comments: 'لا توجد تعليقات بعد',
     guest: 'ضيف', n_ratings: '{x} تقييم', no_ratings_yet: '🆕 لا توجد تقييمات بعد — كن أول من يقيّم هذا الطبق',
     err_order_send: '⚠️ حدث خطأ أثناء إرسال طلبك. يرجى المحاولة مرة أخرى أو مناداة النادل.',
+    err_blocked: '⚠️ لا يمكن إرسال طلبك حالياً. يرجى طلب المساعدة من النادل.',
     game_teaser_t: 'في انتظار طلبك… مَن سيدفع الفاتورة؟', game_teaser_s: 'أدر العجلة ودَع الحظ يقرر! 🎉',
     game_play: '🎮 العب اللعبة', game_short_t: '🎲 مَن سيدفع؟', game_bill_goes: 'والفاتورة على…',
     game_share: '📤 شارك النتيجة', game_again: '🔄 العب مجدداً', game_people: 'عدد الأشخاص',
@@ -291,6 +294,7 @@ const TR: Record<Lang, Record<string, string>> = {
     submitting: '提交中…', submit_review: '提交评价', no_comments: '暂无评论',
     guest: '访客', n_ratings: '{x}条评价', no_ratings_yet: '🆕 暂无评价 — 成为第一位评价此菜品的人',
     err_order_send: '⚠️ 订单发送失败，请重试或呼叫服务员。',
+    err_blocked: '⚠️ 您的订单目前无法发送，请联系服务员协助。',
     game_teaser_t: '等待期间…谁来买单？', game_teaser_s: '转动转盘，让命运来决定！🎉',
     game_play: '🎮 开始游戏', game_short_t: '🎲 谁来买单？', game_bill_goes: '账单将由…支付',
     game_share: '📤 分享结果', game_again: '🔄 再玩一次', game_people: '人数',
@@ -354,6 +358,7 @@ const TR: Record<Lang, Record<string, string>> = {
     submitting: 'Отправка…', submit_review: 'Отправить отзыв', no_comments: 'Пока нет комментариев',
     guest: 'Гость', n_ratings: '{x} отзывов', no_ratings_yet: '🆕 Пока нет отзывов — станьте первым, кто оценит это блюдо',
     err_order_send: '⚠️ Не удалось отправить заказ. Попробуйте ещё раз или позовите официанта.',
+    err_blocked: '⚠️ Сейчас невозможно отправить заказ. Пожалуйста, обратитесь к официанту.',
     game_teaser_t: 'Пока вы ждёте… Кто оплатит счёт?', game_teaser_s: 'Крутите колесо и пусть решит судьба! 🎉',
     game_play: '🎮 Играть', game_short_t: '🎲 Кто платит?', game_bill_goes: 'А счёт достаётся…',
     game_share: '📤 Поделиться результатом', game_again: '🔄 Играть снова', game_people: 'Количество человек',
@@ -393,6 +398,18 @@ const GOOGLE_REVIEW_URL = 'https://search.google.com/local/writereview?placeid=C
 const GOOGLE_PROMPT_REPEAT_MS = 30 * 24 * 60 * 60 * 1000
 const GOOGLE_STATE_KEY = 'orchid_google_prompt'
 const GOOGLE_PROMPT_EVENT = 'orchid-google-prompt'
+
+// ✅ رمز عشوائي ثابت لهذا الجهاز/المتصفح — يُرسل مع الطلبات ليقدر مدير النظام يحظر جهازاً بعينه (حتى لو تغيّر الـIP)
+function getDeviceId(): string | null {
+  try {
+    let id = localStorage.getItem('orchid_device_id')
+    if (!id) {
+      id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)
+      localStorage.setItem('orchid_device_id', id)
+    }
+    return id
+  } catch { return null }
+}
 
 // ✅ دعوة تقييم المطعم على جوجل: تظهر بعد تأكيد الجولة الثانية (أو ما بعدها) من الطلب — العميل وقتها يفتح الصفحة فعلاً وراضٍ غالباً.
 // مرة كل 30 يوماً لنفس الجهاز بعد «لاحقاً»، وتتوقف نهائياً بعد الضغط على «قيّمنا». تُطلَق من confirmOrder بحدث window.
@@ -960,6 +977,7 @@ const filteredItems = items
         body: JSON.stringify({
           tableId: table.id,
           customerId: identifiedCustomerId || null,
+          deviceId: getDeviceId(),
           items: cart.map(c => ({
             menuItemId: c.item.id,
             quantity: c.quantity,
@@ -969,6 +987,12 @@ const filteredItems = items
         }),
       })
       const data = await res.json().catch(() => null)
+      if (res.status === 403 && data?.code === 'BLOCKED') {
+        isSubmittingRef.current = false
+        setSubmitting(false)
+        alert(t('err_blocked'))
+        return
+      }
       if (!res.ok || !data?.orderId) {
         isSubmittingRef.current = false
         setSubmitting(false)
@@ -1003,7 +1027,7 @@ const filteredItems = items
       fetch('/api/log-order-meta', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: orderId, user_agent: navigator.userAgent, device_model: deviceModel }),
+        body: JSON.stringify({ order_id: orderId, user_agent: navigator.userAgent, device_model: deviceModel, device_id: getDeviceId() }),
       }).catch(() => { /* intentionally ignore any error here */ })
     })()
     setPhase('done')

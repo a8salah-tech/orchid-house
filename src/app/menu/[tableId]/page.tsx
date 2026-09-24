@@ -105,6 +105,11 @@ const TR: Record<Lang, Record<string, string>> = {
     err_blocked: '⚠️ Your order cannot be sent right now. Please ask the waiter to help you.',
     ok_btn: 'OK',
     err_qty_limit: '⚠️ Maximum 30 per item. For larger orders please ask the waiter.',
+    featured_title: '✨ Don\'t miss these',
+    featured_confirm: 'Add this to your order?',
+    featured_yes: '✅ Yes, add it',
+    featured_no: 'Not now',
+    featured_added: '✅ Added to your order',
     err_order_too_big: '⚠️ This order is too large to send from the menu. Please ask the waiter to help you.',
     game_teaser_t: "While you wait… Who's Paying the Bill?", game_teaser_s: 'Spin the wheel and let fate decide! 🎉',
     game_play: '🎮 Play the Game', game_short_t: "🎲 Who's Paying?", game_bill_goes: 'And the bill goes to…',
@@ -172,6 +177,11 @@ const TR: Record<Lang, Record<string, string>> = {
     err_blocked: '⚠️ Pesanan anda tidak dapat dihantar sekarang. Sila minta pelayan membantu anda.',
     ok_btn: 'OK',
     err_qty_limit: '⚠️ Maksimum 30 bagi setiap item. Untuk pesanan lebih besar, sila minta pelayan.',
+    featured_title: '✨ Jangan lepaskan ini',
+    featured_confirm: 'Tambah ini ke pesanan anda?',
+    featured_yes: '✅ Ya, tambah',
+    featured_no: 'Bukan sekarang',
+    featured_added: '✅ Ditambah ke pesanan anda',
     err_order_too_big: '⚠️ Pesanan ini terlalu besar untuk dihantar melalui menu. Sila minta pelayan membantu anda.',
     game_teaser_t: 'Sementara menunggu… Siapa Bayar Bil?', game_teaser_s: 'Pusing roda dan biar takdir menentukan! 🎉',
     game_play: '🎮 Main Permainan', game_short_t: '🎲 Siapa Bayar?', game_bill_goes: 'Dan bil jatuh kepada…',
@@ -238,6 +248,11 @@ const TR: Record<Lang, Record<string, string>> = {
     err_order_send: '⚠️ حدث خطأ أثناء إرسال طلبك. يرجى المحاولة مرة أخرى أو مناداة النادل.',
     err_blocked: '⚠️ لا يمكن إرسال طلبك حالياً. يرجى طلب المساعدة من النادل.',
     ok_btn: 'موافق',
+    featured_title: '✨ لا تفوّت هذه الأصناف',
+    featured_confirm: 'هل تريد إضافة هذا الصنف إلى طلبك؟',
+    featured_yes: '✅ نعم، أضِفه',
+    featured_no: 'ليس الآن',
+    featured_added: '✅ تمت الإضافة إلى طلبك',
     err_qty_limit: '⚠️ الحد الأقصى 30 للصنف الواحد. للطلبات الأكبر يرجى طلب المساعدة من النادل.',
     err_order_too_big: '⚠️ هذا الطلب كبير جداً لإرساله من المنيو. يرجى طلب المساعدة من النادل.',
     game_teaser_t: 'في انتظار طلبك… مَن سيدفع الفاتورة؟', game_teaser_s: 'أدر العجلة ودَع الحظ يقرر! 🎉',
@@ -305,6 +320,11 @@ const TR: Record<Lang, Record<string, string>> = {
     err_order_send: '⚠️ 订单发送失败，请重试或呼叫服务员。',
     err_blocked: '⚠️ 您的订单目前无法发送，请联系服务员协助。',
     ok_btn: '好的',
+    featured_title: '✨ 不容错过',
+    featured_confirm: '要将此菜品加入订单吗？',
+    featured_yes: '✅ 是，加入',
+    featured_no: '暂不',
+    featured_added: '✅ 已加入订单',
     err_qty_limit: '⚠️ 每种菜品最多 30 份。大额订单请联系服务员。',
     err_order_too_big: '⚠️ 此订单过大，无法通过菜单发送，请联系服务员协助。',
     game_teaser_t: '等待期间…谁来买单？', game_teaser_s: '转动转盘，让命运来决定！🎉',
@@ -372,6 +392,11 @@ const TR: Record<Lang, Record<string, string>> = {
     err_order_send: '⚠️ Не удалось отправить заказ. Попробуйте ещё раз или позовите официанта.',
     err_blocked: '⚠️ Сейчас невозможно отправить заказ. Пожалуйста, обратитесь к официанту.',
     ok_btn: 'ОК',
+    featured_title: '✨ Не пропустите',
+    featured_confirm: 'Добавить это в ваш заказ?',
+    featured_yes: '✅ Да, добавить',
+    featured_no: 'Не сейчас',
+    featured_added: '✅ Добавлено в заказ',
     err_qty_limit: '⚠️ Максимум 30 порций одного блюда. Для больших заказов обратитесь к официанту.',
     err_order_too_big: '⚠️ Этот заказ слишком большой для отправки через меню. Пожалуйста, обратитесь к официанту.',
     game_teaser_t: 'Пока вы ждёте… Кто оплатит счёт?', game_teaser_s: 'Крутите колесо и пусть решит судьба! 🎉',
@@ -415,6 +440,13 @@ const GOOGLE_STATE_KEY = 'orchid_google_prompt'
 const GOOGLE_PROMPT_EVENT = 'orchid-google-prompt'
 // ✅ نفس سقف السيرفر (/api/submit-order) — الكمية القصوى للصنف الواحد في الإرسال الواحد
 const MAX_ITEM_QTY = 30
+// ✅ أصناف مميّزة تظهر في شريط متحرك في آخر صفحة المنيو (الأولى: كيكة الاحتفال بالشو). تعديل القائمة = تغيير الـ IDs هنا فقط.
+const FEATURED_ITEM_IDS = [
+  '23e8ad5e-5c15-429c-9ebe-c5b98c5e6a6d', // The Beat & Cake Show 🎂🥁 (كيكة الاحتفال)
+  '196d2d35-7e61-49c9-b3f8-1f0da23ed70f', // Brownie Pistachio Pancake
+  '4b3a1e97-82db-4ba7-a67e-76faa3934251', // Kunafa Cheese
+  '2cae1947-3ef6-4a4a-80b4-94e6ee82a413', // Blue Hawaii Mojito
+]
 
 // ✅ رمز عشوائي ثابت لهذا الجهاز/المتصفح — يُرسل مع الطلبات ليقدر مدير النظام يحظر جهازاً بعينه (حتى لو تغيّر الـIP)
 function getDeviceId(): string | null {
@@ -534,6 +566,9 @@ function CustomerMenuInner() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   // ✅ رسائل السقف/الحظر تظهر في نافذة وسط الشاشة بدل alert المتصفح
   const [limitNotice, setLimitNotice] = useState<string | null>(null)
+  // ✅ الشريط المميّز: الصنف المختار للتأكيد + إشعار "تمت الإضافة"
+  const [featuredPick, setFeaturedPick] = useState<MenuItem | null>(null)
+  const [featuredToast, setFeaturedToast] = useState(false)
   // ✅ اقتراحات "أكمل وجبتك" قبل تأكيد أول طلب: القائمة تجي من /api/menu-suggestions (تلقائية من المبيعات)
   const [suggestions, setSuggestions] = useState<{ starters: string[]; drinks: string[]; addons: string[]; desserts: string[]; bread: string | null } | null>(null)
   const [showSuggest, setShowSuggest] = useState(false)
@@ -1073,6 +1108,9 @@ const filteredItems = items
     @keyframes fadeUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
     @keyframes chefBounce{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-16px) rotate(6deg)}}
     @keyframes blueGlow{0%,100%{box-shadow:0 0 20px ${C.glow}}50%{box-shadow:0 0 40px ${C.glow2}}}
+    @keyframes featuredSlide{from{transform:translateX(-50%)}to{transform:translateX(0)}}
+    .featured-track{display:flex;width:max-content;animation:featuredSlide 26s linear infinite}
+    .featured-marquee:hover .featured-track,.featured-marquee:active .featured-track{animation-play-state:paused}
     @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
     @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
     @keyframes flyPlusOne{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-140px) scale(1)}}
@@ -1103,6 +1141,47 @@ const filteredItems = items
   )
 
   // ══ Language selection — أول شاشة يشوفها العميل بعد مسح الكيو آر ══
+  // ✅ نوافذ مشتركة بين شاشة المنيو وشاشة السلة (تأكيد الصنف المميّز + إشعار السقف/الحظر + إشعار الإضافة)
+  const globalNotices = (
+    <>
+      {featuredPick && (
+        <div style={{ position:'fixed', inset:0, zIndex:350, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} onClick={() => setFeaturedPick(null)} />
+          <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:24, padding:'24px 22px', maxWidth:360, width:'100%', border:`1px solid ${C.border2}`, textAlign:'center' }}>
+            {featuredPick.image_url && <img src={featuredPick.image_url} alt="" style={{ width:'100%', height:170, objectFit:'cover', borderRadius:16, marginBottom:14 }} />}
+            <div className="ar-text" style={{ fontSize:17, fontWeight:900, color:C.white, marginBottom:4 }}>{dishName(featuredPick.name, featuredPick.name_en, featuredPick.name_ms, featuredPick.name_zh, featuredPick.name_ru)}</div>
+            <div style={{ fontSize:15, fontWeight:900, color:C.blue2, marginBottom:12 }}>MYR {(featuredPick.price * (1 - (featuredPick.discount_percent || 0) / 100)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:20 }}>{t('featured_confirm')}</div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setFeaturedPick(null)}
+                style={{ flex:1, background:'rgba(255,255,255,.06)', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:800, fontSize:14, color:C.silver2 }}>{t('featured_no')}</button>
+              <button onClick={() => { const it = featuredPick; setFeaturedPick(null); addToCart(it, null); setFeaturedToast(true); setTimeout(() => setFeaturedToast(false), 2000) }}
+                style={{ flex:1, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:900, fontSize:14, color:C.white }}>{t('featured_yes')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {featuredToast && (
+        <div style={{ position:'fixed', left:'50%', bottom:96, transform:'translateX(-50%)', zIndex:360, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:999, padding:'11px 20px', fontWeight:800, fontSize:13.5, boxShadow:'0 8px 24px rgba(0,0,0,.45)', pointerEvents:'none' }}>{t('featured_added')}</div>
+      )}
+
+      {limitNotice && (
+        <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} onClick={() => setLimitNotice(null)} />
+          <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:24, padding:'28px 24px', maxWidth:380, width:'100%', border:`1px solid ${C.border2}`, textAlign:'center' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>⚠️</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:15, fontWeight:700, color:C.white, lineHeight:1.8, marginBottom:22 }}>{limitNotice.replace(/^⚠️\s*/, '')}</div>
+            <button onClick={() => setLimitNotice(null)}
+              style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:900, fontSize:14, color:C.white }}>
+              {t('ok_btn')}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  )
+
   if (phase === 'language') return (
     <div dir="ltr" style={{ minHeight:'100dvh', background:`radial-gradient(ellipse at top, ${C.bg3}, ${C.bg} 60%)`, color:C.white, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'40px 22px' }}>
       <style>{globalStyles}</style>
@@ -1791,19 +1870,7 @@ const filteredItems = items
         </div>
       )}
 
-      {limitNotice && (
-        <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-          <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.75)' }} onClick={() => setLimitNotice(null)} />
-          <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:24, padding:'28px 24px', maxWidth:380, width:'100%', border:`1px solid ${C.border2}`, textAlign:'center' }}>
-            <div style={{ fontSize:40, marginBottom:12 }}>⚠️</div>
-            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:15, fontWeight:700, color:C.white, lineHeight:1.8, marginBottom:22 }}>{limitNotice.replace(/^⚠️\s*/, '')}</div>
-            <button onClick={() => setLimitNotice(null)}
-              style={{ width:'100%', background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:900, fontSize:14, color:C.white }}>
-              {t('ok_btn')}
-            </button>
-          </div>
-        </div>
-      )}
+      {globalNotices}
     </div>
   )
 
@@ -1986,6 +2053,42 @@ const filteredItems = items
         })}
       </div>
 
+      {/* ✨ شريط الأصناف المميّزة — 4 بطاقات تتحرك من اليسار لليمين، والضغط على بطاقة يفتح تأكيد ثم يضيفها للطلب مباشرة */}
+      {(() => {
+        const featuredItems = FEATURED_ITEM_IDS
+          .map(id => items.find(i => i.id === id))
+          .filter((i): i is MenuItem => !!i && i.is_available !== false && !(i.sizes || []).some(sz => sz.is_active)
+            && (visibleCategoryIds.has(i.category_id) || !categories.some(c => c.id === i.category_id)))
+        if (featuredItems.length === 0) return null
+        return (
+          <div style={{ padding:'0 0 120px', maxWidth:560, margin:'0 auto' }}>
+            <div className={isRtl ? 'ar-text' : ''} style={{ textAlign:'center', fontSize:16, fontWeight:900, color:C.white, marginBottom:12 }}>{t('featured_title')}</div>
+            <div className="featured-marquee" style={{ overflow:'hidden', direction:'ltr', padding:'6px 0 16px' }}>
+              <div className="featured-track">
+                {[...featuredItems, ...featuredItems].map((item, idx) => {
+                  const price = item.price * (1 - (item.discount_percent || 0) / 100)
+                  return (
+                    <div key={item.id + '-' + idx} onClick={() => setFeaturedPick(item)}
+                      style={{ width:150, marginRight:12, flexShrink:0, background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:18, overflow:'hidden', cursor:'pointer', boxShadow:'0 6px 18px rgba(0,0,0,.35)' }}>
+                      <div style={{ position:'relative', width:'100%', height:112, background:'rgba(255,255,255,.04)' }}>
+                        {item.image_url
+                          ? <img src={item.image_url} alt={dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                          : <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', fontSize:40 }}>🍰</div>}
+                        <div style={{ position:'absolute', bottom:8, right:8, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:900, boxShadow:`0 4px 12px ${C.glow}` }}>+</div>
+                      </div>
+                      <div style={{ padding:'9px 10px 11px', direction: isRtl ? 'rtl' : 'ltr' }}>
+                        <div className="ar-text" style={{ fontSize:12, fontWeight:800, color:C.white, lineHeight:1.3, height:32, overflow:'hidden' }}>{dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)}</div>
+                        <div style={{ fontSize:12.5, fontWeight:900, color:C.blue2, marginTop:4 }}>MYR {price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ✅ New: floating "+1" animation layer when adding to cart */}
       {flyingPlusOnes.map(f => (
         <div key={f.id} style={{ position:'fixed', left:f.x, top:f.y, zIndex:300, pointerEvents:'none', fontSize:22, fontWeight:900, color:C.blue2, textShadow:'0 2px 6px rgba(0,0,0,.15)', animation:'flyPlusOne .9s ease-out forwards' }}>
@@ -2007,6 +2110,8 @@ const filteredItems = items
           </div>
         </div>
       )}
+
+      {globalNotices}
     </div>
   )
 }

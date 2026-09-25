@@ -205,6 +205,29 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
 
 // ✅ جديد: طباعة ملخص مجمّع (أصناف مجمّعة + بند لكل نوع مصروف/دفع) - نفس منطق شاشة الملخص المجمّع بالظبط،
 // تُستخدم لكل من طباعة "يوم كامل" (Whole Day Total) وطباعة "شيفت واحد" من نافذة الملخص المجمّع
+// ✅ تقرير الأصناف المباعة خلال فترة (كل الشيفتات): سطر لكل صنف (+ الحجم)
+type ItemSoldRow = { key: string; name: string; nameAr: string; category: string; size: string; qty: number; revenue: number; minPrice: number; maxPrice: number; orders: number }
+type ItemsSoldMeta = { orders: number; qty: number; revenue: number; from: string; to: string; branch: string }
+
+function printItemsSoldReport(rows: ItemSoldRow[], meta: ItemsSoldMeta) {
+  const win = window.open('', '_blank')
+  if (!win) return
+  const fmt = (v: number) => v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  const body = rows.map((r, i) => `<tr><td>${i + 1}</td><td style="text-align:left">${esc(r.name)}${r.size ? ` <span class="m">(${esc(r.size)})</span>` : ''}${r.nameAr && r.nameAr !== r.name ? `<div class="m" dir="rtl">${esc(r.nameAr)}</div>` : ''}</td><td>${esc(r.category)}</td><td><b>${r.qty}</b></td><td>${r.minPrice === r.maxPrice ? fmt(r.minPrice) : `${fmt(r.minPrice)} – ${fmt(r.maxPrice)}`}</td><td>${fmt(r.qty ? r.revenue / r.qty : 0)}</td><td><b>${fmt(r.revenue)}</b></td><td>${meta.revenue > 0 ? (r.revenue / meta.revenue * 100).toFixed(1) : '0.0'}%</td><td>${r.orders}</td></tr>`).join('')
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Items Sold ${meta.from} → ${meta.to}</title>
+  <style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;font-size:11px;color:#111}h2{margin:0 0 4px}.sub{color:#555;margin-bottom:10px}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 5px;text-align:center}th{background:#0A1628;color:#fff;font-size:10.5px}thead{display:table-header-group}tr{page-break-inside:avoid}
+  .m{color:#666;font-size:9.5px}.tot td{background:#f3ead0;font-weight:bold}.sum{display:flex;gap:18px;margin-bottom:10px}.sum div{border:1px solid #ddd;border-radius:6px;padding:6px 12px}</style></head><body>
+  <h2>📦 Items Sold Report</h2><div class="sub">${meta.from} → ${meta.to} · ${esc(meta.branch)}</div>
+  <div class="sum"><div>Orders<br><b>${meta.orders}</b></div><div>Items sold<br><b>${meta.qty}</b></div><div>Sales (item value)<br><b>MYR ${fmt(meta.revenue)}</b></div></div>
+  <table><thead><tr><th>#</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit price</th><th>Avg price</th><th>Total (MYR)</th><th>Share</th><th>Orders</th></tr></thead><tbody>${body}
+  <tr class="tot"><td colspan="3">TOTAL</td><td>${meta.qty}</td><td></td><td></td><td>${fmt(meta.revenue)}</td><td>100%</td><td>${meta.orders}</td></tr></tbody></table>
+  <div class="m" style="margin-top:8px">Sales = item price × quantity of paid, non-cancelled items (before discounts, service charge and SST).</div>
+  <script>window.onload=function(){window.print()}<\/script></body></html>`)
+  win.document.close()
+}
+
 function printAggregatedReport(title: string, subtitle: string, orders: Order[], totals: {
   cash: number; visa: number; visaMaybank: number; visaBsn: number; online: number; credit: number
   discount: number; freeCount: number; freeAmount: number; deposits: number; total: number; expPaid: number; expPending: number
@@ -2563,6 +2586,60 @@ export default function CashierPage() {
 
   // ✅ جديد: تاريخ تاب "Closed" - افتراضيًا النهاردة، لكن الأدمن يقدر يغيّره لأي يوم قديم
   const [closedDate, setClosedDate] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
+  // ✅ تقرير الأصناف المباعة في فترة (من - إلى) عبر كل الشيفتات
+  const [itemsFrom, setItemsFrom] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
+  const [itemsTo, setItemsTo] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
+  const [itemsOpen, setItemsOpen] = useState(false)
+  const [itemsLoading, setItemsLoading] = useState(false)
+  const [itemsRows, setItemsRows] = useState<ItemSoldRow[]>([])
+  const [itemsMeta, setItemsMeta] = useState<ItemsSoldMeta | null>(null)
+  const [itemsSort, setItemsSort] = useState<'qty' | 'revenue' | 'name'>('qty')
+  const [itemsIncludeStaff, setItemsIncludeStaff] = useState(true)
+
+  async function loadItemsSold() {
+    if (!itemsFrom || !itemsTo || itemsFrom > itemsTo) { alert('اختر فترة صحيحة (من ≤ إلى)'); return }
+    setItemsOpen(true); setItemsLoading(true); setItemsRows([]); setItemsMeta(null)
+    type SoldOrder = {
+      id: string; table_id: string; tables: { name: string; section: string | null; branch_id: string } | null
+      order_items: { quantity: number; unit_price: number; status: string; size_name: string | null; menu_items: { id: string; name: string; name_en: string | null; category_id: string | null } | null }[]
+    }
+    const start = `${itemsFrom}T00:00:00+08:00`, end = `${itemsTo}T23:59:59.999+08:00`
+    const { data: cats } = await sb.from('menu_categories').select('id,name,name_en')
+    const catName = new Map((cats || []).map((c: { id: string; name: string; name_en: string | null }) => [c.id, c.name_en || c.name]))
+    const all: SoldOrder[] = []
+    for (let page = 0; page < 200; page++) {
+      const { data, error } = await sb.from('orders')
+        .select('id,table_id,tables(name,section,branch_id),order_items(quantity,unit_price,status,size_name,menu_items(id,name,name_en,category_id))')
+        .eq('status', 'paid').gte('paid_at', start).lte('paid_at', end).order('paid_at').range(page * 400, page * 400 + 399)
+      if (error) { alert('تعذّر جلب البيانات: ' + error.message); setItemsLoading(false); return }
+      all.push(...((data || []) as unknown as SoldOrder[]))
+      if (!data || data.length < 400) break
+    }
+    const rowsMap = new Map<string, ItemSoldRow & { orderSet: Set<string> }>()
+    const orderIds = new Set<string>()
+    let totalQty = 0, totalRev = 0
+    for (const o of all) {
+      if (adminBranchFilter && o.tables?.branch_id !== adminBranchFilter) continue
+      if (!itemsIncludeStaff && o.tables?.section === 'staff') continue
+      for (const it of o.order_items || []) {
+        if (it.status === 'cancelled' || !it.menu_items) continue
+        const key = `${it.menu_items.id}|${it.size_name || ''}`
+        let r = rowsMap.get(key)
+        if (!r) {
+          r = { key, name: it.menu_items.name_en || it.menu_items.name, nameAr: it.menu_items.name, category: catName.get(it.menu_items.category_id || '') || '—', size: it.size_name || '', qty: 0, revenue: 0, minPrice: it.unit_price, maxPrice: it.unit_price, orders: 0, orderSet: new Set<string>() }
+          rowsMap.set(key, r)
+        }
+        r.qty += it.quantity; r.revenue += it.unit_price * it.quantity
+        r.minPrice = Math.min(r.minPrice, it.unit_price); r.maxPrice = Math.max(r.maxPrice, it.unit_price)
+        r.orderSet.add(o.id); orderIds.add(o.id)
+        totalQty += it.quantity; totalRev += it.unit_price * it.quantity
+      }
+    }
+    const rows: ItemSoldRow[] = [...rowsMap.values()].map(({ orderSet, ...r }) => ({ ...r, orders: orderSet.size }))
+    setItemsRows(rows)
+    setItemsMeta({ orders: orderIds.size, qty: totalQty, revenue: totalRev, from: itemsFrom, to: itemsTo, branch: adminBranchFilter ? (branches.find(b => b.id === adminBranchFilter)?.name || '') : 'All Branches' })
+    setItemsLoading(false)
+  }
 
   // ✅ جديد: جلب كل العمليات المقفولة (مدفوعة/ملغية) ليوم معيّن بتوقيت ماليزيا (النهاردة افتراضيًا، أو أي يوم يختاره الأدمن)، بالإضافة لجلسات الشيفت (الكاشير، وقت البداية/النهاية)
   const fetchClosedData = useCallback(async () => {
@@ -3173,6 +3250,16 @@ export default function CashierPage() {
               {b.name}
             </button>
           ))}
+          {/* ✅ تقرير الأصناف المباعة (تاب Shift): من تاريخ إلى تاريخ + زر التقرير، بجانب اختيار الفرع */}
+          {view === 'orders' && filter === 'done' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginInlineStart: 'auto' }}>
+              <span style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>📅 From</span>
+              <input type="date" value={itemsFrom} onChange={e => setItemsFrom(e.target.value)} style={{ padding: '5px 8px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+              <span style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>To</span>
+              <input type="date" value={itemsTo} onChange={e => setItemsTo(e.target.value)} style={{ padding: '5px 8px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+              <button onClick={loadItemsSold} style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>📦 Items Sold</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -4061,6 +4148,81 @@ export default function CashierPage() {
       </div>
 
       {/* Modals */}
+      {/* 📦 تقرير الأصناف المباعة خلال الفترة (كل الشيفتات) */}
+      {itemsOpen && (() => {
+        const fmt = (v: number) => v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const sorted = [...itemsRows].sort((a, b) => itemsSort === 'name' ? a.name.localeCompare(b.name) : itemsSort === 'revenue' ? b.revenue - a.revenue : b.qty - a.qty)
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 600, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobile ? 8 : 20, overflowY: 'auto' }} onClick={() => setItemsOpen(false)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: 18, width: '100%', maxWidth: 980, margin: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: S.teal }}>📦 Items Sold Report</div>
+                  <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{itemsFrom} → {itemsTo} · {itemsMeta?.branch || (adminBranchFilter ? branches.find(b => b.id === adminBranchFilter)?.name : 'All Branches')} · all shifts</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={{ fontSize: 11, color: S.muted, display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={itemsIncludeStaff} onChange={e => setItemsIncludeStaff(e.target.checked)} /> Include Staff table
+                  </label>
+                  <button onClick={loadItemsSold} disabled={itemsLoading} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔄 Refresh</button>
+                  <button onClick={() => itemsMeta && printItemsSoldReport(sorted, itemsMeta)} disabled={!itemsMeta || sorted.length === 0} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
+                  <button onClick={() => setItemsOpen(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+                </div>
+              </div>
+              {itemsLoading ? (
+                <div style={{ textAlign: 'center', padding: 50, color: S.muted }}>⏳ Loading...</div>
+              ) : !itemsMeta || sorted.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 50, color: S.muted }}>No paid items in this period.</div>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 12 }}>
+                    {[{ l: 'Orders', v: String(itemsMeta.orders) }, { l: 'Items sold', v: String(itemsMeta.qty) }, { l: 'Distinct items', v: String(sorted.length) }, { l: 'Sales (item value)', v: `MYR ${fmt(itemsMeta.revenue)}` }].map((c, i) => (
+                      <div key={i} style={{ background: S.card, borderRadius: 10, padding: '9px 12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{c.v}</div>
+                        <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{c.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: S.muted }}>Sort:</span>
+                    {([['qty', 'Quantity'], ['revenue', 'Sales'], ['name', 'Name']] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => setItemsSort(k)} style={{ padding: '4px 12px', borderRadius: 16, border: `1px solid ${itemsSort === k ? S.teal : S.border}`, background: itemsSort === k ? S.tealB : 'transparent', color: itemsSort === k ? S.teal : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{label}</button>
+                    ))}
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
+                      <thead>
+                        <tr style={{ background: S.navy3 }}>
+                          {['#', 'Item', 'Category', 'Qty', 'Unit price', 'Avg price', 'Total (MYR)', 'Share', 'Orders'].map((h, i) => (
+                            <th key={h} style={{ padding: '8px 8px', textAlign: i === 1 ? 'left' : 'center', color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, position: 'sticky', top: 0, background: S.navy3 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sorted.map((r, i) => (
+                          <tr key={r.key} style={{ borderBottom: `1px solid ${S.border}` }}>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{i + 1}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'left', color: S.white }}>{r.name}{r.size ? <span style={{ color: S.muted }}> ({r.size})</span> : null}{r.nameAr && r.nameAr !== r.name ? <div dir="rtl" style={{ fontSize: 10.5, color: S.muted }}>{r.nameAr}</div> : null}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{r.category}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.gold, fontWeight: 800 }}>{r.qty}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.white }}>{r.minPrice === r.maxPrice ? fmt(r.minPrice) : `${fmt(r.minPrice)} – ${fmt(r.maxPrice)}`}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{fmt(r.qty ? r.revenue / r.qty : 0)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.green, fontWeight: 700 }}>{fmt(r.revenue)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{itemsMeta.revenue > 0 ? (r.revenue / itemsMeta.revenue * 100).toFixed(1) : '0.0'}%</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{r.orders}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: S.muted, marginTop: 10 }}>Sales = item price × quantity of paid, non-cancelled items (before discounts, service charge and SST).</div>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       {payOrder && <PaymentModal order={payOrder} tables={tables} activeShiftCashierName={activeShiftCashierName}
         onPaymentStart={(tableId) => {
           // ✅ Fix حرج: نستبعد الطاولة من أول لحظة تبدأ فيها عملية الدفع (قبل ما تخلص خالص) - عشان أي

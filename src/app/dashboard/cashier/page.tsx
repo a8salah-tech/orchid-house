@@ -2624,10 +2624,15 @@ export default function CashierPage() {
       if (!itemsIncludeStaff && o.tables?.section === 'staff') continue
       for (const it of o.order_items || []) {
         if (it.status === 'cancelled' || !it.menu_items) continue
-        const key = `${it.menu_items.id}|${it.size_name || ''}`
+        // ✅ الأصناف اليدوية (Open Item): الكاشير بيعمل لكل استخدام صنف جديد مخفي بلا فئة (Ice بسعر 1، Ice بسعر 2...) —
+        // فنجمعها بالاسم في سطر واحد بدل مئات الأسطر المكررة، ويظهر مدى الأسعار. الأصناف العادية تفضل بمعرّفها.
+        const isOpenItem = !it.menu_items.category_id
+        const key = isOpenItem
+          ? `open|${(it.menu_items.name_en || it.menu_items.name).trim().toLowerCase()}|${it.size_name || ''}`
+          : `${it.menu_items.id}|${it.size_name || ''}`
         let r = rowsMap.get(key)
         if (!r) {
-          r = { key, name: it.menu_items.name_en || it.menu_items.name, nameAr: it.menu_items.name, category: catName.get(it.menu_items.category_id || '') || '—', size: it.size_name || '', qty: 0, revenue: 0, minPrice: it.unit_price, maxPrice: it.unit_price, orders: 0, orderSet: new Set<string>() }
+          r = { key, name: it.menu_items.name_en || it.menu_items.name, nameAr: it.menu_items.name, category: isOpenItem ? 'Open item' : (catName.get(it.menu_items.category_id || '') || '—'), size: it.size_name || '', qty: 0, revenue: 0, minPrice: it.unit_price, maxPrice: it.unit_price, orders: 0, orderSet: new Set<string>() }
           rowsMap.set(key, r)
         }
         r.qty += it.quantity; r.revenue += it.unit_price * it.quantity

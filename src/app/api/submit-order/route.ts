@@ -56,10 +56,18 @@ export async function POST(req: NextRequest) {
     } catch { /* fail-open */ }
 
     // ── تحقق الطاولة ──
+    // select('*') عشان لو عمود opened_at لسه ما اتضافش (قبل تشغيل SQL) ما يتعطلش الطلب — القفل يتفعّل فقط لما العمود يوجد
     const { data: tableRow, error: tableErr } = await sb
-      .from('tables').select('id').eq('id', tableId).maybeSingle()
+      .from('tables').select('*').eq('id', tableId).maybeSingle()
     if (tableErr) return NextResponse.json({ error: tableErr.message }, { status: 500 })
     if (!tableRow) return NextResponse.json({ error: 'طاولة غير موجودة' }, { status: 404 })
+    // ── قفل الطاولة: طاولة صالة فارغة لم يفتحها الكاشير لا تقبل طلبات المنيو ──
+    if ('opened_at' in tableRow && !['takeaway', 'staff', 'cancel_hub'].includes(String(tableRow.section || '')) && !tableRow.opened_at) {
+      const { data: activeOrd } = await sb.from('orders').select('id').eq('table_id', tableId).in('status', ['confirmed', 'preparing', 'ready']).limit(1)
+      if (!activeOrd || activeOrd.length === 0) {
+        return NextResponse.json({ error: 'table locked', code: 'TABLE_LOCKED' }, { status: 403 })
+      }
+    }
 
     // ── تطبيع البنود الواردة ──
     const items = rawItems.map((it) => ({

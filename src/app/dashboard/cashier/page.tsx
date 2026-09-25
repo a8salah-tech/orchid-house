@@ -407,7 +407,11 @@ function ShiftItemSummaryModal({ data, onClose }: {
   )
 }
 
-type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null; section?: string | null; service_charge_percent?: number | null; sst_percent?: number | null; discount_percent?: number | null }
+type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null; section?: string | null; service_charge_percent?: number | null; sst_percent?: number | null; discount_percent?: number | null; opened_at?: string | null }
+
+// ✅ قفل الطاولات الفارغة: طاولة صالة (مش تيك أواي/موظفين/كنسلة) عمود opened_at موجود فيها → لازم الكاشير يفتحها قبل ما العميل يطلب من المنيو.
+// ('opened_at' in t) عشان لو SQL لسه ما اتشغّلش ما تتقفلش كل الطاولات بالغلط)
+const isLockableTable = (t: TableRow) => 'opened_at' in t && !['takeaway', 'staff', 'cancel_hub'].includes(t.section || '')
 type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
@@ -2587,6 +2591,19 @@ export default function CashierPage() {
 
   // ✅ جديد: تاريخ تاب "Closed" - افتراضيًا النهاردة، لكن الأدمن يقدر يغيّره لأي يوم قديم
   const [closedDate, setClosedDate] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
+  // ✅ فتح/قفل الطاولة
+  const [openTableTarget, setOpenTableTarget] = useState<TableRow | null>(null)
+  const [openingTable, setOpeningTable] = useState(false)
+
+  async function setTableOpen(t: TableRow, open: boolean) {
+    setOpeningTable(true)
+    const openedAt = open ? new Date().toISOString() : null
+    const { error } = await sb.from('tables').update({ opened_at: openedAt }).eq('id', t.id)
+    setOpeningTable(false)
+    if (error) { alert('تعذّر تغيير حالة الطاولة: ' + error.message); return }
+    setTables(prev => prev.map(x => x.id === t.id ? { ...x, opened_at: openedAt } : x))
+    setOpenTableTarget(null)
+  }
   // ✅ تقرير الأصناف المباعة في فترة (من - إلى) عبر كل الشيفتات
   const [itemsFrom, setItemsFrom] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
   const [itemsTo, setItemsTo] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
@@ -3316,7 +3333,11 @@ export default function CashierPage() {
                   reserved:  { color: S.amber, bg: S.amberB, border: S.amber + '60' },
                   occupied:  { color: S.red,   bg: S.redB,   border: S.red + '60' },
                 }
-                const sc = statusColors[status] || statusColors.available
+                // ✅ طاولة صالة فارغة لم تُفتح بعد = مقفلة 🔒 (العميل لا يقدر يطلب من المنيو حتى تُفتح)
+                const lockable = isLockableTable(table)
+                const isLocked = lockable && !activeOrder && !table.opened_at
+                const isOpenEmpty = lockable && !activeOrder && !!table.opened_at
+                const sc = isLocked ? { color: S.muted, bg: 'rgba(255,255,255,0.04)', border: S.border } : (statusColors[status] || statusColors.available)
                 return (
                   <div key={table.id}
                     onClick={() => {
@@ -3338,6 +3359,8 @@ export default function CashierPage() {
                         } else {
                           setPayOrder(activeOrder)
                         }
+                      } else if (isLocked) {
+                        setOpenTableTarget(table)
                       } else {
                         setAddOrderTable(table)
                       }
@@ -3360,8 +3383,13 @@ export default function CashierPage() {
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: S.white, marginBottom: 4 }}>{table.name || `Table ${table.number}`}</div>
                     <div style={{ fontSize: 10, fontWeight: 700, color: sc.color }}>
-                      {status === 'available' ? '🟢 Available' : status === 'reserved' ? '🟡 Reserved' : '🔴 Occupied'}
+                      {isLocked ? '🔒 Locked' : isOpenEmpty ? '🔓 Open' : status === 'available' ? '🟢 Available' : status === 'reserved' ? '🟡 Reserved' : '🔴 Occupied'}
                     </div>
+                    {/* ✅ طاولة مفتوحة وفارغة: زر لإعادة قفلها (لو اتفتحت بالغلط) */}
+                    {isOpenEmpty && (isCashierRole || isLimitedTableRole) && (
+                      <button onClick={e => { e.stopPropagation(); setTableOpen(table, false) }}
+                        style={{ marginTop: 6, padding: '3px 9px', borderRadius: 6, border: `1px solid ${S.muted}60`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 9, fontFamily: 'inherit' }}>🔒 Lock</button>
+                    )}
                     {activeOrder && table.occupied_since && (
                       <div style={{ fontSize: 10, color: S.amber, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(table.occupied_since)}</div>
                     )}
@@ -4230,6 +4258,21 @@ export default function CashierPage() {
         )
       })()}
 
+      {/* 🔓 تأكيد فتح الطاولة */}
+      {openTableTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setOpenTableTarget(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: 24, maxWidth: 360, width: '100%', textAlign: 'center' }}>
+            <div style={{ fontSize: 44, marginBottom: 8 }}>🔒</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.white, marginBottom: 6 }}>Open {openTableTarget.name || `Table ${openTableTarget.number}`}?</div>
+            <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.7, marginBottom: 18 }}>The customer will be able to open the menu and order from their phone. The table locks again after payment.</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setOpenTableTarget(null)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
+              <button onClick={() => setTableOpen(openTableTarget, true)} disabled={openingTable} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: openingTable ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>{openingTable ? '⏳...' : '🔓 OK, open'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {payOrder && <PaymentModal order={payOrder} tables={tables} activeShiftCashierName={activeShiftCashierName}
         onPaymentStart={(tableId) => {
           // ✅ Fix حرج: نستبعد الطاولة من أول لحظة تبدأ فيها عملية الدفع (قبل ما تخلص خالص) - عشان أي
@@ -4246,7 +4289,7 @@ export default function CashierPage() {
         // فوراً امسح الطلبات المدفوعة من الـ state
         setOrders(prev => prev.filter(o => !(o.table_id === paidTableId && ['confirmed','preparing','ready'].includes(o.status))))
         // وحدّث الطاولة في الـ state مباشرة
-        setTables(prev => prev.map(t => t.id === paidTableId ? { ...t, status: 'available', current_order_id: null, occupied_since: null } : t))
+        setTables(prev => prev.map(t => t.id === paidTableId ? { ...t, status: 'available', current_order_id: null, occupied_since: null, ...('opened_at' in t ? { opened_at: null } : {}) } : t))
         // بعدين fetch من DB
         setTimeout(() => fetchAll(), 1000)
       }} onTransfer={(o) => { setPayOrder(null); setTransferOrder(o) }} />}

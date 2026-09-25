@@ -569,6 +569,8 @@ function CustomerMenuInner() {
   // ✅ الشريط المميّز: الصنف المختار للتأكيد + إشعار "تمت الإضافة"
   const [featuredPick, setFeaturedPick] = useState<MenuItem | null>(null)
   const [featuredToast, setFeaturedToast] = useState(false)
+  // ✅ الطاولة مقفلة (فارغة ولم يفتحها الكاشير): تظهر شاشة قفل حتى تُفتح، وتفتح تلقائياً
+  const [tableLocked, setTableLocked] = useState(false)
   // ✅ اقتراحات "أكمل وجبتك" قبل تأكيد أول طلب: القائمة تجي من /api/menu-suggestions (تلقائية من المبيعات)
   const [suggestions, setSuggestions] = useState<{ starters: string[]; drinks: string[]; addons: string[]; desserts: string[]; bread: string | null } | null>(null)
   const [showSuggest, setShowSuggest] = useState(false)
@@ -705,6 +707,8 @@ function CustomerMenuInner() {
       // Following a redirected order is now limited to "Order More" only, if the customer still has the same tab open without closing it
       // (see checkAndFollowRedirect) - this fixes the duplicate-order issue without affecting a new customer seated afterward
 
+      // ✅ قفل الطاولة: طاولة صالة فارغة بلا طلب نشط ولم تُفتح بعد → شاشة القفل (لو عمود opened_at موجود)
+      if ('opened_at' in tbl && !['takeaway', 'staff', 'cancel_hub'].includes(String(tbl.section || '')) && !tbl.opened_at && !existing) setTableLocked(true)
       if (existing) {
         setConfirmedOrderId(existing.id)
         setOrderNumber(existing.id.slice(-6).toUpperCase())
@@ -715,6 +719,16 @@ function CustomerMenuInner() {
     }
     if (tableId) load()
   }, [tableId, sb])
+
+  // ✅ أثناء القفل: نفحص كل 4 ثوانٍ هل فتح الكاشير الطاولة، فتُفتح الشاشة تلقائياً
+  useEffect(() => {
+    if (!tableLocked || !table?.id) return
+    const id = setInterval(async () => {
+      const { data } = await sb.from('tables').select('opened_at,current_order_id').eq('id', table.id).maybeSingle()
+      if (data && (data.opened_at || data.current_order_id)) setTableLocked(false)
+    }, 4000)
+    return () => clearInterval(id)
+  }, [tableLocked, table?.id, sb])
 
 // ✅ Currently available categories only (a time-restricted category automatically disappears outside its window)
 const visibleCategories = categories.filter(isCategoryAvailableNow)
@@ -1050,6 +1064,12 @@ const filteredItems = items
         setLimitNotice(t(data.code === 'QTY_LIMIT' ? 'err_qty_limit' : 'err_order_too_big'))
         return
       }
+      if (res.status === 403 && data?.code === 'TABLE_LOCKED') {
+        isSubmittingRef.current = false
+        setSubmitting(false)
+        setTableLocked(true)
+        return
+      }
       if (res.status === 403 && data?.code === 'BLOCKED') {
         isSubmittingRef.current = false
         setSubmitting(false)
@@ -1137,6 +1157,27 @@ const filteredItems = items
       <style>{globalStyles}</style>
       <div style={{ fontSize:48 }}>❌</div>
       <div style={{ color:C.white, fontSize:18, fontWeight:700 }}>{t('table_not_found')}</div>
+    </div>
+  )
+
+  // ══ Table locked — تظهر حتى يفتح الكاشير الطاولة ══
+  if (tableLocked) return (
+    <div style={{ minHeight:'100dvh', background:C.bg, color:C.white, display:'flex', alignItems:'center', justifyContent:'center', padding:20, textAlign:'center' }}>
+      <style>{globalStyles}</style>
+      <div style={{ maxWidth:400, width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:28, padding:'34px 22px', boxShadow:`0 0 40px ${C.glow}` }}>
+        <div style={{ fontSize:64, marginBottom:8 }}>🔒</div>
+        <div className="ar-text" style={{ fontSize:15, fontWeight:800, color:C.white, marginBottom:16 }}>{table?.name || `Table ${table?.number ?? ''}`}</div>
+        {[
+          { d: 'ltr' as const, t: 'This table is locked. Please ask the waiter to open your table.' },
+          { d: 'ltr' as const, t: 'Meja ini dikunci. Sila minta pelayan membuka meja anda.' },
+          { d: 'rtl' as const, t: 'الطاولة مقفلة. يرجى التواصل مع النادل لفتح طاولتك.' },
+          { d: 'ltr' as const, t: '此桌已锁定，请联系服务员为您开桌。' },
+          { d: 'ltr' as const, t: 'Стол закрыт. Пожалуйста, попросите официанта открыть ваш стол.' },
+        ].map((l, i) => (
+          <div key={i} dir={l.d} className={l.d === 'rtl' ? 'ar-text' : ''} style={{ fontSize:14, color: i === 0 ? C.white : C.silver2, fontWeight: i === 0 ? 800 : 500, lineHeight:1.7, marginBottom:8 }}>{l.t}</div>
+        ))}
+        <div style={{ marginTop:16, fontSize:11, color:C.silver2, opacity:.8 }}>⏳ This page opens automatically once the table is opened.</div>
+      </div>
     </div>
   )
 

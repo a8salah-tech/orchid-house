@@ -2858,6 +2858,11 @@ export default function CashierPage() {
         }
         // ✅ لو الطلب اتدفع (من أي جهاز) نحرّر الطاولة محلياً فوراً عند كل الأجهزة (تتحول مقفلة/فاضية من غير تحديث يدوي)
         if (newStatus === 'paid') {
+          // الطاولة تظهر حمراء طالما الطلب في قائمة orders، فنشيله من هنا كمان
+          const paidId = (payload.new as { id?: string })?.id
+          if (paidId) setOrders(prev => prev.filter(o => o.id !== paidId))
+          // شبكة أمان: مزامنة كاملة بعد ثانيتين (بعد ما يكون الدفع خلّص تحرير الطاولة)
+          setTimeout(() => { fetchAll() }, 2000)
           if (tableId) setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'available', current_order_id: null, occupied_since: null, ...('opened_at' in t ? { opened_at: null } : {}) } : t))
         } else fetchAll()
       })

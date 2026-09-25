@@ -23,6 +23,11 @@ const S = {
 type ClientMeta = { ip_address: string | null; user_agent: string | null; device_model: string | null; device_id?: string | null; created_at?: string | null }
 type BlockedClient = { id: string; kind: 'device' | 'ip'; value: string; reason: string | null; expires_at: string | null; blocked_by_name: string | null; created_at: string }
 type BlockTarget = { meta: ClientMeta; tableName: string }
+type BlockedOrder = {
+  id: string; status: string; total_amount: number | null; created_at: string; table_id: string
+  tables: { name: string; branch_id: string } | null
+  order_items: { id: string; quantity: number; unit_price: number; status: string; size_name: string | null; notes: string | null; menu_items: { name: string; name_en: string | null } | null }[]
+}
 type ActiveTable = {
   id: string; number: number; name: string; section: string; branch_id: string
   current_order_id: string; occupied_since: string | null
@@ -72,6 +77,11 @@ export default function OrderMonitorPage() {
   const [ipDuration, setIpDuration] = useState<'24h' | '7d' | 'forever'>('24h')
   const [blockReason, setBlockReason] = useState('')
   const [blockSaving, setBlockSaving] = useState(false)
+  // ✅ تفاصيل المحظور: كل الطلبات التي أرسلها هذا الجهاز/العنوان (مع بياناته)
+  const [detailTarget, setDetailTarget] = useState<BlockedClient | null>(null)
+  const [detailOrders, setDetailOrders] = useState<BlockedOrder[]>([])
+  const [detailMetas, setDetailMetas] = useState<(ClientMeta & { order_id: string })[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const fetchActive = useCallback(async () => {
@@ -163,6 +173,25 @@ export default function OrderMonitorPage() {
     if (error) { alert('تعذّر الحظر: ' + error.message); return }
     setBlockTarget(null)
     fetchBlocked()
+  }
+
+  // ✅ عند الضغط على محظور: نجيب كل سجلات order_client_meta المطابقة (رمز الجهاز أو الـ IP) ثم الطلبات وأصنافها
+  async function openBlockedDetail(b: BlockedClient) {
+    setDetailTarget(b)
+    setDetailOrders([]); setDetailMetas([])
+    setDetailLoading(true)
+    const col = b.kind === 'device' ? 'device_id' : 'ip_address'
+    const { data: metas } = await sb.from('order_client_meta').select('*').eq(col, b.value).order('created_at', { ascending: false }).limit(300)
+    const metaRows = (metas || []) as (ClientMeta & { order_id: string })[]
+    setDetailMetas(metaRows)
+    const ids = [...new Set(metaRows.map(m => m.order_id))]
+    if (ids.length > 0) {
+      const { data: ords } = await sb.from('orders')
+        .select('id,status,total_amount,created_at,table_id,tables(name,branch_id),order_items(id,quantity,unit_price,status,size_name,notes,menu_items(name,name_en))')
+        .in('id', ids).order('created_at', { ascending: false })
+      setDetailOrders((ords || []) as unknown as BlockedOrder[])
+    }
+    setDetailLoading(false)
   }
 
   async function unblock(id: string) {
@@ -290,19 +319,99 @@ export default function OrderMonitorPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {blocked.map(b => (
-              <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, background: S.card, borderRadius: 10, padding: '8px 12px', opacity: isBlockActive(b) ? 1 : 0.5, flexWrap: 'wrap' }}>
+              <div key={b.id} onClick={() => openBlockedDetail(b)} title="اضغط لعرض الطلبات التي أرسلها" style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, background: S.card, borderRadius: 10, padding: '8px 12px', opacity: isBlockActive(b) ? 1 : 0.5, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 12, color: S.white }}>
                   <div style={{ fontWeight: 700 }}>{b.kind === 'device' ? '📱 جهاز' : '🌐 IP'} — <span dir="ltr">{b.kind === 'device' ? b.value.slice(0, 8) + '…' : b.value}</span></div>
                   <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
                     {b.reason ? `السبب: ${b.reason} · ` : ''}بواسطة {b.blocked_by_name || '—'} · {new Date(b.created_at).toLocaleDateString('en-GB')} · {b.expires_at ? (isBlockActive(b) ? `ينتهي ${new Date(b.expires_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}` : 'انتهى') : 'دائم'}
                   </div>
                 </div>
-                <button onClick={() => unblock(b.id)} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>رفع الحظر</button>
+                <button onClick={e => { e.stopPropagation(); unblock(b.id) }} style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif' }}>رفع الحظر</button>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* 🔎 تفاصيل محظور: كل طلباته */}
+      {detailTarget && (() => {
+        const active = detailOrders.filter(o => o.status !== 'cancelled')
+        const totalAmt = active.reduce((sum, o) => sum + (o.total_amount || 0), 0)
+        const ips = [...new Set(detailMetas.map(m => m.ip_address).filter(Boolean))] as string[]
+        const devs = [...new Set(detailMetas.map(m => m.device_id).filter(Boolean))] as string[]
+        const models = [...new Set(detailMetas.map(m => m.device_model).filter(Boolean))] as string[]
+        const uas = [...new Set(detailMetas.map(m => summarizeUserAgent(m.user_agent)))]
+        const metaOf = (orderId: string) => detailMetas.filter(m => m.order_id === orderId)
+        const branchNameOf = (id: string | undefined) => branches.find(b => b.id === id)?.name || '—'
+        const fmtDT = (iso: string) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 500, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }} onClick={() => setDetailTarget(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.red}50`, borderRadius: 16, padding: 22, maxWidth: 680, width: '100%', margin: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: S.red }}>🚫 {detailTarget.kind === 'device' ? 'جهاز محظور' : 'عنوان IP محظور'}</div>
+                  <div dir="ltr" style={{ fontSize: 11, color: S.muted, marginTop: 4, wordBreak: 'break-all', textAlign: 'right' }}>{detailTarget.value}</div>
+                </div>
+                <button onClick={() => setDetailTarget(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+              </div>
+              <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.9, background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+                {detailTarget.reason && <div>📝 السبب: <span style={{ color: S.white }}>{detailTarget.reason}</span></div>}
+                <div>👤 حظره: <span style={{ color: S.white }}>{detailTarget.blocked_by_name || '—'}</span> · {fmtDT(detailTarget.created_at)}</div>
+                <div>⏳ المدة: <span style={{ color: S.white }}>{detailTarget.expires_at ? (isBlockActive(detailTarget) ? `ينتهي ${fmtDT(detailTarget.expires_at)}` : 'انتهى') : 'دائم'}</span></div>
+              </div>
+              {detailLoading ? (
+                <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>⏳ جارٍ جلب الطلبات...</div>
+              ) : detailOrders.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 30, color: S.muted, lineHeight: 1.8 }}>لا توجد طلبات مسجَّلة لهذا {detailTarget.kind === 'device' ? 'الجهاز' : 'العنوان'}.{detailTarget.kind === 'device' ? <><br />رمز الجهاز يُسجَّل فقط مع الطلبات المرسلة بعد تفعيل الحظر.</> : null}</div>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 12 }}>
+                    {[{ l: 'عدد الطلبات', v: String(detailOrders.length) }, { l: 'إجمالي غير الملغى', v: `MYR ${totalAmt.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }, { l: 'أول طلب', v: fmtDT(detailOrders[detailOrders.length - 1].created_at) }, { l: 'آخر طلب', v: fmtDT(detailOrders[0].created_at) }].map((c, i) => (
+                      <div key={i} style={{ background: S.card, borderRadius: 10, padding: '8px 10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: S.white }}>{c.v}</div>
+                        <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{c.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.9, marginBottom: 12 }}>
+                    {detailTarget.kind === 'device' && ips.length > 0 && <div>🌐 عناوين IP التي استخدمها: <span dir="ltr" style={{ color: S.white }}>{ips.join(' · ')}</span></div>}
+                    {detailTarget.kind === 'ip' && devs.length > 0 && <div>🔑 رموز الأجهزة على هذا العنوان: <span dir="ltr" style={{ color: S.white }}>{devs.map(d => d.slice(0, 8) + '…').join(' · ')}</span></div>}
+                    {models.length > 0 && <div>📱 الطراز: <span style={{ color: S.white }}>{models.join('، ')}</span></div>}
+                    <div>🖥️ المتصفح/النظام: <span style={{ color: S.white }}>{uas.join('، ')}</span></div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {detailOrders.map(o => {
+                      const cancelled = o.status === 'cancelled'
+                      const oMetas = metaOf(o.id)
+                      return (
+                        <div key={o.id} style={{ background: S.card, border: `1px solid ${cancelled ? S.red + '40' : S.border}`, borderRadius: 12, padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                            <div style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{o.id.slice(-6).toUpperCase()} · 🪑 {o.tables?.name || '—'} <span style={{ color: S.muted, fontWeight: 400 }}>· 🏪 {branchNameOf(o.tables?.branch_id)}</span></div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: cancelled ? S.red : S.gold }}>MYR {(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: S.muted, marginBottom: 6 }}>🕐 {fmtDT(o.created_at)} · الحالة: <span style={{ color: cancelled ? S.red : S.white, fontWeight: 700 }}>{o.status}</span></div>
+                          <div style={{ fontSize: 11.5, color: S.white, lineHeight: 1.7 }}>
+                            {o.order_items.map(it => (
+                              <div key={it.id} style={{ opacity: it.status === 'cancelled' ? 0.5 : 1, textDecoration: it.status === 'cancelled' ? 'line-through' : 'none' }}>
+                                {it.menu_items?.name || it.menu_items?.name_en || '⚠️ صنف محذوف'}{it.size_name ? ` (${it.size_name})` : ''} <span style={{ color: S.gold, fontWeight: 700 }}>×{it.quantity}</span> <span style={{ color: S.muted }}>· MYR {(it.unit_price * it.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>{it.notes ? <span style={{ color: S.gold }}> · 📝 {it.notes}</span> : null}
+                              </div>
+                            ))}
+                          </div>
+                          {oMetas.length > 0 && (
+                            <div style={{ fontSize: 10, color: S.muted, marginTop: 6, borderTop: `1px solid ${S.border}`, paddingTop: 6 }}>
+                              {oMetas.map((m, i) => <div key={i} dir="ltr" style={{ textAlign: 'right' }}>🌐 {m.ip_address || '—'} · {m.device_model ? `📱 ${m.device_model} · ` : ''}{summarizeUserAgent(m.user_agent)}{m.created_at ? ` · ${fmtDT(m.created_at)}` : ''}</div>)}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* نافذة الحظر */}
       {blockTarget && (

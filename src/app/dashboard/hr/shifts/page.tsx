@@ -1013,7 +1013,7 @@ export default function ShiftsPage() {
     // آخر الشهر (يفضل يبان أول ١٨ يوم بس تقريبًا حسب عرض A4). الحل: أعمدة بنسبة مئوية + table-layout:fixed
     // + صفحة طباعة أفقية (landscape) - كده العرض الكلي دايمًا 100% من عرض الصفحة الفعلي مهما كان عدد الأيام
     // ✅ عمود الاسم أعرض (الاسم كان يتقطّع بـ"..." في 13% بخط عريض)، وعمود الدوام أضيق — والأيام تتقسم على الباقي
-    const nameColPct = 21, dutyColPct = 7
+    const nameColPct = 28, dutyColPct = 6
     const dayColPct = ((100 - nameColPct - dutyColPct) / monthDays.length).toFixed(3)
     const html = `<html dir="rtl"><head><title>جدول ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</title>
     <style>
@@ -1023,8 +1023,8 @@ export default function ShiftsPage() {
     th,td{border:1px solid #ccc;padding:2px 1px;text-align:center;overflow:hidden}
     thead{display:table-header-group}tr{page-break-inside:avoid}
     th{background:#0A1628;color:white;font-size:8.5px;font-weight:bold}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}
-    td.nm{text-align:right;padding:2px 4px;line-height:1.25;white-space:normal;word-break:break-word;font-weight:normal;font-size:9.5px;color:#111}
-    td.nm .en{display:block;font-size:8px;color:#666}
+    td.nm{text-align:right;padding:3px 5px;line-height:1.3;white-space:normal;word-break:break-word;font-weight:normal;font-size:11.5px;color:#111}
+    td.nm .en{font-size:10px;color:#555;margin-right:5px}
     </style></head>
     <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</h2>
     <table><thead><tr><th style='text-align:right;width:${nameColPct}%'>الموظف</th><th style='width:${dutyColPct}%'>الدوام</th>

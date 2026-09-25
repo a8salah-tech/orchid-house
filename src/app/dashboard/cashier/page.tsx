@@ -2856,8 +2856,16 @@ export default function CashierPage() {
           setNotif('⚠️ Order failed and was cancelled — ask customer to retry')
           setTimeout(() => setNotif(null), 6000)
         }
-        // لو الطلب اتدفع مش نعمل fetchAll عشان متبقاش حمرا
-        if (newStatus !== 'paid') fetchAll()
+        // ✅ لو الطلب اتدفع (من أي جهاز) نحرّر الطاولة محلياً فوراً عند كل الأجهزة (تتحول مقفلة/فاضية من غير تحديث يدوي)
+        if (newStatus === 'paid') {
+          if (tableId) setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'available', current_order_id: null, occupied_since: null, ...('opened_at' in t ? { opened_at: null } : {}) } : t))
+        } else fetchAll()
+      })
+      // ✅ أي تغيير في الطاولة (فتح/قفل/تحرير) من جهاز آخر يظهر فوراً هنا
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tables' }, (payload: { new: Partial<TableRow> }) => {
+        const row = payload.new
+        if (!row?.id) return
+        setTables(prev => prev.map(t => t.id === row.id ? { ...t, ...row } as TableRow : t))
       })
 
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, async (payload: any) => {

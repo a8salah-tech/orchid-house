@@ -1012,21 +1012,25 @@ export default function ShiftsPage() {
     // عند الطباعة الفعلية (ورق/PDF) المتصفح بيقصّ أي عمود زايد عن عرض الصفحة بدل ما يصغّره، فكان بيقطع
     // آخر الشهر (يفضل يبان أول ١٨ يوم بس تقريبًا حسب عرض A4). الحل: أعمدة بنسبة مئوية + table-layout:fixed
     // + صفحة طباعة أفقية (landscape) - كده العرض الكلي دايمًا 100% من عرض الصفحة الفعلي مهما كان عدد الأيام
-    const nameColPct = 13, dutyColPct = 8
+    // ✅ عمود الاسم أعرض (الاسم كان يتقطّع بـ"..." في 13% بخط عريض)، وعمود الدوام أضيق — والأيام تتقسم على الباقي
+    const nameColPct = 21, dutyColPct = 7
     const dayColPct = ((100 - nameColPct - dutyColPct) / monthDays.length).toFixed(3)
     const html = `<html dir="rtl"><head><title>جدول ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</title>
     <style>
-    @page{size:A4 landscape;margin:10mm}
-    body{font-family:Arial;font-size:11px;margin:0}h2{text-align:center}
+    @page{size:A4 landscape;margin:8mm}
+    body{font-family:Arial;font-size:9px;margin:0}h2{text-align:center;font-size:13px;margin:0 0 6px}
     table{width:100%;table-layout:fixed;border-collapse:collapse}
-    th,td{border:1px solid #ccc;padding:3px 2px;text-align:center;overflow:hidden;text-overflow:ellipsis}
-    th{background:#0A1628;color:white}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}
+    th,td{border:1px solid #ccc;padding:2px 1px;text-align:center;overflow:hidden}
+    thead{display:table-header-group}tr{page-break-inside:avoid}
+    th{background:#0A1628;color:white;font-size:8.5px;font-weight:bold}.s{border-radius:3px;padding:2px 4px;font-size:10px;font-weight:bold}
+    td.nm{text-align:right;padding:2px 4px;line-height:1.25;white-space:normal;word-break:break-word;font-weight:normal;font-size:9.5px;color:#111}
+    td.nm .en{display:block;font-size:8px;color:#666}
     </style></head>
     <body><h2>🌸 Orchid Group — ${MONTHS_AR[viewMonth]} ${viewYear}${scopeLabel}</h2>
     <table><thead><tr><th style='text-align:right;width:${nameColPct}%'>الموظف</th><th style='width:${dutyColPct}%'>الدوام</th>
     ${monthDays.map(d=>`<th style='width:${dayColPct}%'>${d.day}<br/><span style='font-size:8px'>${DAYS_SHORT[d.dow]}</span></th>`).join('')}</tr></thead>
-    <tbody>${filteredScheduleEmployees.map(emp=>`<tr><td style="text-align:right;white-space:nowrap;font-weight:bold">${emp.name}${emp.name_en ? ' '+emp.name_en : ''}</td>
-    <td style='text-align:center;font-size:10px;color:#555'>${(() => {
+    <tbody>${filteredScheduleEmployees.map(emp=>`<tr><td class="nm">${emp.name}${emp.name_en ? `<span class="en">${emp.name_en}</span>` : ''}</td>
+    <td style='text-align:center;font-size:8px;color:#555;white-space:nowrap'>${(() => {
       const allSch = monthDays.map(d => getShift(emp.id, d.date)).filter(Boolean)
       if (allSch.length === 0) return '—'
       const first = allSch[0]
@@ -1036,11 +1040,11 @@ export default function ShiftsPage() {
     })()} </td>
     ${monthDays.map(d=>{
       const s=getShift(emp.id,d.date)
-      if (!s) return '<td style="color:#ddd;font-size:10px">✗</td>'
+      if (!s) return '<td style="color:#ddd;font-size:8px">✗</td>'
       // ✅ صف إجازة رسمية (بلا shift_id وبلا custom_start) يجب ألا يظهر بنفس علامة الصح الخاصة بالشيفت الحقيقي
-      if (!s.shift_id && !s.custom_start) return '<td style="background:#14B8A620;color:#14B8A6;font-weight:bold;font-size:11px">إجازة</td>'
+      if (!s.shift_id && !s.custom_start) return '<td style="background:#14B8A620;color:#14B8A6;font-weight:bold;font-size:6.5px">إجازة</td>'
       const color = s.shifts?.color||'#C9A84C'
-      return '<td style="background:'+color+'20;color:'+color+';font-weight:bold;font-size:11px">✓</td>'
+      return '<td style="background:'+color+'20;color:'+color+';font-weight:bold;font-size:10px">✓</td>'
     }).join('')}</tr>`).join('')}
     </tbody></table></body></html>`
     const win=window.open('','_blank'); if(win){win.document.write(html);win.document.close();win.print()}
@@ -1192,15 +1196,16 @@ export default function ShiftsPage() {
                   </div>
 
                   <div style={{background:S.navy2,borderRadius:16,border:`1px solid ${S.border}`,overflow:'hidden'}}>
-                    <div style={{overflowX:'auto'}}>
+                    {/* ✅ الحاوية نفسها تتمرّر (أفقياً وعمودياً) بارتفاع محدد، فيبقى صف الأيام ثابتاً أعلى الجدول مهما كان عدد الموظفين */}
+                    <div style={{overflow:'auto',maxHeight:'calc(100vh - 150px)'}}>
                       <table style={{width:'100%',borderCollapse:'collapse'}}>
                         <thead>
                           <tr style={{background:S.navy3}}>
-                            <th style={{padding:'10px 14px',textAlign:'right',fontSize:12,color:S.muted,fontWeight:700,borderBottom:`1px solid ${S.border}`,minWidth:130}}>الموظف</th>
+                            <th style={{position:'sticky',top:0,zIndex:3,background:S.navy3,padding:'10px 14px',textAlign:'right',fontSize:12,color:S.muted,fontWeight:700,borderBottom:`1px solid ${S.border}`,minWidth:130}}>الموظف</th>
                             {monthDays.map(d=>{
                               const isToday = d.date===todayStr()
                               return (
-                                <th key={d.day} style={{padding:'4px 2px',textAlign:'center',fontSize:10,color:isToday?S.gold:S.muted,fontWeight:700,borderBottom:`1px solid ${S.border}`,minWidth:36,background:isToday?S.gold3:'transparent'}}>
+                                <th key={d.day} style={{position:'sticky',top:0,zIndex:2,padding:'4px 2px',textAlign:'center',fontSize:10,color:isToday?S.gold:S.muted,fontWeight:700,borderBottom:`1px solid ${S.border}`,minWidth:36,background:isToday?'#2b2d3a':S.navy3}}>
                                   <div>{d.day}</div>
                                   <div style={{fontSize:9}}>{DAYS_SHORT[d.dow]}</div>
                                 </th>

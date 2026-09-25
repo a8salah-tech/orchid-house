@@ -23,6 +23,7 @@ const S = {
 type ClientMeta = { ip_address: string | null; user_agent: string | null; device_model: string | null; device_id?: string | null; created_at?: string | null }
 type BlockedClient = { id: string; kind: 'device' | 'ip'; value: string; reason: string | null; expires_at: string | null; blocked_by_name: string | null; created_at: string }
 type BlockTarget = { meta: ClientMeta; tableName: string }
+type BlockedAttempt = { created_at: string; ip_address: string | null; user_agent: string | null; table_id: string | null }
 type BlockedOrder = {
   id: string; status: string; total_amount: number | null; created_at: string; table_id: string
   tables: { name: string; branch_id: string } | null
@@ -82,6 +83,10 @@ export default function OrderMonitorPage() {
   const [detailOrders, setDetailOrders] = useState<BlockedOrder[]>([])
   const [detailMetas, setDetailMetas] = useState<(ClientMeta & { order_id: string })[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
+  // ✅ محاولات الطلب من محظور: العدد وآخر محاولة لكل محظور + آخر المحاولات في نافذة التفاصيل
+  const [attemptStats, setAttemptStats] = useState<Record<string, { count: number; last: string }>>({})
+  const [detailAttempts, setDetailAttempts] = useState<BlockedAttempt[]>([])
+  const [attemptTables, setAttemptTables] = useState<Record<string, string>>({})
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const fetchActive = useCallback(async () => {
@@ -139,6 +144,13 @@ export default function OrderMonitorPage() {
   const fetchBlocked = useCallback(async () => {
     const { data } = await sb.from('blocked_clients').select('*').order('created_at', { ascending: false })
     setBlocked((data || []) as BlockedClient[])
+    const { data: att } = await sb.from('blocked_attempts').select('blocked_id,created_at').order('created_at', { ascending: false }).limit(5000)
+    const stats: Record<string, { count: number; last: string }> = {}
+    for (const a of (att || []) as { blocked_id: string; created_at: string }[]) {
+      if (!stats[a.blocked_id]) stats[a.blocked_id] = { count: 0, last: a.created_at }
+      stats[a.blocked_id].count++
+    }
+    setAttemptStats(stats)
     setNowMs(Date.now())
   }, [sb])
 
@@ -178,8 +190,16 @@ export default function OrderMonitorPage() {
   // ✅ عند الضغط على محظور: نجيب كل سجلات order_client_meta المطابقة (رمز الجهاز أو الـ IP) ثم الطلبات وأصنافها
   async function openBlockedDetail(b: BlockedClient) {
     setDetailTarget(b)
-    setDetailOrders([]); setDetailMetas([])
+    setDetailOrders([]); setDetailMetas([]); setDetailAttempts([]); setAttemptTables({})
     setDetailLoading(true)
+    const { data: attRows } = await sb.from('blocked_attempts').select('created_at,ip_address,user_agent,table_id').eq('blocked_id', b.id).order('created_at', { ascending: false }).limit(30)
+    const attList = (attRows || []) as BlockedAttempt[]
+    setDetailAttempts(attList)
+    const tIds = [...new Set(attList.map(a => a.table_id).filter(Boolean))] as string[]
+    if (tIds.length > 0) {
+      const { data: tb } = await sb.from('tables').select('id,name').in('id', tIds)
+      setAttemptTables(Object.fromEntries(((tb || []) as { id: string; name: string }[]).map(t => [t.id, t.name])))
+    }
     const col = b.kind === 'device' ? 'device_id' : 'ip_address'
     const { data: metas } = await sb.from('order_client_meta').select('*').eq(col, b.value).order('created_at', { ascending: false }).limit(300)
     const metaRows = (metas || []) as (ClientMeta & { order_id: string })[]
@@ -322,6 +342,9 @@ export default function OrderMonitorPage() {
               <div key={b.id} onClick={() => openBlockedDetail(b)} title="اضغط لعرض الطلبات التي أرسلها" style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, background: S.card, borderRadius: 10, padding: '8px 12px', opacity: isBlockActive(b) ? 1 : 0.5, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 12, color: S.white }}>
                   <div style={{ fontWeight: 700 }}>{b.kind === 'device' ? '📱 جهاز' : '🌐 IP'} — <span dir="ltr">{b.kind === 'device' ? b.value.slice(0, 8) + '…' : b.value}</span></div>
+                  <div style={{ fontSize: 10.5, marginTop: 3, color: attemptStats[b.id] ? S.amber : S.muted, fontWeight: attemptStats[b.id] ? 700 : 400 }}>
+                    {attemptStats[b.id] ? `🚧 حاول الطلب ${attemptStats[b.id].count} ${attemptStats[b.id].count === 1 ? 'مرة' : 'مرات'} بعد الحظر · آخرها ${new Date(attemptStats[b.id].last).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}` : '🚧 لم يحاول الطلب بعد الحظر'}
+                  </div>
                   <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>
                     {b.reason ? `السبب: ${b.reason} · ` : ''}بواسطة {b.blocked_by_name || '—'} · {new Date(b.created_at).toLocaleDateString('en-GB')} · {b.expires_at ? (isBlockActive(b) ? `ينتهي ${new Date(b.expires_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}` : 'انتهى') : 'دائم'}
                   </div>
@@ -358,6 +381,14 @@ export default function OrderMonitorPage() {
                 {detailTarget.reason && <div>📝 السبب: <span style={{ color: S.white }}>{detailTarget.reason}</span></div>}
                 <div>👤 حظره: <span style={{ color: S.white }}>{detailTarget.blocked_by_name || '—'}</span> · {fmtDT(detailTarget.created_at)}</div>
                 <div>⏳ المدة: <span style={{ color: S.white }}>{detailTarget.expires_at ? (isBlockActive(detailTarget) ? `ينتهي ${fmtDT(detailTarget.expires_at)}` : 'انتهى') : 'دائم'}</span></div>
+              </div>
+              <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: detailAttempts.length > 0 ? S.amber : S.muted, marginBottom: detailAttempts.length > 0 ? 6 : 0 }}>🚧 محاولات الطلب بعد الحظر: {attemptStats[detailTarget.id]?.count || 0}</div>
+                {detailAttempts.map((a, i) => (
+                  <div key={i} dir="ltr" style={{ fontSize: 10.5, color: S.muted, textAlign: 'right', lineHeight: 1.7 }}>
+                    {fmtDT(a.created_at)} · 🌐 {a.ip_address || '—'} · {summarizeUserAgent(a.user_agent)}{a.table_id && attemptTables[a.table_id] ? ` · 🪑 ${attemptTables[a.table_id]}` : ''}
+                  </div>
+                ))}
               </div>
               {detailLoading ? (
                 <div style={{ textAlign: 'center', padding: 30, color: S.muted }}>⏳ جارٍ جلب الطلبات...</div>

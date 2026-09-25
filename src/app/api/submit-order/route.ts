@@ -39,8 +39,17 @@ export async function POST(req: NextRequest) {
       if (deviceId && /^[A-Za-z0-9-]+$/.test(deviceId)) checks.push(['device', deviceId])
       if (ip) checks.push(['ip', ip])
       for (const [kind, value] of checks) {
-        const { data: blocked, error: blockErr } = await sb.from('blocked_clients').select('expires_at').eq('kind', kind).eq('value', value)
-        if (!blockErr && (blocked || []).some((b: { expires_at: string | null }) => !b.expires_at || new Date(b.expires_at).getTime() > Date.now())) {
+        const { data: blocked, error: blockErr } = await sb.from('blocked_clients').select('id, expires_at').eq('kind', kind).eq('value', value)
+        const hit = blockErr ? undefined : (blocked || []).find((b: { id: string; expires_at: string | null }) => !b.expires_at || new Date(b.expires_at).getTime() > Date.now())
+        if (hit) {
+          // ✅ نسجّل المحاولة (لا نفشل الرد لو فشل التسجيل، مثلاً الجدول لسه ما اتعملش)
+          try {
+            await sb.from('blocked_attempts').insert([{
+              blocked_id: hit.id, ip_address: ip,
+              user_agent: (req.headers.get('user-agent') || '').slice(0, 300) || null,
+              table_id: /^[0-9a-fA-F-]{36}$/.test(tableId || '') ? tableId : null,
+            }])
+          } catch { /* ignore */ }
           return NextResponse.json({ error: 'blocked', code: 'BLOCKED' }, { status: 403 })
         }
       }

@@ -208,8 +208,9 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
 // ✅ تقرير الأصناف المباعة خلال فترة (كل الشيفتات): سطر لكل صنف (+ الحجم)
 type ItemSoldRow = { key: string; name: string; nameAr: string; category: string; size: string; qty: number; revenue: number; minPrice: number; maxPrice: number; orders: number }
 type ItemsSoldMeta = { orders: number; qty: number; revenue: number; from: string; to: string; branch: string }
+type CancelledItemRow = { at: string; table: string; name: string; size: string; qty: number; amount: number; reason: string; by: string }
 
-function printItemsSoldReport(rows: ItemSoldRow[], meta: ItemsSoldMeta) {
+function printItemsSoldReport(rows: ItemSoldRow[], meta: ItemsSoldMeta, cancelled: CancelledItemRow[] = []) {
   const win = window.open('', '_blank')
   if (!win) return
   const fmt = (v: number) => v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -225,6 +226,7 @@ function printItemsSoldReport(rows: ItemSoldRow[], meta: ItemsSoldMeta) {
   <table><thead><tr><th>#</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit price</th><th>Avg price</th><th>Total (MYR)</th><th>Share</th><th>Orders</th></tr></thead><tbody>${body}
   <tr class="tot"><td colspan="3">TOTAL</td><td>${fmtInt(meta.qty)}</td><td></td><td></td><td>${fmt(meta.revenue)}</td><td>100%</td><td>${fmtInt(meta.orders)}</td></tr></tbody></table>
   <div class="m" style="margin-top:8px">Sales = item price × quantity of paid, non-cancelled items (before discounts, service charge and SST).</div>
+  ${cancelled.length ? `<h3 style="margin:18px 0 6px;color:#b91c1c">❌ Cancelled items (${fmtInt(cancelled.reduce((n, c) => n + c.qty, 0))} pcs · MYR ${fmt(cancelled.reduce((n, c) => n + c.amount, 0))})</h3><table><thead><tr><th>#</th><th>Time</th><th>Table</th><th>Item</th><th>Qty</th><th>Amount (MYR)</th><th>Reason</th><th>By</th></tr></thead><tbody>${cancelled.map((c, i) => `<tr><td>${i + 1}</td><td>${new Date(c.at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur' })}</td><td>${esc(c.table)}</td><td style="text-align:left">${esc(c.name)}${c.size ? ` (${esc(c.size)})` : ''}</td><td>${fmtInt(c.qty)}</td><td>${fmt(c.amount)}</td><td style="text-align:left">${esc(c.reason)}</td><td>${esc(c.by)}</td></tr>`).join('')}</tbody></table>` : ''}
   <script>window.onload=function(){window.print()}<\/script></body></html>`)
   win.document.close()
 }
@@ -2613,10 +2615,11 @@ export default function CashierPage() {
   const [itemsMeta, setItemsMeta] = useState<ItemsSoldMeta | null>(null)
   const [itemsSort, setItemsSort] = useState<'qty' | 'revenue' | 'name'>('qty')
   const [itemsIncludeStaff, setItemsIncludeStaff] = useState(true)
+  const [itemsCancelled, setItemsCancelled] = useState<CancelledItemRow[]>([])
 
   async function loadItemsSold() {
     if (!itemsFrom || !itemsTo || itemsFrom > itemsTo) { alert('اختر فترة صحيحة (من ≤ إلى)'); return }
-    setItemsOpen(true); setItemsLoading(true); setItemsRows([]); setItemsMeta(null)
+    setItemsOpen(true); setItemsLoading(true); setItemsRows([]); setItemsMeta(null); setItemsCancelled([])
     type SoldOrder = {
       id: string; table_id: string; tables: { name: string; section: string | null; branch_id: string } | null
       order_items: { quantity: number; unit_price: number; status: string; size_name: string | null; menu_items: { id: string; name: string; name_en: string | null; category_id: string | null } | null }[]
@@ -2660,6 +2663,29 @@ export default function CashierPage() {
     }
     const rows: ItemSoldRow[] = [...rowsMap.values()].map(({ orderSet, ...r }) => ({ ...r, orders: orderSet.size }))
     setItemsRows(rows)
+    // ✅ الأصناف الملغاة في نفس الفترة (بتاريخ الإلغاء): من طلبات ملغاة أو أصناف ملغاة داخل طلبات أخرى
+    type CancelledRaw = {
+      quantity: number; unit_price: number; size_name: string | null; cancel_reason: string | null; cancelled_at: string | null; action_by: string | null
+      menu_items: { name: string; name_en: string | null } | null
+      orders: { cancel_reason: string | null; tables: { name: string; section: string | null; branch_id: string } | null } | null
+    }
+    const cancelledAll: CancelledRaw[] = []
+    for (let page = 0; page < 50; page++) {
+      const { data, error } = await sb.from('order_items')
+        .select('quantity,unit_price,size_name,cancel_reason,cancelled_at,action_by,menu_items(name,name_en),orders(cancel_reason,tables(name,section,branch_id))')
+        .eq('status', 'cancelled').gte('cancelled_at', start).lte('cancelled_at', end).order('cancelled_at').range(page * 400, page * 400 + 399)
+      if (error) break
+      cancelledAll.push(...((data || []) as unknown as CancelledRaw[]))
+      if (!data || data.length < 400) break
+    }
+    setItemsCancelled(cancelledAll
+      .filter(c => c.cancelled_at && !(c.orders?.cancel_reason || '').startsWith('دمج'))
+      .filter(c => !adminBranchFilter || c.orders?.tables?.branch_id === adminBranchFilter)
+      .filter(c => itemsIncludeStaff || c.orders?.tables?.section !== 'staff')
+      .map(c => ({
+        at: c.cancelled_at as string, table: c.orders?.tables?.name || '—', name: c.menu_items?.name_en || c.menu_items?.name || '⚠️ Removed Item',
+        size: c.size_name || '', qty: c.quantity, amount: c.unit_price * c.quantity, reason: c.cancel_reason || c.orders?.cancel_reason || '—', by: c.action_by || '—',
+      })))
     setItemsMeta({ orders: orderIds.size, qty: totalQty, revenue: totalRev, from: itemsFrom, to: itemsTo, branch: adminBranchFilter ? (branches.find(b => b.id === adminBranchFilter)?.name || '') : 'All Branches' })
     setItemsLoading(false)
   }
@@ -3287,7 +3313,7 @@ export default function CashierPage() {
             </button>
           ))}
           {/* ✅ تقرير الأصناف المباعة (تاب Shift): من تاريخ إلى تاريخ + زر التقرير، بجانب اختيار الفرع */}
-          {view === 'orders' && filter === 'done' && (
+          {view === 'orders' && filter === 'done' && permissions?.all === true && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginInlineStart: 'auto' }}>
               <span style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>📅 From</span>
               <input type="date" value={itemsFrom} onChange={e => setItemsFrom(e.target.value)} style={{ padding: '5px 8px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
@@ -4213,7 +4239,7 @@ export default function CashierPage() {
                     <input type="checkbox" checked={itemsIncludeStaff} onChange={e => setItemsIncludeStaff(e.target.checked)} /> Include Staff table
                   </label>
                   <button onClick={loadItemsSold} disabled={itemsLoading} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔄 Refresh</button>
-                  <button onClick={() => itemsMeta && printItemsSoldReport(sorted, itemsMeta)} disabled={!itemsMeta || sorted.length === 0} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
+                  <button onClick={() => itemsMeta && printItemsSoldReport(sorted, itemsMeta, itemsCancelled)} disabled={!itemsMeta || sorted.length === 0} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print</button>
                   <button onClick={() => setItemsOpen(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
                 </div>
               </div>
@@ -4265,6 +4291,36 @@ export default function CashierPage() {
                   </div>
                   <div style={{ fontSize: 10.5, color: S.muted, marginTop: 10 }}>Sales = item price × quantity of paid, non-cancelled items (before discounts, service charge and SST).</div>
                 </>
+              )}
+              {!itemsLoading && itemsCancelled.length > 0 && (
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: S.red, marginBottom: 8 }}>❌ Cancelled items · {fmtInt(itemsCancelled.reduce((n, c) => n + c.qty, 0))} pcs · MYR {fmt(itemsCancelled.reduce((n, c) => n + c.amount, 0))}</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
+                      <thead>
+                        <tr style={{ background: S.navy3 }}>
+                          {['#', 'Time', 'Table', 'Item', 'Qty', 'Amount (MYR)', 'Reason', 'By'].map((h, i) => (
+                            <th key={h} style={{ padding: '8px 8px', textAlign: i === 3 || i === 6 ? 'left' : 'center', color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itemsCancelled.map((c, i) => (
+                          <tr key={i} style={{ borderBottom: `1px solid ${S.border}` }}>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{i + 1}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted, whiteSpace: 'nowrap' }}>{new Date(c.at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur' })}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.white }}>{c.table}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'left', color: S.white }}>{c.name}{c.size ? <span style={{ color: S.muted }}> ({c.size})</span> : null}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.red, fontWeight: 800 }}>{fmtInt(c.qty)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.red }}>{fmt(c.amount)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'left', color: S.muted }}>{c.reason}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{c.by}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
             </div>
           </div>

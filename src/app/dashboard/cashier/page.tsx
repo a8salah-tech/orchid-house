@@ -208,7 +208,7 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
 // ✅ تقرير الأصناف المباعة خلال فترة (كل الشيفتات): سطر لكل صنف (+ الحجم)
 type ItemSoldRow = { key: string; name: string; nameAr: string; category: string; size: string; qty: number; revenue: number; minPrice: number; maxPrice: number; orders: number }
 type ItemsSoldMeta = { orders: number; qty: number; revenue: number; from: string; to: string; branch: string }
-type CancelledItemRow = { at: string; table: string; name: string; size: string; qty: number; amount: number; reason: string; by: string }
+type CancelledItemRow = { name: string; size: string; qty: number; amount: number; count: number; tables: string[]; reasons: string[]; by: string[] }
 
 function printItemsSoldReport(rows: ItemSoldRow[], meta: ItemsSoldMeta, cancelled: CancelledItemRow[] = []) {
   const win = window.open('', '_blank')
@@ -226,7 +226,7 @@ function printItemsSoldReport(rows: ItemSoldRow[], meta: ItemsSoldMeta, cancelle
   <table><thead><tr><th>#</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit price</th><th>Avg price</th><th>Total (MYR)</th><th>Share</th><th>Orders</th></tr></thead><tbody>${body}
   <tr class="tot"><td colspan="3">TOTAL</td><td>${fmtInt(meta.qty)}</td><td></td><td></td><td>${fmt(meta.revenue)}</td><td>100%</td><td>${fmtInt(meta.orders)}</td></tr></tbody></table>
   <div class="m" style="margin-top:8px">Sales = item price × quantity of paid, non-cancelled items (before discounts, service charge and SST).</div>
-  ${cancelled.length ? `<h3 style="margin:18px 0 6px;color:#b91c1c">❌ Cancelled items (${fmtInt(cancelled.reduce((n, c) => n + c.qty, 0))} pcs · MYR ${fmt(cancelled.reduce((n, c) => n + c.amount, 0))})</h3><table><thead><tr><th>#</th><th>Time</th><th>Table</th><th>Item</th><th>Qty</th><th>Amount (MYR)</th><th>Reason</th><th>By</th></tr></thead><tbody>${cancelled.map((c, i) => `<tr><td>${i + 1}</td><td>${new Date(c.at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur' })}</td><td>${esc(c.table)}</td><td style="text-align:left">${esc(c.name)}${c.size ? ` (${esc(c.size)})` : ''}</td><td>${fmtInt(c.qty)}</td><td>${fmt(c.amount)}</td><td style="text-align:left">${esc(c.reason)}</td><td>${esc(c.by)}</td></tr>`).join('')}</tbody></table>` : ''}
+  ${cancelled.length ? `<h3 style="margin:18px 0 6px;color:#b91c1c">❌ Cancelled items (${fmtInt(cancelled.reduce((n, c) => n + c.qty, 0))} pcs · MYR ${fmt(cancelled.reduce((n, c) => n + c.amount, 0))})</h3><table><thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Amount (MYR)</th><th>Times</th><th>Tables</th><th>Reasons</th><th>By</th></tr></thead><tbody>${cancelled.map((c, i) => `<tr><td>${i + 1}</td><td style="text-align:left">${esc(c.name)}${c.size ? ` (${esc(c.size)})` : ''}</td><td><b>${fmtInt(c.qty)}</b></td><td>${fmt(c.amount)}</td><td>${fmtInt(c.count)}</td><td>${esc(c.tables.join(', '))}</td><td style="text-align:left">${esc(c.reasons.join(' | '))}</td><td>${esc(c.by.join(', '))}</td></tr>`).join('')}</tbody></table>` : ''}
   <script>window.onload=function(){window.print()}<\/script></body></html>`)
   win.document.close()
 }
@@ -2678,14 +2678,20 @@ export default function CashierPage() {
       cancelledAll.push(...((data || []) as unknown as CancelledRaw[]))
       if (!data || data.length < 400) break
     }
-    setItemsCancelled(cancelledAll
-      .filter(c => c.cancelled_at && !(c.orders?.cancel_reason || '').startsWith('دمج'))
-      .filter(c => !adminBranchFilter || c.orders?.tables?.branch_id === adminBranchFilter)
-      .filter(c => itemsIncludeStaff || c.orders?.tables?.section !== 'staff')
-      .map(c => ({
-        at: c.cancelled_at as string, table: c.orders?.tables?.name || '—', name: c.menu_items?.name_en || c.menu_items?.name || '⚠️ Removed Item',
-        size: c.size_name || '', qty: c.quantity, amount: c.unit_price * c.quantity, reason: c.cancel_reason || c.orders?.cancel_reason || '—', by: c.action_by || '—',
-      })))
+    const cancelMap = new Map<string, CancelledItemRow>()
+    for (const c of cancelledAll) {
+      if (!c.cancelled_at || (c.orders?.cancel_reason || '').startsWith('دمج')) continue
+      if (adminBranchFilter && c.orders?.tables?.branch_id !== adminBranchFilter) continue
+      if (!itemsIncludeStaff && c.orders?.tables?.section === 'staff') continue
+      const name = c.menu_items?.name_en || c.menu_items?.name || '⚠️ Removed Item'
+      const key = `${name.trim().toLowerCase()}|${c.size_name || ''}`
+      let r = cancelMap.get(key)
+      if (!r) { r = { name, size: c.size_name || '', qty: 0, amount: 0, count: 0, tables: [], reasons: [], by: [] }; cancelMap.set(key, r) }
+      r.qty += c.quantity; r.amount += c.unit_price * c.quantity; r.count++
+      const push = (arr: string[], v: string) => { if (v && v !== '—' && !arr.includes(v)) arr.push(v) }
+      push(r.tables, c.orders?.tables?.name || ''); push(r.reasons, (c.cancel_reason || c.orders?.cancel_reason || '').trim()); push(r.by, c.action_by || '')
+    }
+    setItemsCancelled([...cancelMap.values()].sort((x, y) => y.qty - x.qty))
     setItemsMeta({ orders: orderIds.size, qty: totalQty, revenue: totalRev, from: itemsFrom, to: itemsTo, branch: adminBranchFilter ? (branches.find(b => b.id === adminBranchFilter)?.name || '') : 'All Branches' })
     setItemsLoading(false)
   }
@@ -4299,8 +4305,8 @@ export default function CashierPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
                       <thead>
                         <tr style={{ background: S.navy3 }}>
-                          {['#', 'Time', 'Table', 'Item', 'Qty', 'Amount (MYR)', 'Reason', 'By'].map((h, i) => (
-                            <th key={h} style={{ padding: '8px 8px', textAlign: i === 3 || i === 6 ? 'left' : 'center', color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                          {['#', 'Item', 'Qty', 'Amount (MYR)', 'Times', 'Tables', 'Reasons', 'By'].map((h, i) => (
+                            <th key={h} style={{ padding: '8px 8px', textAlign: i === 1 || i === 6 ? 'left' : 'center', color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -4308,13 +4314,13 @@ export default function CashierPage() {
                         {itemsCancelled.map((c, i) => (
                           <tr key={i} style={{ borderBottom: `1px solid ${S.border}` }}>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{i + 1}</td>
-                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted, whiteSpace: 'nowrap' }}>{new Date(c.at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur' })}</td>
-                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.white }}>{c.table}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'left', color: S.white }}>{c.name}{c.size ? <span style={{ color: S.muted }}> ({c.size})</span> : null}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.red, fontWeight: 800 }}>{fmtInt(c.qty)}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.red }}>{fmt(c.amount)}</td>
-                            <td style={{ padding: '6px 8px', textAlign: 'left', color: S.muted }}>{c.reason}</td>
-                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{c.by}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{fmtInt(c.count)}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{c.tables.join(', ') || '—'}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'left', color: S.muted }}>{c.reasons.join(' | ') || '—'}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{c.by.join(', ') || '—'}</td>
                           </tr>
                         ))}
                       </tbody>

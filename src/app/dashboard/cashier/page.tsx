@@ -213,16 +213,17 @@ function printItemsSoldReport(rows: ItemSoldRow[], meta: ItemsSoldMeta) {
   const win = window.open('', '_blank')
   if (!win) return
   const fmt = (v: number) => v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fmtInt = (v: number) => v.toLocaleString('en-US')
   const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-  const body = rows.map((r, i) => `<tr><td>${i + 1}</td><td style="text-align:left">${esc(r.name)}${r.size ? ` <span class="m">(${esc(r.size)})</span>` : ''}${r.nameAr && r.nameAr !== r.name ? `<div class="m" dir="rtl">${esc(r.nameAr)}</div>` : ''}</td><td>${esc(r.category)}</td><td><b>${r.qty}</b></td><td>${r.minPrice === r.maxPrice ? fmt(r.minPrice) : `${fmt(r.minPrice)} – ${fmt(r.maxPrice)}`}</td><td>${fmt(r.qty ? r.revenue / r.qty : 0)}</td><td><b>${fmt(r.revenue)}</b></td><td>${meta.revenue > 0 ? (r.revenue / meta.revenue * 100).toFixed(1) : '0.0'}%</td><td>${r.orders}</td></tr>`).join('')
+  const body = rows.map((r, i) => `<tr><td>${i + 1}</td><td style="text-align:left">${esc(r.name)}${r.size ? ` <span class="m">(${esc(r.size)})</span>` : ''}${r.nameAr && r.nameAr !== r.name ? `<div class="m" dir="rtl">${esc(r.nameAr)}</div>` : ''}</td><td>${esc(r.category)}</td><td><b>${fmtInt(r.qty)}</b></td><td>${r.minPrice === r.maxPrice ? fmt(r.minPrice) : `${fmt(r.minPrice)} – ${fmt(r.maxPrice)}`}</td><td>${fmt(r.qty ? r.revenue / r.qty : 0)}</td><td><b>${fmt(r.revenue)}</b></td><td>${meta.revenue > 0 ? (r.revenue / meta.revenue * 100).toFixed(1) : '0.0'}%</td><td>${fmtInt(r.orders)}</td></tr>`).join('')
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Items Sold ${meta.from} → ${meta.to}</title>
   <style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;font-size:11px;color:#111}h2{margin:0 0 4px}.sub{color:#555;margin-bottom:10px}
   table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 5px;text-align:center}th{background:#0A1628;color:#fff;font-size:10.5px}thead{display:table-header-group}tr{page-break-inside:avoid}
   .m{color:#666;font-size:9.5px}.tot td{background:#f3ead0;font-weight:bold}.sum{display:flex;gap:18px;margin-bottom:10px}.sum div{border:1px solid #ddd;border-radius:6px;padding:6px 12px}</style></head><body>
   <h2>📦 Items Sold Report</h2><div class="sub">${meta.from} → ${meta.to} · ${esc(meta.branch)}</div>
-  <div class="sum"><div>Orders<br><b>${meta.orders}</b></div><div>Items sold<br><b>${meta.qty}</b></div><div>Sales (item value)<br><b>MYR ${fmt(meta.revenue)}</b></div></div>
+  <div class="sum"><div>Orders<br><b>${fmtInt(meta.orders)}</b></div><div>Items sold<br><b>${fmtInt(meta.qty)}</b></div><div>Sales (item value)<br><b>MYR ${fmt(meta.revenue)}</b></div></div>
   <table><thead><tr><th>#</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit price</th><th>Avg price</th><th>Total (MYR)</th><th>Share</th><th>Orders</th></tr></thead><tbody>${body}
-  <tr class="tot"><td colspan="3">TOTAL</td><td>${meta.qty}</td><td></td><td></td><td>${fmt(meta.revenue)}</td><td>100%</td><td>${meta.orders}</td></tr></tbody></table>
+  <tr class="tot"><td colspan="3">TOTAL</td><td>${fmtInt(meta.qty)}</td><td></td><td></td><td>${fmt(meta.revenue)}</td><td>100%</td><td>${fmtInt(meta.orders)}</td></tr></tbody></table>
   <div class="m" style="margin-top:8px">Sales = item price × quantity of paid, non-cancelled items (before discounts, service charge and SST).</div>
   <script>window.onload=function(){window.print()}<\/script></body></html>`)
   win.document.close()
@@ -4151,6 +4152,7 @@ export default function CashierPage() {
       {/* 📦 تقرير الأصناف المباعة خلال الفترة (كل الشيفتات) */}
       {itemsOpen && (() => {
         const fmt = (v: number) => v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const fmtInt = (v: number) => v.toLocaleString('en-US')
         const sorted = [...itemsRows].sort((a, b) => itemsSort === 'name' ? a.name.localeCompare(b.name) : itemsSort === 'revenue' ? b.revenue - a.revenue : b.qty - a.qty)
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 600, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: isMobile ? 8 : 20, overflowY: 'auto' }} onClick={() => setItemsOpen(false)}>
@@ -4176,7 +4178,7 @@ export default function CashierPage() {
               ) : (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 12 }}>
-                    {[{ l: 'Orders', v: String(itemsMeta.orders) }, { l: 'Items sold', v: String(itemsMeta.qty) }, { l: 'Distinct items', v: String(sorted.length) }, { l: 'Sales (item value)', v: `MYR ${fmt(itemsMeta.revenue)}` }].map((c, i) => (
+                    {[{ l: 'Orders', v: fmtInt(itemsMeta.orders) }, { l: 'Items sold', v: fmtInt(itemsMeta.qty) }, { l: 'Distinct items', v: fmtInt(sorted.length) }, { l: 'Sales (item value)', v: `MYR ${fmt(itemsMeta.revenue)}` }].map((c, i) => (
                       <div key={i} style={{ background: S.card, borderRadius: 10, padding: '9px 12px', textAlign: 'center' }}>
                         <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{c.v}</div>
                         <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>{c.l}</div>
@@ -4204,12 +4206,12 @@ export default function CashierPage() {
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{i + 1}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'left', color: S.white }}>{r.name}{r.size ? <span style={{ color: S.muted }}> ({r.size})</span> : null}{r.nameAr && r.nameAr !== r.name ? <div dir="rtl" style={{ fontSize: 10.5, color: S.muted }}>{r.nameAr}</div> : null}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{r.category}</td>
-                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.gold, fontWeight: 800 }}>{r.qty}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.gold, fontWeight: 800 }}>{fmtInt(r.qty)}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.white }}>{r.minPrice === r.maxPrice ? fmt(r.minPrice) : `${fmt(r.minPrice)} – ${fmt(r.maxPrice)}`}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{fmt(r.qty ? r.revenue / r.qty : 0)}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.green, fontWeight: 700 }}>{fmt(r.revenue)}</td>
                             <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{itemsMeta.revenue > 0 ? (r.revenue / itemsMeta.revenue * 100).toFixed(1) : '0.0'}%</td>
-                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{r.orders}</td>
+                            <td style={{ padding: '6px 8px', textAlign: 'center', color: S.muted }}>{fmtInt(r.orders)}</td>
                           </tr>
                         ))}
                       </tbody>

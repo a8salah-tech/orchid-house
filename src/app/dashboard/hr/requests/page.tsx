@@ -49,7 +49,7 @@ const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: str
   salary_increase: { label: 'زيادة راتب', label_en: 'Salary Increase', icon: '📈', color: S.green, bg: S.greenB, hasAmount: true },
   salary_advance:  { label: 'سلفة راتب', label_en: 'Salary Advance',   icon: '💸', color: S.gold,  bg: S.gold3,  hasAmount: true },
   early_exit_permit: { label: 'إذن خروج مبكر', label_en: 'Early Exit Permit', icon: '🚪', color: S.amber, bg: S.amberB, hasDates: true },
-  shift_assigned:  { label: 'تعيين شيفت', label_en: 'Shift Assigned',  icon: '🗓️', color: S.blue,  bg: S.blueB },
+  shift_assigned:  { label: 'تعيين شيفت', label_en: 'Shift Assigned',  icon: '🗓️', color: S.blue,  bg: S.blueB, hasDates: true },
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
@@ -77,6 +77,8 @@ interface EmployeeRequest {
   title: string; description: string; amount: number
   start_date: string; end_date: string; days_count: number
   approved_by: string; approved_at: string; rejection_reason: string
+  // ✅ طلب تعيين شيفت: الشيفت المطلوب (شيفت جاهز / وقت مخصص / إجازة) — يُطبَّق على shift_schedules عند الموافقة
+  requested_shift_id?: string | null; requested_custom_start?: string | null; requested_custom_end?: string | null; requested_day_off?: boolean | null
   // ✅ جديد: رابط التقرير الطبي المرفق (إجباري للإجازة المرضية فقط)
   attachment_url?: string | null
   // ✅ طلب زيادة الراتب المنظَّم: النسبة المطلوبة/المعتمدة وصورة فحص الاستحقاق والإنجازات وقت التقديم
@@ -494,7 +496,16 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
     correct_checkin: '', correct_checkout: '',
     // ✅ إذن خروج مبكر: ساعة الخروج المطلوبة
     permit_time: '',
+    // ✅ تعيين شيفت: نوع الطلب (شيفت جاهز / وقت مخصص / إجازة) وتفاصيله
+    shift_mode: 'shift' as 'shift' | 'custom' | 'off', shift_id: '', custom_start: '', custom_end: '',
   })
+  const [shiftList, setShiftList] = useState<{ id: string; name: string; start_time: string; end_time: string }[]>([])
+  // ✅ قائمة الشيفتات تُحمَّل عند اختيار نوع "تعيين شيفت" فقط (مرة واحدة)
+  async function loadShifts() {
+    if (shiftList.length > 0) return
+    const { data } = await supabase.from('shifts').select('id,name,start_time,end_time').eq('is_active', true).order('start_time')
+    setShiftList((data || []) as { id: string; name: string; start_time: string; end_time: string }[])
+  }
   const isSingleDate = form.request_type === 'attendance_correction' || form.request_type === 'early_exit_permit'
 
   const reqType = REQUEST_TYPES[form.request_type]
@@ -511,6 +522,11 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
     if (!form.employee_id || !form.request_type) { alert('يرجى اختيار الموظف ونوع الطلب'); return }
     if (!form.description) { alert('يرجى إدخال تفاصيل الطلب'); return }
     if (form.request_type === 'attendance_correction' && !form.start_date) { alert('يرجى تحديد تاريخ الحضور المراد تصحيحه'); return }
+    if (form.request_type === 'shift_assigned') {
+      if (!form.start_date) { alert('يرجى تحديد تاريخ بداية الشيفت المطلوب'); return }
+      if (form.shift_mode === 'shift' && !form.shift_id) { alert('يرجى اختيار الشيفت المطلوب'); return }
+      if (form.shift_mode === 'custom' && (!form.custom_start || !form.custom_end)) { alert('يرجى تحديد وقت البداية والنهاية'); return }
+    }
     if (form.request_type === 'early_exit_permit' && (!form.start_date || !form.permit_time)) { alert('يرجى تحديد تاريخ الإذن وساعة الخروج المطلوبة'); return }
     // ✅ جديد: إرفاق التقرير الطبي إجباري للإجازة المرضية فقط
     if (form.request_type === 'leave_sick' && !attachment) { alert('يرجى إرفاق تقرير طبي من الطبيب أو المستشفى'); return }
@@ -542,6 +558,13 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
       ? `\n\nتاريخ الحضور: ${form.start_date}\nوقت الدخول الصحيح: ${form.correct_checkin || '—'}\nوقت الخروج الصحيح: ${form.correct_checkout || '—'}`
       : ''
 
+    const pickedShift = shiftList.find(x => x.id === form.shift_id)
+    const shiftLabel = form.shift_mode === 'off' ? 'إجازة (بدون شيفت)'
+      : form.shift_mode === 'custom' ? `وقت مخصص ${form.custom_start} — ${form.custom_end}`
+      : pickedShift ? `${pickedShift.name} (${String(pickedShift.start_time).slice(0, 5)} — ${String(pickedShift.end_time).slice(0, 5)})` : ''
+    const shiftInfo = form.request_type === 'shift_assigned'
+      ? `\n\nالشيفت المطلوب: ${shiftLabel}\nمن ${form.start_date}${form.end_date && form.end_date !== form.start_date ? ' إلى ' + form.end_date : ''}\n(يُطبَّق على جدول الشيفتات تلقائياً عند موافقة المدير)`
+      : ''
     const permitInfo = form.request_type === 'early_exit_permit'
       ? `\n\nتاريخ الإذن: ${form.start_date}\nوقت الخروج المطلوب: ${form.permit_time || '—'}\n(يُخصم الوقت الفعلي المتبقي من الشيفت بسعر ساعة الموظف، عند الخروج الفعلي فقط)`
       : ''
@@ -550,7 +573,13 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
       employee_id: form.employee_id,
       request_type: form.request_type,
       title: form.title || reqType.label,
-      description: form.description + correctionInfo + permitInfo,
+      description: form.description + correctionInfo + permitInfo + shiftInfo,
+      ...(form.request_type === 'shift_assigned' ? {
+        requested_shift_id: form.shift_mode === 'shift' ? form.shift_id : null,
+        requested_custom_start: form.shift_mode === 'custom' ? form.custom_start : null,
+        requested_custom_end: form.shift_mode === 'custom' ? form.custom_end : null,
+        requested_day_off: form.shift_mode === 'off',
+      } : {}),
       permit_time: form.request_type === 'early_exit_permit' ? (form.permit_time || null) : null,
       amount: form.amount ? parseFloat(form.amount) : null,
       start_date: form.start_date || null,
@@ -583,12 +612,12 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
             {Object.entries(REQUEST_TYPES)
               .filter(([key]) => key !== 'salary_increase' && key !== 'salary_advance')
               .map(([key, cfg]) => (
-              <button key={key} onClick={() => setForm(p => ({
+              <button key={key} onClick={() => { if (key === 'shift_assigned') loadShifts(); setForm(p => ({
                 ...p,
                 request_type: key,
                 // ✅ تصحيح الحضور دائماً بتاريخ اليوم تلقائياً (بلا تقويم يدوي) — نضبطها هنا فور اختيار النوع
                 start_date: key === 'attendance_correction' ? todayStr : p.start_date,
-              }))}
+              })) }}
                 style={{ padding: '10px 8px', borderRadius: 10, border: `1px solid ${form.request_type === key ? cfg.color : S.border}`, background: form.request_type === key ? cfg.bg : 'transparent', color: form.request_type === key ? cfg.color : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: form.request_type === key ? 700 : 400, textAlign: 'center', transition: 'all .2s' }}>
                 <div style={{ fontSize: 20, marginBottom: 4 }}>{cfg.icon}</div>
                 {isAr ? cfg.label : cfg.label_en}
@@ -696,6 +725,34 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
               <div style={{ fontSize: 11, color: S.muted, marginTop: 8 }}>
                 Leave empty if you only want to correct one time
               </div>
+            </div>
+          )}
+
+          {/* تعيين شيفت: اختيار الشيفت المطلوب */}
+          {form.request_type === 'shift_assigned' && (
+            <div style={{ background: S.blueB, border: `1px solid ${S.blue}30`, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 12, color: S.blue, fontWeight: 700, marginBottom: 10 }}>🗓️ الشيفت المطلوب</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                {([['shift', 'شيفت جاهز'], ['custom', 'وقت مخصص'], ['off', 'إجازة']] as const).map(([k, label]) => (
+                  <button key={k} type="button" onClick={() => setForm(p => ({ ...p, shift_mode: k }))}
+                    style={{ padding: '7px 14px', borderRadius: 20, border: `1px solid ${form.shift_mode === k ? S.blue : S.border}`, background: form.shift_mode === k ? S.blueB : 'transparent', color: form.shift_mode === k ? S.blue : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{label}</button>
+                ))}
+              </div>
+              {form.shift_mode === 'shift' && (
+                <select style={{ ...inp }} value={form.shift_id} onChange={e => setForm(p => ({ ...p, shift_id: e.target.value }))}>
+                  <option value="">اختر الشيفت</option>
+                  {shiftList.map(sh => <option key={sh.id} value={sh.id}>{sh.name} — {String(sh.start_time).slice(0, 5)} → {String(sh.end_time).slice(0, 5)}</option>)}
+                </select>
+              )}
+              {form.shift_mode === 'custom' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div><label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>من</label>
+                    <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.custom_start} onChange={e => setForm(p => ({ ...p, custom_start: e.target.value }))} /></div>
+                  <div><label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>إلى</label>
+                    <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.custom_end} onChange={e => setForm(p => ({ ...p, custom_end: e.target.value }))} /></div>
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: S.muted, marginTop: 10, lineHeight: 1.7 }}>حدّد التاريخ (من/إلى) أعلاه، واكتب سبب التغيير في «تفاصيل الطلب». بعد موافقة المدير يتعدّل جدول شيفتاتك تلقائياً لهذه الأيام.</div>
             </div>
           )}
 
@@ -857,9 +914,48 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   const reqType = REQUEST_TYPES[request.request_type] || REQUEST_TYPES.other
   const status = STATUS_CONFIG[request.status] || STATUS_CONFIG.pending
 
+  // ✅ طلب تعيين شيفت: عند الموافقة نكتب الشيفت المطلوب في shift_schedules لكل أيام الطلب (من start_date إلى end_date).
+  // الأيام الماضية لا تُلمَس إلا لمدير النظام (نفس قاعدة صفحة إدارة الشيفتات). لو فشل الحفظ نرجّع الجدول القديم ولا نغيّر حالة الطلب.
+  async function applyShiftChange(): Promise<boolean> {
+    const start = request.start_date
+    const end = request.end_date || request.start_date
+    if (!start) { alert('الطلب بلا تاريخ — لا يمكن تطبيقه على الجدول'); return false }
+    const todayMY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+    const dates: string[] = []
+    for (let d = new Date(start + 'T00:00:00Z'); d <= new Date(end + 'T00:00:00Z') && dates.length <= 62; d.setUTCDate(d.getUTCDate() + 1)) dates.push(d.toISOString().slice(0, 10))
+    if (dates.length > 62) { alert('المدة أطول من 62 يوماً — قلّلها'); return false }
+    const editable = isAdmin ? dates : dates.filter(d => d >= todayMY)
+    if (editable.length === 0) { alert('كل تواريخ هذا الطلب في الماضي — لا يمكن تعديل الجدول'); return false }
+    const { data: oldRows, error: oldErr } = await supabase.from('shift_schedules').select('*').eq('employee_id', request.employee_id).in('date', editable)
+    if (oldErr) { alert('تعذّر قراءة الجدول الحالي: ' + oldErr.message); return false }
+    const { error: delErr } = await supabase.from('shift_schedules').delete().eq('employee_id', request.employee_id).in('date', editable)
+    if (delErr) { alert('تعذّر تعديل الجدول: ' + delErr.message); return false }
+    const newRows = editable.map(date => ({
+      employee_id: request.employee_id, date, status: 'confirmed',
+      shift_id: request.requested_shift_id || null,
+      custom_start: request.requested_custom_start || null,
+      custom_end: request.requested_custom_end || null,
+      assigned_by: currentUser?.id || null,
+    }))
+    const { error: insErr } = await supabase.from('shift_schedules').insert(newRows)
+    if (insErr) {
+      if (oldRows && oldRows.length > 0) await supabase.from('shift_schedules').insert(oldRows.map((r: Record<string, unknown>) => { const c = { ...r }; delete c.id; return c }))
+      alert('تعذّر حفظ الشيفت الجديد، وأُعيد الجدول القديم: ' + insErr.message)
+      return false
+    }
+    if (editable.length < dates.length) alert(`ملاحظة: تجاوز النظام ${dates.length - editable.length} يوماً ماضياً (لا يُعدَّل إلا بمعرفة مدير النظام).`)
+    return true
+  }
+
   async function updateStatus(newStatus: string) {
     if (newStatus === 'approved' && !approvedBy) { alert('يرجى إدخال اسم المعتمد'); return }
     if (newStatus === 'rejected' && !rejectionReason) { alert('يرجى إدخال سبب الرفض'); return }
+
+    // ✅ تعيين شيفت: نطبّق الشيفت على الجدول أولاً (فقط للطلبات المنظَّمة الجديدة، لا لإشعارات الجدول التلقائية القديمة)
+    const hasShiftPayload = !!(request.requested_shift_id || request.requested_custom_start || request.requested_day_off)
+    if (request.request_type === 'shift_assigned' && hasShiftPayload && request.status === 'pending' && (newStatus === 'approved' || newStatus === 'completed')) {
+      if (!(await applyShiftChange())) return
+    }
 
     // ✅ سلفة الراتب: عند "تأكيد التسليم/الاعتماد" المعتمِد يحدد المبلغ المعتمد فعلياً (يبدأ بالمطلوب،
     // ويمكن تقليله). المبلغ المعتمد هو اللي يتثبت في الطلب ويُخصم من الراتب — مثال: طلب 400، اعتُمد 300

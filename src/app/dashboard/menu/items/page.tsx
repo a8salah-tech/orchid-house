@@ -892,7 +892,8 @@ export default function MenuItemsPage() {
     if (top.error) console.warn('app_menu_top_items:', top.error.message)
     setTopOrders((top.data as any) || [])
     setLoading(false)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 

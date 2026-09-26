@@ -1669,7 +1669,7 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
 }
 
 // ══ Add Order Modal ══
-function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: string; tableName: string; onClose: () => void; onSaved: () => void }) {
+function AddOrderModal({ tableId, tableName, branchId, onClose, onSaved }: { tableId: string; tableName: string; branchId?: string; onClose: () => void; onSaved: () => void }) {
   const sb = createClient()
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
@@ -1688,10 +1688,11 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
 
   useEffect(() => {
     Promise.all([
-      sb.from('menu_categories').select('id,name,name_en').eq('is_active', true).order('sort_order'),
+      // ✅ منيو مستقل لكل فرع: أقسام وأصناف فرع الطاولة فقط
+      sb.from('menu_categories').select('id,name,name_en').eq('is_active', true).eq('branch_id', branchId || '').order('sort_order'),
       // ✅ Fix حرج: الاستعلام القديم كان بيفلتر بـ is_available بس، وده مكنش كافي - أصناف اتحذفت من المنيو (is_active: false)
       // كانت لسه بتظهر في شاشة "Add Order" بتاعة الكاشير طالما is_available فضلت true، فكان ممكن الكاشير يضيف صنف محذوف بالغلط
-      sb.from('menu_items').select('id,name,name_en,price,category_id,or_code,is_active,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('name'),
+      sb.from('menu_items').select('id,name,name_en,price,category_id,or_code,is_active,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).eq('branch_id', branchId || '').order('name'),
     ]).then(([cats, itms]) => {
       setCategories(cats.data || [])
       // ✅ نستبعد بس الأصناف اللي اتحدد لها is_active = false صراحةً (يعني اتحذفت فعلًا)
@@ -1749,7 +1750,7 @@ function AddOrderModal({ tableId, tableName, onClose, onSaved }: { tableId: stri
         name: row.name.trim(), name_en: row.name.trim(), price,
         // ✅ Fix: is_active بقى false كمان (مش is_available بس) - عشان يختفي تمامًا من صفحة إدارة المنيو نفسها،
         // اللي بتستبعد الأصناف الملغى تنشيطها (is_active=false)، مش بس الأصناف "متوقفة مؤقتًا" (is_available=false)
-        is_available: false, is_active: false, category_id: null,
+        is_available: false, is_active: false, category_id: null, branch_id: branchId,
       }]).select('id, name, name_en, price, category_id').single()
       if (error || !newMenuItem) { alert('حصل خطأ أثناء إضافة الصنف: ' + (error?.message || '')); continue }
       newCartEntries.push({ item: newMenuItem as MenuItem, qty: 1, notes: row.notes.trim() })
@@ -4378,7 +4379,7 @@ export default function CashierPage() {
           onTransferred={() => { setTransferOrder(null); fetchAll() }}
         />
       )}
-      {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
+      {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} branchId={addOrderTable.branch_id} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
       {/* ✅ جديد: مودال اختيار الطاولة الشريكة للدمج المؤقت */}
       {mergePickerTable && (
         <div onClick={() => setMergePickerTable(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>

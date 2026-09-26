@@ -687,8 +687,8 @@ function CustomerMenuInner() {
       if (!tbl) { setNotFound(true); setLoading(false); return }
       setTable(tbl)
       const [cats, itms, revs] = await Promise.all([
-        sb.from('menu_categories').select('id,name,name_en,name_ms,name_zh,name_ru,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).order('sort_order'),
-        sb.from('menu_items') .select('id,name,name_en,name_ms,name_zh,name_ru,price,discount_percent,description,description_en,description_ms,description_zh,description_ru,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,name_ms,name_zh,name_ru,price,is_active)') .eq('is_available', true) .eq('is_active', true) ,
+        sb.from('menu_categories').select('id,name,name_en,name_ms,name_zh,name_ru,destination,available_days,available_from,available_to,time_badge_ar,time_badge_en').eq('is_active', true).eq('branch_id', tbl.branch_id).order('sort_order'),
+        sb.from('menu_items') .select('id,name,name_en,name_ms,name_zh,name_ru,price,discount_percent,description,description_en,description_ms,description_zh,description_ru,category_id,is_available,image_url,sort_order,menu_categories(sort_order),sizes:menu_item_sizes(id,name,name_en,name_ms,name_zh,name_ru,price,is_active)') .eq('is_available', true) .eq('is_active', true) .eq('branch_id', tbl.branch_id) ,
         // ✅ التقييمات المعتمدة فقط — التقييمات الجديدة تظهر بعد مراجعة الإدارة (status='approved')
         sb.from('menu_item_reviews').select('id,menu_item_id,stars,review_text,reviewer_name,created_at').eq('status', 'approved').order('created_at', { ascending: false })
       ])

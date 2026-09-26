@@ -77,10 +77,12 @@ export default function QuotationPage() {
   const [categories, setCategories] = useState<{ id: string; name_en: string; name: string }[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
   useEffect(() => {
-    sb.from('menu_categories').select('id,name_en,name').eq('is_active', true).order('sort_order').then(({ data }) => setCategories(data || []))
-    sb.from('menu_items').select('id,name_en,price,or_code,category_id,sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).order('name_en')
+    // ✅ منيو مستقل لكل فرع: أقسام وأصناف الفرع المختار فقط
+    if (!branchId) return
+    sb.from('menu_categories').select('id,name_en,name').eq('is_active', true).eq('branch_id', branchId).order('sort_order').then(({ data }) => setCategories(data || []))
+    sb.from('menu_items').select('id,name_en,price,or_code,category_id,sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).eq('branch_id', branchId).order('name_en')
       .then(({ data }) => setItems((data as any) || []))
-  }, [sb])
+  }, [sb, branchId])
 
   const [quoteTo, setQuoteTo] = useState('')
   const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().split('T')[0])

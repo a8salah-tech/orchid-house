@@ -48,7 +48,7 @@ const BUFFET_TYPE_LABEL: Record<string, { label: string; icon: string; color: st
 // ══ Types ══
 interface Branch { id: string; name: string }
 interface EmployeeLite { id: string; name: string; role: string; branch_id: string; is_active: boolean }
-interface MenuItemLite { id: string; name: string; name_en: string; price: number; category_id: string }
+interface MenuItemLite { id: string; name: string; name_en: string; price: number; category_id: string; branch_id?: string }
 interface BuffetItem { id?: string; menu_item_id: string | null; item_name: string; quantity: number; unit_price: number }
 interface BuffetConfirmation {
   id?: string; buffet_order_id: string
@@ -145,7 +145,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
   const [error, setError] = useState('')
 
   const filteredMenu = menuSearch.trim()
-    ? menuItems.filter(m => m.name.includes(menuSearch) || m.name_en?.toLowerCase().includes(menuSearch.toLowerCase())).slice(0, 8)
+    ? menuItems.filter(m => (!branchId || m.branch_id === branchId) && (m.name.includes(menuSearch) || m.name_en?.toLowerCase().includes(menuSearch.toLowerCase()))).slice(0, 8)
     : []
 
   function addFromMenu(m: MenuItemLite) {
@@ -823,7 +823,7 @@ export default function BuffetPage() {
     const [br, emp, mi] = await Promise.all([
       supabase.from('branches').select('id,name').eq('is_active', true),
       supabase.from('employees').select('id,name,role,branch_id,is_active'),
-      supabase.from('menu_items').select('id,name,name_en,price,category_id').eq('is_active', true).eq('is_available', true),
+      supabase.from('menu_items').select('id,name,name_en,price,category_id,branch_id').eq('is_active', true).eq('is_available', true),
     ])
     setBranches(br.data || [])
     setEmployees(emp.data || [])

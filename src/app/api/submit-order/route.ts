@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     // ── جلب الأسعار الرسمية من قاعدة البيانات ──
     const { data: menuItems, error: miErr } = await sb
       .from('menu_items')
-      .select('id, name, name_en, price, discount_percent, category_id, is_available, is_active')
+      .select('id, name, name_en, price, discount_percent, category_id, is_available, is_active, branch_id')
       .in('id', menuItemIds)
     if (miErr) return NextResponse.json({ error: miErr.message }, { status: 500 })
     const miMap = new Map((menuItems || []).map((m) => [m.id, m]))
@@ -119,6 +119,8 @@ export async function POST(req: NextRequest) {
     for (const line of items) {
       const mi = miMap.get(line.menuItemId)
       if (!mi) return NextResponse.json({ error: 'صنف غير موجود في المنيو' }, { status: 400 })
+      // ✅ منيو مستقل لكل فرع: لا يُقبل صنف من منيو فرع آخر
+      if (tableRow.branch_id && mi.branch_id !== tableRow.branch_id) return NextResponse.json({ error: 'صنف غير موجود في منيو هذا الفرع', code: 'WRONG_BRANCH_ITEM' }, { status: 400 })
       if (mi.is_available === false || mi.is_active === false) {
         return NextResponse.json({ error: `الصنف "${mi.name_en || mi.name}" غير متاح حالياً` }, { status: 409 })
       }

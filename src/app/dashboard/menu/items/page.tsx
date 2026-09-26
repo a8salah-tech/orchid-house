@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useLang } from '../../../components/LanguageContext'
+import { useAuth } from '../../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -111,8 +112,8 @@ async function uploadToStorage(supabase: ReturnType<typeof createClient>, file: 
 }
 
 // ══ Add/Edit Item Modal ══
-function ItemModal({ item, categories, onClose, onSaved }: {
-  item?: MenuItem | null; categories: Category[]
+function ItemModal({ item, categories, branchId, onClose, onSaved }: {
+  item?: MenuItem | null; categories: Category[]; branchId: string
   onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
@@ -159,7 +160,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
     // ✅ التحقق من عدم تكرار كود الصنف (OR-code) على أي صنف تاني
     const trimmedCode = form.or_code.trim()
     if (trimmedCode) {
-      let dupQuery = supabase.from('menu_items').select('id,name').eq('or_code', trimmedCode).eq('is_active', true)
+      let dupQuery = supabase.from('menu_items').select('id,name').eq('or_code', trimmedCode).eq('is_active', true).eq('branch_id', branchId)
       if (item?.id) dupQuery = dupQuery.neq('id', item.id)
       const { data: dup } = await dupQuery.maybeSingle()
       if (dup) {
@@ -206,6 +207,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
       is_active: (form as any).is_active !== false,
       image_url: finalImageUrl,
       ...(trimmedCode ? { sort_order: derivedSortOrder } : {}),
+      ...(item ? {} : { branch_id: branchId }),
     }
 
     let error
@@ -438,7 +440,7 @@ function ItemModal({ item, categories, onClose, onSaved }: {
 }
 
 // ══ Add Category Modal ══
-function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function AddCategoryModal({ branchId, onClose, onSaved }: { branchId: string; onClose: () => void; onSaved: () => void }) {
   const supabase = createClient()
   const { isAr } = useLang()
   const [saving, setSaving] = useState(false)
@@ -453,11 +455,12 @@ function AddCategoryModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
       .from('menu_categories')
       .select('sort_order')
       .eq('is_active', true)
+      .eq('branch_id', branchId)
       .order('sort_order', { ascending: false })
       .limit(1)
       .maybeSingle()
     const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
-    const { error } = await supabase.from('menu_categories').insert([{ ...form, name_en: form.name_en || null, name_ms: form.name_ms || null, is_active: true, sort_order: nextSortOrder }])
+    const { error } = await supabase.from('menu_categories').insert([{ ...form, name_en: form.name_en || null, name_ms: form.name_ms || null, is_active: true, sort_order: nextSortOrder, branch_id: branchId }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
     onSaved()
@@ -538,7 +541,7 @@ function calcIngCost(ing: any): number {
 }
 
 // ══ Ingredients Modal ══
-function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => void }) {
+function IngredientsModal({ item, branchId, onClose }: { item: MenuItem; branchId: string; onClose: () => void }) {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   const { isAr } = useLang()
@@ -586,16 +589,19 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
         .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
         .eq('menu_item_id', item.id),
       sb.from('warehouse_products')
-        .select('id, name, category, last_purchase_price, units(symbol)')
+        .select('id, name, category, last_purchase_price, warehouse_id, units(symbol)')
         .eq('is_active', true).order('category').order('name'),
-    ]).then(([ing, prods]) => {
+      // ✅ منتجات مستودعات فرع الصنف فقط (+ المستودعات العامة بلا فرع)
+      sb.from('warehouses').select('id, branch_id'),
+    ]).then(([ing, prods, whs]) => {
       const rows = ing.data || []
       setIngredients(rows)
       setQuantities(Object.fromEntries(rows.map((r: any) => [r.id, r.quantity?.toString() ?? ''])))
-      setProducts(prods.data || [])
+      const okWh = new Set(((whs.data || []) as { id: string; branch_id: string | null }[]).filter(w => !w.branch_id || w.branch_id === branchId).map(w => w.id))
+      setProducts(((prods.data || []) as { warehouse_id: string | null }[]).filter(p => !p.warehouse_id || okWh.has(p.warehouse_id)))
       setLoading(false)
     })
-  }, [item.id, sb])
+  }, [item.id, sb, branchId])
 
   async function addIngredient() {
     const { data } = await sb.from('menu_item_ingredients')
@@ -834,6 +840,23 @@ function IngredientsModal({ item, onClose }: { item: MenuItem; onClose: () => vo
 
 export default function MenuItemsPage() {
   const supabase = createClient()
+  const { employee, permissions } = useAuth()
+  const isSuperAdmin = permissions?.all === true
+  // ✅ منيو مستقل لكل فرع: مدير النظام يختار الفرع، ومدير الفرع يرى فرعه فقط
+  const [branchList, setBranchList] = useState<{ id: string; name: string }[]>([])
+  const [adminBranch, setAdminBranch] = useState<string>('')
+  const branchId: string = isSuperAdmin ? adminBranch : (employee?.branch_id || '')
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    supabase.from('branches').select('id,name').eq('is_active', true).order('name').then(({ data }) => {
+      const list = (data || []) as { id: string; name: string }[]
+      setBranchList(list)
+      let saved = ''
+      try { saved = localStorage.getItem('menu-admin-branch') || '' } catch { /* ignore */ }
+      setAdminBranch(list.find(b => b.id === saved)?.id || list[0]?.id || '')
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin])
   const { isAr } = useLang()
   const [lang] = useState<'ar'|'en'>(() => typeof window !== 'undefined' ? (localStorage.getItem('dashboard-lang') as 'ar'|'en' || 'ar') : 'ar')
   const [categories, setCategories] = useState<Category[]>([])
@@ -853,10 +876,11 @@ export default function MenuItemsPage() {
   const [topOrders, setTopOrders] = useState<{ menu_item_id: string; times_ordered: number; units: number }[]>([])
 
   const fetchAll = useCallback(async () => {
+    if (!branchId) { setLoading(false); return }
     setLoading(true)
     const [cats, itms, top] = await Promise.all([
-      supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('menu_items').select('id, category_id, name, name_en, name_ms, or_code, description, description_en, description_ms, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).order('sort_order').order('name'),
+      supabase.from('menu_categories').select('*').eq('is_active', true).eq('branch_id', branchId).order('sort_order'),
+      supabase.from('menu_items').select('id, category_id, name, name_en, name_ms, or_code, description, description_en, description_ms, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).eq('branch_id', branchId).order('sort_order').order('name'),
       supabase.rpc('app_menu_top_items', { p_limit: 10, p_days: 90 }),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
@@ -959,7 +983,13 @@ export default function MenuItemsPage() {
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>📖 قائمة الطعام</h1>
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'إدارة أصناف المنيو والأسعار والصور' : 'Manage menu items, prices and images'}</p>
         </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          {isSuperAdmin && branchList.length > 0 && (
+            <select value={adminBranch} onChange={e => { setAdminBranch(e.target.value); setSelectedCat('all'); try { localStorage.setItem('menu-admin-branch', e.target.value) } catch { /* ignore */ } }}
+              style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              {branchList.map(b => <option key={b.id} value={b.id}>🏪 {b.name}</option>)}
+            </select>
+          )}
           <button onClick={() => setShowAddCat(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
             📁 قسم جديد
           </button>
@@ -1282,15 +1312,17 @@ export default function MenuItemsPage() {
         <ItemModal
           item={editItem}
           categories={categories}
+          branchId={branchId}
           onClose={() => { setShowAddItem(false); setEditItem(null) }}
           onSaved={() => { setShowAddItem(false); setEditItem(null); fetchAll() }}
         />
       )}
       {ingredientsItem && (
-        <IngredientsModal item={ingredientsItem} onClose={() => setIngredientsItem(null)} />
+        <IngredientsModal item={ingredientsItem} branchId={branchId} onClose={() => setIngredientsItem(null)} />
       )}
       {showAddCat && (
         <AddCategoryModal
+          branchId={branchId}
           onClose={() => setShowAddCat(false)}
           onSaved={() => { setShowAddCat(false); fetchAll() }}
         />

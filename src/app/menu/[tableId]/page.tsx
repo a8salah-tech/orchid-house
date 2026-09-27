@@ -1326,6 +1326,10 @@ const filteredItems = items
           {t('order_more')}
         </button>
 
+        {/* ✅ بناءً على طلب المستخدم: شريط الأصناف المميزة الأربعة ينزل مباشرة تحت "اطلب المزيد"،
+            مش آخر حاجة في نهاية الصفحة (كان بعد قسم "تابعنا") */}
+        <div style={{ marginTop:24 }}>{renderFeatured(0)}</div>
+
         {/* ✅ تقييم الأطباق — لمسة واضحة بعد الطلب: نجوم سريعة لكل صنف طلبه العميل (تروح "قيد المراجعة") */}
         {(() => {
           const rateable = liveOrderItems.filter(i => i.menu_item_id)
@@ -1562,7 +1566,6 @@ const filteredItems = items
             ))}
           </div>
         </div>
-        <div style={{ marginTop:24 }}>{renderFeatured(0)}</div>
       </div>
       {globalNotices}
     </div>

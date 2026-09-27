@@ -34,7 +34,9 @@ export async function POST(req: NextRequest) {
     // ── إنشاء حجز ──
     if (action === 'submit') {
       const f = body?.booking || {}
-      const required = ['customer_name', 'customer_email', 'customer_phone', 'booking_date', 'booking_time', 'section', 'table_id']
+      // ✅ Fix per user request: العميل لم يعد يختار طاولة بعينها من صفحة الحجز (كان يلخبط العملاء) —
+      // table_id لم يعد مطلوباً، الموظف يحدد الطاولة الفعلية لاحقاً من صفحة الحجوزات
+      const required = ['customer_name', 'customer_email', 'customer_phone', 'booking_date', 'booking_time', 'section']
       for (const k of required) {
         if (!f[k]) return NextResponse.json({ error: `حقل مفقود: ${k}` }, { status: 400 })
       }

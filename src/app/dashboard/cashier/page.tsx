@@ -473,7 +473,7 @@ function lastOrderTime(order?: Order | null): string | null {
 }
 
 // ══ Payment Modal ══
-function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tables, activeShiftCashierName }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onPaymentStart?: (tableId: string) => void; onTransfer: (order: Order) => void; tables?: TableRow[]; activeShiftCashierName?: string | null }) {
+function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTransfer, tables, activeShiftCashierName }: { order: Order & { mergedTableId?: string; mergeId?: string }; onClose: () => void; onPaid: () => void; onMoved?: () => void; onPaymentStart?: (tableId: string) => void; onTransfer: (order: Order) => void; tables?: TableRow[]; activeShiftCashierName?: string | null }) {
   const sb = createClient()
   const { employee, permissions } = useAuth()
   // ✅ Fix: مساعد الكاشير (assistant_cashier) بقى نفس مستوى موظف/مشرف الصالة بالظبط - مش صلاحيات كاشير كاملة
@@ -651,7 +651,9 @@ function PaymentModal({ order, onClose, onPaid, onPaymentStart, onTransfer, tabl
     setMoveDestTableId('')
     setMoveCancelReasonPrompt(false)
     setMoveCancelReason('')
-    onPaid() // نعيد تحميل البيانات وإغلاق المودال، بنفس أثر إتمام أي عملية
+    // ✅ Fix: النقل ليس دفعاً — كان يستدعي onPaid فتُخفى كل أصناف الطاولة وتظهر فاضية/مقفلة حتى بعد نقل صنف واحد فقط.
+    // الآن نغلق المودال ونعيد التحميل فقط، فتبقى الطاولة وباقي أصنافها كما هي في قاعدة البيانات
+    if (onMoved) onMoved(); else onPaid()
     } catch (err: any) {
       console.error('moveSelectedItemsToTable error:', err)
       alert('⚠️ Move failed: ' + (err?.message || 'Unknown error') + '\n\nPlease try again or contact support.')
@@ -4350,6 +4352,7 @@ export default function CashierPage() {
       )}
 
       {payOrder && <PaymentModal order={payOrder} tables={tables} activeShiftCashierName={activeShiftCashierName}
+        onMoved={() => { setPayOrder(null); fetchAll() }}
         onPaymentStart={(tableId) => {
           // ✅ Fix حرج: نستبعد الطاولة من أول لحظة تبدأ فيها عملية الدفع (قبل ما تخلص خالص) - عشان أي
           // تحديث شاشة يحصل أثناء خطوات الدفع (زي دمج طلب مكرر في Split Payment) ميرجّعش الطلب بالغلط

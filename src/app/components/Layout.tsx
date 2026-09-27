@@ -109,7 +109,7 @@ const ALL_MENU: MenuGroup[] = [
   { group: 'قائمة الطعام', items: [
     { label: 'الأصناف (المنيو)', label_en: 'Menu Items', icon: '📖', path: '/dashboard/menu/items', permission: 'menu_manage' },
     // ✅ جديد: تقييمات وتعليقات العملاء على أصناف المنيو (صفحة المنيو العامة) - أدمن فقط
-    { label: 'تقييمات العملاء', label_en: 'Customer Reviews', icon: '⭐', path: '/dashboard/menu/reviews', permission: 'admin_only' },
+    { label: 'تقييمات العملاء', label_en: 'Customer Reviews', icon: '⭐', path: '/dashboard/menu/reviews', permission: 'menu_manage' },
   ]},
   { group: 'العملاء والبيع', items: [
     { label: 'حجوزات العملاء',       label_en: 'Reservations',     icon: '📅', path: '/dashboard/bookings',  permission: 'bookings' },

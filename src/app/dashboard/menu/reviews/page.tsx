@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useLang } from '../../../components/LanguageContext'
+import { useAuth } from '../../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -113,6 +114,23 @@ export default function MenuReviewsPage() {
   const { isAr } = useLang()
   const t = T[isAr ? 'ar' : 'en']
   const supabase = createClient()
+  const { employee, permissions } = useAuth()
+  const isSuperAdmin = permissions?.all === true
+  // ✅ منيو مستقل لكل فرع: تقييمات أصناف فرع واحد — مدير النظام يختار الفرع، ومدير الفرع يرى فرعه فقط
+  const [branchList, setBranchList] = useState<{ id: string; name: string }[]>([])
+  const [adminBranch, setAdminBranch] = useState('')
+  const branchId = isSuperAdmin ? adminBranch : (employee?.branch_id || '')
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    supabase.from('branches').select('id,name').eq('is_active', true).order('name').then(({ data }) => {
+      const list = (data || []) as { id: string; name: string }[]
+      setBranchList(list)
+      let saved = ''
+      try { saved = localStorage.getItem('menu-admin-branch') || '' } catch { /* ignore */ }
+      setAdminBranch(list.find(b => b.id === saved)?.id || list[0]?.id || '')
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin])
 
   const [reviews, setReviews] = useState<Review[]>([])
   const [loading, setLoading] = useState(true)
@@ -125,14 +143,17 @@ export default function MenuReviewsPage() {
   const [page, setPage] = useState(1)
 
   const fetchReviews = useCallback(async () => {
+    if (!branchId) { setLoading(false); return }
     setLoading(true)
     const { data } = await supabase
       .from('menu_item_reviews')
-      .select('id,menu_item_id,stars,review_text,reviewer_name,created_at,status,menu_items(name,name_en,image_url)')
+      .select('id,menu_item_id,stars,review_text,reviewer_name,created_at,status,menu_items!inner(name,name_en,image_url,branch_id)')
+      .eq('menu_items.branch_id', branchId)
       .order('created_at', { ascending: false })
     setReviews((data as unknown as Review[]) || [])
     setLoading(false)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId])
 
   useEffect(() => { fetchReviews() }, [fetchReviews])
 
@@ -213,9 +234,17 @@ export default function MenuReviewsPage() {
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: isAr ? 'rtl' : 'ltr', color: S.white }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');`}</style>
 
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>{t.title}</h1>
-        <p style={{ fontSize: 13, color: S.muted }}>{t.desc}</p>
+      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>{t.title}</h1>
+          <p style={{ fontSize: 13, color: S.muted }}>{t.desc}</p>
+        </div>
+        {isSuperAdmin && branchList.length > 0 && (
+          <select value={adminBranch} onChange={e => { setAdminBranch(e.target.value); try { localStorage.setItem('menu-admin-branch', e.target.value) } catch { /* ignore */ } }}
+            style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.navy2, color: S.gold, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+            {branchList.map(b => <option key={b.id} value={b.id}>🏪 {b.name}</option>)}
+          </select>
+        )}
       </div>
 
       {/* ── إحصائيات سريعة ── */}

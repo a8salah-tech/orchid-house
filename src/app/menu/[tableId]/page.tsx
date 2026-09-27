@@ -1887,6 +1887,9 @@ const filteredItems = items
           </div>
           )
         })}
+        {/* ✅ بناءً على طلب المستخدم: ملاحظة الأسعار (خدمة 10% + SST 6%) تظهر تحت قائمة الأصناف مباشرة،
+            وليست داخل نافذة تأكيد الطلب المنبثقة */}
+        <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:11.5, color:C.blue2, lineHeight:1.6, marginBottom:14, background:'rgba(0,200,200,.08)', border:`1px solid ${C.border2}`, borderRadius:12, padding:'8px 12px', textAlign:'center' }}>ℹ️ {t('price_note')}</div>
         <button onClick={startConfirm} disabled={submitting}
           style={{ width:'100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border:'none', borderRadius:18, padding:'17px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight:900, fontSize:16, color:C.white, boxShadow: submitting ? 'none' : `0 8px 32px ${C.glow2}` }}>
           {submitting ? t('placing_order') : t('confirm_order', cartCount)}
@@ -1937,8 +1940,7 @@ const filteredItems = items
           <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:24, padding:'28px 24px', maxWidth:380, width:'100%', border:`1px solid ${C.border2}`, textAlign:'center' }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
             <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:18, fontWeight:900, color:C.white, marginBottom:10 }}>{t('confirm_dialog_title')}</div>
-            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:16 }}>{t('confirm_dialog_msg')}</div>
-            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:11.5, color:C.blue2, lineHeight:1.6, marginBottom:24, background:'rgba(0,200,200,.08)', border:`1px solid ${C.border2}`, borderRadius:12, padding:'8px 12px' }}>ℹ️ {t('price_note')}</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:24 }}>{t('confirm_dialog_msg')}</div>
             <div style={{ display:'flex', gap:10 }}>
               <button onClick={() => setShowConfirmDialog(false)}
                 style={{ flex:1, background:'rgba(255,255,255,.06)', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:800, fontSize:14, color:C.silver2 }}>

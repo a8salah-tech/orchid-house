@@ -86,7 +86,7 @@ const TR: Record<Lang, Record<string, string>> = {
     special_request: 'Special request… e.g. no onion',
     placing_order: '⏳ Placing order…', confirm_order: '✅ Confirm Order — {x} items',
     confirm_dialog_title: 'Confirm Order', confirm_dialog_msg: 'Your order will be sent directly to the kitchen for preparation.',
-    confirm_dialog_yes: '✅ Confirm', confirm_dialog_no: 'Cancel',
+    confirm_dialog_yes: '✅ Confirm', confirm_dialog_no: 'Cancel', price_note: 'All prices are subject to 10% service charge and 6% SST.',
     waiter_coming: '✅ On the way!', call_waiter: '🔔 Call Waiter',
     search_dishes: 'Search dishes…', cat_all: 'All', no_items: 'No items found',
     be_first_rate: '🆕 Be the first to rate', view_order: '🛒 View Order ({x} items)',
@@ -158,7 +158,7 @@ const TR: Record<Lang, Record<string, string>> = {
     special_request: 'Permintaan khas… cth. tanpa bawang',
     placing_order: '⏳ Menghantar pesanan…', confirm_order: '✅ Sahkan Pesanan — {x} item',
     confirm_dialog_title: 'Sahkan Pesanan', confirm_dialog_msg: 'Pesanan anda akan dihantar terus ke dapur untuk disediakan.',
-    confirm_dialog_yes: '✅ Sahkan', confirm_dialog_no: 'Batal',
+    confirm_dialog_yes: '✅ Sahkan', confirm_dialog_no: 'Batal', price_note: 'Semua harga tertakluk kepada caj perkhidmatan 10% dan SST 6%.',
     waiter_coming: '✅ Dalam perjalanan!', call_waiter: '🔔 Panggil Pelayan',
     search_dishes: 'Cari hidangan…', cat_all: 'Semua', no_items: 'Tiada item dijumpai',
     be_first_rate: '🆕 Jadi yang pertama menilai', view_order: '🛒 Lihat Pesanan ({x} item)',
@@ -230,7 +230,7 @@ const TR: Record<Lang, Record<string, string>> = {
     special_request: 'طلب خاص… مثال: بدون بصل',
     placing_order: '⏳ جارٍ إرسال الطلب…', confirm_order: '✅ تأكيد الطلب — {x} صنف',
     confirm_dialog_title: 'تأكيد الطلب', confirm_dialog_msg: 'سيُرسَل طلبك مباشرة إلى المطبخ لتحضيره.',
-    confirm_dialog_yes: '✅ تأكيد', confirm_dialog_no: 'إلغاء',
+    confirm_dialog_yes: '✅ تأكيد', confirm_dialog_no: 'إلغاء', price_note: 'جميع الأسعار غير شاملة رسوم خدمة 10% وضريبة SST بنسبة 6%.',
     waiter_coming: '✅ في الطريق!', call_waiter: '🔔 نادِ النادل',
     search_dishes: 'ابحث عن الأطباق…', cat_all: 'الكل', no_items: 'لا توجد أصناف',
     be_first_rate: '🆕 كن أول من يقيّم', view_order: '🛒 عرض الطلب ({x} صنف)',
@@ -302,7 +302,7 @@ const TR: Record<Lang, Record<string, string>> = {
     special_request: '特殊要求…例如不加洋葱',
     placing_order: '⏳ 正在提交订单…', confirm_order: '✅ 确认订单 — {x}件商品',
     confirm_dialog_title: '确认订单', confirm_dialog_msg: '您的订单将直接发送至厨房进行制作。',
-    confirm_dialog_yes: '✅ 确认', confirm_dialog_no: '取消',
+    confirm_dialog_yes: '✅ 确认', confirm_dialog_no: '取消', price_note: '所有价格需另加10%服务费和6% SST消费税。',
     waiter_coming: '✅ 服务员正在赶来！', call_waiter: '🔔 呼叫服务员',
     search_dishes: '搜索菜品…', cat_all: '全部', no_items: '未找到相关菜品',
     be_first_rate: '🆕 成为第一位评价者', view_order: '🛒 查看订单（{x}件）',
@@ -374,7 +374,7 @@ const TR: Record<Lang, Record<string, string>> = {
     special_request: 'Особые пожелания… например, без лука',
     placing_order: '⏳ Оформление заказа…', confirm_order: '✅ Подтвердить заказ — {x} позиций',
     confirm_dialog_title: 'Подтверждение заказа', confirm_dialog_msg: 'Ваш заказ будет немедленно отправлен на кухню для приготовления.',
-    confirm_dialog_yes: '✅ Подтвердить', confirm_dialog_no: 'Отмена',
+    confirm_dialog_yes: '✅ Подтвердить', confirm_dialog_no: 'Отмена', price_note: 'Ко всем ценам добавляется плата за обслуживание 10% и налог SST 6%.',
     waiter_coming: '✅ Уже идёт!', call_waiter: '🔔 Позвать официанта',
     search_dishes: 'Поиск блюд…', cat_all: 'Все', no_items: 'Ничего не найдено',
     be_first_rate: '🆕 Оставьте первый отзыв', view_order: '🛒 Посмотреть заказ ({x} позиций)',
@@ -1937,7 +1937,8 @@ const filteredItems = items
           <div dir={dir} style={{ position:'relative', background:C.bg2, borderRadius:24, padding:'28px 24px', maxWidth:380, width:'100%', border:`1px solid ${C.border2}`, textAlign:'center' }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
             <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:18, fontWeight:900, color:C.white, marginBottom:10 }}>{t('confirm_dialog_title')}</div>
-            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:24 }}>{t('confirm_dialog_msg')}</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:14, color:C.silver2, lineHeight:1.7, marginBottom:16 }}>{t('confirm_dialog_msg')}</div>
+            <div className={isRtl ? 'ar-text' : ''} style={{ fontSize:11.5, color:C.blue2, lineHeight:1.6, marginBottom:24, background:'rgba(0,200,200,.08)', border:`1px solid ${C.border2}`, borderRadius:12, padding:'8px 12px' }}>ℹ️ {t('price_note')}</div>
             <div style={{ display:'flex', gap:10 }}>
               <button onClick={() => setShowConfirmDialog(false)}
                 style={{ flex:1, background:'rgba(255,255,255,.06)', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px', cursor:'pointer', fontWeight:800, fontSize:14, color:C.silver2 }}>

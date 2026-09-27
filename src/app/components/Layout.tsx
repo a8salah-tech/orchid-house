@@ -150,6 +150,7 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'تحليل التكاليف',  label_en: 'Cost Analysis',   icon: '💰', path: '/dashboard/reports/costs',   permission: 'reports' },
   ]},
   { group: 'الإعدادات', items: [
+    { label: 'صور الفروع',      label_en: 'Branch Photos', icon: '🏪', path: '/dashboard/branches',            permission: 'admin_only' },
     { label: 'الموردون',         label_en: 'Suppliers',   icon: '🤝', path: '/dashboard/suppliers',            permission: 'suppliers' },
     { label: 'إدارة الصلاحيات', label_en: 'Permissions', icon: '🔐', path: '/dashboard/settings/permissions', permission: 'permissions' },
   ]},

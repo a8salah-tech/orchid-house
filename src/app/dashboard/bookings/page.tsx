@@ -29,7 +29,7 @@ type Booking = {
 }
 
 const SECTION_LABELS: Record<string, string> = {
-  outdoor: '🌿 Outdoor', indoor: '❄️ Indoor', terrace: '🌅 Terrace'
+  outdoor: '🌿 Outdoor', indoor: '❄️ Indoor', upstairs: '🌅 Upstairs'
 }
 
 const STATUS_CFG = {
@@ -40,6 +40,74 @@ const STATUS_CFG = {
 
 // ✅ جديد: عدد الحجوزات في كل صفحة
 const PAGE_SIZE = 20
+
+const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
+
+// ✅ جديد: نفس جدول الحجوزات، مستخدَم لكل مجموعة (اليوم/غدًا/...) ولجدول الأرشيف، بدل تكرار نفس الكود.
+// مكوّن مستقل خارج BookingsPage (مش دالة معرّفة جوه الـrender) عشان مايتعادش إنشاؤه كل مرة
+function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus }: {
+  rows: Booking[]; branches: { id: string; name: string }[]
+  onUpdateTable: (id: string, table_number: number | null) => void
+  onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled') => void
+}) {
+  return (
+    <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 950 }}>
+          <thead>
+            <tr style={{ background: S.navy3 }}>
+              {['Name', 'Phone', 'Branch', 'Date', 'Time', 'Guests', 'Section', 'Table', 'Notes', 'Status', 'Actions'].map(h => (
+                <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(b => {
+              const st = STATUS_CFG[b.status]
+              return (
+                <tr key={b.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                  <td style={{ padding: '12px 14px' }}>
+                    <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{b.customer_name}</div>
+                    <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
+                  </td>
+                  <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{b.customer_phone}</td>
+                  <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{branches.find(br => br.id === b.branch_id)?.name || '—'}</td>
+                  <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, whiteSpace: 'nowrap' }}>
+                    {new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: S.gold, fontWeight: 700, fontSize: 13 }}>{b.booking_time}</td>
+                  <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, textAlign: 'center' }}>{b.guests}</td>
+                  <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{SECTION_LABELS[b.section] || b.section}</td>
+                  <td style={{ padding: '8px 14px' }}>
+                    <input type="number" style={{ ...inp, width: 70, fontSize: 12, padding: '5px 8px' }}
+                      placeholder="—" value={b.table_number || ''} min={1}
+                      onChange={e => onUpdateTable(b.id, parseInt(e.target.value) || null)} />
+                  </td>
+                  <td style={{ padding: '12px 14px', color: S.muted, fontSize: 12, maxWidth: 150 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.notes || '—'}</div>
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 10px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
+                  </td>
+                  <td style={{ padding: '8px 14px' }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {b.status !== 'confirmed' && (
+                        <button onClick={() => onUpdateStatus(b.id, 'confirmed')} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✓</button>
+                      )}
+                      {b.status !== 'cancelled' && (
+                        <button onClick={() => onUpdateStatus(b.id, 'cancelled')} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✕</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 
 export default function BookingsPage() {
   const sbRef = useRef(createClient())
@@ -92,6 +160,11 @@ export default function BookingsPage() {
 
   // ✅ جديد: تاريخ اليوم بصيغة قابلة للمقارنة، لتحديد الأرشيف
   const todayStr = new Date().toISOString().split('T')[0]
+  // ✅ جديد: حدود التجميع (اليوم / غدًا / هذا الأسبوع / لاحقًا) لعرض احترافي بدل جدول واحد طويل
+  const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().split('T')[0] }
+  const tomorrowStr = addDays(1)
+  const weekEndStr = addDays(7)
+  const sortByWhen = (a: Booking, b: Booking) => a.booking_date === b.booking_date ? a.booking_time.localeCompare(b.booking_time) : a.booking_date.localeCompare(b.booking_date)
 
   const filtered = bookings.filter(b => {
     const matchStatus = filter === 'all' || b.status === filter
@@ -116,6 +189,16 @@ export default function BookingsPage() {
     confirmed: bookings.filter(b => b.status === 'confirmed').length,
     cancelled: bookings.filter(b => b.status === 'cancelled').length,
   }
+
+  // ✅ جديد: في تاب "النشطة/القادمة" نعرض الحجوزات مقسّمة لمجموعات (اليوم، غدًا، هذا الأسبوع، لاحقًا)
+  // بدل جدول واحد طويل — كل مجموعة مرتبة بترتيب زمني تصاعدي (الأقرب أولًا)، وتُخفى لو فاضية.
+  // الأرشيف يفضل جدول واحد بترقيم صفحات عادي، لأنه أكبر حجمًا وتاريخي بطبيعته
+  const groups = showArchive ? null : [
+    { key: 'today', label: '📌 Today', rows: filtered.filter(b => b.booking_date === todayStr).sort(sortByWhen) },
+    { key: 'tomorrow', label: '🔜 Tomorrow', rows: filtered.filter(b => b.booking_date === tomorrowStr).sort(sortByWhen) },
+    { key: 'week', label: '📆 This Week', rows: filtered.filter(b => b.booking_date > tomorrowStr && b.booking_date <= weekEndStr).sort(sortByWhen) },
+    { key: 'later', label: '📅 Later', rows: filtered.filter(b => b.booking_date > weekEndStr).sort(sortByWhen) },
+  ].filter(g => g.rows.length > 0)
 
   function printReport() {
     const win = window.open('', '_blank')
@@ -243,77 +326,38 @@ export default function BookingsPage() {
           <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
           <div>No bookings found</div>
         </div>
+      ) : groups ? (
+        // ✅ جديد: النشطة/القادمة تُعرض مقسّمة (اليوم، غدًا، هذا الأسبوع، لاحقًا) بدل جدول واحد طويل
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          {groups.map(g => (
+            <div key={g.key}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <h2 style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{g.label}</h2>
+                <span style={{ fontSize: 11, fontWeight: 700, color: S.gold, background: S.gold3, borderRadius: 20, padding: '2px 10px' }}>{g.rows.length}</span>
+              </div>
+              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} />
+            </div>
+          ))}
+        </div>
       ) : (
-        <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 950 }}>
-              <thead>
-                <tr style={{ background: S.navy3 }}>
-                  {['Name', 'Phone', 'Branch', 'Date', 'Time', 'Guests', 'Section', 'Table', 'Notes', 'Status', 'Actions'].map(h => (
-                    <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {paginated.map(b => {
-                  const st = STATUS_CFG[b.status]
-                  return (
-                    <tr key={b.id} style={{ borderBottom: `1px solid ${S.border}` }}>
-                      <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{b.customer_name}</div>
-                        <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
-                      </td>
-                      <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{b.customer_phone}</td>
-                      <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{branches.find(br => br.id === b.branch_id)?.name || '—'}</td>
-                      <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, whiteSpace: 'nowrap' }}>
-                        {new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })}
-                      </td>
-                      <td style={{ padding: '12px 14px', color: S.gold, fontWeight: 700, fontSize: 13 }}>{b.booking_time}</td>
-                      <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, textAlign: 'center' }}>{b.guests}</td>
-                      <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{SECTION_LABELS[b.section] || b.section}</td>
-                      <td style={{ padding: '8px 14px' }}>
-                        <input type="number" style={{ ...inp, width: 70, fontSize: 12, padding: '5px 8px' }}
-                          placeholder="—" value={b.table_number || ''} min={1}
-                          onChange={e => updateTable(b.id, parseInt(e.target.value) || null)} />
-                      </td>
-                      <td style={{ padding: '12px 14px', color: S.muted, fontSize: 12, maxWidth: 150 }}>
-                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.notes || '—'}</div>
-                      </td>
-                      <td style={{ padding: '12px 14px' }}>
-                        <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 10px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
-                      </td>
-                      <td style={{ padding: '8px 14px' }}>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {b.status !== 'confirmed' && (
-                            <button onClick={() => updateStatus(b.id, 'confirmed')} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✓</button>
-                          )}
-                          {b.status !== 'cancelled' && (
-                            <button onClick={() => updateStatus(b.id, 'cancelled')} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✕</button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        <>
+          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} />
 
-      {/* ✅ جديد: تصفح الصفحات - 20 حجز في كل صفحة */}
-      {!loading && filtered.length > 0 && totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
-          <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={pageSafe === 0}
-            style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe === 0 ? S.muted + '60' : S.white, cursor: pageSafe === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-            ← Previous
-          </button>
-          <span style={{ fontSize: 13, color: S.muted }}>Page {pageSafe + 1} of {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={pageSafe >= totalPages - 1}
-            style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe >= totalPages - 1 ? S.muted + '60' : S.white, cursor: pageSafe >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-            Next →
-          </button>
-        </div>
+          {/* ✅ تصفح الصفحات - 20 حجز في كل صفحة (للأرشيف فقط، النشطة/القادمة مقسّمة بالمجموعات) */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20 }}>
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={pageSafe === 0}
+                style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe === 0 ? S.muted + '60' : S.white, cursor: pageSafe === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+                ← Previous
+              </button>
+              <span style={{ fontSize: 13, color: S.muted }}>Page {pageSafe + 1} of {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={pageSafe >= totalPages - 1}
+                style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: pageSafe >= totalPages - 1 ? S.muted + '60' : S.white, cursor: pageSafe >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+                Next →
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

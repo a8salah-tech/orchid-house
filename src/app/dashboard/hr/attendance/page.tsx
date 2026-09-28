@@ -1364,9 +1364,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     if (!editingCell || !editValue) return
     const label = editingCell.field === 'check_in_time' ? 'الدخول' : 'الخروج'
     if (!confirm(`⚠️ هل أنت متأكد من تعديل وقت ${label} للموظف "${empName}"؟`)) return
-    // ✅ الحقل datetime-local بيرجع وقت محلي (ماليزيا UTC+8)، لازم نحوله لـ UTC قبل الحفظ
-    const localDate = new Date(editValue + ':00')
-    const utcIso = new Date(localDate.getTime() - 8 * 60 * 60 * 1000).toISOString()
+    // ✅ Fix حرج: new Date(نص بلا إزاحة) بيتفسّر بتوقيت جهاز المتصفح نفسه، مش ماليزيا بالضرورة —
+    // لو جهاز المدير أصلاً على توقيت ماليزيا (الغالب)، كان الكود القديم يطرح 8 ساعات زيادة فوق
+    // تحويل صحيح بالفعل، فيطلع الوقت المحفوظ مبكرًا 8 ساعات كاملة عن اللي اختاره فعليًا.
+    // الحل: نص ISO بإزاحة +08:00 صريحة — يتفسَّر صح دايمًا بغض النظر عن توقيت جهاز المتصفح.
+    const utcIso = new Date(editValue + ':00+08:00').toISOString()
     // ✅ is_manual=true يعلّم التعديل كإجراء مدير مشروع — يمرّ من trigger توقيت السيرفر بلا استبدال
     const updatePayload: Record<string, any> = { [editingCell.field]: utcIso, is_manual: true }
     // ✅ لو بنعدّل وقت الدخول تحديداً، لازم نعيد حساب التأخير كذلك — وإلا سيبقى الرقم القديم غلط حتى بعد التصحيح
@@ -1426,13 +1428,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
   async function saveManualAttendance(empId: string, empName: string) {
     if (!addCheckIn) { alert('من فضلك أدخل وقت الدخول على الأقل'); return }
     if (!confirm(`⚠️ هل أنت متأكد من إضافة سجل حضور جديد للموظف "${empName}" ليوم ${date}؟`)) return
-    // ✅ نفس منطق تحويل التوقيت المحلي (ماليزيا UTC+8) لـUTC المستخدم في تعديل الوقت الموجود بالفعل
-    const inLocal = new Date(addCheckIn + ':00')
-    const checkInUtc = new Date(inLocal.getTime() - 8 * 60 * 60 * 1000).toISOString()
+    // ✅ Fix حرج: نفس إصلاح تعديل الوقت — إزاحة +08:00 صريحة بدل الاعتماد على توقيت جهاز المتصفح
+    const checkInUtc = new Date(addCheckIn + ':00+08:00').toISOString()
     let checkOutUtc: string | null = null
     if (addCheckOut) {
-      const outLocal = new Date(addCheckOut + ':00')
-      checkOutUtc = new Date(outLocal.getTime() - 8 * 60 * 60 * 1000).toISOString()
+      checkOutUtc = new Date(addCheckOut + ':00+08:00').toISOString()
     }
     // ✅ نحسب حالة الحضور ودقائق التأخير للسجل اليدوي بنفس منطق تسجيل الدخول الذاتي، بدل ما تفضل صفر افتراضياً
     const { status, late_minutes } = await computeLateInfo(sb, empId, date, checkInUtc)

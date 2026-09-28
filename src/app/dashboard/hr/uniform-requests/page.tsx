@@ -24,12 +24,18 @@ const S = {
 const ITEM_TYPES = [
   // ✅ المفتاح 'jacket' يبقى كما هو (بلا تغيير) للحفاظ على الطلبات وسجلات المخزون القديمة —
   // كل ما تغيّر هو الاسم الظاهر ليوضّح إنه الجاكيت الأسود، بعد إضافة جاكيت أبيض كصنف مستقل
-  { key: 'jacket',       label: 'Black Jacket', label_ar: 'جاكيت أسود', icon: '👨🏻‍🍳' },
-  { key: 'jacket_white', label: 'White Jacket', label_ar: 'جاكيت أبيض', icon: '🥼' },
-  { key: 'tshirt',       label: 'T-shirts',     label_ar: 'تيشيرت',     icon: '👕' },
-  { key: 'cap',          label: 'Cap',          label_ar: 'كاب',        icon: '🧢' },
-  { key: 'apron',        label: 'Apron',        label_ar: 'مريول',      icon: '🎽' },
-  { key: 'vest_waiter',  label: 'Waiter Vest',  label_ar: 'سديرية ويتر', icon: '🦺' },
+  // ✅ image: صورة المنتج الحقيقية (تظهر في شبكة الاختيار)، icon: يبقى للاستخدام في القوائم المختصرة (تفاصيل الطلب، المخزون، السجل)
+  { key: 'jacket',       label: 'Black Jacket', label_ar: 'جاكيت أسود', icon: '👨🏻‍🍳', image: '/uniform/jacket-black.jpg' },
+  { key: 'jacket_white', label: 'White Jacket', label_ar: 'جاكيت أبيض', icon: '🥼', image: '/uniform/jacket-white.webp' },
+  { key: 'tshirt',       label: 'Black Polo',   label_ar: 'بولو أسود',  icon: '👕', image: '/uniform/polo-black.jpg' },
+  // ✅ جديد: بولو بني — لون تاني مستقل عن tshirt، بنفس نمط jacket/jacket_white
+  { key: 'tshirt_brown', label: 'Brown Polo',   label_ar: 'بولو بني',   icon: '👕', image: '/uniform/polo-brown.jpg' },
+  { key: 'cap',          label: 'Cap',          label_ar: 'كاب',        icon: '🧢', image: '/uniform/cap-black.jpg' },
+  { key: 'apron',        label: 'Apron',        label_ar: 'مريول',      icon: '🎽', image: '/uniform/apron-black.jpg' },
+  { key: 'vest_waiter',  label: 'Waiter Vest',  label_ar: 'سديرية ويتر', icon: '🦺', image: '/uniform/vest-black.webp' },
+  // ✅ جديد: طرطوشة الشيف — قسم جديد بالكامل، لونين مستقلين
+  { key: 'chef_hat',       label: 'Black Chef Hat', label_ar: 'طرطوشة سوداء', icon: '👨‍🍳', image: '/uniform/chef-hat-black.jpg' },
+  { key: 'chef_hat_white', label: 'White Chef Hat', label_ar: 'طرطوشة بيضاء', icon: '👨‍🍳', image: '/uniform/chef-hat-white.jpg' },
 ]
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL']
 
@@ -428,8 +434,10 @@ export default function UniformRequestsPage() {
               return (
                 <div key={item.key} onClick={() => toggleItem(item.key)}
                   style={{ background: selected ? S.gold3 : S.card, border: `2px solid ${selected ? S.gold : S.border}`, borderRadius: 16, padding: '20px 14px', textAlign: 'center', cursor: 'pointer', transition: 'all .2s', position: 'relative' }}>
-                  {selected && <div style={{ position: 'absolute', top: 8, right: 8, color: S.gold, fontSize: 16 }}>✓</div>}
-                  <div style={{ fontSize: 36, marginBottom: 8 }}>{item.icon}</div>
+                  {selected && <div style={{ position: 'absolute', top: 8, right: 8, color: S.gold, fontSize: 16, zIndex: 1 }}>✓</div>}
+                  <div style={{ width: '100%', height: 90, marginBottom: 8, borderRadius: 10, overflow: 'hidden', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <img src={item.image} alt={item.label} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  </div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: selected ? S.gold : S.white }}>{item.label}</div>
                   <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{item.label_ar}</div>
                 </div>

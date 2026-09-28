@@ -29,13 +29,13 @@ const BOOKING_SECTIONS = [
 // بمسار فرعي "branches/" حتى لا تتداخل الأسماء مع صور المنيو
 // ملحوظة: توليد الطابع الزمني (Date.now) يبقى هنا على مستوى الموديول، لا داخل جسم المكوّن،
 // حتى لا تُصنَّف كدالة غير نقيّة تُستدعى أثناء الرندر (قاعدة react-hooks/purity)
-async function uploadBranchImage(supabase: ReturnType<typeof createClient>, file: File, pathPrefix: string): Promise<string | null> {
+async function uploadBranchImage(supabase: ReturnType<typeof createClient>, file: File, pathPrefix: string): Promise<{ url: string | null; error: string | null }> {
   const ext = file.name.split('.').pop() || 'jpg'
   const path = `${pathPrefix}-${Date.now()}.${ext}`
   const { data, error } = await supabase.storage.from('menu-images').upload(path, file, { upsert: true, contentType: file.type })
-  if (error || !data) { console.error('uploadBranchImage:', error?.message); return null }
+  if (error || !data) { console.error('uploadBranchImage:', error?.message); return { url: null, error: error?.message || 'unknown error' } }
   const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(data.path)
-  return urlData?.publicUrl || null
+  return { url: urlData?.publicUrl || null, error: urlData?.publicUrl ? null : 'no public URL returned' }
 }
 
 export default function BranchesPage() {
@@ -70,11 +70,13 @@ export default function BranchesPage() {
   async function onPickFile(branch: Branch, file: File | undefined) {
     if (!file) return
     if (!file.type.startsWith('image/')) { alert('يرجى اختيار ملف صورة'); return }
-    if (file.size > 8 * 1024 * 1024) { alert('حجم الصورة كبير جدًا (الحد الأقصى 8MB)'); return }
+    // ✅ حد bucket menu-images الفعلي على Supabase هو 5MB (تأكدنا منه فعليًا)، وليس 8MB —
+    // رفع أكبر من هذا كان يمر من هذا الفحص ثم يُرفض بصمت من Supabase برسالة الفشل العامة
+    if (file.size > 5 * 1024 * 1024) { alert('حجم الصورة كبير جدًا (الحد الأقصى 5MB)'); return }
     setUploadingId(branch.id)
-    const url = await uploadBranchImage(sb, file, `branches/${branch.id}`)
+    const { url, error: uploadError } = await uploadBranchImage(sb, file, `branches/${branch.id}`)
     if (!url) {
-      alert('فشل رفع الصورة — تأكد من إعداد bucket menu-images في Supabase')
+      alert('فشل رفع الصورة: ' + uploadError)
       setUploadingId(null)
       return
     }
@@ -97,12 +99,13 @@ export default function BranchesPage() {
   async function onPickSectionFile(branch: Branch, section: string, file: File | undefined) {
     if (!file) return
     if (!file.type.startsWith('image/')) { alert('يرجى اختيار ملف صورة'); return }
-    if (file.size > 8 * 1024 * 1024) { alert('حجم الصورة كبير جدًا (الحد الأقصى 8MB)'); return }
+    // ✅ حد bucket menu-images الفعلي 5MB — نفس السبب الموضّح في onPickFile أعلاه
+    if (file.size > 5 * 1024 * 1024) { alert('حجم الصورة كبير جدًا (الحد الأقصى 5MB)'); return }
     const key = sectionKey(branch.id, section)
     setUploadingSectionKey(key)
-    const url = await uploadBranchImage(sb, file, `branches/sections/${branch.id}-${section}`)
+    const { url, error: uploadError } = await uploadBranchImage(sb, file, `branches/sections/${branch.id}-${section}`)
     if (!url) {
-      alert('فشل رفع الصورة — تأكد من إعداد bucket menu-images في Supabase')
+      alert('فشل رفع الصورة: ' + uploadError)
       setUploadingSectionKey(null)
       return
     }

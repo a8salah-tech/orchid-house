@@ -41,6 +41,18 @@ export async function POST(req: NextRequest) {
         if (!f[k]) return NextResponse.json({ error: `حقل مفقود: ${k}` }, { status: 400 })
       }
 
+      // ✅ جديد: منع الحجز لو الأدمن أغلق هذا اليوم لهذا الفرع (booking_closed_days) — تحقق سيرفري
+      // إجباري، بغض النظر عن أي فحص عميل، حتى لا يمكن تجاوز الإغلاق بتعديل الطلب مباشرة
+      if (f.branch_id) {
+        const { data: closed } = await sb
+          .from('booking_closed_days')
+          .select('id')
+          .eq('branch_id', f.branch_id)
+          .eq('closed_date', f.booking_date)
+          .maybeSingle()
+        if (closed) return NextResponse.json({ error: 'هذا اليوم غير متاح للحجز في هذا الفرع' }, { status: 400 })
+      }
+
       const { data, error } = await sb
         .from('bookings')
         .insert([{

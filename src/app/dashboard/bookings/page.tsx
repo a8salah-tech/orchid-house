@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +28,9 @@ type Booking = {
   status: 'pending' | 'confirmed' | 'cancelled'; created_at: string
   branch_id: string | null
 }
+
+// ✅ جديد: أيام مُغلقة للحجز لكل فرع — مدير النظام فقط يقدر يضيف/يحذف
+type ClosedDay = { id: string; branch_id: string; closed_date: string; note: string | null }
 
 const SECTION_LABELS: Record<string, string> = {
   outdoor: '🌿 Outdoor', indoor: '❄️ Indoor', upstairs: '🌅 Upstairs'
@@ -113,6 +117,9 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onRowCli
 export default function BookingsPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
+  // ✅ جديد: مدير النظام فقط يقدر يغلق/يفتح يوم حجز لفرع معيّن
+  const { permissions } = useAuth()
+  const isAdmin = permissions?.all === true
 
   const [bookings, setBookings] = useState<Booking[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -128,6 +135,13 @@ export default function BookingsPage() {
   const [page, setPage] = useState(0)
   // ✅ جديد: الحجز اللي تم الضغط عليه — يظهر في نافذة التفاصيل الكاملة
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null)
+  // ✅ جديد: الأيام المُغلقة للحجز + نافذة إدارتها (أدمن فقط)
+  const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
+  const [showClosedDaysModal, setShowClosedDaysModal] = useState(false)
+  const [newClosedBranch, setNewClosedBranch] = useState('')
+  const [newClosedDate, setNewClosedDate] = useState('')
+  const [newClosedNote, setNewClosedNote] = useState('')
+  const [closingDay, setClosingDay] = useState(false)
 
   const fetchBookings = useCallback(async () => {
     // ✅ Fix: الترتيب بقى من الأحدث للأقدم (تنازلي) بدل تصاعدي
@@ -142,7 +156,31 @@ export default function BookingsPage() {
     setBranches(data || [])
   }, [sb])
 
-  useEffect(() => { fetchBookings(); fetchBranches() }, [fetchBookings, fetchBranches])
+  // ✅ جديد: جلب الأيام المُغلقة — fail-open لو الجدول لسه ما اتعملش
+  const fetchClosedDays = useCallback(async () => {
+    const { data, error } = await sb.from('booking_closed_days').select('*').order('closed_date')
+    if (!error && data) setClosedDays(data as ClosedDay[])
+  }, [sb])
+
+  useEffect(() => { fetchBookings(); fetchBranches(); fetchClosedDays() }, [fetchBookings, fetchBranches, fetchClosedDays])
+
+  async function closeDay() {
+    if (!newClosedBranch || !newClosedDate) { alert('اختر الفرع والتاريخ'); return }
+    setClosingDay(true)
+    const { error } = await sb.from('booking_closed_days')
+      .insert({ branch_id: newClosedBranch, closed_date: newClosedDate, note: newClosedNote || null })
+    setClosingDay(false)
+    if (error) { alert('فشل إغلاق اليوم: ' + error.message + ' — تأكد من تشغيل db/booking_closed_days.sql'); return }
+    setNewClosedDate(''); setNewClosedNote('')
+    fetchClosedDays()
+  }
+
+  async function reopenDay(id: string) {
+    if (!confirm('هل تريد إعادة فتح هذا اليوم للحجز؟')) return
+    const { error } = await sb.from('booking_closed_days').delete().eq('id', id)
+    if (error) { alert('خطأ: ' + error.message); return }
+    fetchClosedDays()
+  }
 
   useEffect(() => {
     const ch = sb.channel('bookings-rt')
@@ -266,6 +304,57 @@ export default function BookingsPage() {
     win.document.close()
   }
 
+  // ✅ جديد: بطاقة حجز صغيرة قابلة للطباعة لحجز واحد (اسم العميل + عدد الأشخاص + بيانات الحجز)
+  // — بحجم إيصال طابعة حرارية (80mm)، تُسلَّم للعميل أو تُوضع على الطاولة
+  function escapeHtml(s: string) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)) }
+
+  function printBookingCard(b: Booking) {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const branchName = branches.find(br => br.id === b.branch_id)?.name || '—'
+    const bookingRef = b.id.slice(-8).toUpperCase()
+
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Booking Card #${bookingRef}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 0; padding: 10px; width: 80mm; }
+      .card { border: 2px dashed #0A1628; border-radius: 8px; padding: 14px; text-align: center; }
+      .logo { font-size: 22px; font-weight: bold; margin-bottom: 2px; }
+      .sub { font-size: 10px; color: #555; margin-bottom: 10px; }
+      .ref { font-size: 11px; letter-spacing: 2px; color: #888; margin-bottom: 10px; }
+      .name { font-size: 20px; font-weight: bold; margin-bottom: 4px; word-break: break-word; }
+      .guests { font-size: 34px; font-weight: bold; color: #0A1628; margin: 8px 0 2px; }
+      .guests-label { font-size: 10px; color: #555; margin-bottom: 12px; }
+      table.info { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; margin-top: 6px; }
+      table.info td { padding: 4px 2px; border-top: 1px solid #ddd; }
+      table.info td.k { color: #555; width: 40%; }
+      table.info td.v { font-weight: bold; }
+      .status { display: inline-block; margin-top: 10px; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; }
+      @media print { @page { size: 80mm auto; margin: 3mm; } }
+    </style></head><body>
+    <div class="card">
+      <div class="logo">🌸 Orchid House</div>
+      <div class="sub">Table Reservation</div>
+      <div class="ref">#${bookingRef}</div>
+      <div class="name">${escapeHtml(b.customer_name)}</div>
+      <div class="guests">${b.guests}</div>
+      <div class="guests-label">GUESTS · عدد الأشخاص</div>
+      <table class="info">
+        <tr><td class="k">Branch</td><td class="v">${escapeHtml(branchName)}</td></tr>
+        <tr><td class="k">Date</td><td class="v">${new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</td></tr>
+        <tr><td class="k">Time</td><td class="v">${b.booking_time}</td></tr>
+        <tr><td class="k">Section</td><td class="v">${SECTION_LABELS[b.section] || b.section}</td></tr>
+        <tr><td class="k">Table</td><td class="v">${b.table_number || 'Not assigned'}</td></tr>
+        <tr><td class="k">Phone</td><td class="v">${escapeHtml(b.customer_phone)}</td></tr>
+      </table>
+      <span class="status" style="background:${STATUS_CFG[b.status].bg};color:${STATUS_CFG[b.status].color}">${STATUS_CFG[b.status].label.toUpperCase()}</span>
+    </div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`)
+    win.document.close()
+  }
+
   const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
 
   return (
@@ -278,7 +367,11 @@ export default function BookingsPage() {
           <h1 style={{ fontSize: 22, fontWeight: 900, color: S.white, marginBottom: 4 }}>📅 Reservations</h1>
           <p style={{ fontSize: 13, color: S.muted }}>Manage table bookings and reservations</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {/* ✅ جديد: إغلاق/فتح أيام الحجز — مدير النظام فقط */}
+          {isAdmin && (
+            <button onClick={() => setShowClosedDaysModal(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Closed Days{closedDays.length > 0 ? ` (${closedDays.length})` : ''}</button>
+          )}
           <button onClick={printReport} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Report</button>
           <a href="/bookings" target="_blank" style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center' }}>🔗 Booking Link</a>
         </div>
@@ -423,7 +516,11 @@ export default function BookingsPage() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+              {/* ✅ جديد: بطاقة حجز قابلة للطباعة (اسم العميل + عدد الأشخاص + بيانات الحجز) */}
+              <button onClick={() => printBookingCard(b)}
+                style={{ width: '100%', marginTop: 16, padding: '11px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Booking Card</button>
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
                 {b.status !== 'confirmed' && (
                   <button onClick={() => updateStatusAndDetail(b.id, 'confirmed')}
                     style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✓ Confirm</button>
@@ -437,6 +534,56 @@ export default function BookingsPage() {
           </div>
         )
       })()}
+
+      {/* ✅ جديد: نافذة إدارة الأيام المُغلقة للحجز — مدير النظام فقط */}
+      {isAdmin && showClosedDaysModal && (
+        <div onClick={() => setShowClosedDaysModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 26, maxWidth: 480, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: S.white }}>🔒 Closed Booking Days</div>
+                <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>لا يقدر العميل يحجز في اليوم اللي تقفله هنا لهذا الفرع</div>
+              </div>
+              <button onClick={() => setShowClosedDaysModal(false)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            </div>
+
+            {/* نموذج إغلاق يوم جديد */}
+            <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: 16, marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <select style={{ ...inp, width: '100%' }} value={newClosedBranch} onChange={e => setNewClosedBranch(e.target.value)}>
+                <option value="">Select branch...</option>
+                {branches.map(br => <option key={br.id} value={br.id}>{br.name}</option>)}
+              </select>
+              <input type="date" style={{ ...inp, width: '100%' }} value={newClosedDate} min={new Date().toISOString().split('T')[0]} onChange={e => setNewClosedDate(e.target.value)} />
+              <input type="text" style={{ ...inp, width: '100%' }} placeholder="Reason (optional) · السبب (اختياري)" value={newClosedNote} onChange={e => setNewClosedNote(e.target.value)} />
+              <button onClick={closeDay} disabled={closingDay || !newClosedBranch || !newClosedDate}
+                style={{ padding: '11px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: closingDay ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: (!newClosedBranch || !newClosedDate) ? 0.5 : 1 }}>
+                {closingDay ? '⏳ Closing...' : '🔒 Close This Day'}
+              </button>
+            </div>
+
+            {/* قائمة الأيام المُغلقة حاليًا */}
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Currently closed ({closedDays.length})</div>
+              {closedDays.length === 0 ? (
+                <div style={{ fontSize: 12, color: S.muted, textAlign: 'center', padding: 16 }}>No closed days · لا توجد أيام مُغلقة</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {closedDays.map(d => (
+                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,.03)', borderRadius: 12, padding: '10px 14px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{branches.find(br => br.id === d.branch_id)?.name || '—'}</div>
+                        <div style={{ fontSize: 12, color: S.gold }}>{new Date(d.closed_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                        {d.note && <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{d.note}</div>}
+                      </div>
+                      <button onClick={() => reopenDay(d.id)} style={{ padding: '7px 12px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11.5, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>🔓 Reopen</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

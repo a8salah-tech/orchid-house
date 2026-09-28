@@ -54,6 +54,8 @@ type MenuItem = { id: string; name: string; name_en?: string | null; price: numb
 const FAMILY_SET_CATEGORY_ID = '99020816-226e-414c-9f16-32a6bbafb487'
 // صور الأقسام (Indoor/Outdoor/Upstairs) التي يرفعها المدير من صفحة "🏪 صور الفروع"
 type SectionPhoto = { branch_id: string; section: string; image_url: string | null }
+// ✅ جديد: الأيام المُغلقة للحجز لكل فرع — يديرها مدير النظام فقط من صفحة "حجوزات العملاء"
+type ClosedDay = { branch_id: string; closed_date: string; note: string | null }
 
 export default function BookingPage() {
   const sbRef = useRef(createClient())
@@ -100,7 +102,19 @@ export default function BookingPage() {
     if (!error && data) setSectionPhotos(data as SectionPhoto[])
   }
 
-  useEffect(() => { fetchBranches(); fetchOrchidHouseMenuPreview(); fetchSectionPhotos() }, [])
+  const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
+  async function fetchClosedDays() {
+    // fail-open: لو جدول booking_closed_days لسه ما اتعملش، نتجاهل الخطأ بدون كسر الصفحة
+    const { data, error } = await sb.from('booking_closed_days').select('branch_id,closed_date,note')
+    if (!error && data) setClosedDays(data as ClosedDay[])
+  }
+  // ✅ هل هذا التاريخ مغلق للحجز في الفرع المختار؟
+  function isDateClosed(branchId: string | undefined, date: string): boolean {
+    if (!branchId || !date) return false
+    return closedDays.some(d => d.branch_id === branchId && d.closed_date === date)
+  }
+
+  useEffect(() => { fetchBranches(); fetchOrchidHouseMenuPreview(); fetchSectionPhotos(); fetchClosedDays() }, [])
 
   // دعم زر الرجوع في المتصفح
   useEffect(() => {
@@ -132,6 +146,8 @@ export default function BookingPage() {
     if (!form.date) e.date = 'Date is required'
     if (!form.time) e.time = 'Time is required'
     if (form.date && new Date(form.date) < new Date(new Date().toDateString())) e.date = 'Date cannot be in the past'
+    // ✅ جديد: منع الحجز لو الأدمن أغلق هذا اليوم لهذا الفرع
+    if (form.date && isDateClosed(selectedBranch?.id, form.date)) e.date = 'This date is not available for booking · هذا التاريخ غير متاح للحجز'
     if (!form.guests || parseInt(form.guests) < 1) e.guests = 'Please enter the number of guests'
     // ✅ جديد: الطابق العلوي في أوركيد هاوس متاح فقط لحجوزات الساعة 7 مساءً فأكثر
     if (selectedBranch?.id === ORCHID_HOUSE_ID && section === 'upstairs' && form.time && form.time < UPSTAIRS_MIN_TIME) {
@@ -303,11 +319,20 @@ export default function BookingPage() {
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred visit date · اختر تاريخ الزيارة</p>
             <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 16, padding: 24 }}>
               <label style={{ fontSize: 13, color: C.silver2, display: 'block', marginBottom: 10 }}>Date · التاريخ</label>
-              <input type="date" style={{ width: '100%', background: 'rgba(255,255,255,.06)', border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', fontSize: 16, color: C.white, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'system-ui', caretColor: C.blue1 }}
+              <input type="date" style={{ width: '100%', background: 'rgba(255,255,255,.06)', border: `1px solid ${bookingDate && isDateClosed(selectedBranch?.id, bookingDate) ? C.red : C.border}`, borderRadius: 12, padding: '14px 16px', fontSize: 16, color: C.white, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'system-ui', caretColor: C.blue1 }}
                 value={bookingDate} min={new Date().toISOString().split('T')[0]}
                 onChange={e => setBookingDate(e.target.value)} />
-              <button onClick={() => { if (!bookingDate) { alert('Please select a date'); return } setPhase('section') }}
-                style={{ width: '100%', background: bookingDate ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : '#333', border: 'none', borderRadius: 14, padding: '14px', cursor: bookingDate ? 'pointer' : 'not-allowed', fontWeight: 800, fontSize: 15, color: C.white, marginTop: 16, boxShadow: bookingDate ? `0 6px 20px ${C.glow}` : 'none' }}>
+              {/* ✅ جديد: تنويه لو الأدمن أغلق هذا اليوم لهذا الفرع */}
+              {bookingDate && isDateClosed(selectedBranch?.id, bookingDate) && (
+                <div style={{ marginTop: 10, fontSize: 12, color: C.red }}>⚠️ This date is not available for booking · هذا التاريخ غير متاح للحجز، برجاء اختيار تاريخ آخر</div>
+              )}
+              <button onClick={() => {
+                if (!bookingDate) { alert('Please select a date'); return }
+                if (isDateClosed(selectedBranch?.id, bookingDate)) return
+                setPhase('section')
+              }}
+                disabled={!!bookingDate && isDateClosed(selectedBranch?.id, bookingDate)}
+                style={{ width: '100%', background: !bookingDate || isDateClosed(selectedBranch?.id, bookingDate) ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border: 'none', borderRadius: 14, padding: '14px', cursor: !bookingDate || isDateClosed(selectedBranch?.id, bookingDate) ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 15, color: C.white, marginTop: 16, boxShadow: bookingDate && !isDateClosed(selectedBranch?.id, bookingDate) ? `0 6px 20px ${C.glow}` : 'none' }}>
                 Continue → Choose Section
               </button>
             </div>

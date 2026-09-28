@@ -44,7 +44,7 @@ export default function BookingPage() {
   const [section, setSection] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [bookingRef, setBookingRef] = useState('')
-  const [form, setForm] = useState({ name: '', email: '', phone: '', date: '', time: '', guests: '2', notes: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', date: '', time: '', guests: '', notes: '' })
 
   useEffect(() => { if (bookingDate) setForm(p => ({ ...p, date: bookingDate })) }, [bookingDate])
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -87,6 +87,7 @@ export default function BookingPage() {
     if (!form.date) e.date = 'Date is required'
     if (!form.time) e.time = 'Time is required'
     if (form.date && new Date(form.date) < new Date(new Date().toDateString())) e.date = 'Date cannot be in the past'
+    if (!form.guests || parseInt(form.guests) < 1) e.guests = 'Please enter the number of guests'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -334,11 +335,10 @@ export default function BookingPage() {
                 </div>
               </div>
               <div>
-                <label style={{ fontSize: 12, color: C.silver2, display: 'block', marginBottom: 6 }}>Number of Guests</label>
-                <select style={{ ...inp('guests'), cursor: 'pointer' }} value={form.guests} onChange={e => setForm(p => ({ ...p, guests: e.target.value }))}>
-                  {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n} {n === 1 ? 'guest' : 'guests'}</option>)}
-                  <option value="11">10+ guests (contact us)</option>
-                </select>
+                <label style={{ fontSize: 12, color: C.silver2, display: 'block', marginBottom: 6 }}>Number of Guests *</label>
+                <input type="number" inputMode="numeric" min={1} max={100} style={inp('guests')} placeholder="e.g. 4"
+                  value={form.guests} onChange={e => setForm(p => ({ ...p, guests: e.target.value }))} />
+                {errors.guests && <div style={{ color: C.red, fontSize: 11, marginTop: 4 }}>{errors.guests}</div>}
               </div>
               <div>
                 <label style={{ fontSize: 12, color: C.silver2, display: 'block', marginBottom: 6 }}>Special Requests (optional)</label>

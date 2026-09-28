@@ -45,10 +45,11 @@ const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: 
 
 // ✅ جديد: نفس جدول الحجوزات، مستخدَم لكل مجموعة (اليوم/غدًا/...) ولجدول الأرشيف، بدل تكرار نفس الكود.
 // مكوّن مستقل خارج BookingsPage (مش دالة معرّفة جوه الـrender) عشان مايتعادش إنشاؤه كل مرة
-function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus }: {
+function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onRowClick }: {
   rows: Booking[]; branches: { id: string; name: string }[]
   onUpdateTable: (id: string, table_number: number | null) => void
   onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled') => void
+  onRowClick: (b: Booking) => void
 }) {
   return (
     <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
@@ -65,7 +66,7 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus }: {
             {rows.map(b => {
               const st = STATUS_CFG[b.status]
               return (
-                <tr key={b.id} style={{ borderBottom: `1px solid ${S.border}` }}>
+                <tr key={b.id} onClick={() => onRowClick(b)} style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer' }}>
                   <td style={{ padding: '12px 14px' }}>
                     <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{b.customer_name}</div>
                     <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
@@ -78,7 +79,7 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus }: {
                   <td style={{ padding: '12px 14px', color: S.gold, fontWeight: 700, fontSize: 13 }}>{b.booking_time}</td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, textAlign: 'center' }}>{b.guests}</td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{SECTION_LABELS[b.section] || b.section}</td>
-                  <td style={{ padding: '8px 14px' }}>
+                  <td style={{ padding: '8px 14px' }} onClick={e => e.stopPropagation()}>
                     <input type="number" style={{ ...inp, width: 70, fontSize: 12, padding: '5px 8px' }}
                       placeholder="—" value={b.table_number || ''} min={1}
                       onChange={e => onUpdateTable(b.id, parseInt(e.target.value) || null)} />
@@ -89,7 +90,7 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus }: {
                   <td style={{ padding: '12px 14px' }}>
                     <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 10px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
                   </td>
-                  <td style={{ padding: '8px 14px' }}>
+                  <td style={{ padding: '8px 14px' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {b.status !== 'confirmed' && (
                         <button onClick={() => onUpdateStatus(b.id, 'confirmed')} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✓</button>
@@ -125,6 +126,8 @@ export default function BookingsPage() {
   const [showArchive, setShowArchive] = useState(false)
   // ✅ جديد: رقم الصفحة الحالية
   const [page, setPage] = useState(0)
+  // ✅ جديد: الحجز اللي تم الضغط عليه — يظهر في نافذة التفاصيل الكاملة
+  const [detailBooking, setDetailBooking] = useState<Booking | null>(null)
 
   const fetchBookings = useCallback(async () => {
     // ✅ Fix: الترتيب بقى من الأحدث للأقدم (تنازلي) بدل تصاعدي
@@ -156,6 +159,16 @@ export default function BookingsPage() {
   async function updateTable(id: string, table_number: number | null) {
     await sb.from('bookings').update({ table_number }).eq('id', id)
     fetchBookings()
+  }
+
+  // ✅ نفس updateTable/updateStatus، لكن بتحدّث كمان نسخة نافذة التفاصيل المفتوحة أول بأول (مش بس القائمة بعد إعادة الجلب)
+  function updateTableAndDetail(id: string, table_number: number | null) {
+    updateTable(id, table_number)
+    setDetailBooking(p => p && p.id === id ? { ...p, table_number } : p)
+  }
+  function updateStatusAndDetail(id: string, status: 'confirmed' | 'cancelled') {
+    updateStatus(id, status)
+    setDetailBooking(p => p && p.id === id ? { ...p, status } : p)
   }
 
   // ✅ جديد: تاريخ اليوم بصيغة قابلة للمقارنة، لتحديد الأرشيف
@@ -335,13 +348,13 @@ export default function BookingsPage() {
                 <h2 style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{g.label}</h2>
                 <span style={{ fontSize: 11, fontWeight: 700, color: S.gold, background: S.gold3, borderRadius: 20, padding: '2px 10px' }}>{g.rows.length}</span>
               </div>
-              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} />
+              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onRowClick={setDetailBooking} />
             </div>
           ))}
         </div>
       ) : (
         <>
-          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} />
+          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onRowClick={setDetailBooking} />
 
           {/* ✅ تصفح الصفحات - 20 حجز في كل صفحة (للأرشيف فقط، النشطة/القادمة مقسّمة بالمجموعات) */}
           {totalPages > 1 && (
@@ -359,6 +372,71 @@ export default function BookingsPage() {
           )}
         </>
       )}
+
+      {/* ✅ جديد: نافذة تفاصيل الحجز الكاملة — تظهر عند الضغط على أي صف في الجدول */}
+      {detailBooking && (() => {
+        const b = detailBooking
+        const st = STATUS_CFG[b.status]
+        const rows: { icon: string; label: string; value: string }[] = [
+          { icon: '🏪', label: 'Branch', value: branches.find(br => br.id === b.branch_id)?.name || '—' },
+          { icon: '📅', label: 'Date', value: new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) },
+          { icon: '🕐', label: 'Time', value: b.booking_time },
+          { icon: '👥', label: 'Guests', value: String(b.guests) },
+          { icon: SECTION_LABELS[b.section]?.split(' ')[0] || '📍', label: 'Section', value: SECTION_LABELS[b.section]?.split(' ').slice(1).join(' ') || b.section },
+          { icon: '📧', label: 'Email', value: b.customer_email },
+          { icon: '📱', label: 'Phone', value: b.customer_phone },
+          { icon: '🕓', label: 'Submitted', value: new Date(b.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) },
+        ]
+        return (
+          <div onClick={() => setDetailBooking(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 26, maxWidth: 480, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: S.white }}>{b.customer_name}</div>
+                  <span style={{ display: 'inline-block', marginTop: 6, background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
+                </div>
+                <button onClick={() => setDetailBooking(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: 16, marginTop: 16 }}>
+                {rows.map((r, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 0', borderBottom: i < rows.length - 1 ? `1px solid ${S.border}` : 'none' }}>
+                    <span style={{ fontSize: 17, width: 22, textAlign: 'center', flexShrink: 0 }}>{r.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: S.muted, fontSize: 10.5 }}>{r.label}</div>
+                      <div style={{ color: S.white, fontSize: 13, fontWeight: 600, wordBreak: 'break-word' }}>{r.value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🪑 Table Number</div>
+                <input type="number" style={{ ...inp, width: '100%' }} placeholder="Not assigned yet" value={b.table_number || ''} min={1}
+                  onChange={e => updateTableAndDetail(b.id, parseInt(e.target.value) || null)} />
+              </div>
+
+              {b.notes && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>📝 Special Requests</div>
+                  <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 12, padding: 12, fontSize: 12.5, color: S.white, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{b.notes}</div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                {b.status !== 'confirmed' && (
+                  <button onClick={() => updateStatusAndDetail(b.id, 'confirmed')}
+                    style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✓ Confirm</button>
+                )}
+                {b.status !== 'cancelled' && (
+                  <button onClick={() => updateStatusAndDetail(b.id, 'cancelled')}
+                    style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✕ Cancel</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

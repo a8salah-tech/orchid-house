@@ -42,6 +42,12 @@ const SECTION_POLICY: Record<string, { en: string; ar: string }> = {
 }
 type Phase = 'branch' | 'date' | 'section' | 'details' | 'done'
 type Branch = { id: string; name: string; location: string; image_url?: string | null }
+// ✅ جديد: عرض المنيو + الوجبات العائلية داخل صفحة الحجز — أوركيد هاوس فقط
+type MenuCategory = { id: string; name: string; name_en?: string | null; sort_order?: number | null }
+type MenuItem = { id: string; name: string; name_en?: string | null; price: number; image_url: string | null; category_id: string }
+const FAMILY_SET_CATEGORY_ID = '99020816-226e-414c-9f16-32a6bbafb487'
+// صور الأقسام (Indoor/Outdoor/Upstairs) التي يرفعها المدير من صفحة "🏪 صور الفروع"
+type SectionPhoto = { branch_id: string; section: string; image_url: string | null }
 
 export default function BookingPage() {
   const sbRef = useRef(createClient())
@@ -59,13 +65,33 @@ export default function BookingPage() {
   useEffect(() => { if (bookingDate) setForm(p => ({ ...p, date: bookingDate })) }, [bookingDate])
   const [errors, setErrors] = useState<Record<string, string>>({})
 
+  // ✅ منيو أوركيد هاوس (الأصناف العائلية + قوائم الفئات) وصور الأقسام — تُجلب مرة واحدة، fail-open
+  const [familyItems, setFamilyItems] = useState<MenuItem[]>([])
+  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([])
+  const [sectionPhotos, setSectionPhotos] = useState<SectionPhoto[]>([])
+
   async function fetchBranches() {
     // ✅ select('*') بدل تحديد الأعمدة: fail-open لو عمود image_url لسه ما اتضافش (قبل تشغيل SQL)
     const { data } = await sb.from('branches').select('*').eq('is_active', true).order('name', { ascending: false })
     setBranches(data || [])
   }
 
-  useEffect(() => { fetchBranches() }, [])
+  async function fetchOrchidHouseMenuPreview() {
+    const [catsRes, itemsRes] = await Promise.all([
+      sb.from('menu_categories').select('id,name,name_en,sort_order').eq('is_active', true).eq('branch_id', ORCHID_HOUSE_ID).order('sort_order'),
+      sb.from('menu_items').select('id,name,name_en,price,image_url,category_id').eq('is_active', true).eq('is_available', true).eq('branch_id', ORCHID_HOUSE_ID).eq('category_id', FAMILY_SET_CATEGORY_ID),
+    ])
+    if (catsRes.data) setMenuCategories(catsRes.data as MenuCategory[])
+    if (itemsRes.data) setFamilyItems(itemsRes.data as MenuItem[])
+  }
+
+  async function fetchSectionPhotos() {
+    // fail-open: لو جدول booking_section_photos لسه ما اتعملش، نتجاهل الخطأ بدون كسر الصفحة
+    const { data, error } = await sb.from('booking_section_photos').select('*')
+    if (!error && data) setSectionPhotos(data as SectionPhoto[])
+  }
+
+  useEffect(() => { fetchBranches(); fetchOrchidHouseMenuPreview(); fetchSectionPhotos() }, [])
 
   // دعم زر الرجوع في المتصفح
   useEffect(() => {
@@ -290,12 +316,20 @@ export default function BookingPage() {
             <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Choose Your Section</h2>
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred dining area</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {SECTIONS.map(s => (
+              {SECTIONS.map(s => {
+                const photo = selectedBranch?.id === ORCHID_HOUSE_ID ? sectionPhotos.find(p => p.branch_id === selectedBranch.id && p.section === s.key) : null
+                return (
                 <div key={s.key} onClick={() => pickSection(s.key)}
                   style={{ background: C.bg2, border: `1.5px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, transition: 'all .2s' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${s.color}`; (e.currentTarget as HTMLElement).style.background = s.color + '10' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${C.border}`; (e.currentTarget as HTMLElement).style.background = C.bg2 }}>
-                  <div style={{ width: 52, height: 52, borderRadius: 14, background: s.color + '20', border: `1.5px solid ${s.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{s.icon}</div>
+                  {photo?.image_url ? (
+                    <div style={{ width: 60, height: 60, borderRadius: 14, overflow: 'hidden', border: `1.5px solid ${s.color}`, flexShrink: 0 }}>
+                      <img src={photo.image_url} alt={s.label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    </div>
+                  ) : (
+                    <div style={{ width: 52, height: 52, borderRadius: 14, background: s.color + '20', border: `1.5px solid ${s.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{s.icon}</div>
+                  )}
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 800, fontSize: 16, color: C.white, marginBottom: 2 }}>{s.label}</div>
                     <div style={{ fontSize: 12, color: C.silver2 }}>{s.labelAr}</div>
@@ -308,13 +342,52 @@ export default function BookingPage() {
                   </div>
                   <div style={{ color: C.silver2, fontSize: 20 }}>›</div>
                 </div>
-              ))}
+              )})}
             </div>
 
             {/* ✅ جديد: تنويه عدم اصطحاب مأكولات/مشروبات من خارج المطعم — أوركيد هاوس فقط */}
             {selectedBranch?.id === ORCHID_HOUSE_ID && (
               <div style={{ marginTop: 18, background: C.amberB, border: `1px solid ${C.amber}40`, borderRadius: 14, padding: '12px 16px', fontSize: 12, color: C.silver2, lineHeight: 1.7 }}>
                 ⚠️ Outside food and beverages are not permitted. · يُرجى العلم أنه لا يُسمح باصطحاب أي مأكولات أو مشروبات من خارج المطعم.
+              </div>
+            )}
+
+            {/* ✅ جديد: نظرة على المنيو + الوجبات العائلية — أوركيد هاوس فقط */}
+            {selectedBranch?.id === ORCHID_HOUSE_ID && (menuCategories.length > 0 || familyItems.length > 0) && (
+              <div style={{ marginTop: 18 }}>
+                {familyItems.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>🍽️ Family Set Meals · الوجبات العائلية</h3>
+                    <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
+                      {familyItems.map(it => (
+                        <div key={it.id} style={{ minWidth: 150, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', flexShrink: 0 }}>
+                          <div style={{ width: '100%', height: 100, background: `linear-gradient(135deg, ${C.blue1}25, ${C.bg3})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {it.image_url
+                              ? <img src={it.image_url} alt={it.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                              : <span style={{ fontSize: 28 }}>🍛</span>}
+                          </div>
+                          <div style={{ padding: '10px 12px' }}>
+                            <div style={{ fontWeight: 700, fontSize: 12.5, color: C.white, marginBottom: 2 }}>{it.name_en || it.name}</div>
+                            <div style={{ fontSize: 11, color: C.silver2, marginBottom: 4 }}>{it.name}</div>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: C.blue1 }}>RM {Number(it.price).toFixed(2)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {menuCategories.length > 0 && (
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>📋 Our Menu · قائمة الطعام</h3>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {menuCategories.map(c => (
+                        <span key={c.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 20, padding: '7px 14px', fontSize: 12, color: C.silver }}>
+                          {c.name_en || c.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

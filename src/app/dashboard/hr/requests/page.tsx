@@ -77,6 +77,8 @@ interface EmployeeRequest {
   title: string; description: string; amount: number
   start_date: string; end_date: string; days_count: number
   approved_by: string; approved_at: string; rejection_reason: string
+  // ✅ جديد: مين بالضبط ضغط "إنشاء" — يفرق عن employee_id (لصالح مين الطلب)، مهم لتصحيح الحضور اللي أدمن بيعمله لموظف تاني
+  created_by_name?: string | null
   // ✅ طلب تعيين شيفت: الشيفت المطلوب (شيفت جاهز / وقت مخصص / إجازة) — يُطبَّق على shift_schedules عند الموافقة
   requested_shift_id?: string | null; requested_custom_start?: string | null; requested_custom_end?: string | null; requested_day_off?: boolean | null
   // ✅ جديد: رابط التقرير الطبي المرفق (إجباري للإجازة المرضية فقط)
@@ -478,8 +480,8 @@ Reason: ${form.reason}`
 }
 
 // ══ New Request Modal ══
-function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initialType, canSeeSalaryIncrease, canSeeSalaryAdvance, canSeeAttendanceCorrection }: {
-  employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string; initialType?: string; canSeeSalaryIncrease?: boolean; canSeeSalaryAdvance?: boolean; canSeeAttendanceCorrection?: boolean
+function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submittedByName, initialType, canSeeSalaryIncrease, canSeeSalaryAdvance, canSeeAttendanceCorrection }: {
+  employees: Employee[]; onClose: () => void; onSaved: () => void; currentEmployeeId?: string; submittedByName?: string; initialType?: string; canSeeSalaryIncrease?: boolean; canSeeSalaryAdvance?: boolean; canSeeAttendanceCorrection?: boolean
 }) {
   const supabase = createClient()
   const { isAr } = useLang()
@@ -588,6 +590,9 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, initi
       status: 'pending',
       // ✅ جديد: حفظ رابط التقرير الطبي (فارغ لو الطلب مش إجازة مرضية)
       attachment_url: attachmentUrl || null,
+      // ✅ جديد: مين بالضبط ضغط "إنشاء" (يفرق عن employee_id، اللي هو لصالح مين الطلب) —
+      // مهم خصوصاً لتصحيح الحضور اللي أدمن بيعمله لصالح موظف تاني
+      created_by_name: submittedByName || null,
     }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }
@@ -1298,6 +1303,10 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                 </div>
               ))}
             </div>
+            {/* ✅ جديد: مين بالضبط أنشأ الطلب — تصحيح الحضور مقصور على مديري النظام، وممكن أي واحد منهم يعمله لموظف تاني */}
+            {request.created_by_name && (
+              <div style={{ marginTop: 8, fontSize: 11, color: S.muted }}>👤 أنشأه: <strong style={{ color: S.white }}>{request.created_by_name}</strong></div>
+            )}
             {request.status === 'approved' && (
               <div style={{ marginTop: 8, fontSize: 11, color: S.green }}>✅ تم تطبيق التصحيح على سجل الحضور تلقائياً</div>
             )}
@@ -1950,7 +1959,9 @@ export default function EmployeeRequestsPage() {
         </div>
       )}
 
-     {showNew && <NewRequestModal employees={employees} initialType={showNewType} onClose={() => { setShowNew(false); setShowNewType('leave_sick') }} onSaved={() => { setShowNew(false); setShowNewType('leave_sick'); fetchAll() }} currentEmployeeId={currentUser?.id} canSeeSalaryIncrease={canSeeSalaryIncrease} canSeeSalaryAdvance={canSeeSalaryAdvance} canSeeAttendanceCorrection={isAdmin} />}
+     {showNew && <NewRequestModal employees={employees} initialType={showNewType} onClose={() => { setShowNew(false); setShowNewType('leave_sick') }} onSaved={() => { setShowNew(false); setShowNewType('leave_sick'); fetchAll() }} currentEmployeeId={currentUser?.id}
+       submittedByName={currentUser?.name ? `${currentUser.name}${currentUser.name_en ? ' (' + currentUser.name_en + ')' : ''}` : ''}
+       canSeeSalaryIncrease={canSeeSalaryIncrease} canSeeSalaryAdvance={canSeeSalaryAdvance} canSeeAttendanceCorrection={isAdmin} />}
       {showSalaryIncrease && employees.find(e => e.id === currentUser?.id) && (
   <SalaryIncreaseModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryIncrease(false)} onSaved={() => { setShowSalaryIncrease(false); fetchAll() }} />
 )}

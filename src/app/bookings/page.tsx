@@ -30,6 +30,16 @@ const BRANCH_NAMES: Record<string, { ar: string; en: string; location: string }>
   '783bc0ec-16f5-4e6c-9148-9c30b12d42c2': { ar: 'اوركيد هاوس', en: 'Orchid House', location: 'Lorong Raja Uda' },
   '9375998c-0a98-48c8-be7a-485e0c616ae1': { ar: 'اوركيد  KLCC', en: 'Orchid KLCC ', location: 'Lorong Yap Kwan Seng' },
 }
+
+// ✅ جديد: سياسات خاصة بفرع أوركيد هاوس فقط (سعة كل قسم + قيد وقت الطابق العلوي) — لا تنطبق على KLCC
+const ORCHID_HOUSE_ID = '783bc0ec-16f5-4e6c-9148-9c30b12d42c2'
+// أقل وقت مسموح لحجز "الطابق العلوي" في أوركيد هاوس (24h، مقارنة نصية بسيطة HH:MM)
+const UPSTAIRS_MIN_TIME = '19:00'
+const SECTION_POLICY: Record<string, { en: string; ar: string }> = {
+  outdoor: { en: 'Capacity: up to 100 guests', ar: 'السعة: حتى 100 شخص' },
+  indoor:  { en: 'Capacity: up to 100 guests', ar: 'السعة: حتى 100 شخص' },
+  upstairs:{ en: `Capacity: 15–20 guests · Bookings from ${UPSTAIRS_MIN_TIME} onwards only`, ar: `السعة: 15–20 شخص · الحجز متاح فقط من الساعة 7:00 مساءً` },
+}
 type Phase = 'branch' | 'date' | 'section' | 'details' | 'done'
 type Branch = { id: string; name: string; location: string; image_url?: string | null }
 
@@ -88,6 +98,10 @@ export default function BookingPage() {
     if (!form.time) e.time = 'Time is required'
     if (form.date && new Date(form.date) < new Date(new Date().toDateString())) e.date = 'Date cannot be in the past'
     if (!form.guests || parseInt(form.guests) < 1) e.guests = 'Please enter the number of guests'
+    // ✅ جديد: الطابق العلوي في أوركيد هاوس متاح فقط لحجوزات الساعة 7 مساءً فأكثر
+    if (selectedBranch?.id === ORCHID_HOUSE_ID && section === 'upstairs' && form.time && form.time < UPSTAIRS_MIN_TIME) {
+      e.time = `Upstairs bookings are only available from ${UPSTAIRS_MIN_TIME} onwards`
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -285,11 +299,24 @@ export default function BookingPage() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 800, fontSize: 16, color: C.white, marginBottom: 2 }}>{s.label}</div>
                     <div style={{ fontSize: 12, color: C.silver2 }}>{s.labelAr}</div>
+                    {/* ✅ جديد: سياسة القسم (السعة + شرط الوقت للطابق العلوي) — أوركيد هاوس فقط */}
+                    {selectedBranch?.id === ORCHID_HOUSE_ID && SECTION_POLICY[s.key] && (
+                      <div style={{ fontSize: 11, color: s.color, marginTop: 6, lineHeight: 1.6 }}>
+                        {SECTION_POLICY[s.key].en}<br />{SECTION_POLICY[s.key].ar}
+                      </div>
+                    )}
                   </div>
                   <div style={{ color: C.silver2, fontSize: 20 }}>›</div>
                 </div>
               ))}
             </div>
+
+            {/* ✅ جديد: تنويه عدم اصطحاب مأكولات/مشروبات من خارج المطعم — أوركيد هاوس فقط */}
+            {selectedBranch?.id === ORCHID_HOUSE_ID && (
+              <div style={{ marginTop: 18, background: C.amberB, border: `1px solid ${C.amber}40`, borderRadius: 14, padding: '12px 16px', fontSize: 12, color: C.silver2, lineHeight: 1.7 }}>
+                ⚠️ Outside food and beverages are not permitted. · يُرجى العلم أنه لا يُسمح باصطحاب أي مأكولات أو مشروبات من خارج المطعم.
+              </div>
+            )}
           </div>
         )}
 

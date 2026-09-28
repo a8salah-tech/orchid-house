@@ -65,10 +65,13 @@ export default function BookingPage() {
   useEffect(() => { if (bookingDate) setForm(p => ({ ...p, date: bookingDate })) }, [bookingDate])
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // ✅ منيو أوركيد هاوس (الأصناف العائلية + قوائم الفئات) وصور الأقسام — تُجلب مرة واحدة، fail-open
-  const [familyItems, setFamilyItems] = useState<MenuItem[]>([])
+  // ✅ منيو أوركيد هاوس (كل الأصناف + قوائم الفئات) وصور الأقسام — تُجلب مرة واحدة، fail-open
+  const [allMenuItems, setAllMenuItems] = useState<MenuItem[]>([])
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([])
   const [sectionPhotos, setSectionPhotos] = useState<SectionPhoto[]>([])
+  // ✅ جديد: الفئة المفتوحة حاليًا في "قائمة الطعام" — الضغط على الفئة يعرض أصنافها
+  const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null)
+  const familyItems = allMenuItems.filter(it => it.category_id === FAMILY_SET_CATEGORY_ID)
 
   async function fetchBranches() {
     // ✅ select('*') بدل تحديد الأعمدة: fail-open لو عمود image_url لسه ما اتضافش (قبل تشغيل SQL)
@@ -79,10 +82,10 @@ export default function BookingPage() {
   async function fetchOrchidHouseMenuPreview() {
     const [catsRes, itemsRes] = await Promise.all([
       sb.from('menu_categories').select('id,name,name_en,sort_order').eq('is_active', true).eq('branch_id', ORCHID_HOUSE_ID).order('sort_order'),
-      sb.from('menu_items').select('id,name,name_en,price,image_url,category_id').eq('is_active', true).eq('is_available', true).eq('branch_id', ORCHID_HOUSE_ID).eq('category_id', FAMILY_SET_CATEGORY_ID),
+      sb.from('menu_items').select('id,name,name_en,price,image_url,category_id').eq('is_active', true).eq('is_available', true).eq('branch_id', ORCHID_HOUSE_ID),
     ])
     if (catsRes.data) setMenuCategories(catsRes.data as MenuCategory[])
-    if (itemsRes.data) setFamilyItems(itemsRes.data as MenuItem[])
+    if (itemsRes.data) setAllMenuItems(itemsRes.data as MenuItem[])
   }
 
   async function fetchSectionPhotos() {
@@ -378,14 +381,48 @@ export default function BookingPage() {
                 )}
                 {menuCategories.length > 0 && (
                   <div>
-                    <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>📋 Our Menu · قائمة الطعام</h3>
+                    <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>📋 Our Menu · قائمة الطعام</h3>
+                    <p style={{ fontSize: 11, color: C.silver2, marginBottom: 10 }}>Tap a category to preview its dishes · اضغط على أي فئة لعرض أصنافها</p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {menuCategories.map(c => (
-                        <span key={c.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 20, padding: '7px 14px', fontSize: 12, color: C.silver }}>
-                          {c.name_en || c.name}
-                        </span>
-                      ))}
+                      {menuCategories.map(c => {
+                        const isOpen = expandedCategoryId === c.id
+                        return (
+                          <button key={c.id} onClick={() => setExpandedCategoryId(isOpen ? null : c.id)}
+                            style={{ background: isOpen ? C.blue1 + '25' : C.bg2, border: `1px solid ${isOpen ? C.blue1 : C.border}`, borderRadius: 20, padding: '7px 14px', fontSize: 12, color: isOpen ? C.white : C.silver, cursor: 'pointer', fontFamily: 'system-ui', fontWeight: isOpen ? 700 : 400 }}>
+                            {c.name_en || c.name}
+                          </button>
+                        )
+                      })}
                     </div>
+                    {expandedCategoryId && (() => {
+                      const items = allMenuItems.filter(it => it.category_id === expandedCategoryId)
+                      const cat = menuCategories.find(c => c.id === expandedCategoryId)
+                      return (
+                        <div style={{ marginTop: 12, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>
+                          {items.length === 0 ? (
+                            <div style={{ fontSize: 12, color: C.silver2, textAlign: 'center', padding: 8 }}>No dishes listed yet · لا توجد أصناف مضافة بعد</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              {items.map(it => (
+                                <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <div style={{ width: 38, height: 38, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: `linear-gradient(135deg, ${C.blue1}25, ${C.bg3})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    {it.image_url
+                                      ? <img src={it.image_url} alt={it.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                      : <span style={{ fontSize: 16 }}>🍽️</span>}
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.white }}>{it.name_en || it.name}</div>
+                                    <div style={{ fontSize: 11, color: C.silver2 }}>{it.name}</div>
+                                  </div>
+                                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.blue1 }}>RM {Number(it.price).toFixed(2)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 10, color: C.silver2, marginTop: 10, textAlign: 'center' }}>{cat?.name_en || cat?.name}</div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
               </div>

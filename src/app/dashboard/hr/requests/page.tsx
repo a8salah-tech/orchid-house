@@ -894,6 +894,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       .select('id, date, check_in_time, check_out_time, early_minutes, permit_minutes')
       .eq('employee_id', request.employee_id).in('date', dates)
       .not('check_in_time', 'is', null).not('check_out_time', 'is', null)
+      // ✅ Fix: يحترم تصحيح المدير اليدوي (is_manual=true) ولا يعيد كتابته
+      .or('is_manual.is.null,is_manual.eq.false')
     for (const r of (rows || []) as { id: string; date: string; check_in_time: string; check_out_time: string; early_minutes: number | null; permit_minutes: number | null }[]) {
       const { early_minutes, permit_minutes } = await computeEarlyInfo(supabase, request.employee_id, r.date, r.check_out_time, r.check_in_time)
       if (early_minutes !== (r.early_minutes || 0) || permit_minutes !== (r.permit_minutes || 0)) {

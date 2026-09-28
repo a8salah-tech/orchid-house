@@ -1088,6 +1088,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
           .select('id, employee_id, date, check_in_time, check_out_time')
           .gte('date', startDate).lt('date', endDate)
           .not('check_in_time', 'is', null)
+          // ✅ Fix حرج: كان بيعيد حساب كل الصفوف بلا استثناء، حتى لو مدير عدّلها يدوياً (is_manual=true)
+          // — مثلاً ألغى تأخيراً بالغلط أو صحّح خطأ. كان بيمسح أي تصحيح يدوي بالكامل عند كل تشغيل
+          .or('is_manual.is.null,is_manual.eq.false')
           .order('id')
           .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 

@@ -24,18 +24,18 @@ const S = {
 const ITEM_TYPES = [
   // ✅ المفتاح 'jacket' يبقى كما هو (بلا تغيير) للحفاظ على الطلبات وسجلات المخزون القديمة —
   // كل ما تغيّر هو الاسم الظاهر ليوضّح إنه الجاكيت الأسود، بعد إضافة جاكيت أبيض كصنف مستقل
-  // ✅ image: صورة المنتج الحقيقية (تظهر في شبكة الاختيار)، icon: يبقى للاستخدام في القوائم المختصرة (تفاصيل الطلب، المخزون، السجل)
-  { key: 'jacket',       label: 'Black Jacket', label_ar: 'جاكيت أسود', icon: '👨🏻‍🍳', image: '/uniform/jacket-black.jpg' },
-  { key: 'jacket_white', label: 'White Jacket', label_ar: 'جاكيت أبيض', icon: '🥼', image: '/uniform/jacket-white.webp' },
-  { key: 'tshirt',       label: 'Black Polo',   label_ar: 'بولو أسود',  icon: '👕', image: '/uniform/polo-black.jpg' },
+  // ✅ Fix per user request: شيل أيقونات الإيموجي بالكامل، صورة المنتج الحقيقية image بدلها في كل مكان بالصفحة
+  { key: 'jacket',       label: 'Black Jacket', label_ar: 'جاكيت أسود', image: '/uniform/jacket-black.jpg' },
+  { key: 'jacket_white', label: 'White Jacket', label_ar: 'جاكيت أبيض', image: '/uniform/jacket-white.webp' },
+  { key: 'tshirt',       label: 'Black Polo',   label_ar: 'بولو أسود', image: '/uniform/polo-black.jpg' },
   // ✅ جديد: بولو بني — لون تاني مستقل عن tshirt، بنفس نمط jacket/jacket_white
-  { key: 'tshirt_brown', label: 'Brown Polo',   label_ar: 'بولو بني',   icon: '👕', image: '/uniform/polo-brown.jpg' },
-  { key: 'cap',          label: 'Cap',          label_ar: 'كاب',        icon: '🧢', image: '/uniform/cap-black.jpg' },
-  { key: 'apron',        label: 'Apron',        label_ar: 'مريول',      icon: '🎽', image: '/uniform/apron-black.jpg' },
-  { key: 'vest_waiter',  label: 'Waiter Vest',  label_ar: 'سديرية ويتر', icon: '🦺', image: '/uniform/vest-black.webp' },
-  // ✅ جديد: طرطوشة الشيف — قسم جديد بالكامل، لونين مستقلين
-  { key: 'chef_hat',       label: 'Black Chef Hat', label_ar: 'طرطوشة سوداء', icon: '👨‍🍳', image: '/uniform/chef-hat-black.jpg' },
-  { key: 'chef_hat_white', label: 'White Chef Hat', label_ar: 'طرطوشة بيضاء', icon: '👨‍🍳', image: '/uniform/chef-hat-white.jpg' },
+  { key: 'tshirt_brown', label: 'Brown Polo',   label_ar: 'بولو بني', image: '/uniform/polo-brown.jpg' },
+  { key: 'cap',          label: 'Cap',          label_ar: 'كاب', image: '/uniform/cap-black.jpg' },
+  { key: 'apron',        label: 'Apron',        label_ar: 'مريول', image: '/uniform/apron-black.jpg' },
+  { key: 'vest_waiter',  label: 'Waiter Vest',  label_ar: 'سديرية ويتر', image: '/uniform/vest-black.webp' },
+  // ✅ جديد: طاقية الشيف — قسم جديد بالكامل، لونين مستقلين
+  { key: 'chef_hat',       label: 'Black Chef Hat', label_ar: 'طاقية سوداء', image: '/uniform/chef-hat-black.jpg' },
+  { key: 'chef_hat_white', label: 'White Chef Hat', label_ar: 'طاقية بيضاء', image: '/uniform/chef-hat-white.jpg' },
 ]
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL']
 
@@ -373,9 +373,22 @@ export default function UniformRequestsPage() {
     await fetchStock()
   }
 
+  // ✅ Fix per user request: بلا أي أيقونة إيموجي — نص فقط (مُستخدَم في تقرير الطباعة كنص خام)
   function itemLabel(type: string) {
     const t = ITEM_TYPES.find(i => i.key === type)
-    return t ? `${t.icon} ${t.label_ar}` : type
+    return t ? t.label_ar : type
+  }
+
+  // ✅ جديد: نفس الفكرة، لكن بصورة المنتج الحقيقية بدل أي أيقونة — للاستخدام داخل الصفحة نفسها (JSX)
+  function ItemChip({ type }: { type: string }) {
+    const t = ITEM_TYPES.find(i => i.key === type)
+    if (!t) return <>{type}</>
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <img src={t.image} alt={t.label_ar} style={{ width: 22, height: 22, borderRadius: 6, objectFit: 'cover', background: '#fff', flexShrink: 0 }} />
+        {t.label_ar}
+      </span>
+    )
   }
 
   const pendingCount = allRequests.filter(r => r.status === 'pending').length
@@ -451,7 +464,7 @@ export default function UniformRequestsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {Object.entries(selections).map(([key, sel]) => (
                   <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: S.card, borderRadius: 12, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: S.white, minWidth: 90 }}>{itemLabel(key)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: S.white, minWidth: 90 }}><ItemChip type={key} /></div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <label style={{ fontSize: 11, color: S.muted }}>المقاس</label>
                       <select value={sel.size} onChange={e => updateSelection(key, 'size', e.target.value)}
@@ -497,7 +510,7 @@ export default function UniformRequestsPage() {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: req.delivered_at ? 10 : 0 }}>
                   {(req.uniform_request_items || []).map(it => (
                     <span key={it.id} style={{ background: S.card, borderRadius: 10, padding: '5px 10px', fontSize: 12, color: S.white }}>
-                      {itemLabel(it.item_type)} · {it.size} · ×{it.quantity}
+                      <ItemChip type={it.item_type} /> · {it.size} · ×{it.quantity}
                     </span>
                   ))}
                 </div>
@@ -550,7 +563,7 @@ export default function UniformRequestsPage() {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                   {(req.uniform_request_items || []).map(it => (
                     <span key={it.id} style={{ background: S.card, borderRadius: 10, padding: '5px 10px', fontSize: 12, color: S.white }}>
-                      {itemLabel(it.item_type)} · {it.size} · ×{it.quantity}
+                      <ItemChip type={it.item_type} /> · {it.size} · ×{it.quantity}
                     </span>
                   ))}
                 </div>
@@ -600,7 +613,7 @@ export default function UniformRequestsPage() {
                 <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف</label>
                 <select value={stockForm.item_type} onChange={e => setStockForm(p => ({ ...p, item_type: e.target.value }))}
                   style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
-                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.icon} {it.label_ar}</option>)}
+                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.label_ar}</option>)}
                 </select>
               </div>
               <div>
@@ -643,14 +656,21 @@ export default function UniformRequestsPage() {
           {Object.keys(stockTotals).length > 0 && (
             <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 14 }}>📊 إجمالي الكميات المتاحة حالياً</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 10 }}>
-                {Object.values(stockTotals).map((t, i) => (
-                  <div key={i} style={{ background: S.card, borderRadius: 10, padding: '10px 14px' }}>
-                    <div style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>{itemLabel(t.item_type)} · {t.size}</div>
-                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{t.branchName}</div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: S.gold, marginTop: 4 }}>{t.total}</div>
-                  </div>
-                ))}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 12 }}>
+                {Object.values(stockTotals).map((t, i) => {
+                  // ✅ Fix per user request: صورة المنتج الحقيقية كبيرة وواضحة بدل أي أيقونة
+                  const meta = ITEM_TYPES.find(x => x.key === t.item_type)
+                  return (
+                    <div key={i} style={{ background: S.card, borderRadius: 12, padding: 12, textAlign: 'center' }}>
+                      <div style={{ width: '100%', height: 100, borderRadius: 10, overflow: 'hidden', background: '#fff', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {meta && <img src={meta.image} alt={meta.label_ar} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
+                      </div>
+                      <div style={{ fontSize: 12.5, color: S.white, fontWeight: 700 }}>{meta?.label_ar || t.item_type} · {t.size}</div>
+                      <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{t.branchName}</div>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: S.gold, marginTop: 6 }}>{t.total}</div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -668,7 +688,7 @@ export default function UniformRequestsPage() {
               <div key={entry.id} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>
-                    {itemLabel(entry.item_type)} · {entry.size} · <span style={{ color: S.gold }}>+{entry.quantity}</span>
+                    <ItemChip type={entry.item_type} /> · {entry.size} · <span style={{ color: S.gold }}>+{entry.quantity}</span>
                   </div>
                   <div style={{ fontSize: 11, color: S.muted, marginTop: 3 }}>
                     🏪 {entry.branches?.name || '—'} · 👤 {entry.added_by_employee ? `${entry.added_by_employee.name}${entry.added_by_employee.name_en ? ' ' + entry.added_by_employee.name_en : ''}` : 'غير معروف'}
@@ -728,7 +748,7 @@ export default function UniformRequestsPage() {
                 <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف</label>
                 <select value={historyForm.item_type} onChange={e => setHistoryForm(p => ({ ...p, item_type: e.target.value }))}
                   style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
-                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.icon} {it.label_ar}</option>)}
+                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.label_ar}</option>)}
                 </select>
               </div>
               <div>
@@ -828,7 +848,7 @@ export default function UniformRequestsPage() {
                       <td style={{ padding: '10px 14px', color: S.gold }}>{r.employeeNumber || '—'}</td>
                       <td style={{ padding: '10px 14px', color: S.muted }}>{r.department || '—'}</td>
                       <td style={{ padding: '10px 14px', color: S.muted }}>{r.branchName}</td>
-                      <td style={{ padding: '10px 14px', color: S.white }}>{itemLabel(r.itemType)}</td>
+                      <td style={{ padding: '10px 14px', color: S.white }}><ItemChip type={r.itemType} /></td>
                       <td style={{ padding: '10px 14px', color: S.gold, fontWeight: 700 }}>{r.quantity}</td>
                       <td style={{ padding: '10px 14px', color: S.muted }}>{new Date(r.lastDate).toLocaleDateString('ar-SA')}</td>
                     </tr>

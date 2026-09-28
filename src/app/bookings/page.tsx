@@ -20,6 +20,12 @@ const C = {
   glow: 'rgba(59,159,229,0.2)',
 }
 
+// ✅ جديد: أيقونة موحّدة باللون الأبيض — بعض الإيموجي (مثل 📅🕐👥📍🏪) كانت تظهر بألوانها
+// الافتراضية (أسود/أزرق) وتضيع على الخلفية الداكنة؛ الفلتر يحوّلها لأيقونة بيضاء واضحة دائمًا
+function Icon({ children, size = 16 }: { children: React.ReactNode; size?: number }) {
+  return <span style={{ filter: 'brightness(0) invert(1)', fontSize: size, display: 'inline-block', lineHeight: 1, verticalAlign: 'middle' }}>{children}</span>
+}
+
 const SECTIONS = [
   { key: 'outdoor', label: 'Outdoor Hall',  labelAr: 'الصالة الخارجية',         icon: '🌿', color: C.green },
   { key: 'indoor',  label: 'Indoor Hall',   labelAr: 'الصالة الداخلية المكيفة', icon: '❄️', color: C.blue1 },
@@ -203,7 +209,7 @@ export default function BookingPage() {
               { icon: '👥', label: 'Guests', value: `${form.guests} guests` },
             ].map((r, i) => (
               <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 0', borderBottom: i < 3 ? `1px solid ${C.border}` : 'none' }}>
-                <span style={{ fontSize: 18 }}>{r.icon}</span>
+                <Icon size={18}>{r.icon}</Icon>
                 <div>
                   <div style={{ color: C.silver2, fontSize: 10 }}>{r.label}</div>
                   <div style={{ color: C.white, fontSize: 13, fontWeight: 600 }}>{r.value}</div>
@@ -258,7 +264,7 @@ export default function BookingPage() {
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select the branch you'd like to visit · اختر الفرع</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {branches.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: C.silver2 }}>⏳ Loading branches...</div>
+                <div style={{ textAlign: 'center', padding: 40, color: C.silver2 }}><Icon size={14}>⏳</Icon> Loading branches...</div>
               ) : branches.map(b => (
                 <div key={b.id} onClick={() => { setSelectedBranch(b); setPhase('date') }}
                   style={{ background: C.bg2, border: `1.5px solid ${C.border}`, borderRadius: 18, padding: 14, cursor: 'pointer' }}
@@ -268,13 +274,13 @@ export default function BookingPage() {
                   <div style={{ width: '100%', height: 150, borderRadius: 14, overflow: 'hidden', border: `1px solid ${C.border2}`, boxShadow: `0 8px 24px rgba(0,0,0,.35)`, marginBottom: 14, background: `linear-gradient(135deg, ${C.blue1}25, ${C.bg3})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {b.image_url
                       ? <img src={b.image_url} alt={BRANCH_NAMES[b.id]?.en || b.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                      : <div style={{ fontSize: 40 }}>🏪</div>}
+                      : <Icon size={40}>🏪</Icon>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 800, fontSize: 16, color: C.white, marginBottom: 2 }}>{BRANCH_NAMES[b.id]?.ar || b.name}</div>
                       <div style={{ fontSize: 13, color: C.silver2, marginBottom: 2 }}>{BRANCH_NAMES[b.id]?.en || ''}</div>
-                      {(BRANCH_NAMES[b.id]?.location || b.location) && <div style={{ fontSize: 11, color: C.silver2 }}>📍 {BRANCH_NAMES[b.id]?.location || b.location}</div>}
+                      {(BRANCH_NAMES[b.id]?.location || b.location) && <div style={{ fontSize: 11, color: C.silver2, display: 'flex', alignItems: 'center', gap: 4 }}><Icon size={11}>📍</Icon> {BRANCH_NAMES[b.id]?.location || b.location}</div>}
                     </div>
                     <div style={{ color: C.silver2, fontSize: 20 }}>›</div>
                   </div>
@@ -289,9 +295,9 @@ export default function BookingPage() {
           <div>
             <button onClick={() => setPhase('branch')} style={{ background: 'transparent', border: 'none', color: C.blue1, cursor: 'pointer', fontSize: 14, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>← Back</button>
             <div style={{ background: C.blue1 + '15', border: `1px solid ${C.blue1}40`, borderRadius: 14, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 22 }}>🏪</span>
+              <Icon size={22}>🏪</Icon>
               <div style={{ fontWeight: 700, color: C.white }}>{selectedBranch?.name}</div>
-              {selectedBranch?.location && <div style={{ fontSize: 12, color: C.silver2 }}>📍 {selectedBranch.location}</div>}
+              {selectedBranch?.location && <div style={{ fontSize: 12, color: C.silver2, display: 'flex', alignItems: 'center', gap: 4 }}><Icon size={12}>📍</Icon> {selectedBranch.location}</div>}
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Choose a Date</h2>
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred visit date · اختر تاريخ الزيارة</p>
@@ -312,38 +318,43 @@ export default function BookingPage() {
           <div>
             <button onClick={() => setPhase('date')} style={{ background: 'transparent', border: 'none', color: C.blue1, cursor: 'pointer', fontSize: 14, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>← Back</button>
             <div style={{ background: C.blue1 + '15', border: `1px solid ${C.blue1}40`, borderRadius: 14, padding: '10px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span>🏪</span><span style={{ color: C.white, fontWeight: 700, fontSize: 13 }}>{selectedBranch?.name}</span>
+              <Icon>🏪</Icon><span style={{ color: C.white, fontWeight: 700, fontSize: 13 }}>{selectedBranch?.name}</span>
               <span style={{ color: C.silver2 }}>·</span>
-              <span>📅</span><span style={{ color: C.silver2, fontSize: 13 }}>{bookingDate && new Date(bookingDate).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              <Icon>📅</Icon><span style={{ color: C.silver2, fontSize: 13 }}>{bookingDate && new Date(bookingDate).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Choose Your Section</h2>
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred dining area</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {SECTIONS.map(s => {
                 const photo = selectedBranch?.id === ORCHID_HOUSE_ID ? sectionPhotos.find(p => p.branch_id === selectedBranch.id && p.section === s.key) : null
+                const hasPhoto = !!photo?.image_url
                 return (
                 <div key={s.key} onClick={() => pickSection(s.key)}
-                  style={{ background: C.bg2, border: `1.5px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, transition: 'all .2s' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${s.color}`; (e.currentTarget as HTMLElement).style.background = s.color + '10' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${C.border}`; (e.currentTarget as HTMLElement).style.background = C.bg2 }}>
-                  {photo?.image_url ? (
-                    <div style={{ width: 60, height: 60, borderRadius: 14, overflow: 'hidden', border: `1.5px solid ${s.color}`, flexShrink: 0 }}>
-                      <img src={photo.image_url} alt={s.label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  style={{ background: C.bg2, border: `1.5px solid ${C.border}`, borderRadius: 18, padding: hasPhoto ? 0 : '18px 20px', overflow: 'hidden', cursor: 'pointer', transition: 'all .2s' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${s.color}` }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.border = `1.5px solid ${C.border}` }}>
+                  {/* ✅ صورة القسم كبيرة وواضحة أعلى البطاقة (بدل الأيقونة الصغيرة السابقة) — تظهر فقط لو رفعها الأدمن */}
+                  {hasPhoto && (
+                    <div style={{ width: '100%', height: 220, overflow: 'hidden' }}>
+                      <img src={photo!.image_url!} alt={s.label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     </div>
-                  ) : (
-                    <div style={{ width: 52, height: 52, borderRadius: 14, background: s.color + '20', border: `1.5px solid ${s.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{s.icon}</div>
                   )}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 800, fontSize: 16, color: C.white, marginBottom: 2 }}>{s.label}</div>
-                    <div style={{ fontSize: 12, color: C.silver2 }}>{s.labelAr}</div>
-                    {/* ✅ جديد: سياسة القسم (السعة + شرط الوقت للطابق العلوي) — أوركيد هاوس فقط */}
-                    {selectedBranch?.id === ORCHID_HOUSE_ID && SECTION_POLICY[s.key] && (
-                      <div style={{ fontSize: 11, color: s.color, marginTop: 6, lineHeight: 1.6 }}>
-                        {SECTION_POLICY[s.key].en}<br />{SECTION_POLICY[s.key].ar}
-                      </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: hasPhoto ? '16px 20px' : 0 }}>
+                    {!hasPhoto && (
+                      <div style={{ width: 52, height: 52, borderRadius: 14, background: s.color + '20', border: `1.5px solid ${s.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{s.icon}</div>
                     )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 800, fontSize: 16, color: C.white, marginBottom: 2 }}>{s.label}</div>
+                      <div style={{ fontSize: 12, color: C.silver2 }}>{s.labelAr}</div>
+                      {/* ✅ جديد: سياسة القسم (السعة + شرط الوقت للطابق العلوي) — أوركيد هاوس فقط */}
+                      {selectedBranch?.id === ORCHID_HOUSE_ID && SECTION_POLICY[s.key] && (
+                        <div style={{ fontSize: 11, color: s.color, marginTop: 6, lineHeight: 1.6 }}>
+                          {SECTION_POLICY[s.key].en}<br />{SECTION_POLICY[s.key].ar}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ color: C.silver2, fontSize: 20 }}>›</div>
                   </div>
-                  <div style={{ color: C.silver2, fontSize: 20 }}>›</div>
                 </div>
               )})}
             </div>
@@ -438,7 +449,7 @@ export default function BookingPage() {
               <span style={{ fontSize: 22 }}>{selectedSection?.icon}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, color: C.white, fontSize: 14 }}>{selectedSection?.label} · {selectedBranch?.name}</div>
-                <div style={{ fontSize: 12, color: C.silver2 }}>🪑 We'll assign your table when you arrive</div>
+                <div style={{ fontSize: 12, color: C.silver2, display: 'flex', alignItems: 'center', gap: 5 }}><Icon size={12}>🪑</Icon> We'll assign your table when you arrive</div>
               </div>
               <button onClick={() => setPhase('section')} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, color: C.silver2, cursor: 'pointer', fontSize: 12, padding: '5px 10px' }}>Change</button>
             </div>

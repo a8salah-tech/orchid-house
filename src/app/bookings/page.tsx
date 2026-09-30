@@ -210,9 +210,14 @@ export default function BookingPage() {
       <div style={{ maxWidth: 460, width: '100%', textAlign: 'center', animation: 'fadeUp .6s ease' }}>
         <div style={{ fontSize: 72, marginBottom: 20 }}>🌸</div>
         <div style={{ background: C.bg2, borderRadius: 24, border: `1px solid ${C.border2}`, padding: '36px 28px', animation: 'glow 2s ease infinite' }}>
-          <div style={{ color: C.blue1, fontSize: 11, fontWeight: 700, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 10 }}>Booking Confirmed!</div>
+          {/* ✅ Fix: الشاشة كانت بتقول "Booking Confirmed" مع إن الحجز لسه "pending" فعليًا لحد ما فريق
+              الحجوزات يراجعه ويوافق عليه — النص بقى يعكس الحالة الحقيقية، بالعربي والإنجليزي */}
+          <div style={{ color: C.blue1, fontSize: 11, fontWeight: 700, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 10 }}>Request Sent!</div>
           <h2 style={{ color: C.white, fontSize: 22, fontWeight: 900, marginBottom: 8 }}>Thank you, {form.name.split(' ')[0]}!</h2>
-          <p style={{ color: C.silver2, fontSize: 14, marginBottom: 28, lineHeight: 1.7 }}>Your reservation has been received. We'll confirm within 24 hours.</p>
+          <p style={{ color: C.silver2, fontSize: 14, marginBottom: 28, lineHeight: 1.7 }}>
+            Your request has been sent to our bookings team. We'll contact you shortly to confirm your reservation.
+            <br />تم إرسال طلبكم إلى قسم الحجوزات، وسيتم التواصل معكم في أقرب وقت لتأكيد الحجز.
+          </p>
           <div style={{ background: 'rgba(59,159,229,.08)', border: `1px solid ${C.border2}`, borderRadius: 16, padding: 20, marginBottom: 20 }}>
             <div style={{ color: C.silver2, fontSize: 10, letterSpacing: 3, marginBottom: 8 }}>BOOKING REFERENCE</div>
             <div style={{ color: C.blue1, fontSize: 36, fontWeight: 900, letterSpacing: 6 }}>#{bookingRef}</div>
@@ -520,11 +525,29 @@ export default function BookingPage() {
                 <label style={{ fontSize: 12, color: C.silver2, display: 'block', marginBottom: 6 }}>Special Requests (optional)</label>
                 <textarea style={{ ...inp('notes'), minHeight: 80, resize: 'vertical' as const }} placeholder="Birthday, dietary needs..." value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
               </div>
+
+              {/* ✅ جديد: ملاحظتا إعادة الجدولة والعربون — تظهران للعميل قبل تأكيد الحجز مباشرة، أوركيد هاوس فقط */}
+              {selectedBranch?.id === ORCHID_HOUSE_ID && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ background: C.amberB, border: `1px solid ${C.amber}40`, borderRadius: 14, padding: '12px 16px', fontSize: 12, color: C.silver2, lineHeight: 1.7 }}>
+                    🔄 If you wish to change your booking date, please contact our bookings team at least 2 days before your reserved date.
+                    <br />في حال رغبة العميل في تغيير تاريخ الحجز، يُرجى التواصل مع قسم الحجوزات في مدة لا تقل عن يومين من تاريخ الحجز المسبق.
+                  </div>
+                  <div style={{ background: C.amberB, border: `1px solid ${C.amber}40`, borderRadius: 14, padding: '12px 16px', fontSize: 12, color: C.silver2, lineHeight: 1.7 }}>
+                    💰 The deposit is deducted from your final bill upon visiting the restaurant. If you do not attend without at least 48 hours&apos; prior notice, the paid amount is non-refundable.
+                    <br />العربون يُخصم من الفاتورة النهائية عند زيارة المطعم، أما في حالة عدم الحضور بدون إشعار مسبق لا يقل عن 48 ساعة، فلا يُسترد المبلغ المدفوع.
+                  </div>
+                </div>
+              )}
+
               <button onClick={submit} disabled={submitting}
                 style={{ width: '100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border: 'none', borderRadius: 16, padding: '16px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 16, color: C.white, boxShadow: submitting ? 'none' : `0 8px 28px ${C.glow}`, marginTop: 8 }}>
                 {submitting ? '⏳ Submitting...' : '✅ Confirm Reservation'}
               </button>
-              <p style={{ textAlign: 'center', color: C.silver2, fontSize: 12 }}>We'll confirm your booking within 24 hours.</p>
+              <p style={{ textAlign: 'center', color: C.silver2, fontSize: 12, lineHeight: 1.7 }}>
+                Your request will be sent to our bookings team for confirmation.
+                <br />سيتم إرسال طلبكم إلى قسم الحجوزات للتأكيد.
+              </p>
             </div>
           </div>
         )}

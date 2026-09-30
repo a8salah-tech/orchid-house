@@ -764,6 +764,12 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
           {/* حقل إذن الخروج المبكر */}
           {form.request_type === 'early_exit_permit' && (
             <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: 14 }}>
+              {/* ✅ جديد: تنويه واضح — هذا الإذن لا يُطلب إلا بناءً على تعليمات مدير القسم وموافقته المسبقة */}
+              <div style={{ background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                <div style={{ fontSize: 12.5, color: S.red, fontWeight: 700, lineHeight: 1.8 }}>
+                  ⚠️ تنبيه هام: لا يُقدَّم هذا الطلب إلا بناءً على تعليمات مدير القسم المباشر وبموافقته المسبقة، قبل تقديم طلب الإذن.
+                </div>
+              </div>
               <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 12 }}>🚪 وقت الخروج المطلوب</div>
               <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.permit_time}
                 onChange={e => setForm(p => ({ ...p, permit_time: e.target.value }))} />

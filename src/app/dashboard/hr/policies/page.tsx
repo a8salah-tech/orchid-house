@@ -4,6 +4,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
+import { DEPT_MANAGER_ROLES } from '../../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -287,7 +288,7 @@ export default function PoliciesPage() {
   const sb = createClient()
   const { employee } = useAuth()
   const isAdmin = employee?.role === 'admin' || employee?.role === 'branch_manager'
-  const isDeptManager = ['kitchen_manager', 'hall_manager', 'bar_manager'].includes(employee?.role || '')
+  const isDeptManager = DEPT_MANAGER_ROLES.includes(employee?.role || '')
   // مدراء الأقسام يقدروا يضيفوا سياسات جديدة فقط (بدون تعديل/حذف)، بالإضافة لـ admin/branch_manager
   const canAdd = isAdmin || isDeptManager
 

@@ -6,6 +6,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../components/AuthProvider'
 import { useLang } from '../components/LanguageContext'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -108,10 +109,10 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   const KITCHEN_ROLES = ['kitchen_manager','kitchen_assistant_manager','kitchen_supervisor','general_supervisor']
   const HALL_ROLES = ['hall_manager','hall_supervisor','general_supervisor']
   const BAR_ROLES = ['bar_manager','bar_supervisor','general_supervisor','kitchen_assistant_manager']
-  const SUPERVISOR_ROLES = ['kitchen_supervisor','hall_supervisor','bar_supervisor','general_supervisor']
+  const SUPERVISOR_ROLES = [...DEPT_SUPERVISOR_ROLES,'general_supervisor']
   // ✅ مدير الفرع يشرف على الفرع بالكامل، فمن المنطقي يكون له نفس صلاحيات الوصول الإدارية
   // (الموظفون، الشيفتات، طلبات الفروع) المتاحة لمديري الأقسام الفرعية
-  const MANAGER_ROLES = ['branch_manager','kitchen_manager','kitchen_assistant_manager','hall_manager','bar_manager']
+  const MANAGER_ROLES = ['branch_manager',...DEPT_MANAGER_ROLES_EXT]
 
   const MY_LINKS = [
     // ── العمل ──

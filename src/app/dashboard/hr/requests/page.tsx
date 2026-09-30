@@ -8,6 +8,7 @@ import { createBrowserClient } from '@supabase/ssr'
 // ✅ نفس دوال حساب التأخير/الخروج المبكر المستخدمة في صفحة الحضور — عشان اعتماد "تصحيح الحضور"
 // يثبّت في جدول الحضور نفس القيم اللي كانت هتطلع لو الموظف بصم بالأوقات الصحيحة من الأساس
 import { computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1489,9 +1490,9 @@ export default function EmployeeRequestsPage() {
   const { isAr } = useLang()
   const isAdmin = permissions?.all === true
   const isBranchManager = currentUser?.role === 'branch_manager'
-  const isDeptManager = ['kitchen_manager','kitchen_assistant_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
+  const isDeptManager = DEPT_MANAGER_ROLES_EXT.includes(currentUser?.role || '')
   // ✅ جديد: تعريف المشرف - كان مفقود تمامًا، وده سبب عدم رؤيته لطلبات فريقه على الإطلاق من الأساس
-  const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
+  const isSupervisor = DEPT_SUPERVISOR_ROLES.includes(currentUser?.role || '')
   const isManager = isAdmin
   const isEmployee = !isAdmin && !isBranchManager && !isDeptManager && !isSupervisor
   // ✅ الرؤية وتقديم الطلب: تعتمد على صلاحية ديناميكية من صفحة "إدارة الصلاحيات" + admin دائمًا

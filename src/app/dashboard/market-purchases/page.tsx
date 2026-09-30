@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -102,8 +103,8 @@ export default function MarketPurchasesPage() {
   // ✅ Fix: مسؤولو المستودع (أمين المستودع/مدير المستودعات) هم من يراجعون الطلبات، مش أي حد عنده صلاحية market_purchases عامة فقط
   const isPurchaser = isAdmin || permissions?.market_purchases === true || ['warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')
   // ✅ Fix: المشرفون ومديرو الأقسام هم من يطلبون (مش أمين المستودع، ده بيراجع مش بيطلب)
-  const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']
-  const MANAGER_ROLES = ['kitchen_manager', 'kitchen_assistant_manager', 'hall_manager', 'bar_manager']
+  const SUPERVISOR_ROLES = DEPT_SUPERVISOR_ROLES
+  const MANAGER_ROLES = DEPT_MANAGER_ROLES_EXT
   // ✅ Fix: أمين المستودع ومدير المستودعات أصبحوا يقدروا يطلبوا كمان، بالإضافة لدورهم كمسؤولي شراء
   const canRequest = isAdmin || [...SUPERVISOR_ROLES, ...MANAGER_ROLES, 'warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')
 

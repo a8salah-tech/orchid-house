@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,8 +34,8 @@ const inp: React.CSSProperties = {
 }
 
 const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'النظافة', 'الإدارة', 'أخرى']
-const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']
-const MANAGER_ROLES = ['kitchen_manager', 'kitchen_assistant_manager', 'hall_manager', 'bar_manager']
+const SUPERVISOR_ROLES = DEPT_SUPERVISOR_ROLES
+const MANAGER_ROLES = DEPT_MANAGER_ROLES_EXT
 const SENIOR_ROLES = ['admin', 'branch_manager']
 // ✅ أدوار المستودع - أمين المستودع (فرع/عملية) ومدير المستودعات (يشوف ويعالج الفرعين مع بعض)
 const WAREHOUSE_ROLES = ['warehouse_keeper', 'warehouse_manager']

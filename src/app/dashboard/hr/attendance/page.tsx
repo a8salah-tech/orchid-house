@@ -9,6 +9,7 @@ import { useLang } from '../../../components/LanguageContext'
 // الموظفين عند اعتماد "تصحيح الحضور"، فيبقى مصدر الحقيقة واحدًا لا يختلف حسب مكان الاستدعاء
 import { scheduledShiftMinutes, resolveShiftWindow, computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
 import { biometricSupported, registerBiometric, verifyBiometric } from '../../../../lib/webauthn'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -2207,7 +2208,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 export default function AttendancePage() {
   const { isAr } = useLang()
   const { employee, permissions } = useAuth()
-  const isManager = permissions?.all === true || ['branch_manager','kitchen_manager','kitchen_assistant_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','general_supervisor'].includes(employee?.role || '')
+  const isManager = permissions?.all === true || ['branch_manager', ...DEPT_MANAGER_ROLES_EXT, ...DEPT_SUPERVISOR_ROLES, 'general_supervisor'].includes(employee?.role || '')
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>

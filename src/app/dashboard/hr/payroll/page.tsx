@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
+import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
 import { normalizeKind, VIOLATION_KIND_META, type ViolationKind } from '../../../../lib/violationKind'
 
 const createClient = () => createBrowserClient(
@@ -1336,7 +1337,7 @@ export default function PayrollPage() {
     const base = (() => {
       if (isAdmin) return filteredRecords
       // مدير قسم — يشوف رواتب موظفين قسمه فقط ليس راتبه هو
-      const managerRoles = ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager']
+      const managerRoles = [...DEPT_MANAGER_ROLES,...DEPT_SUPERVISOR_ROLES,'branch_manager']
       if (managerRoles.includes(currentUser?.role || '')) return filteredRecords.filter(r => r.employee_id !== currentUser?.id)
       // موظف عادي — يشوف راتبه فقط
       return filteredRecords.filter(r => r.employee_id === currentUser?.id)

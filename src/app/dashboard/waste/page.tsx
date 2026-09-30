@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
+import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES } from '../../../lib/roles'
 import { useLang } from '../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
@@ -83,10 +84,10 @@ export default function WastePage() {
 
   const role = employee?.role || ''
   const isAdmin = role === 'admin' || (employee as any)?.permissions?.all === true
-  const canRecord = isAdmin || ['kitchen_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','branch_manager','warehouse_keeper'].includes(role)
+  const canRecord = isAdmin || [...DEPT_MANAGER_ROLES,...DEPT_SUPERVISOR_ROLES,'branch_manager','warehouse_keeper'].includes(role)
   const isBranchManager = role === 'branch_manager'
-  const isDeptManager   = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
-  const isSupervisor    = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
+  const isDeptManager   = DEPT_MANAGER_ROLES.includes(role)
+  const isSupervisor    = DEPT_SUPERVISOR_ROLES.includes(role)
 
   const [logs, setLogs] = useState<WasteLog[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])

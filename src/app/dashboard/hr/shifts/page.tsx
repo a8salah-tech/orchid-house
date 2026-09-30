@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -782,8 +783,8 @@ export default function ShiftsPage() {
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
   const isBranchManager = employee?.role === 'branch_manager'
-  const isDeptManager = ['kitchen_manager','kitchen_assistant_manager','hall_manager','bar_manager'].includes(employee?.role||'')
-  const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role||'')
+  const isDeptManager = DEPT_MANAGER_ROLES_EXT.includes(employee?.role||'')
+  const isSupervisor = DEPT_SUPERVISOR_ROLES.includes(employee?.role||'')
   const hasAssignShifts = permissions?.assign_shifts === true
   const canAssignShifts = isAdmin || isBranchManager || isDeptManager || hasAssignShifts
   const isManager = isAdmin || isBranchManager || isDeptManager

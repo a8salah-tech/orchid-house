@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../lib/roles'
 import { useLang } from '../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
@@ -353,7 +354,7 @@ export default function PrepWarehousePage() {
 
   const role = employee?.role || ''
   const branchId = employee?.branch_id || ''
-  const canUse = permissions?.all === true || ['admin', 'branch_manager', 'kitchen_manager', 'kitchen_assistant_manager', 'hall_manager', 'bar_manager', 'kitchen_supervisor', 'hall_supervisor', 'bar_supervisor'].includes(role)
+  const canUse = permissions?.all === true || ['admin', 'branch_manager', ...DEPT_MANAGER_ROLES_EXT, ...DEPT_SUPERVISOR_ROLES].includes(role)
 
   const fetchAll = useCallback(async () => {
     if (!branchId) return

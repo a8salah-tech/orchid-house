@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
+import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
 import { useLang } from '../../../components/LanguageContext'
 import { VIOLATION_KIND_META, normalizeKind, type ViolationKind } from '../../../../lib/violationKind'
 
@@ -119,8 +120,8 @@ export default function ViolationsPage() {
   const isAdmin = permissions?.all === true
   const role = employee?.role || ''
   const isBranchManager = role === 'branch_manager'
-  const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(role)
-  const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(role)
+  const isDeptManager = DEPT_MANAGER_ROLES.includes(role)
+  const isSupervisor = DEPT_SUPERVISOR_ROLES.includes(role)
   const canManage = isAdmin || isBranchManager || isDeptManager || isSupervisor
   // ✅ جديد: المشرف العام يشوف مخالفات كل أقسام فرعه (زي مدير الفرع في النطاق) لكن للعرض فقط —
   // بدون إضافة/اعتماد/إلغاء أي مخالفة (canManage مقصودة تفضل false له)

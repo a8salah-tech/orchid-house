@@ -834,7 +834,11 @@ const filteredItems = items
 
   // ✅ New: submit a rating (stars + optional written comment) for a given item and add it immediately to the displayed reviews list
   // ✅ إرسال تقييم — يُسجَّل بحالة "pending" (لا يظهر للزوّار إلا بعد اعتماد الإدارة)، ويُحفَظ محليًا لمنع التكرار
-  async function postReview(itemId: string, stars: number, text?: string, name?: string): Promise<boolean> {
+  // ✅ Fix: كان المفتاح المحفوظ محليًا هو menu_item_id بس — فبمجرد ما الجهاز يقيّم صنف معيّن مرة، يفضل
+  // "مقيَّم" للأبد على هذا الجهاز حتى في طلب/زيارة جديدة تمامًا (بلّغ عنها المستخدم: طاولة اختبار كانت
+  // تظهر "Mineral Water" مقيَّمة دايمًا فمفيش نجوم تظهر تاني). المفتاح بقى orderId:itemId، فكل طلب جديد
+  // يقدر يقيَّم فيه نفس الصنف من الأول، وبرضو يمنع تكرار التقييم لنفس الصنف داخل نفس الطلب/الجلسة
+  async function postReview(itemId: string, orderId: string, stars: number, text?: string, name?: string): Promise<boolean> {
     if (!itemId || stars < 1) return false
     const { error } = await sb.from('menu_item_reviews').insert([{
       menu_item_id: itemId,
@@ -848,7 +852,7 @@ const filteredItems = items
       return false
     }
     setReviewedItemIds(prev => {
-      const next = new Set(prev); next.add(itemId)
+      const next = new Set(prev); next.add(`${orderId}:${itemId}`)
       try { localStorage.setItem('orchid_reviewed_items', JSON.stringify([...next])) } catch {}
       return next
     })
@@ -1342,7 +1346,7 @@ const filteredItems = items
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                 {uniq.map(it => {
                   const id = it.menu_item_id as string
-                  const done = reviewedItemIds.has(id)
+                  const done = !!confirmedOrderId && reviewedItemIds.has(`${confirmedOrderId}:${id}`)
                   const sel = doneRating[id]
                   return (
                     <div key={id} style={{ background:'rgba(255,255,255,.03)', borderRadius:12, padding:'10px 12px' }}>
@@ -1366,8 +1370,9 @@ const filteredItems = items
                             style={{ width:'100%', boxSizing:'border-box', background:'#fff', border:`1px solid ${C.border}`, borderRadius:10, padding:'8px 10px', fontSize:12.5, color:C.white, outline:'none', resize:'none', fontFamily:'inherit', marginBottom:6 }} />
                           <button disabled={doneRatingSending === id}
                             onClick={async () => {
+                              if (!confirmedOrderId) return
                               setDoneRatingSending(id)
-                              const ok = await postReview(id, sel.stars, sel.text)
+                              const ok = await postReview(id, confirmedOrderId, sel.stars, sel.text)
                               setDoneRatingSending(null)
                               if (ok) setDoneRating(p => { const n = { ...p }; delete n[id]; return n })
                             }}

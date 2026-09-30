@@ -525,6 +525,21 @@ export default function BookingPage() {
                 <label style={{ fontSize: 12, color: C.silver2, display: 'block', marginBottom: 6 }}>Special Requests (optional)</label>
                 <textarea style={{ ...inp('notes'), minHeight: 80, resize: 'vertical' as const }} placeholder="Birthday, dietary needs..." value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
               </div>
+
+              {/* ✅ جديد: ملاحظتا إعادة الجدولة والعربون — تظهران للعميل قبل تأكيد الحجز مباشرة، أوركيد هاوس فقط */}
+              {selectedBranch?.id === ORCHID_HOUSE_ID && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ background: C.amberB, border: `1px solid ${C.amber}40`, borderRadius: 14, padding: '12px 16px', fontSize: 12, color: C.silver2, lineHeight: 1.7 }}>
+                    🔄 If you wish to change your booking date, please contact our bookings team at least 2 days before your reserved date.
+                    <br />في حال رغبة العميل في تغيير تاريخ الحجز، يُرجى التواصل مع قسم الحجوزات في مدة لا تقل عن يومين من تاريخ الحجز المسبق.
+                  </div>
+                  <div style={{ background: C.amberB, border: `1px solid ${C.amber}40`, borderRadius: 14, padding: '12px 16px', fontSize: 12, color: C.silver2, lineHeight: 1.7 }}>
+                    💰 The deposit is deducted from your final bill upon visiting the restaurant. If you do not attend without at least 48 hours&apos; prior notice, the paid amount is non-refundable.
+                    <br />العربون يُخصم من الفاتورة النهائية عند زيارة المطعم، أما في حالة عدم الحضور بدون إشعار مسبق لا يقل عن 48 ساعة، فلا يُسترد المبلغ المدفوع.
+                  </div>
+                </div>
+              )}
+
               <button onClick={submit} disabled={submitting}
                 style={{ width: '100%', background: submitting ? '#333' : `linear-gradient(135deg,${C.blue1},${C.blue2})`, border: 'none', borderRadius: 16, padding: '16px', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 16, color: C.white, boxShadow: submitting ? 'none' : `0 8px 28px ${C.glow}`, marginTop: 8 }}>
                 {submitting ? '⏳ Submitting...' : '✅ Confirm Reservation'}

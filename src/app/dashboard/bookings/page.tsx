@@ -27,6 +27,8 @@ type Booking = {
   section: string; table_number: number | null; notes: string | null
   status: 'pending' | 'confirmed' | 'cancelled'; created_at: string
   branch_id: string | null
+  // ✅ جديد: العربون — يُدخله الموظف هنا فقط (لا يوجد حقل عربون في نموذج حجز العميل نفسه)
+  deposit_amount: number | null
 }
 
 // ✅ جديد: أيام مُغلقة للحجز لكل فرع — مدير النظام فقط يقدر يضيف/يحذف
@@ -49,19 +51,20 @@ const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: 
 
 // ✅ جديد: نفس جدول الحجوزات، مستخدَم لكل مجموعة (اليوم/غدًا/...) ولجدول الأرشيف، بدل تكرار نفس الكود.
 // مكوّن مستقل خارج BookingsPage (مش دالة معرّفة جوه الـrender) عشان مايتعادش إنشاؤه كل مرة
-function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onRowClick }: {
+function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdateDeposit, onRowClick }: {
   rows: Booking[]; branches: { id: string; name: string }[]
   onUpdateTable: (id: string, table_number: number | null) => void
   onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled') => void
+  onUpdateDeposit: (id: string, deposit_amount: number | null) => void
   onRowClick: (b: Booking) => void
 }) {
   return (
     <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 950 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1050 }}>
           <thead>
             <tr style={{ background: S.navy3 }}>
-              {['Name', 'Phone', 'Branch', 'Date', 'Time', 'Guests', 'Section', 'Table', 'Notes', 'Status', 'Actions'].map(h => (
+              {['Name', 'Phone', 'Branch', 'Date', 'Time', 'Guests', 'Section', 'Table', 'Deposit', 'Notes', 'Status', 'Actions'].map(h => (
                 <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
               ))}
             </tr>
@@ -87,6 +90,11 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onRowCli
                     <input type="number" style={{ ...inp, width: 70, fontSize: 12, padding: '5px 8px' }}
                       placeholder="—" value={b.table_number || ''} min={1}
                       onChange={e => onUpdateTable(b.id, parseInt(e.target.value) || null)} />
+                  </td>
+                  <td style={{ padding: '8px 14px' }} onClick={e => e.stopPropagation()}>
+                    <input type="number" style={{ ...inp, width: 90, fontSize: 12, padding: '5px 8px' }}
+                      placeholder="MYR —" value={b.deposit_amount ?? ''} min={0} step={0.01}
+                      onChange={e => onUpdateDeposit(b.id, e.target.value === '' ? null : parseFloat(e.target.value))} />
                   </td>
                   <td style={{ padding: '12px 14px', color: S.muted, fontSize: 12, maxWidth: 150 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.notes || '—'}</div>
@@ -118,8 +126,10 @@ export default function BookingsPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
   // ✅ جديد: مدير النظام فقط يقدر يغلق/يفتح يوم حجز لفرع معيّن
-  const { permissions } = useAuth()
+  const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
+  // ✅ جديد: إغلاق/فتح أيام الحجز أصبح متاحًا لمشرف الصالة كمان، بالإضافة لمدير النظام — لفرعه فقط
+  const canManageClosedDays = isAdmin || employee?.role === 'hall_supervisor'
 
   const [bookings, setBookings] = useState<Booking[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -142,6 +152,9 @@ export default function BookingsPage() {
   const [newClosedDate, setNewClosedDate] = useState('')
   const [newClosedNote, setNewClosedNote] = useState('')
   const [closingDay, setClosingDay] = useState(false)
+  // ✅ مشرف الصالة يشوف/يدير أيام فرعه بس؛ مدير النظام يشوف كل الفروع (الكتابة الفعلية أيضًا محصورة بنفس المنطق في RLS)
+  const visibleClosedDays = isAdmin ? closedDays : closedDays.filter(d => d.branch_id === employee?.branch_id)
+  const closedDaysBranches = isAdmin ? branches : branches.filter(br => br.id === employee?.branch_id)
 
   const fetchBookings = useCallback(async () => {
     // ✅ Fix: الترتيب بقى من الأحدث للأقدم (تنازلي) بدل تصاعدي
@@ -199,7 +212,14 @@ export default function BookingsPage() {
     fetchBookings()
   }
 
-  // ✅ نفس updateTable/updateStatus، لكن بتحدّث كمان نسخة نافذة التفاصيل المفتوحة أول بأول (مش بس القائمة بعد إعادة الجلب)
+  // ✅ جديد: تحديث العربون — نفس نمط updateTable بالضبط
+  async function updateDeposit(id: string, deposit_amount: number | null) {
+    const { error } = await sb.from('bookings').update({ deposit_amount }).eq('id', id)
+    if (error) { alert('فشل حفظ العربون: ' + error.message + ' — تأكد من تشغيل db/bookings_deposit_amount.sql'); return }
+    fetchBookings()
+  }
+
+  // ✅ نفس updateTable/updateStatus/updateDeposit، لكن بتحدّث كمان نسخة نافذة التفاصيل المفتوحة أول بأول (مش بس القائمة بعد إعادة الجلب)
   function updateTableAndDetail(id: string, table_number: number | null) {
     updateTable(id, table_number)
     setDetailBooking(p => p && p.id === id ? { ...p, table_number } : p)
@@ -207,6 +227,10 @@ export default function BookingsPage() {
   function updateStatusAndDetail(id: string, status: 'confirmed' | 'cancelled') {
     updateStatus(id, status)
     setDetailBooking(p => p && p.id === id ? { ...p, status } : p)
+  }
+  function updateDepositAndDetail(id: string, deposit_amount: number | null) {
+    updateDeposit(id, deposit_amount)
+    setDetailBooking(p => p && p.id === id ? { ...p, deposit_amount } : p)
   }
 
   // ✅ جديد: تاريخ اليوم بصيغة قابلة للمقارنة، لتحديد الأرشيف
@@ -368,9 +392,9 @@ export default function BookingsPage() {
           <p style={{ fontSize: 13, color: S.muted }}>Manage table bookings and reservations</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {/* ✅ جديد: إغلاق/فتح أيام الحجز — مدير النظام فقط */}
-          {isAdmin && (
-            <button onClick={() => setShowClosedDaysModal(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Closed Days{closedDays.length > 0 ? ` (${closedDays.length})` : ''}</button>
+          {/* ✅ جديد: إغلاق/فتح أيام الحجز — مدير النظام + مشرف الصالة (لفرعه فقط) */}
+          {canManageClosedDays && (
+            <button onClick={() => { if (!isAdmin && employee?.branch_id) setNewClosedBranch(employee.branch_id); setShowClosedDaysModal(true) }} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Closed Days{visibleClosedDays.length > 0 ? ` (${visibleClosedDays.length})` : ''}</button>
           )}
           <button onClick={printReport} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Report</button>
           <a href="/bookings" target="_blank" style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center' }}>🔗 Booking Link</a>
@@ -441,13 +465,13 @@ export default function BookingsPage() {
                 <h2 style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{g.label}</h2>
                 <span style={{ fontSize: 11, fontWeight: 700, color: S.gold, background: S.gold3, borderRadius: 20, padding: '2px 10px' }}>{g.rows.length}</span>
               </div>
-              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onRowClick={setDetailBooking} />
+              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} />
             </div>
           ))}
         </div>
       ) : (
         <>
-          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onRowClick={setDetailBooking} />
+          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} />
 
           {/* ✅ تصفح الصفحات - 20 حجز في كل صفحة (للأرشيف فقط، النشطة/القادمة مقسّمة بالمجموعات) */}
           {totalPages > 1 && (
@@ -503,10 +527,17 @@ export default function BookingsPage() {
                 ))}
               </div>
 
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🪑 Table Number</div>
-                <input type="number" style={{ ...inp, width: '100%' }} placeholder="Not assigned yet" value={b.table_number || ''} min={1}
-                  onChange={e => updateTableAndDetail(b.id, parseInt(e.target.value) || null)} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🪑 Table Number</div>
+                  <input type="number" style={{ ...inp, width: '100%' }} placeholder="Not assigned yet" value={b.table_number || ''} min={1}
+                    onChange={e => updateTableAndDetail(b.id, parseInt(e.target.value) || null)} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>💰 Deposit (MYR)</div>
+                  <input type="number" style={{ ...inp, width: '100%' }} placeholder="Not recorded" value={b.deposit_amount ?? ''} min={0} step={0.01}
+                    onChange={e => updateDepositAndDetail(b.id, e.target.value === '' ? null : parseFloat(e.target.value))} />
+                </div>
               </div>
 
               {b.notes && (
@@ -535,8 +566,8 @@ export default function BookingsPage() {
         )
       })()}
 
-      {/* ✅ جديد: نافذة إدارة الأيام المُغلقة للحجز — مدير النظام فقط */}
-      {isAdmin && showClosedDaysModal && (
+      {/* ✅ جديد: نافذة إدارة الأيام المُغلقة للحجز — مدير النظام + مشرف الصالة (لفرعه فقط) */}
+      {canManageClosedDays && showClosedDaysModal && (
         <div onClick={() => setShowClosedDaysModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 26, maxWidth: 480, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
@@ -549,9 +580,9 @@ export default function BookingsPage() {
 
             {/* نموذج إغلاق يوم جديد */}
             <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: 16, marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <select style={{ ...inp, width: '100%' }} value={newClosedBranch} onChange={e => setNewClosedBranch(e.target.value)}>
+              <select style={{ ...inp, width: '100%' }} value={newClosedBranch} onChange={e => setNewClosedBranch(e.target.value)} disabled={!isAdmin}>
                 <option value="">Select branch...</option>
-                {branches.map(br => <option key={br.id} value={br.id}>{br.name}</option>)}
+                {closedDaysBranches.map(br => <option key={br.id} value={br.id}>{br.name}</option>)}
               </select>
               <input type="date" style={{ ...inp, width: '100%' }} value={newClosedDate} min={new Date().toISOString().split('T')[0]} onChange={e => setNewClosedDate(e.target.value)} />
               <input type="text" style={{ ...inp, width: '100%' }} placeholder="Reason (optional) · السبب (اختياري)" value={newClosedNote} onChange={e => setNewClosedNote(e.target.value)} />
@@ -563,12 +594,12 @@ export default function BookingsPage() {
 
             {/* قائمة الأيام المُغلقة حاليًا */}
             <div style={{ marginTop: 20 }}>
-              <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Currently closed ({closedDays.length})</div>
-              {closedDays.length === 0 ? (
+              <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Currently closed ({visibleClosedDays.length})</div>
+              {visibleClosedDays.length === 0 ? (
                 <div style={{ fontSize: 12, color: S.muted, textAlign: 'center', padding: 16 }}>No closed days · لا توجد أيام مُغلقة</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {closedDays.map(d => (
+                  {visibleClosedDays.map(d => (
                     <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,.03)', borderRadius: 12, padding: '10px 14px' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{branches.find(br => br.id === d.branch_id)?.name || '—'}</div>

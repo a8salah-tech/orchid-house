@@ -73,6 +73,31 @@ export async function POST(req: NextRequest) {
         .single()
       if (error || !data) return NextResponse.json({ error: error?.message || 'فشل الحجز' }, { status: 500 })
 
+      // ✅ جديد: إشعار مدير الصالة ومشرف الصالة التابعَين لنفس فرع الحجز بحجز جديد — كل حجز جديد كان
+      // بيروح للنظام من غير أي إشعار لأي حد. الإشعار اختياري (fail-open): لو فشل لأي سبب، الحجز يكون
+      // خلص فعلاً وما نوقفوش أو نرجّع خطأ للعميل بسببه
+      if (f.branch_id) {
+        try {
+          const { data: staff } = await sb
+            .from('employees')
+            .select('id')
+            .eq('branch_id', f.branch_id)
+            .eq('is_active', true)
+            .in('role', ['hall_manager', 'hall_supervisor'])
+          if (staff && staff.length > 0) {
+            const title = 'حجز جديد / New Booking'
+            const bodyText =
+              `حجز جديد من ${f.customer_name} بتاريخ ${f.booking_date} الساعة ${f.booking_time} لعدد ${f.guests || '—'} أشخاص.\n` +
+              `New booking from ${f.customer_name} on ${f.booking_date} at ${f.booking_time} for ${f.guests || '—'} guests.`
+            await sb.from('notifications').insert(staff.map((s: { id: string }) => ({
+              type: 'booking', title, body: bodyText,
+              link: '/dashboard/bookings',
+              target_employee_id: s.id, target_role: null,
+            })))
+          }
+        } catch { /* الإشعار اختياري — لا يوقف نجاح الحجز */ }
+      }
+
       return NextResponse.json({ id: data.id })
     }
 

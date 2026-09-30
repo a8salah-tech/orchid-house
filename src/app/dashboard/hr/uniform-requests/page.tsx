@@ -332,9 +332,20 @@ export default function UniformRequestsPage() {
       .select('id').single()
     if (error || !newReq) { alert('حدث خطأ: ' + (error?.message || '')); setSubmitting(false); return }
 
-    await sb.from('uniform_request_items').insert(
+    // ✅ Fix حرج: نتيجة هذا الإدراج ما كانتش بتتفحص خالص — لو فشل (لأي سبب)، الطلب الأساسي (uniform_requests)
+    // كان يفضل موجودًا بس من غير أي أصناف جواه، فيظهر في "طلباتي" وعند الأدمن "فاضي" تمامًا بلا تفاصيل،
+    // مع إن الواجهة بتوحي إن الإرسال نجح (بتقفل الفورم وتروح لتاب "طلباتي"). بالظبط زي ما لقينا قبل كده
+    // في صفحة الكاشير — Supabase ما بيرميش استثناء تلقائي لما السيرفر يرفض الطلب
+    const { error: itemsError } = await sb.from('uniform_request_items').insert(
       items.map(([item_type, sel]) => ({ request_id: newReq.id, item_type, size: sel.size, quantity: sel.quantity }))
     )
+    if (itemsError) {
+      // نحذف الطلب الأساسي اليتيم بدل ما نسيبه فاضي ومربك، ونوضح للموظف إن الإرسال فشل فعليًا
+      await sb.from('uniform_requests').delete().eq('id', newReq.id)
+      alert('فشل إرسال الطلب: ' + itemsError.message + ' — يرجى المحاولة مرة أخرى')
+      setSubmitting(false)
+      return
+    }
     await fetchAll()
     setSubmitting(false)
     setSelections({})

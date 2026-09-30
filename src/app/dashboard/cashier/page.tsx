@@ -2311,6 +2311,21 @@ export default function CashierPage() {
   const [depSaved, setDepSaved] = useState(false)
   const [shiftOrders, setShiftOrders] = useState<Order[]>([])
   const [showShiftReport, setShowShiftReport] = useState(false)
+  // ✅ جديد: عرض كل طلبات إلغاء طاولة "Cancellation" مجمّعة (بدل واحد واحد) عند الضغط عليها في شاشة الطاولات
+  // الحية — orders الحية بتجيب بس confirmed/preparing/ready، فبمجرد اعتماد الإلغاء (status=cancelled) كان
+  // بيختفي فورًا من الشاشة؛ هنا نجيب كل حالاته (معلّق/معتمد/مرفوض) من بداية الشيفت الحالي
+  const [cancelHubTable, setCancelHubTable] = useState<TableRow | null>(null)
+  const [cancelHubOrders, setCancelHubOrders] = useState<Order[]>([])
+  const [cancelHubLoading, setCancelHubLoading] = useState(false)
+  async function openCancelHub(table: TableRow) {
+    setCancelHubTable(table)
+    setCancelHubLoading(true)
+    const since = shiftStart ? shiftStart.toISOString() : new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+    const SEL_HUB = `id,table_id,status,total_amount,created_at,cancel_reason,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,menu_items(name,name_en))`
+    const { data } = await sb.from('orders').select(SEL_HUB).eq('table_id', table.id).gte('created_at', since).order('created_at', { ascending: false })
+    setCancelHubOrders((data as any) || [])
+    setCancelHubLoading(false)
+  }
   // ✅ جديد: مودال اختيار اسم الكاشير الحقيقي وقت بدء الشيفت - مهم لما يكون فيه حساب دخول مشترك بين أكتر من كاشير
   // (بدل ما الاسم ياخده تلقائي من الحساب اللي داخل بيه، اللي هيبقى نفسه لأي حد داخل بنفس الحساب المشترك)
   const [showStartShiftModal, setShowStartShiftModal] = useState(false)
@@ -3391,6 +3406,9 @@ export default function CashierPage() {
                     onClick={() => {
                       // ✅ فتح الطاولة = شوفناها، نشيل علامة "جديد"
                       if (isUnseen) setUnseenTableIds(prev => { const next = new Set(prev); next.delete(table.id); return next })
+                      // ✅ جديد: طاولة "Cancellation" لها عرض خاص مجمّع (كل طلبات الإلغاء في الشيفت مع
+                      // السبب لكل واحد) بدل تدفّقها في منطق الدفع/إضافة الطلب العادي للطاولات
+                      if (table.section === 'cancel_hub') { openCancelHub(table); return }
                       if (activeOrder) {
                         // جيب كل الطلبات النشطة للطاولة
                         let tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
@@ -4347,6 +4365,70 @@ export default function CashierPage() {
               <button onClick={() => setOpenTableTarget(null)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
               <button onClick={() => setTableOpen(openTableTarget, true)} disabled={openingTable} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: openingTable ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>{openingTable ? '⏳...' : '🔓 OK, open'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ جديد: طاولة "Cancellation" — كل طلبات الإلغاء في الشيفت الحالي مجمّعة في مودال واحد، كل طلب بسببه */}
+      {cancelHubTable && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 650, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }} onClick={() => setCancelHubTable(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 16, padding: 24, maxWidth: 520, width: '100%', margin: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>🚫 {cancelHubTable.name || 'Cancellation'}</div>
+                <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{cancelHubOrders.length} cancellation{cancelHubOrders.length === 1 ? '' : 's'} this shift</div>
+              </div>
+              <button onClick={() => setCancelHubTable(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            {cancelHubLoading ? (
+              <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ Loading...</div>
+            ) : cancelHubOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>No cancellations this shift · لا توجد إلغاءات في هذا الشيفت</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {cancelHubOrders.map(o => {
+                  const isPending = !!o.cancel_requested_by_name && !o.cancel_rejected_at && o.status !== 'cancelled'
+                  const isCancelled = o.status === 'cancelled'
+                  const accent = isCancelled ? S.red : isPending ? S.amber : S.muted
+                  return (
+                    <div key={o.id} style={{ background: S.card, borderRadius: 12, border: `1px solid ${S.border}`, padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{o.id.slice(-6).toUpperCase()}</span>
+                          <span style={{ background: accent + '22', color: accent, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                            {isCancelled ? '❌ Cancelled' : isPending ? '⏳ Pending approval' : `↩️ Rejected${o.cancel_rejected_by_name ? ' by ' + o.cancel_rejected_by_name : ''} — still active`}
+                          </span>
+                          <span style={{ fontSize: 11, color: S.muted }}>ago {timeAgo(o.created_at)}</span>
+                        </div>
+                        <span style={{ color: S.gold, fontWeight: 800, fontSize: 13 }}>MYR {(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                      {(o.cancel_requested_by_name || o.moved_by_name || o.cancel_reason) && (
+                        <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
+                          <div style={{ fontSize: 12, color: S.white, lineHeight: 1.6 }}>📝 <b>Reason:</b> {o.cancel_reason || '—'}</div>
+                          <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
+                            Moved from {o.cancel_from_table_name || o.moved_from_table_name || '—'} · By: {o.cancel_requested_by_name || o.moved_by_name || '—'}
+                            {isCancelled && o.cancel_approved_by_name ? ` · ✅ Approved by: ${o.cancel_approved_by_name}` : ''}
+                          </div>
+                        </div>
+                      )}
+                      <div>
+                        {(o.order_items || []).map(i => (
+                          <div key={i.id} style={{ fontSize: 12, padding: '2px 0', color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
+                            {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {isPending && isAdmin && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button onClick={async () => { await approveCancelHub(o); openCancelHub(cancelHubTable) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
+                          <button onClick={async () => { await rejectCancelHub(o); openCancelHub(cancelHubTable) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ Reject</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

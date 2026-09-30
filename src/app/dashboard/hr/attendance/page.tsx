@@ -15,6 +15,13 @@ const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// ✅ Fix: وقت الخروج المسجَّل يُقارَن بساعة جهاز الموظف نفسه لتحديد هل هو "خروج مستقبلي مؤقت من المدير"
+// (يُخفى) أو خروج حقيقي تم للتو (يُعرض). ساعات الموبايلات غالبًا متأخرة عن الوقت الحقيقي بثوانٍ قليلة،
+// فخروج حقيقي تم قبل ثانية كان يُقارَن ويظهر "في المستقبل" بالغلط ويختفي فورًا — يظهر بس بعد تحديث الصفحة
+// لاحقًا لما ساعة الجهاز "تلحق" الوقت المسجَّل. هامش السماح ده يفرّق بين فارق ثوانٍ (ساعة جهاز عادية)
+// وفارق ساعات فعلي (خروج مستقبلي حقيقي وضعه المدير)
+const CLOCK_SKEW_GRACE_MS = 5 * 60 * 1000
+
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
   gold: '#C9A84C', gold2: '#E8C97A', gold3: 'rgba(201,168,76,0.12)',
@@ -186,7 +193,7 @@ function MyAttendanceCard() {
       // أولاً: هل يوجد شيفت مفتوح (دخول بدون خروج) من اليوم أو من يوم سابق (شيفت ليلي عابر لمنتصف الليل)؟
       sb.from('attendance').select('*').eq('employee_id', employee.id)
         .not('check_in_time', 'is', null)
-        .or(`check_out_time.is.null,check_out_time.gt.${new Date().toISOString()}`)
+        .or(`check_out_time.is.null,check_out_time.gt.${new Date(Date.now() + CLOCK_SKEW_GRACE_MS).toISOString()}`)
         .order('date', { ascending: false }).limit(1).maybeSingle(),
       // ✅ ممكن يكون فيه أكتر من صف لنفس اليوم دلوقتي (شيفت ليلي + شيفت جديد لنفس اليوم)، فلازم .order()+.limit(1)
       // قبل .maybeSingle() — وإلا الاستعلام يطلع خطأ فوري بمجرد ما يوجد أكتر من صف واحد لنفس التاريخ
@@ -215,7 +222,7 @@ function MyAttendanceCard() {
     // لو يوجد شيفت مفتوح (من اليوم أو من يوم سابق)، اعرضه كالحالة الحالية. غير ذلك اعرض صف اليوم (سواء فاضي أو مكتمل)
     // ✅ تصحيح حضور اعتُمد وفيه وقت خروج لم يأتِ بعد (مثلاً نهاية الشيفت): السجل يبقى "مفتوحاً" من ناحية الشاشة
     // حتى يظهر زر Check Out ويسجّل الموظف خروجه الفعلي (يحلّ وقته الحقيقي محل وقت المدير). لو ما سجّلش يبقى وقت المدير كاحتياط.
-    if (effectiveTodayRecord?.check_out_time && new Date(effectiveTodayRecord.check_out_time).getTime() > Date.now()) {
+    if (effectiveTodayRecord?.check_out_time && new Date(effectiveTodayRecord.check_out_time).getTime() > Date.now() + CLOCK_SKEW_GRACE_MS) {
       effectiveTodayRecord = { ...effectiveTodayRecord, check_out_time: null }
     }
     setToday(effectiveTodayRecord)

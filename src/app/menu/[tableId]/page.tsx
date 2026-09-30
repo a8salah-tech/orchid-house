@@ -1232,8 +1232,11 @@ const filteredItems = items
                     <div key={item.id + '-' + idx} onClick={() => setFeaturedPick(item)}
                       style={{ width:150, marginRight:12, flexShrink:0, background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:18, overflow:'hidden', cursor:'pointer', boxShadow:'0 6px 18px rgba(0,0,0,.35)' }}>
                       <div style={{ position:'relative', width:'100%', height:112, background:'rgba(255,255,255,.04)' }}>
+                        {/* ✅ Fix: object-fit كان cover — صور المشروبات/العصائر (كوب طويل بخلفية فاتحة) كانت
+                            تُقصّ بشدة داخل صندوق عريض 150×112 فيطلع جزء مكبّر من الصنف بدل الصورة كاملة.
+                            contain يعرض الصورة كاملة دون قصّ مهما كانت نسبة أبعادها */}
                         {item.image_url
-                          ? <img src={item.image_url} alt={dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                          ? <img src={item.image_url} alt={dishName(item.name, item.name_en, item.name_ms, item.name_zh, item.name_ru)} style={{ width:'100%', height:'100%', objectFit:'contain', display:'block' }} />
                           : <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', fontSize:40 }}>🍰</div>}
                         <div style={{ position:'absolute', bottom:8, right:8, background:`linear-gradient(135deg,${C.blue1},${C.blue2})`, color:C.white, borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:900, boxShadow:`0 4px 12px ${C.glow}` }}>+</div>
                       </div>

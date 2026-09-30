@@ -103,7 +103,7 @@ export default function MarketPurchasesPage() {
   const isPurchaser = isAdmin || permissions?.market_purchases === true || ['warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')
   // ✅ Fix: المشرفون ومديرو الأقسام هم من يطلبون (مش أمين المستودع، ده بيراجع مش بيطلب)
   const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']
-  const MANAGER_ROLES = ['kitchen_manager', 'hall_manager', 'bar_manager']
+  const MANAGER_ROLES = ['kitchen_manager', 'kitchen_assistant_manager', 'hall_manager', 'bar_manager']
   // ✅ Fix: أمين المستودع ومدير المستودعات أصبحوا يقدروا يطلبوا كمان، بالإضافة لدورهم كمسؤولي شراء
   const canRequest = isAdmin || [...SUPERVISOR_ROLES, ...MANAGER_ROLES, 'warehouse_keeper', 'warehouse_manager'].includes(currentUser?.role || '')
 

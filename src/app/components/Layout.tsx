@@ -43,6 +43,9 @@ const ROLE_LABELS: Record<string, { ar: string; en: string; icon: string; color:
   admin:               { ar: 'مدير النظام',   en: 'System Admin',       icon: '👑', color: S.gold },
   branch_manager:      { ar: 'مدير الفرع',    en: 'Branch Manager',     icon: '🏪', color: '#8B5CF6' },
   kitchen_manager:     { ar: 'مدير المطبخ',   en: 'Kitchen Manager',    icon: '🍳', color: '#F97316' },
+  // ✅ جديد: دور وسيط بين مشرف المطبخ ومدير المطبخ — يفوَّض إليه مهام إدارية (شيفتات، حضور، طلبات
+  // موظفين) على نفس نطاق مدير المطبخ (مطبخ+بار+حلويات)، ما عدا زيادة/سلفة الراتب
+  kitchen_assistant_manager: { ar: 'مساعد مدير المطبخ', en: 'Asst. Kitchen Manager', icon: '🍲', color: '#FDBA74' },
   hall_manager:        { ar: 'مدير الصالة',   en: 'Hall Manager',       icon: '🏛️', color: '#06B6D4' },
   bar_manager:         { ar: 'مدير البار',    en: 'Bar Manager',        icon: '🍹', color: '#6366F1' },
   kitchen_supervisor:  { ar: 'مشرف المطبخ',   en: 'Kitchen Supervisor', icon: '👨‍🍳', color: S.red },
@@ -272,7 +275,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     // صلاحية "تعيين الشيفتات" تحديدًا
     perm === 'shifts_manage' ? (
       isAdmin || employee?.role === 'branch_manager' ||
-      ['kitchen_manager', 'hall_manager', 'bar_manager'].includes(employee?.role || '') ||
+      ['kitchen_manager', 'kitchen_assistant_manager', 'hall_manager', 'bar_manager'].includes(employee?.role || '') ||
       employee?.role === 'general_supervisor' ||
       hasPermission('assign_shifts')
     ) :

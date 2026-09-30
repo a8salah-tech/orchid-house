@@ -83,6 +83,7 @@ function SendModal({ employees, onClose, onSent }: {
     { k: 'admin', l: 'مدير النظام' },
     { k: 'branch_manager', l: 'مدير الفرع' },
     { k: 'kitchen_manager', l: 'مدير المطبخ' },
+    { k: 'kitchen_assistant_manager', l: 'مساعد مدير المطبخ' },
     { k: 'hall_manager', l: 'مدير الصالة' },
     { k: 'bar_manager', l: 'مدير البار' },
     { k: 'kitchen_supervisor', l: 'مشرف المطبخ' },

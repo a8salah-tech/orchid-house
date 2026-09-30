@@ -35,6 +35,7 @@ const ROLES: Record<string, { label: string; color: string; bg: string; icon: st
   admin:                { label: 'مدير النظام',   color: S.gold,    bg: 'rgba(201,168,76,0.12)',   icon: '👑' },
   branch_manager:       { label: 'مدير الفرع',    color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)',   icon: '🏪' },
   kitchen_manager:      { label: 'مدير المطبخ',   color: '#F97316', bg: 'rgba(249,115,22,0.12)',   icon: '🍳' },
+  kitchen_assistant_manager: { label: 'مساعد مدير المطبخ', color: '#FDBA74', bg: 'rgba(253,186,116,0.12)', icon: '🍲' },
   hall_manager:         { label: 'مدير الصالة',   color: '#06B6D4', bg: 'rgba(6,182,212,0.12)',    icon: '🏛️' },
   bar_manager:          { label: 'مدير البار',    color: '#6366F1', bg: 'rgba(99,102,241,0.12)',   icon: '🍹' },
   kitchen_supervisor:   { label: 'مشرف المطبخ',   color: S.red,     bg: S.redB,                   icon: '👨‍🍳' },

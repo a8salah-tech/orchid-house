@@ -34,7 +34,7 @@ const inp: React.CSSProperties = {
 
 const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'النظافة', 'الإدارة', 'أخرى']
 const SUPERVISOR_ROLES = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']
-const MANAGER_ROLES = ['kitchen_manager', 'hall_manager', 'bar_manager']
+const MANAGER_ROLES = ['kitchen_manager', 'kitchen_assistant_manager', 'hall_manager', 'bar_manager']
 const SENIOR_ROLES = ['admin', 'branch_manager']
 // ✅ أدوار المستودع - أمين المستودع (فرع/عملية) ومدير المستودعات (يشوف ويعالج الفرعين مع بعض)
 const WAREHOUSE_ROLES = ['warehouse_keeper', 'warehouse_manager']

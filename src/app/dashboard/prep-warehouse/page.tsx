@@ -353,7 +353,7 @@ export default function PrepWarehousePage() {
 
   const role = employee?.role || ''
   const branchId = employee?.branch_id || ''
-  const canUse = permissions?.all === true || ['admin', 'branch_manager', 'kitchen_manager', 'hall_manager', 'bar_manager', 'kitchen_supervisor', 'hall_supervisor', 'bar_supervisor'].includes(role)
+  const canUse = permissions?.all === true || ['admin', 'branch_manager', 'kitchen_manager', 'kitchen_assistant_manager', 'hall_manager', 'bar_manager', 'kitchen_supervisor', 'hall_supervisor', 'bar_supervisor'].includes(role)
 
   const fetchAll = useCallback(async () => {
     if (!branchId) return

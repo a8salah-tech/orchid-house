@@ -1489,7 +1489,7 @@ export default function EmployeeRequestsPage() {
   const { isAr } = useLang()
   const isAdmin = permissions?.all === true
   const isBranchManager = currentUser?.role === 'branch_manager'
-  const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
+  const isDeptManager = ['kitchen_manager','kitchen_assistant_manager','hall_manager','bar_manager'].includes(currentUser?.role || '')
   // ✅ جديد: تعريف المشرف - كان مفقود تمامًا، وده سبب عدم رؤيته لطلبات فريقه على الإطلاق من الأساس
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(currentUser?.role || '')
   const isManager = isAdmin
@@ -1718,9 +1718,12 @@ export default function EmployeeRequestsPage() {
       // مدير القسم يشوف طلبات موظفي قسمه في فرعه فقط (بما في ذلك نفسه) - هو المعتمد الوحيد لكل طلبات الموظفين
       // نجيب كل موظفي الفرع، ونفلتر بالقسم بعد توحيد الاسم (عربي/إنجليزي) لتجنب اختلاف الصيغة
       const { data: branchEmployees } = await supabase.from('employees').select('id, department').eq('branch_id', myBranchId)
-      const myDeptNormalized = normalizeDept(myDept)
+      // ✅ مساعد مدير المطبخ: نفس نطاق مدير المطبخ بالظبط (مطبخ+بار+حلويات)، بغض النظر عن قسمه
+      // الشخصي المسجَّل — مطابقةً لنفس النطاق المستخدم في صفحتَي الشيفتات والحضور لمدير المطبخ
       const ids = (branchEmployees || [])
-        .filter(e => normalizeDept(e.department) === myDeptNormalized)
+        .filter(e => currentUser?.role === 'kitchen_assistant_manager'
+          ? ['المطبخ', 'البار', 'الحلويات'].includes(normalizeDept(e.department))
+          : normalizeDept(e.department) === normalizeDept(myDept))
         .map(e => e.id)
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
     } else {
@@ -1741,7 +1744,7 @@ export default function EmployeeRequestsPage() {
     setEmployees(emp.data || [])
     setBranches(br.data || [])
     setLoading(false)
-  }, [isAdmin, isBranchManager, isDeptManager, isSupervisor, currentUser?.id, currentUser?.branch_id, currentUser?.department])
+  }, [isAdmin, isBranchManager, isDeptManager, isSupervisor, currentUser?.id, currentUser?.branch_id, currentUser?.department, currentUser?.role])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 

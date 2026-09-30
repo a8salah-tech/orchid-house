@@ -25,6 +25,9 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   admin:               { label: 'مدير النظام',    icon: '👑', color: S.gold,    bg: S.gold3,                        desc: 'صلاحية كاملة على كل النظام' },
   branch_manager:      { label: 'مدير الفرع',     icon: '🏪', color: S.purple,  bg: S.purpleB,                      desc: 'إدارة الفرع والتقارير والموظفين' },
   kitchen_manager:     { label: 'مدير المطبخ',    icon: '🍳', color: '#F97316', bg: 'rgba(249,115,22,0.12)',         desc: 'المطبخ والبار والحلويات والموظفين' },
+  // ✅ جديد: دور وسيط بين مشرف المطبخ ومدير المطبخ — نفس نطاق مدير المطبخ (مطبخ+بار+حلويات) في
+  // الشيفتات والحضور وطلبات الموظفين، ما عدا اعتماد زيادة/سلفة الراتب (مقصورة على الأدمن/مدير الفرع)
+  kitchen_assistant_manager: { label: 'مساعد مدير المطبخ', icon: '🍲', color: '#FDBA74', bg: 'rgba(253,186,116,0.12)', desc: 'مفوَّض من مدير المطبخ: شيفتات وحضور وطلبات المطبخ والبار والحلويات' },
   hall_manager:        { label: 'مدير الصالة',    icon: '🏛️', color: '#06B6D4', bg: 'rgba(6,182,212,0.12)',          desc: 'الصالة والحجوزات والعملاء' },
   bar_manager:         { label: 'مدير البار',     icon: '🍹', color: '#6366F1', bg: 'rgba(99,102,241,0.12)',         desc: 'البار والمشروبات والموظفين' },
   // ✅ أضيف هنا — كان غير موجود خالص رغم إنه دور فعلي معيَّن لموظفين حقيقيين، فكان مفيش أي واجهة لإدارة صلاحياته
@@ -51,6 +54,10 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   admin:              { all: true },
   branch_manager:     { warehouse: true, purchases: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, reports: true, hr: true, payroll: true, suppliers: true, accounting: true, kitchen: true, bar: true, desserts: true, hall: true, prep_warehouse: true, bookings: true, customers: true, loyalty: true, menu: true, attendance: true, my_requests: true, salary_increase_requests: true, salary_advance_requests: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   kitchen_manager:    { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
+  // ✅ جديد: نفس صلاحيات مدير المطبخ بالضبط كنقطة بداية — الأدمن يقدر يعدّلها لاحقاً من نفس الصفحة.
+  // الوصول لتعيين الشيفتات ولنطاق مطبخ+بار+حلويات مضمون عبر تحقق الدور المباشر في الكود (زي مدير
+  // المطبخ بالظبط)، لا عبر صلاحية assign_shifts
+  kitchen_assistant_manager: { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, market_purchases: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   // ✅ Fix: أضفنا desserts هنا - مشرف المطبخ من المفروض يقدر يدخل قسم الحلويات (زي مدير المطبخ بالظبط،

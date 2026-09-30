@@ -782,7 +782,7 @@ export default function ShiftsPage() {
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
   const isBranchManager = employee?.role === 'branch_manager'
-  const isDeptManager = ['kitchen_manager','hall_manager','bar_manager'].includes(employee?.role||'')
+  const isDeptManager = ['kitchen_manager','kitchen_assistant_manager','hall_manager','bar_manager'].includes(employee?.role||'')
   const isSupervisor = ['kitchen_supervisor','hall_supervisor','bar_supervisor'].includes(employee?.role||'')
   const hasAssignShifts = permissions?.assign_shifts === true
   const canAssignShifts = isAdmin || isBranchManager || isDeptManager || hasAssignShifts
@@ -851,7 +851,7 @@ export default function ShiftsPage() {
       let empQuery = supabase.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,branches(name)').eq('is_active',true).order('name')
       // فلتر بالفرع أولاً لمدير الفرع (والمشرف العام - نفس نطاقه بالظبط)
       if (employee?.role === 'branch_manager' || isBranchViewer) empQuery = empQuery.eq('branch_id', employee?.branch_id || '')
-      else if (employee?.role === 'kitchen_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
+      else if (employee?.role === 'kitchen_manager' || employee?.role === 'kitchen_assistant_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
       else if (employee?.role === 'hall_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['الصالة','Hall'])
       else if (employee?.role === 'bar_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['البار','Bar'])
       else if (isSupervisor && hasAssignShifts) {

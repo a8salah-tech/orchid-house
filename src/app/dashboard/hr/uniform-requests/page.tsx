@@ -62,8 +62,11 @@ interface StockEntry {
 export default function UniformRequestsPage() {
   const sb = createClient()
   const { employee: currentUser, permissions } = useAuth()
-  // ✅ المشرف العام له صلاحية كاملة على صفحة اليونيفورم زي الأدمن (كل الفروع + اعتماد + حذف + مخزون)
+  // ✅ المشرف العام له صلاحية كاملة على صفحة اليونيفورم زي الأدمن (كل الفروع + اعتماد + مخزون)
   const isAdmin = permissions?.all === true || currentUser?.role === 'general_supervisor'
+  // ✅ Fix: الحذف النهائي للطلب أصبح مقصورًا على مدير النظام الحقيقي فقط — كان ظاهرًا للمشرف العام كمان
+  // ضمن isAdmin الواسعة أعلاه، وهذا تحديدًا غير مرغوب فيه (باقي صلاحيات isAdmin تبقى كما هي للمشرف العام)
+  const isSuperAdmin = permissions?.all === true
   // ✅ مدير الفرع يقدر يشوف ويعتمد طلبات يونيفورم موظفي فرعه بس (بنفس صلاحيات الأدمن، لكن محدودة بفرعه)
   const isBranchManager = currentUser?.role === 'branch_manager'
   const canManage = isAdmin || isBranchManager
@@ -561,8 +564,8 @@ export default function UniformRequestsPage() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{st.icon} {st.label}</span>
-                    {/* ✅ زرار حذف الطلب نهائياً — أدمن فقط (مش مدير الفرع)، بجانب حالة الطلب مباشرة */}
-                    {isAdmin && (
+                    {/* ✅ زرار حذف الطلب نهائياً — مدير النظام فقط (مش مدير الفرع ولا المشرف العام)، بجانب حالة الطلب مباشرة */}
+                    {isSuperAdmin && (
                       <button onClick={() => deleteRequest(req.id)}
                         title="حذف الطلب نهائياً"
                         style={{ background: 'transparent', border: `1px solid ${S.red}50`, borderRadius: '50%', width: 26, height: 26, color: S.red, cursor: 'pointer', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

@@ -1,7 +1,7 @@
 'use client'
 
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useParams } from 'next/navigation'
 
@@ -441,12 +441,14 @@ const GOOGLE_PROMPT_EVENT = 'orchid-google-prompt'
 // ✅ نفس سقف السيرفر (/api/submit-order) — الكمية القصوى للصنف الواحد في الإرسال الواحد
 const MAX_ITEM_QTY = 30
 // ✅ أصناف مميّزة تظهر في شريط متحرك في آخر صفحة المنيو (الأولى: كيكة الاحتفال بالشو). تعديل القائمة = تغيير الـ IDs هنا فقط.
-const FEATURED_ITEM_IDS = [
+// ✅ جديد: صنفا الكيكة والبروني بالفستق ثابتان دائمًا في شريط "Don't miss these" — باقي الأصناف حتى
+// يكتمل العدد 7 تُختار عشوائيًا من قسمي المشروبات الساخنة والباردة فقط، وتتغيّر مع كل تحديث للصفحة
+// (تُحسب مرة واحدة عند تحميل بيانات المنيو، انظر featuredItemIds بالأسفل)
+const FIXED_FEATURED_ITEM_IDS = [
   '23e8ad5e-5c15-429c-9ebe-c5b98c5e6a6d', // The Beat & Cake Show 🎂🥁 (كيكة الاحتفال)
   '196d2d35-7e61-49c9-b3f8-1f0da23ed70f', // Brownie Pistachio Pancake
-  '4b3a1e97-82db-4ba7-a67e-76faa3934251', // Kunafa Cheese
-  '2cae1947-3ef6-4a4a-80b4-94e6ee82a413', // Blue Hawaii Mojito
 ]
+const FEATURED_TOTAL_COUNT = 7
 
 // ✅ رمز عشوائي ثابت لهذا الجهاز/المتصفح — يُرسل مع الطلبات ليقدر مدير النظام يحظر جهازاً بعينه (حتى لو تغيّر الـIP)
 function getDeviceId(): string | null {
@@ -733,6 +735,32 @@ function CustomerMenuInner() {
 // ✅ Currently available categories only (a time-restricted category automatically disappears outside its window)
 const visibleCategories = categories.filter(isCategoryAvailableNow)
 const visibleCategoryIds = new Set(visibleCategories.map(c => c.id))
+
+// ✅ جديد: معرّفات شريط "Don't miss these" — ثابتة (الكيكة والبروني) + اختيار عشوائي لباقي الأصناف
+// من قسمي المشروبات الساخنة/الباردة فقط، حتى يكتمل 7. تُحسب مرة واحدة فقط عند تحميل بيانات المنيو
+// (مش على كل ريندر)، فيتغيّر الاختيار مع كل تحديث فعلي للصفحة بدل ما يتغيّر أثناء التصفح نفسه
+const featuredItemIds = useMemo(() => {
+  if (items.length === 0) return FIXED_FEATURED_ITEM_IDS
+  const drinkCategoryIds = new Set(
+    categories
+      .filter(c => ['hot drinks', 'cold drinks'].includes((c.name_en || '').trim().toLowerCase()))
+      .map(c => c.id)
+  )
+  const drinkPool = items.filter(i =>
+    drinkCategoryIds.has(i.category_id) &&
+    i.is_available !== false &&
+    !(i.sizes || []).some(sz => sz.is_active) &&
+    !FIXED_FEATURED_ITEM_IDS.includes(i.id)
+  )
+  // خلط عشوائي (Fisher-Yates) ثم أخذ العدد المطلوب لإكمال 7
+  const shuffled = [...drinkPool]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  const randomCount = Math.max(0, FEATURED_TOTAL_COUNT - FIXED_FEATURED_ITEM_IDS.length)
+  return [...FIXED_FEATURED_ITEM_IDS, ...shuffled.slice(0, randomCount).map(i => i.id)]
+}, [items, categories])
 
 const filteredItems = items
   .filter(i => visibleCategoryIds.has(i.category_id) || !categories.some(c => c.id === i.category_id))
@@ -1188,7 +1216,7 @@ const filteredItems = items
   // ══ Language selection — أول شاشة يشوفها العميل بعد مسح الكيو آر ══
   // ✅ شريط الأصناف المميّزة (يُعرض في شاشة المنيو وشاشة تأكيد الطلب)
   const renderFeatured = (bottomPad: number) => {
-        const featuredItems = FEATURED_ITEM_IDS
+        const featuredItems = featuredItemIds
           .map(id => items.find(i => i.id === id))
           .filter((i): i is MenuItem => !!i && i.is_available !== false && !(i.sizes || []).some(sz => sz.is_active)
             && (visibleCategoryIds.has(i.category_id) || !categories.some(c => c.id === i.category_id)))

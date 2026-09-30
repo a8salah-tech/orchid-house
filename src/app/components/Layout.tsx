@@ -138,7 +138,7 @@ const ALL_MENU: MenuGroup[] = [
     // ✅ Fix: كانت مربوطة بصلاحية "my_requests" العامة (تظهر لكل الموظفين تلقائيًا) - بقت صلاحية مستقلة
     // "uniform_requests" يقدر الأدمن يمنحها لموظفين محددين بس من صفحة إدارة الصلاحيات
     { label: 'طلب يونيفورم',    label_en: 'Uniform Request', icon: '👔', path: '/dashboard/hr/uniform-requests', permission: 'uniform_requests' },
-    { label: 'إدارة الشيفتات',  label_en: 'Shifts',        icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'my_requests' },
+    { label: 'إدارة الشيفتات',  label_en: 'Shifts',        icon: '🕐', path: '/dashboard/hr/shifts',    permission: 'shifts_manage' },
     { label: 'الرواتب والأجور', label_en: 'Payroll', icon: '💰', path: '/dashboard/hr/payroll', permission: 'admin_only' },
     // ✅ جديد: صفحة دور استلام الرواتب نقداً - للأدمن فقط
     { label: 'دور استلام الرواتب', label_en: 'Salary Pickup Order', icon: '🎟️', path: '/dashboard/hr/pickup-order', permission: 'admin_only' },
@@ -266,6 +266,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     perm === 'cashier_only' ? (isAdmin || isCashierRole) :
     // ✅ المنيو: مدير النظام (كل الفروع) + مدير الفرع (فرعه فقط) — لا أحد غيرهما
     perm === 'menu_manage' ? (isAdmin || employee?.role === 'branch_manager') :
+    // ✅ Fix: كان مربوطًا بـ my_requests (ممنوحة افتراضيًا لكل الأدوار تقريبًا)، فالتبويب كان يظهر لأي
+    // موظف عادي رغم إنه تبويب إدارة، ويوديه لشاشة "غير مصرح بالوصول" داخل الصفحة نفسها. نفس شرط
+    // الصفحة بالظبط الآن: أدمن/مدير فرع/مدير قسم (مطبخ،صالة،بار)/مشرف عام (عرض فقط) + أي حد مُنح
+    // صلاحية "تعيين الشيفتات" تحديدًا
+    perm === 'shifts_manage' ? (
+      isAdmin || employee?.role === 'branch_manager' ||
+      ['kitchen_manager', 'hall_manager', 'bar_manager'].includes(employee?.role || '') ||
+      employee?.role === 'general_supervisor' ||
+      hasPermission('assign_shifts')
+    ) :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
 
   if (loading) return (

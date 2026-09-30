@@ -351,7 +351,10 @@ export default function BookingPage() {
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred dining area</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {SECTIONS.map(s => {
-                const photo = selectedBranch?.id === ORCHID_HOUSE_ID ? sectionPhotos.find(p => p.branch_id === selectedBranch.id && p.section === s.key) : null
+                // ✅ Fix: صور الأقسام كانت مقصورة على أوركيد هاوس فقط (بقية سياسات القسم في هذا الملف كذلك
+                // بالتصميم)، لكن صفحة الإدارة تسمح برفعها لأي فرع — فصور KLCC كانت تُرفع بنجاح وتُخزَّن
+                // لكن لا تظهر أبدًا للعميل. الصورة نفسها بصرية بحتة فقط، فأصبحت تظهر لأي فرع رفع له الأدمن صورة
+                const photo = sectionPhotos.find(p => p.branch_id === selectedBranch?.id && p.section === s.key)
                 const hasPhoto = !!photo?.image_url
                 return (
                 <div key={s.key} onClick={() => pickSection(s.key)}

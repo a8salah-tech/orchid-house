@@ -148,6 +148,8 @@ const ALL_MENU: MenuGroup[] = [
     { label: 'دور استلام الرواتب', label_en: 'Salary Pickup Order', icon: '🎟️', path: '/dashboard/hr/pickup-order', permission: 'admin_only' },
     { label: 'الحضور والانصراف',label_en: 'Attendance',    icon: '⏰', path: '/dashboard/hr/attendance', permission: 'attendance' },
     { label: 'الموظف المثالي',  label_en: 'Employee of the Month', icon: '🏆', path: '/dashboard/employee-of-the-month', permission: 'attendance' },
+    // ✅ جديد: صفحة "قريباً" لمركز التدريب - permission: null ليراها كل موظف بلا استثناء
+    { label: 'مركز التدريب',   label_en: 'Training Center', icon: '🎓', path: '/dashboard/hr/training-center', permission: null },
   ]},
   { group: 'التقارير', items: [
     { label: 'التقارير الشهرية', label_en: 'Monthly Reports', icon: '📈', path: '/dashboard/reports/monthly', permission: 'reports' },

@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
-import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT } from '../../../../lib/roles'
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -784,13 +784,14 @@ export default function ShiftsPage() {
   const isAdmin = permissions?.all === true
   const isBranchManager = employee?.role === 'branch_manager'
   const isDeptManager = DEPT_MANAGER_ROLES_EXT.includes(employee?.role||'')
-  const isSupervisor = DEPT_SUPERVISOR_ROLES.includes(employee?.role||'')
-  const hasAssignShifts = permissions?.assign_shifts === true
-  const canAssignShifts = isAdmin || isBranchManager || isDeptManager || hasAssignShifts
+  // ✅ الوصول لهذه الصفحة الآن محصور صراحةً في: مدير النظام، مدير الفرع، مدير القسم (+مساعد مدير
+  // المطبخ)، والمشرف العام (عرض فقط) — لا يوجد أي مسار آخر، حتى لو مُنح موظف آخر صلاحية
+  // "assign_shifts" يدويًا من صفحة إدارة الصلاحيات، الصفحة لا تظهر له إطلاقًا
+  const canAssignShifts = isAdmin || isBranchManager || isDeptManager
   const isManager = isAdmin || isBranchManager || isDeptManager
-  // ✅ جديد: المشرف العام يشوف جدول فرعه (كل الأقسام) للعرض فقط - بلا أي صلاحية تعيين/تعديل شيفتات
+  // ✅ المشرف العام يشوف جدول فرعه (كل الأقسام) للعرض فقط - بلا أي صلاحية تعيين/تعديل شيفتات
   const isBranchViewer = employee?.role === 'general_supervisor'
-  const isEmployee = !isManager && !hasAssignShifts && !isBranchViewer
+  const isEmployee = !isManager && !isBranchViewer
 
   // ── منع الوصول لغير المصرح لهم ──
   if (employee && !canAssignShifts && !isBranchViewer) {
@@ -830,7 +831,7 @@ export default function ShiftsPage() {
 
   function refresh() { setTick(t=>t+1) }
 
-  useEffect(() => { setActiveTab((isEmployee && !hasAssignShifts)?'my_schedule':'schedule') }, [isEmployee, hasAssignShifts])
+  useEffect(() => { setActiveTab(isEmployee ? 'my_schedule' : 'schedule') }, [isEmployee])
 
   useEffect(() => {
     if (!employee?.id) return
@@ -855,15 +856,6 @@ export default function ShiftsPage() {
       else if (employee?.role === 'kitchen_manager' || employee?.role === 'kitchen_assistant_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
       else if (employee?.role === 'hall_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['الصالة','Hall'])
       else if (employee?.role === 'bar_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['البار','Bar'])
-      else if (isSupervisor && hasAssignShifts) {
-        const deptMap: Record<string, string[]> = {
-          kitchen_supervisor: ['المطبخ','Kitchen'],
-          hall_supervisor: ['الصالة','Hall'],
-          bar_supervisor: ['البار','Bar'],
-        }
-        const depts = deptMap[employee?.role||''] || []
-        if (depts.length > 0) empQuery = empQuery.eq('branch_id', employee?.branch_id||'').in('department', depts)
-      }
       const {data: empData} = await empQuery
       setEmployees(empData||[])
 // نجلب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50، ومع Pagination داخل كل جزء
@@ -1054,9 +1046,6 @@ export default function ShiftsPage() {
   const tabs = isEmployee ? [
     {key:'my_schedule',label:'جدولي',icon:'📅'},
     {key:'my_requests',label:'طلباتي',icon:'🔄',badge:myRequests.filter(r=>r.status==='pending').length},
-  ] : (hasAssignShifts && isSupervisor) ? [
-    {key:'schedule',label:'جدول قسمي',icon:'📅'},
-    {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
   ] : isAdmin ? [
     {key:'schedule',label:'الجدول الشهري',icon:'📅'},
     {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
@@ -1093,10 +1082,8 @@ export default function ShiftsPage() {
           ):(
             <>
               {isManager&&<button onClick={()=>setShowAddShift(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.purple}`,background:S.purpleB,color:S.purple,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>⏰ شيفت جديد</button>}
-              {/* ✅ Fix: كان معتمداً ضمنياً على !isEmployee (= isManager||hasAssignShifts) - بعد إضافة
-                  المشرف العام كحالة "!isEmployee" للعرض فقط، لازم الشرط يبقى صريح عشان زرار التعيين
-                  (كتابة فعلية) ميظهرش له */}
-              {(isManager||hasAssignShifts)&&<button onClick={()=>setShowAssign(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>📅 تعيين جدول شهري</button>}
+              {/* المشرف العام ضمن !isEmployee لكنه عرض فقط - زرار التعيين (كتابة فعلية) يظهر فقط لمدير/مدير فرع/مدير قسم */}
+              {isManager&&<button onClick={()=>setShowAssign(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>📅 تعيين جدول شهري</button>}
               <button onClick={printSchedule} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>🖨️ طباعة</button>
             </>
           )}

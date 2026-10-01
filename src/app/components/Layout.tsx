@@ -272,15 +272,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     perm === 'cashier_only' ? (isAdmin || isCashierRole) :
     // ✅ المنيو: مدير النظام (كل الفروع) + مدير الفرع (فرعه فقط) — لا أحد غيرهما
     perm === 'menu_manage' ? (isAdmin || employee?.role === 'branch_manager') :
-    // ✅ Fix: كان مربوطًا بـ my_requests (ممنوحة افتراضيًا لكل الأدوار تقريبًا)، فالتبويب كان يظهر لأي
-    // موظف عادي رغم إنه تبويب إدارة، ويوديه لشاشة "غير مصرح بالوصول" داخل الصفحة نفسها. نفس شرط
-    // الصفحة بالظبط الآن: أدمن/مدير فرع/مدير قسم (مطبخ،صالة،بار)/مشرف عام (عرض فقط) + أي حد مُنح
-    // صلاحية "تعيين الشيفتات" تحديدًا
+    // ✅ محصور صراحةً في: أدمن/مدير فرع/مدير قسم (مطبخ،صالة،بار + مساعد مدير المطبخ)/مشرف عام
+    // (عرض فقط) — بلا أي استثناء آخر، حتى لو مُنح موظف آخر صلاحية "تعيين الشيفتات" يدويًا من
+    // صفحة إدارة الصلاحيات؛ نفس الشرط بالظبط مطبّق داخل الصفحة نفسها (hr/shifts/page.tsx)
     perm === 'shifts_manage' ? (
       isAdmin || employee?.role === 'branch_manager' ||
       DEPT_MANAGER_ROLES_EXT.includes(employee?.role || '') ||
-      employee?.role === 'general_supervisor' ||
-      hasPermission('assign_shifts')
+      employee?.role === 'general_supervisor'
     ) :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
 

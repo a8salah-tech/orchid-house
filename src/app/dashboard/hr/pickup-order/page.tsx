@@ -95,11 +95,13 @@ export default function PickupOrderPage() {
         sb.from('payroll_records').select('employee_id, late_hours, early_exit_hours, absence_days, deduction_2_label')
           .eq('payroll_month_id', selectedMonth.id)
           .in('employee_id', empIds),
+        // ✅ تقييمات نفس الشهر المعروض فقط — نفس إصلاح my-salary/page.tsx بالضبط، وإلا الرقم اللي
+        // يطبعه الأدمن هنا هيختلف عن اللي الموظف شايفه لوحده (نفس التعليق فوق بيقول لازم يفضلوا متطابقين)
         sb.from('employee_evaluations').select('employee_id, total_score, month, year')
           .in('employee_id', empIds)
           .eq('status', 'approved')
-          .order('year', { ascending: false })
-          .order('month', { ascending: false }),
+          .eq('year', selectedMonth.year)
+          .eq('month', selectedMonth.month),
         // ✅ Fix حرج: absence_days/late_hours بيرجعوا صفر لموظف مفيش له شيفت مجدول ولا بصمة خالص هذا الشهر
         // (مش بس اللي حضر بانضباط تام) - فكان بيطلع بدرجة حضور 100% كاملة رغم إنه ما بصمش يوم واحد.
         // هنا نتحقق من وجود بصمة حقيقية على الأقل، ولو معندوش خالص نصفّر درجة حضوره بدل ما نفترض الأفضل
@@ -109,9 +111,9 @@ export default function PickupOrderPage() {
       ])
       if (cancelled) return
 
-      const latestEvalByEmp: Record<string, number> = {}
+      const monthEvalByEmp: Record<string, number> = {}
       for (const ev of (evalsData || [])) {
-        if (!(ev.employee_id in latestEvalByEmp)) latestEvalByEmp[ev.employee_id] = ev.total_score
+        if (!(ev.employee_id in monthEvalByEmp)) monthEvalByEmp[ev.employee_id] = ev.total_score
       }
       const employeesWithAnyAttendance = new Set((attData || []).map(a => a.employee_id))
       const empById = Object.fromEntries((branchEmps || []).map(e => [e.id, e]))
@@ -131,9 +133,9 @@ export default function PickupOrderPage() {
           const attendanceScore = hasAttended
             ? Math.max(0, 100 - lateHours * 3 - earlyHours * 3 - absenceDays * 15)
             : 0
-          const hasEval = r.employee_id in latestEvalByEmp
-          // ✅ بلا تقييم = لا درجة افتراضية؛ الإجمالي = الانضباط فقط، ويترتّب تحت كل من عنده تقييم
-          const evalScore = hasEval ? latestEvalByEmp[r.employee_id] : null
+          const hasEval = r.employee_id in monthEvalByEmp
+          // ✅ بلا تقييم معتمد لنفس الشهر = لا درجة افتراضية؛ الإجمالي = الانضباط فقط، ويترتّب تحت كل من عنده تقييم
+          const evalScore = hasEval ? monthEvalByEmp[r.employee_id] : null
           const combined = hasEval
             ? attendanceScore * 0.5 + (evalScore as number) * 0.5
             : attendanceScore

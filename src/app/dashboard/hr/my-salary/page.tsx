@@ -180,12 +180,14 @@ export default function MySalaryPage() {
         // ✅ سرّية الرواتب: الموظف لا يقرأ payroll_records لغيره مباشرة. دالة SECURITY DEFINER
         // ترجّع صفوف أقران الفرع المطلوبة لحساب الترتيب فقط (تقصر نفسها على فرع المستدعي).
         sb.rpc('app_branch_payroll_peers', { p_month_id: selectedMonth.id }),
-        // ✅ نجيب كل التقييمات المعتمدة (approved) لموظفي الفرع، ونستخدم الأحدث لكل موظف فقط
+        // ✅ تقييمات نفس الشهر المعروض فقط (المعتمدة) — مقصود عدم استخدام تقييم شهر سابق كبديل؛
+        // لو لسه ما فيش تقييم معتمد لهذا الشهر بالذات، الموظف يُحتسب "بلا تقييم" (الدرجة = الانضباط فقط)
+        // حتى لو عنده تقييمات معتمدة من شهور سابقة
         sb.from('employee_evaluations').select('employee_id, total_score, month, year')
           .in('employee_id', empIds)
           .eq('status', 'approved')
-          .order('year', { ascending: false })
-          .order('month', { ascending: false }),
+          .eq('year', selectedMonth.year)
+          .eq('month', selectedMonth.month),
         // ✅ Fix حرج: موظف مفيش له شيفت مجدول ولا بصمة خالص هذا الشهر بيرجّع late_hours/absence_days = صفر،
         // فكان بيطلع بدرجة حضور 100% كاملة رغم إنه ما بصمش يوم واحد. نتحقق من وجود بصمة حقيقية على الأقل
         sb.from('attendance').select('employee_id, check_in_time')
@@ -196,9 +198,9 @@ export default function MySalaryPage() {
       // ✅ لو الدالة لسه مش منشورة أو رجعت خطأ — نخفي الترتيب بدل كسر الصفحة
       if (peersErr || !records) { setPickupInfo(null); return }
 
-      const latestEvalByEmp: Record<string, number> = {}
+      const monthEvalByEmp: Record<string, number> = {}
       for (const ev of (evalsData || [])) {
-        if (!(ev.employee_id in latestEvalByEmp)) latestEvalByEmp[ev.employee_id] = ev.total_score
+        if (!(ev.employee_id in monthEvalByEmp)) monthEvalByEmp[ev.employee_id] = ev.total_score
       }
       const employeesWithAnyAttendance = new Set((attData || []).map((a: any) => a.employee_id))
 
@@ -209,9 +211,9 @@ export default function MySalaryPage() {
         const attendanceScore = employeesWithAnyAttendance.has(r.employee_id)
           ? Math.max(0, 100 - (r.late_hours || 0) * 3 - (r.early_hours || 0) * 3 - (r.absence_days || 0) * 15)
           : 0
-        // ✅ بلا تقييم معتمد = لا درجة افتراضية؛ الإجمالي = الانضباط، ويترتّب تحت كل من عنده تقييم
-        const hasEval = r.employee_id in latestEvalByEmp
-        const combined = hasEval ? attendanceScore * 0.5 + latestEvalByEmp[r.employee_id] * 0.5 : attendanceScore
+        // ✅ بلا تقييم معتمد لنفس الشهر = لا درجة افتراضية؛ الإجمالي = الانضباط، ويترتّب تحت كل من عنده تقييم
+        const hasEval = r.employee_id in monthEvalByEmp
+        const combined = hasEval ? attendanceScore * 0.5 + monthEvalByEmp[r.employee_id] * 0.5 : attendanceScore
         return { employee_id: r.employee_id, hasEval, combined }
       })
       scored.sort((a, b) => {

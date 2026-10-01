@@ -418,6 +418,8 @@ type OrderItem = { id: string; quantity: number; unit_price: number; notes: stri
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
   discount_amount: number; discount_type: string; payment_method: string
+  // ✅ البنك الحقيقي لبطاقة الفيزا (Maybank/BSN) - موجود في قاعدة البيانات لكن كان ناقصًا من هذا النوع
+  card_bank?: string | null
   service_charge: number; sst_amount: number; shift: string
   notes: string; created_at: string; confirmed_at: string; paid_at?: string
   customer_id?: string | null; cancel_reason?: string | null; paid_by_name?: string | null
@@ -2467,7 +2469,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
@@ -3587,7 +3589,7 @@ export default function CashierPage() {
                       {new Date(order.created_at).toLocaleString('en-GB')}
                     </div>
                     <div style={{ fontSize: 18, fontWeight: 900, color: S.gold, marginBottom: 6 }}>MYR {(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    {order.payment_method && <div style={{ fontSize: 11, color: S.teal, marginBottom: 4 }}>{order.payment_method === 'cash' ? '💵' : order.payment_method === 'visa' ? '💳' : '📱'} {order.payment_method}</div>}
+                    {order.payment_method && <div style={{ fontSize: 11, color: S.teal, marginBottom: 4 }}>{order.payment_method === 'cash' ? '💵' : order.payment_method === 'visa' ? '💳' : '📱'} {order.payment_method}{order.card_bank ? ` (${order.card_bank})` : ''}</div>}
                     {order.paid_by_name && <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 {order.paid_by_name}</div>}
                     {order.cancel_reason && <div style={{ fontSize: 11, color: S.red, marginBottom: 4 }}>❌ {order.cancel_reason}</div>}
                     <div style={{ borderTop: `1px solid ${S.border}`, marginTop: 8, paddingTop: 8, fontSize: 12, color: S.muted }}>
@@ -4002,7 +4004,7 @@ export default function CashierPage() {
                                 </div>
                                 <div style={{ fontSize: 10, color: S.muted }}>
                                   {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                                  {order.payment_method ? ` · ${order.payment_method}` : ''}
+                                  {order.payment_method ? ` · ${order.payment_method}${order.card_bank ? ` (${order.card_bank})` : ''}` : ''}
                                 </div>
                               </div>
                             ))}
@@ -4034,7 +4036,7 @@ export default function CashierPage() {
                                 </div>
                                 <div style={{ fontSize: 10, color: S.muted }}>
                                   {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                                  {order.payment_method ? ` · ${order.payment_method}` : ''}
+                                  {order.payment_method ? ` · ${order.payment_method}${order.card_bank ? ` (${order.card_bank})` : ''}` : ''}
                                 </div>
                               </div>
                             ))}

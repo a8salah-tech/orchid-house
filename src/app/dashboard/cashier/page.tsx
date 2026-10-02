@@ -2987,10 +2987,25 @@ export default function CashierPage() {
     fetchAll()
   }
 
+  // ✅ جديد: اعتماد إلغاء كل الطلبات المعلّقة على طاولة "Cancellation" دفعة واحدة (مدير النظام/المشرف العام فقط)
+  async function approveAllCancelHub(pending: Order[]) {
+    if (pending.length === 0) return
+    const total = pending.reduce((s, o) => s + (o.total_amount || 0), 0)
+    if (!confirm(`Cancel all ${pending.length} pending order${pending.length === 1 ? '' : 's'} (MYR ${total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})?\n\nThis cannot be undone.`)) return
+    const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'Unknown'
+    const now = new Date().toISOString()
+    for (const o of pending) {
+      await sb.from('order_items').update({ status: 'cancelled', cancel_reason: o.cancel_reason, cancelled_at: now, action_by: fullName }).eq('order_id', o.id).neq('status', 'cancelled')
+      await sb.from('orders').update({ status: 'cancelled', cancel_approved_by_name: fullName, cancel_approved_at: now }).eq('id', o.id)
+    }
+    fetchAll()
+    if (cancelHubTable) openCancelHub(cancelHubTable)
+  }
+
   // ✅ جديد: تحميل صنف على موظف (خطأ في الطلب أو وجبة شخصية) - الصنف يتشال من فاتورة العميل
   // ويتسجل فورًا كمخالفة "active" على نفس جدول المخالفات، فينزل من راتب الموظف ويظهر في "راتبي"
   // وشيت الرواتب في نفس اليوم - من غير أي اعتماد مطلوب من مدير/أدمن (نفس آلية مخالفة يسجلها مدير مباشرة)
-  const [chargeItemTarget, setChargeItemTarget] = useState<{ orderId: string; itemId: string; itemName: string; unitPrice: number; totalQty: number } | null>(null)
+  const [chargeItemTarget, setChargeItemTarget] = useState<{ orderId: string; itemId: string; itemName: string; unitPrice: number; totalQty: number; fromCancelHub?: boolean } | null>(null)
   const [chargeQty, setChargeQty] = useState(1)
   const [chargeStaffList, setChargeStaffList] = useState<{ id: string; name: string; name_en: string | null; employee_number: string | null }[]>([])
   const [chargeEmployeeId, setChargeEmployeeId] = useState('')
@@ -3055,14 +3070,14 @@ export default function CashierPage() {
 
   // ✅ جديد: تحميل الطاولة (الطلب) كامل على موظف دفعة واحدة، بدل ما يتحمّل صنف صنف - بيعتمد على نفس
   // نافذة/آلية "تحميل صنف على موظف" بالظبط، بس بيلغي كل الأصناف النشطة في الطلب مرة واحدة
-  async function openChargeWholeOrderToEmployee(order: Order) {
+  async function openChargeWholeOrderToEmployee(order: Order, fromCancelHub = false) {
     const activeItems = (order.order_items || []).filter(i => i.status !== 'cancelled')
     const orderTotal = activeItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
     const itemsCount = activeItems.reduce((s, i) => s + i.quantity, 0)
     setChargeItemTarget({
       orderId: order.id, itemId: 'WHOLE_ORDER',
       itemName: `Whole Table Order (${itemsCount} ${itemsCount === 1 ? 'item' : 'items'})`,
-      unitPrice: orderTotal, totalQty: 1,
+      unitPrice: orderTotal, totalQty: 1, fromCancelHub,
     })
     resetChargeForm()
     await ensureChargeStaffLoaded()
@@ -3098,9 +3113,15 @@ export default function CashierPage() {
     } else {
       await sb.from('order_items').update({ status: 'cancelled', cancel_reason: fullReason, cancelled_at: new Date().toISOString(), action_by: actionBy }).eq('id', chargeItemTarget.itemId)
     }
-    const { data: items } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', chargeItemTarget.orderId)
-    const newTotal = (items || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
-    await sb.from('orders').update({ total_amount: newTotal }).eq('id', chargeItemTarget.orderId)
+    if (chargeItemTarget.fromCancelHub) {
+      // ✅ طلب في طاولة "Cancellation": التحميل على الموظف يُنهي الإلغاء — نقفل الطلب كملغي ونحتفظ بإجماله الأصلي
+      // (بدل تصفيره) عشان يفضل ظاهر في الإجماليات، ونسجّل مين اعتمد
+      await sb.from('orders').update({ status: 'cancelled', cancel_approved_by_name: actionBy, cancel_approved_at: new Date().toISOString() }).eq('id', chargeItemTarget.orderId)
+    } else {
+      const { data: items } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', chargeItemTarget.orderId)
+      const newTotal = (items || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
+      await sb.from('orders').update({ total_amount: newTotal }).eq('id', chargeItemTarget.orderId)
+    }
 
     // 2) لو الموظف دافع جزء (أو كل) المبلغ كاش/شبكة دلوقتي - نسجّله كبيعة حقيقية على طاولة "مشتريات الموظفين"
     // عشان يدخل في إجمالي الكاش/الفيزا بتاعت الشيفت عادي زي أي بيع تاني وقت القفل آخر الشيفت
@@ -3125,8 +3146,10 @@ export default function CashierPage() {
       if (error) { setChargeSaving(false); alert('❌ ' + error.message); return }
     }
     setChargeSaving(false)
+    const wasHubCharge = !!chargeItemTarget.fromCancelHub
     setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
     fetchAll()
+    if (wasHubCharge && cancelHubTable) openCancelHub(cancelHubTable)
   }
 
   async function doCancelOrder() {
@@ -3463,7 +3486,13 @@ export default function CashierPage() {
                     {activeOrder && table.occupied_since && (
                       <div style={{ fontSize: 10, color: S.amber, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(table.occupied_since)}</div>
                     )}
-                    {activeOrder && (() => {
+                    {/* ✅ طاولة "Cancellation": نعرض عدد طلبات الإلغاء المعلّقة وإجماليها (بدون خدمة/ضريبة) بدل إجمالي أول طلب فقط */}
+                    {activeOrder && table.section === 'cancel_hub' && (() => {
+                      const hubPend = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
+                      const hubPendTotal = hubPend.reduce((s, o) => s + (o.total_amount || 0), 0)
+                      return <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>⏳ {hubPend.length} · MYR {hubPendTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    })()}
+                    {activeOrder && table.section !== 'cancel_hub' && (() => {
                       // ✅ Fix حرج: السعر الظاهر على البطاقة كان بيعرض total_amount الخام بس (سعر الأصناف
                       // من غير خدمة أو ضريبة، لأن دول بيتحسبوا بس وقت الدفع الفعلي). دلوقتي بنحسبهم هنا
                       // للعرض بس، عشان الرقم الظاهر يطابق المبلغ الحقيقي اللي العميل هيدفعه فعليًا
@@ -4002,7 +4031,7 @@ export default function CashierPage() {
                                 style={{ background: S.card, borderRadius: 12, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.border}`, padding: 10, cursor: 'pointer' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
-                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
+                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{`${order.status === 'cancelled' ? '❌ ' : ''}MYR ${(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
                                 </div>
                                 <div style={{ fontSize: 10, color: S.muted }}>
                                   {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -4034,7 +4063,7 @@ export default function CashierPage() {
                                 style={{ background: S.card, borderRadius: 12, border: `1px solid ${order.status === 'cancelled' ? S.red + '40' : S.border}`, padding: 10, cursor: 'pointer' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, fontWeight: 700, color: S.white }}>{order.tables?.name || `Table ${order.tables?.number}`}</span>
-                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{order.status === 'cancelled' ? '❌ Cancelled' : `MYR ${(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
+                                  <span style={{ fontSize: 11, color: order.status === 'cancelled' ? S.red : S.gold, fontWeight: 700 }}>{`${order.status === 'cancelled' ? '❌ ' : ''}MYR ${(order.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
                                 </div>
                                 <div style={{ fontSize: 10, color: S.muted }}>
                                   {new Date(order.paid_at || order.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -4067,6 +4096,9 @@ export default function CashierPage() {
                     const pendingCount = hubOrders.filter(o => o.cancel_requested_by_name && !o.cancel_rejected_at && o.status !== 'cancelled').length
                     const cancelledCount = hubOrders.filter(o => o.status === 'cancelled').length
                     const hubTotal = hubOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
+                    const hubPending = hubOrders.filter(o => !!o.cancel_requested_by_name && !o.cancel_rejected_at && o.status !== 'cancelled')
+                    const hubPendingTotal = hubPending.reduce((sum, o) => sum + (o.total_amount || 0), 0)
+                    const hubFmt = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                     return (
                       <div key={'hub-' + order.table_id} style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.red}50`, overflow: 'hidden' }}>
                         <div style={{ padding: '14px 16px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -4077,8 +4109,18 @@ export default function CashierPage() {
                             </div>
                             <div style={{ fontSize: 11, color: S.muted }}>{hubOrders.length} order{hubOrders.length === 1 ? '' : 's'}{pendingCount > 0 ? ` · ⏳ ${pendingCount} pending approval` : ''}{cancelledCount > 0 ? ` · ❌ ${cancelledCount} cancelled` : ''}</div>
                           </div>
-                          <div style={{ color: S.red, fontWeight: 800, fontSize: 15 }}>MYR {hubTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ color: S.red, fontWeight: 800, fontSize: 15 }}>MYR {hubFmt(hubTotal)}</div>
+                            {hubPending.length > 0 && <div style={{ color: S.amber, fontWeight: 700, fontSize: 11 }}>⏳ MYR {hubFmt(hubPendingTotal)} pending</div>}
+                          </div>
                         </div>
+                        {isAdmin && hubPending.length > 0 && (
+                          <div style={{ padding: '10px 16px', borderBottom: `1px solid ${S.border}` }}>
+                            <button onClick={() => approveAllCancelHub(hubPending)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+                              ✅ Cancel all pending ({hubPending.length}) · MYR {hubFmt(hubPendingTotal)}
+                            </button>
+                          </div>
+                        )}
                         {hubOrders.map((o, oi) => {
                           const isPending = !!o.cancel_requested_by_name && !o.cancel_rejected_at && o.status !== 'cancelled'
                           const isCancelled = o.status === 'cancelled'
@@ -4112,6 +4154,11 @@ export default function CashierPage() {
                                   </div>
                                 ))}
                               </div>
+                              {/* ✅ جديد: تحميل الطلب كامل على موظف (لو الإلغاء بسبب خطأ منه) */}
+                              {(isPending || (!isCancelled && ['confirmed', 'preparing', 'ready'].includes(o.status))) && isCashierRole && (o.order_items || []).some(i => i.status !== 'cancelled') && (
+                                <button onClick={() => openChargeWholeOrderToEmployee(o, true)} title="Charge this order to an employee"
+                                  style={{ marginTop: 8, width: '100%', padding: '7px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>👤 Charge to employee</button>
+                              )}
                               {isPending && isAdmin && (
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                   <button onClick={() => approveCancelHub(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
@@ -4384,6 +4431,30 @@ export default function CashierPage() {
               </div>
               <button onClick={() => setCancelHubTable(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
+            {!cancelHubLoading && cancelHubOrders.length > 0 && (() => {
+              const pend = cancelHubOrders.filter(o => !!o.cancel_requested_by_name && !o.cancel_rejected_at && o.status !== 'cancelled')
+              const pendTotal = pend.reduce((s, o) => s + (o.total_amount || 0), 0)
+              const canc = cancelHubOrders.filter(o => o.status === 'cancelled')
+              const cancTotal = canc.reduce((s, o) => s + (o.total_amount || 0), 0)
+              const fmt = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              return (
+                <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: '10px 12px', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: S.amber, fontWeight: 700 }}>⏳ Pending ({pend.length})</span>
+                    <span style={{ color: S.amber, fontWeight: 800 }}>MYR {fmt(pendTotal)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: S.red, fontWeight: 700 }}>❌ Cancelled ({canc.length})</span>
+                    <span style={{ color: S.red, fontWeight: 800 }}>MYR {fmt(cancTotal)}</span>
+                  </div>
+                  {isAdmin && pend.length > 0 && (
+                    <button onClick={() => approveAllCancelHub(pend)} style={{ marginTop: 4, padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
+                      ✅ Cancel all pending ({pend.length}) · MYR {fmt(pendTotal)}
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
             {cancelHubLoading ? (
               <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>⏳ Loading...</div>
             ) : cancelHubOrders.length === 0 ? (
@@ -4422,6 +4493,11 @@ export default function CashierPage() {
                           </div>
                         ))}
                       </div>
+                      {/* ✅ جديد: تحميل الطلب كامل على موظف (لو الإلغاء بسبب خطأ منه) — بيقفل الطلب كملغي ويخصم من راتبه */}
+                      {(isPending || (!isCancelled && ['confirmed', 'preparing', 'ready'].includes(o.status))) && isCashierRole && (o.order_items || []).some(i => i.status !== 'cancelled') && (
+                        <button onClick={() => openChargeWholeOrderToEmployee(o, true)} title="Charge this order to an employee"
+                          style={{ marginTop: 8, width: '100%', padding: '7px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>👤 Charge to employee</button>
+                      )}
                       {isPending && isAdmin && (
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                           <button onClick={async () => { await approveCancelHub(o); openCancelHub(cancelHubTable) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
@@ -4929,7 +5005,7 @@ export default function CashierPage() {
 
       {/* ✅ جديد: تحميل صنف على موظف - يُشال من فاتورة العميل وينزل خصمًا فوريًا من راتب الموظف المختار */}
       {chargeItemTarget && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, width: '100%', maxWidth: 420, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
             <div style={{ fontSize: 40, marginBottom: 14, textAlign: 'center' }}>👤</div>
             <div style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 6, textAlign: 'center' }}>

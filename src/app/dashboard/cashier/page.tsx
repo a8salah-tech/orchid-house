@@ -5005,8 +5005,11 @@ export default function CashierPage() {
 
       {/* ✅ جديد: تحميل صنف على موظف - يُشال من فاتورة العميل وينزل خصمًا فوريًا من راتب الموظف المختار */}
       {chargeItemTarget && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, width: '100%', maxWidth: 420, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+        // ✅ الشاشة طويلة: الخلفية بتتمرّر (overflowY) والكارت margin:auto عشان يتوسّط لو قصير ولا ينقطع من فوق لو طويل
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 700, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+          <div style={{ position: 'relative', background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, width: '100%', maxWidth: 420, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.5)', margin: 'auto' }}>
+            <button onClick={() => { setChargeItemTarget(null); resetChargeForm() }} aria-label="Close"
+              style={{ position: 'absolute', top: 10, right: 12, background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
             <div style={{ fontSize: 40, marginBottom: 14, textAlign: 'center' }}>👤</div>
             <div style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 6, textAlign: 'center' }}>
               Charge to Employee — {chargeItemTarget.itemName}

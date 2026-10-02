@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
-import { DEPT_MANAGER_ROLES_EXT } from '../../../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -791,10 +791,13 @@ export default function ShiftsPage() {
   const isManager = isAdmin || isBranchManager || isDeptManager
   // ✅ المشرف العام يشوف جدول فرعه (كل الأقسام) للعرض فقط - بلا أي صلاحية تعيين/تعديل شيفتات
   const isBranchViewer = employee?.role === 'general_supervisor'
-  const isEmployee = !isManager && !isBranchViewer
+  // ✅ مشرفو الأقسام (مطبخ/صالة/بار): يشوفون جدول قسمهم في فرعهم للعرض فقط — بلا أي تعيين/تعديل/اعتماد
+  const isDeptViewer = DEPT_SUPERVISOR_ROLES.includes(employee?.role||'')
+  const isViewOnly = isBranchViewer || isDeptViewer
+  const isEmployee = !isManager && !isViewOnly
 
   // ── منع الوصول لغير المصرح لهم ──
-  if (employee && !canAssignShifts && !isBranchViewer) {
+  if (employee && !canAssignShifts && !isViewOnly) {
     return (
       <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: '#FAFAF8', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', flexDirection: 'column', gap: 16 }}>
         <div style={{ fontSize: 64 }}>🔒</div>
@@ -856,6 +859,15 @@ export default function ShiftsPage() {
       else if (employee?.role === 'kitchen_manager' || employee?.role === 'kitchen_assistant_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
       else if (employee?.role === 'hall_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['الصالة','Hall'])
       else if (employee?.role === 'bar_manager') empQuery = empQuery.eq('branch_id', employee.branch_id || '').in('department', ['البار','Bar'])
+      else if (isDeptViewer) {
+        const deptMap: Record<string, string[]> = {
+          kitchen_supervisor: ['المطبخ','Kitchen'],
+          hall_supervisor: ['الصالة','Hall'],
+          bar_supervisor: ['البار','Bar'],
+        }
+        // دور غير معروف → قائمة فاضية (لا نعرض أي موظف) بدل ما نفلتر بلا قسم
+        empQuery = empQuery.eq('branch_id', employee?.branch_id||'').in('department', deptMap[employee?.role||''] || ['__none__'])
+      }
       const {data: empData} = await empQuery
       setEmployees(empData||[])
 // نجلب الشيفتات للموظفين المحملين — بشكل مجزأ لو أكتر من 50، ومع Pagination داخل كل جزء
@@ -1051,9 +1063,9 @@ export default function ShiftsPage() {
     {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
     {key:'shifts_list',label:'الشيفتات',icon:'⏰'},
     {key:'requests',label:'طلبات التغيير',icon:'🔄',badge:requests.length},
-  ] : isBranchViewer ? [
-    // ✅ المشرف العام: عرض جدول فرعه فقط - بلا تاب "طلبات" (ده مش عرض، ده اعتماد/رفض)
-    {key:'schedule',label:'جدول فرعي',icon:'📅'},
+  ] : isViewOnly ? [
+    // ✅ المشرف العام (فرعه) ومشرف القسم (قسمه): عرض فقط - بلا تاب "طلبات" (ده مش عرض، ده اعتماد/رفض)
+    {key:'schedule',label:isDeptViewer?'جدول قسمي':'جدول فرعي',icon:'📅'},
     {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
   ] : [
     {key:'schedule',label:'جدول قسمي',icon:'📅'},

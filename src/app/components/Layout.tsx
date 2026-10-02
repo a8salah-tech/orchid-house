@@ -6,7 +6,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from './AuthProvider'
 import NotificationBell from './NotificationBell'
 import { LanguageContext } from './LanguageContext'
-import { DEPT_MANAGER_ROLES_EXT } from '../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../lib/roles'
 
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
@@ -278,7 +278,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     perm === 'shifts_manage' ? (
       isAdmin || employee?.role === 'branch_manager' ||
       DEPT_MANAGER_ROLES_EXT.includes(employee?.role || '') ||
-      employee?.role === 'general_supervisor'
+      employee?.role === 'general_supervisor' ||
+      DEPT_SUPERVISOR_ROLES.includes(employee?.role || '')
     ) :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
 

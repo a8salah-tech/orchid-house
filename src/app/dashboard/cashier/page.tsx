@@ -3387,7 +3387,9 @@ export default function CashierPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 12 }}>
               {displayedTables.map(table => {
                 const activeOrder = orders.find(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
-                const status = activeOrder ? 'occupied' : (table.status || 'available')
+                // ✅ طاولة "Cancellation" ما بنعتمدش على عمود status المخزَّن فيها أبدًا — الكود بقى مابيشغّلهاش،
+                // لكن صف قديم كان عالق "occupied" رغم إن كل طلباتها اتلغت. حالتها تتحدد بس بوجود طلبات إلغاء معلّقة فعلاً
+                const status = activeOrder ? 'occupied' : (table.section === 'cancel_hub' ? 'available' : (table.status || 'available'))
                 const isUnseen = unseenTableIds.has(table.id)
                 // ✅ جديد: التحقق من وجود طاولة مدموجة مع هذه الطاولة حاليًا
                 const mergePartnerId = getMergePartnerTableId(table.id)

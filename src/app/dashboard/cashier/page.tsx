@@ -3221,6 +3221,9 @@ export default function CashierPage() {
   // ✅ جديد: نسبة الخصم من قيمة الصنف - مش كل الحالات لازم تتحمّل 100% (مثلاً وجبة شخصية ممكن تتحمّل بنص السعر بس)
   const [chargePercent, setChargePercent] = useState(100)
   const [chargeNote, setChargeNote] = useState('')
+  // ✅ جديد: توزيع المبلغ على أكتر من موظف — chargeEmployeeId هو الأول، وهنا الباقين (كل واحد ياخد حصة متساوية)
+  const [chargeExtraIds, setChargeExtraIds] = useState<string[]>([])
+  const [chargeExtraSearch, setChargeExtraSearch] = useState('')
   const [chargeSaving, setChargeSaving] = useState(false)
   // ✅ جديد: الموظف يقدر يدفع جزء (أو كل) المبلغ كاش/شبكة فورًا زي أي عميل عادي، والباقي بس هو اللي ينزل من راتبه
   const [chargePaidNow, setChargePaidNow] = useState('')
@@ -3229,6 +3232,16 @@ export default function CashierPage() {
   const chargeTotalAmount = chargeItemTarget ? chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100) : 0
   const chargePaidNowNum = chargeItemTarget ? Math.max(0, Math.min(chargeTotalAmount, Number(chargePaidNow) || 0)) : 0
   const chargeRemaining = Math.max(0, chargeTotalAmount - chargePaidNowNum)
+  // ✅ كل الموظفين المتحمّلين (الأول + الإضافيين، بدون تكرار) والحصة المتساوية بالسنت — الباقي (لو القسمة مش مظبوطة) يروح للأوائل
+  const chargeAllIds = chargeEmployeeId ? [chargeEmployeeId, ...chargeExtraIds.filter(id => id !== chargeEmployeeId)] : []
+  const chargeShares: number[] = (() => {
+    const n = chargeAllIds.length
+    if (n === 0) return []
+    const cents = Math.round(chargeRemaining * 100)
+    const base = Math.floor(cents / n)
+    const extra = cents - base * n
+    return chargeAllIds.map((_, i) => (base + (i < extra ? 1 : 0)) / 100)
+  })()
 
   // ✅ جديد: طاولة افتراضية "مشتريات الموظفين" لكل فرع - عشان الجزء المدفوع كاش/شبكة يتسجل كبيعة حقيقية
   // وييدخل في إجمالي الكاش/الفيزا بتاعت الشيفت عند القفل، بدل ما يضيع كرقم مكتوب في السبب بس
@@ -3265,6 +3278,7 @@ export default function CashierPage() {
   function resetChargeForm() {
     setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false)
     setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
+    setChargeExtraIds([]); setChargeExtraSearch('')
   }
 
   async function openChargeToEmployee(orderId: string, itemId: string, itemName: string, unitPrice: number, totalQty: number) {
@@ -3344,16 +3358,24 @@ export default function CashierPage() {
 
     // 3) الباقي بس (لو فيه) هو اللي ينزل خصم فوري من راتب الموظف - نفس جدول المخالفات وبحالة "active" مباشرة
     if (chargeRemaining > 0) {
-      const { error } = await sb.from('violations').insert([{
-        employee_id: chargeEmployeeId, amount: chargeRemaining, reason: fullReason,
+      // ✅ مبلغ واحد موزّع على أكتر من موظف: صف مخالفة منفصل لكل موظف بحصته (متساوية) — كل صف active ينزل لوحده
+      // من راتب صاحبه في شيت الرواتب و"راتبي" بنفس الآلية العادية، من غير أي تعديل في صفحات الرواتب
+      const labelOf = (id: string) => { const st = chargeStaffList.find(x => x.id === id); return st ? chargeStaffLabel(st) : id }
+      const n = chargeAllIds.length
+      const rows = chargeAllIds.map((empId, i) => ({
+        employee_id: empId, amount: chargeShares[i],
+        reason: n > 1
+          ? `${fullReason} — حصة ${i + 1} من ${n} (إجمالي المخصوم ${chargeRemaining.toFixed(2)} موزّع على: ${chargeAllIds.map(labelOf).join('، ')})`
+          : fullReason,
         kind: chargeType === 'mistake' ? 'order_mistake' : 'personal_meal',
         date: new Date().toISOString().split('T')[0], created_by: employee?.id, status: 'active',
-      }])
+      })).filter(r => r.amount > 0)
+      const { error } = await sb.from('violations').insert(rows)
       if (error) { setChargeSaving(false); alert('❌ ' + error.message); return }
     }
     setChargeSaving(false)
     const wasHubCharge = !!chargeItemTarget.fromCancelHub
-    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
+    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargeExtraIds([]); setChargeExtraSearch('')
     fetchAll()
     if (wasHubCharge && cancelHubTable) openCancelHub(cancelHubTable)
   }
@@ -5184,6 +5206,44 @@ export default function CashierPage() {
               )}
             </div>
 
+            {/* ✅ جديد: تقسيم المبلغ على أكتر من موظف (مثلًا طاولة 100 رنجت يتحملها 4) — حصص متساوية */}
+            {chargeEmployeeId && (
+              <div style={{ marginBottom: 14, textAlign: 'right', position: 'relative' }}>
+                <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Split with other employees (optional)</div>
+                {chargeExtraIds.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {chargeExtraIds.map(id => {
+                      const st = chargeStaffList.find(x => x.id === id)
+                      return (
+                        <span key={id} style={{ background: S.amberB, border: `1px solid ${S.amber}60`, color: S.amber, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {st ? chargeStaffLabel(st) : id}
+                          <button onClick={() => setChargeExtraIds(prev => prev.filter(x => x !== id))} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+                <input value={chargeExtraSearch} onChange={e => setChargeExtraSearch(e.target.value)}
+                  placeholder="➕ Add another employee (name or number)..."
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
+                {chargeExtraSearch.trim() && (() => {
+                  const q = chargeExtraSearch.trim().toLowerCase()
+                  const matches = chargeStaffList.filter(st => st.id !== chargeEmployeeId && !chargeExtraIds.includes(st.id) &&
+                    (st.name.toLowerCase().includes(q) || (st.name_en || '').toLowerCase().includes(q) || (st.employee_number || '').toLowerCase().includes(q))).slice(0, 8)
+                  return (
+                    <div style={{ marginTop: 4, maxHeight: 200, overflowY: 'auto', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10 }}>
+                      {matches.length === 0 ? <div style={{ padding: '10px 12px', fontSize: 12, color: S.muted }}>No matching employees</div> : matches.map(st => (
+                        <button key={st.id} onClick={() => { setChargeExtraIds(prev => [...prev, st.id]); setChargeExtraSearch('') }}
+                          style={{ display: 'block', width: '100%', textAlign: 'right', padding: '9px 12px', background: 'transparent', border: 'none', borderBottom: `1px solid ${S.border}`, color: S.white, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                          {chargeStaffLabel(st)}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+
             <div style={{ marginBottom: 14 }}>
               <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Reason</div>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -5259,10 +5319,23 @@ export default function CashierPage() {
                 <span>Deducted from salary</span>
                 <span>MYR {chargeRemaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+              {chargeAllIds.length > 1 && (
+                <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${S.border}`, fontSize: 12 }}>
+                  {chargeAllIds.map((id, i) => {
+                    const st = chargeStaffList.find(x => x.id === id)
+                    return (
+                      <div key={id} style={{ display: 'flex', justifyContent: 'space-between', color: S.white, marginTop: 2 }}>
+                        <span>👤 {st ? chargeStaffLabel(st) : id}</span>
+                        <span style={{ color: S.amber, fontWeight: 700 }}>MYR {chargeShares[i].toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash') }}
+              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargeExtraIds([]); setChargeExtraSearch('') }}
                 style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 Back
               </button>

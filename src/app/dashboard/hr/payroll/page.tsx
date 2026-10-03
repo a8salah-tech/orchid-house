@@ -649,6 +649,25 @@ export default function PayrollPage() {
   // shift_schedules يُحذف ويُعاد إدراجه بالكامل في كل مرة يُحفظ فيها الجدول (لا يوجد سجل تغييرات حقيقي)،
   // فنُقدِّر "مرة تغيير" بتجميع الصفوف حسب (من حفظ + دقيقة الحفظ) — كل مجموعة = عملية حفظ واحدة، حتى لو أول مرة
   const [payslipShiftChanges, setPayslipShiftChanges] = useState<{ count: number; names: string[] }>({ count: 0, names: [] })
+  // ✅ جديد: تقييم الموظف الشهري (لنفس شهر الراتب) — يظهر جنب اسمه في تقرير الراتب بمجرد ما مدير القسم يقيّمه
+  // (حتى قبل الاعتماد، مع بيان حالته). key بيربط النتيجة بالموظف+الشهر عشان ما يظهرش تقييم موظف سابق أثناء التحميل
+  const [payslipEval, setPayslipEval] = useState<{ key: string; data: { total_score: number; status: string } | null } | null>(null)
+  const payslipEvalKey = payslipRecord && selectedMonth ? `${payslipRecord.employee_id}|${selectedMonth.id}` : ''
+  useEffect(() => {
+    if (!payslipRecord || !selectedMonth) return
+    let cancelled = false
+    const key = `${payslipRecord.employee_id}|${selectedMonth.id}`
+    sb.from('employee_evaluations').select('total_score,status')
+      .eq('employee_id', payslipRecord.employee_id).eq('month', selectedMonth.month).eq('year', selectedMonth.year).maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return
+        // مسودة فاضية (لسه ماتحطّش فيها درجات) = مفيش تقييم فعلي لسه
+        const real = data && !(data.status === 'draft' && !(data.total_score > 0)) ? data : null
+        setPayslipEval({ key, data: real })
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payslipRecord?.employee_id, selectedMonth?.id])
   // ✅ تفاصيل الإجازات الرسمية وأيام الغياب الفعلية (بتواريخها) لتقرير الراتب المفتوح حالياً
   const [payslipScheduleInfo, setPayslipScheduleInfo] = useState<{ leaveDates: string[]; absentDates: string[] } | null>(null)
   // ✅ نافذة تفاصيل المخالفات — تُفتح عند الضغط على سطر "مخالفات" في قسيمة الراتب
@@ -1784,7 +1803,29 @@ export default function PayrollPage() {
               {/* Header */}
               <div style={{ padding: '18px 22px', borderBottom: `1px solid ${S.border}`, flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>📋 تقرير الراتب — {emp?.name} {emp?.name_en}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>📋 تقرير الراتب — {emp?.name} {emp?.name_en}</div>
+                    {/* ✅ التقييم الشهري لنفس شهر الراتب — درجة من 100 بلون حسب المستوى، أو "لا يوجد تقييم" لو لسه ماتقيّمش */}
+                    {payslipEval && payslipEval.key === payslipEvalKey && (() => {
+                      const ev = payslipEval.data
+                      if (!ev) return (
+                        <span style={{ background: 'rgba(255,255,255,0.06)', border: `1px dashed ${S.border}`, color: S.muted, borderRadius: 20, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>📝 لا يوجد تقييم لهذا الشهر بعد</span>
+                      )
+                      const score = Math.round(ev.total_score * 10) / 10
+                      const col = score >= 80 ? S.green : score >= 60 ? S.amber : S.red
+                      const statusLabel = ev.status === 'approved' ? '✅ معتمد' : ev.status === 'submitted' ? '⏳ بانتظار الاعتماد' : '✏️ مسودة'
+                      return (
+                        <span title={`التقييم الشهري — ${monthName} ${selectedMonth.year}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: col + '1F', border: `1px solid ${col}66`, borderRadius: 20, padding: '4px 12px' }}>
+                          <span style={{ fontSize: 11, color: S.muted, fontWeight: 700 }}>⭐ التقييم</span>
+                          <span style={{ fontSize: 15, fontWeight: 900, color: col }}>{score}%</span>
+                          <span style={{ width: 54, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.10)', overflow: 'hidden', display: 'inline-block' }}>
+                            <span style={{ display: 'block', width: `${Math.max(0, Math.min(100, score))}%`, height: '100%', background: col }} />
+                          </span>
+                          <span style={{ fontSize: 10, color: ev.status === 'approved' ? S.green : S.muted, fontWeight: 700 }}>{statusLabel}</span>
+                        </span>
+                      )
+                    })()}
+                  </div>
                   <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{monthName} {selectedMonth.year} · {emp?.employee_number || '—'} · {emp?.department}</div>
                   {payslipRecord.notes && (payslipRecord.notes.startsWith('⏸') || payslipRecord.notes.startsWith('⚠️')) && (
                     <div style={{ marginTop: 6, display: 'inline-block', background: S.redB, color: S.red, borderRadius: 10, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>{payslipRecord.notes}</div>

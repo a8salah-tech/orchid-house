@@ -466,7 +466,11 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
   )
 }
 
-function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null, scheduleInfo?: { leaveDates: string[]; absentDates: string[] } | null, correctionsCount?: number, shiftChanges?: { count: number; names: string[] }): string {
+// ✅ تقييم الموظف الشهري "الفعلي": مسودة فاضية (لسه ماتحطّش فيها درجات) = مفيش تقييم لسه
+type MonthlyEval = { total_score: number; status: string }
+const realEval = (d: MonthlyEval | null | undefined): MonthlyEval | null => (d && !(d.status === 'draft' && !(d.total_score > 0)) ? d : null)
+
+function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, monthName: string, year: number, attStats?: AttendanceStats | null, scheduleInfo?: { leaveDates: string[]; absentDates: string[] } | null, correctionsCount?: number, shiftChanges?: { count: number; names: string[] }, evalInfo?: MonthlyEval | null): string {
   const c = calcRecord(record)
   const fmt = (n: number) => n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const row = (label: string, value: string, bold = false) => `
@@ -496,6 +500,9 @@ function buildPayslipHTML(record: PayrollRecord, emp: Employee | undefined, mont
         <td class="lbl">الوظيفة / Role</td><td class="val">${emp?.role || '—'}</td>
         <td class="lbl">أيام العمل / Working Days</td><td class="val">${record.working_days} (${record.days_worked} ايام مُنجزة)</td>
       </tr>
+      ${evalInfo === undefined ? '' : evalInfo === null
+        ? `<tr><td class="lbl">التقييم الشهري / Evaluation</td><td class="val" colspan="3" style="color:#777">لا يوجد تقييم لهذا الشهر بعد — No evaluation for this month yet</td></tr>`
+        : `<tr><td class="lbl">التقييم الشهري / Evaluation</td><td class="val" colspan="3"><b style="font-size:14px;color:${evalInfo.total_score >= 80 ? '#2e7d32' : evalInfo.total_score >= 60 ? '#e08600' : '#c62828'}">${Math.round(evalInfo.total_score * 10) / 10}%</b> <span style="color:#555">/ 100 — ${evalInfo.status === 'approved' ? 'معتمد / Approved' : evalInfo.status === 'submitted' ? 'بانتظار الاعتماد / Awaiting approval' : 'مسودة / Draft'}</span></td></tr>`}
     </table>
 
     <div class="cols">
@@ -661,9 +668,7 @@ export default function PayrollPage() {
       .eq('employee_id', payslipRecord.employee_id).eq('month', selectedMonth.month).eq('year', selectedMonth.year).maybeSingle()
       .then(({ data }) => {
         if (cancelled) return
-        // مسودة فاضية (لسه ماتحطّش فيها درجات) = مفيش تقييم فعلي لسه
-        const real = data && !(data.status === 'draft' && !(data.total_score > 0)) ? data : null
-        setPayslipEval({ key, data: real })
+        setPayslipEval({ key, data: realEval(data) })
       })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1218,7 +1223,7 @@ export default function PayrollPage() {
     <title>Payslip - ${emp?.name || ''} - ${monthName} ${selectedMonth.year}</title>
     <style>${PAYSLIP_PRINT_STYLE}</style>
     </head><body>
-    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats, payslipScheduleInfo, payslipCorrectionsCount, payslipShiftChanges)}
+    ${buildPayslipHTML(record, emp, monthName, selectedMonth.year, payslipAttStats, payslipScheduleInfo, payslipCorrectionsCount, payslipShiftChanges, payslipEval && payslipEval.key === payslipEvalKey ? payslipEval.data : undefined)}
     <script>window.onload=function(){window.print()}<\/script>
     </body></html>`)
     win.document.close()
@@ -1310,6 +1315,12 @@ export default function PayrollPage() {
     const correctionsByEmp: Record<string, number> = {}
     for (const r of corrRows) correctionsByEmp[r.employee_id] = (correctionsByEmp[r.employee_id] || 0) + 1
 
+    // ✅ تقييمات الشهر لكل الموظفين مرة واحدة — لعرضها في كل قسيمة (غير المقيَّمين = "لا يوجد تقييم")
+    const { data: evalRowsBulk } = await sb.from('employee_evaluations').select('employee_id,total_score,status')
+      .eq('month', selectedMonth.month).eq('year', selectedMonth.year)
+    const evalByEmp: Record<string, MonthlyEval | null> = {}
+    for (const ev of (evalRowsBulk || []) as { employee_id: string; total_score: number; status: string }[]) evalByEmp[ev.employee_id] = realEval(ev)
+
     function buildScheduleInfo(employeeId: string) {
       const attendedDates = new Set((attByEmp[employeeId] || []).filter(a => a.check_in_time).map(a => String(a.date).slice(0, 10)))
       // ✅ نستبعد أي يوم بعد تاريخ إيقاف الموظف أو قبل تاريخ تعيينه — نفس منطق الحساب التلقائي في loadMonthRecords
@@ -1332,7 +1343,7 @@ export default function PayrollPage() {
     }
 
     const allHTML = visibleRecords.filter(r => empMap[r.employee_id]).map(r =>
-      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []), buildScheduleInfo(r.employee_id), correctionsByEmp[r.employee_id] || 0, shiftChangesByEmp[r.employee_id] || { count: 0, names: [] })
+      buildPayslipHTML(r, empMap[r.employee_id], monthName, selectedMonth.year, computeAttendanceStats(attByEmp[r.employee_id] || []), buildScheduleInfo(r.employee_id), correctionsByEmp[r.employee_id] || 0, shiftChangesByEmp[r.employee_id] || { count: 0, names: [] }, evalByEmp[r.employee_id] ?? null)
     ).join('')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Payslips - ${monthName} ${selectedMonth.year}${selectedBranch ? ' - ' + selectedBranch.name : ''}</title>

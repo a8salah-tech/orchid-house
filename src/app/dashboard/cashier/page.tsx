@@ -672,8 +672,15 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
     if (!customerSearch.trim()) { setCustomers([]); return }
     setCustomerSearchLoading(true)
     const t = setTimeout(() => {
+      // ✅ Fix: البحث كان بيفشل بصمت (يرجّع "No customer found") في حالتين: (1) أي فاصلة/قوس في النص بيكسر صيغة .or،
+      // (2) أرقام العملاء مخزّنة بصيغ مختلفة ("+60 17‑369 9814" بمسافات/شرطات، "+6013…" أو "013…") فمطابقة النص الحرفي
+      // مابتلاقيهاش. دلوقتي ننضّف النص، وللأرقام نبحث بالأرقام فقط (علامة % بين كل رقم) فتتطابق أي صيغة
+      const raw = customerSearch.trim().replace(/[%,()*\\]/g, ' ').replace(/\s+/g, ' ').trim()
+      const core = phoneCore(raw)
+      const filters = [`name.ilike.%${raw}%`, `email.ilike.%${raw}%`, `phone.ilike.%${raw}%`]
+      if (core.length >= 4) filters.push(`phone.ilike.%${core.split('').join('%')}%`)
       sb.from('customers').select('id,name,phone,email,loyalty_points')
-        .or(`name.ilike.%${customerSearch}%,phone.ilike.%${customerSearch}%,email.ilike.%${customerSearch}%`)
+        .or(filters.join(','))
         .limit(20)
         .then(({ data }) => { setCustomers(data || []); setCustomerSearchLoading(false) })
     }, 300) // ✅ debounce بسيط عشان مانستعلمش على كل حرف فورًا
@@ -697,12 +704,16 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
   }, [selectedCustomer?.id])
   const totalAvailableDeposit = availableDeposits.reduce((s, d) => s + (d.amount || 0), 0)
 
-  const filteredCustomers = customers.filter(c =>
-    !customerSearch ||
-    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    c.phone?.includes(customerSearch) ||
-    c.email?.toLowerCase().includes(customerSearch.toLowerCase())
-  ).slice(0, 8)
+  const filteredCustomers = customers.filter(c => {
+    const q = customerSearch.trim().toLowerCase()
+    if (!q) return true
+    const core = phoneCore(q)
+    const name = (c.name || '').toLowerCase()
+    return q.split(/\s+/).every(tok => name.includes(tok)) ||
+      (core.length >= 4 && (c.phone || '').replace(/\D/g, '').includes(core)) ||
+      (c.phone || '').includes(customerSearch.trim()) ||
+      (c.email || '').toLowerCase().includes(q)
+  }).slice(0, 8)
 
   const subtotal = order.order_items.filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
   // ✅ طاولة الموظفين والتيك أواي (وأي طاولة أخرى) بلا رسوم خدمة/خصم حسب نسبها المضبوطة في Table Management —
@@ -2194,6 +2205,8 @@ const DETAIL_META: Record<string, { label: string; color: string; bg: string }> 
   expPaid:    { label: '💸 Expenses Paid',   color: S.red,    bg: S.redB },
   expPending: { label: '⏳ Expenses Pending', color: S.amber,  bg: S.amberB },
 }
+// أرقام فقط بدون مفتاح الدولة/الصفر الأول — عشان "0132408286" و"+60 13‑240 8286" و"60132408286" كلها تتطابق
+const phoneCore = (s: string) => s.replace(/\D/g, '').replace(/^(60|0)+/, '')
 const fmtMYR = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function MetricButton({ active, metricKey, label, value, color, onClick, small }: { active: boolean; metricKey: string; label: string; value: number; color: string; onClick: () => void; small?: boolean }) {

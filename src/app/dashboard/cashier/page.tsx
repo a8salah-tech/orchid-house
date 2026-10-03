@@ -561,6 +561,8 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
     const destTable = (tables || []).find(t => t.id === moveDestTableId)
     if (!destTable) return
     const isCancelDest = destTable.section === 'cancel_hub'
+    // ✅ طاولة "Staff" مابقتش وجهة نقل أبدًا: أي صنف عليها لازم يدخل بالطريقة العادية (Add Order) باسم الموظف الآخذ للوجبة
+    if (destTable.section === 'staff') { alert('⚠️ Items cannot be moved to the Staff table. Add them from the Staff table itself and choose the employee.'); return }
     const isStaffDest = destTable.section === 'staff'
     setMovingItems(true)
     // ✅ الحساب غالباً مشترك بين أكتر من كاشير - الهوية الحقيقية هي اسم اللي بدأ الشيفت، مش اسم الحساب نفسه
@@ -1577,7 +1579,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
             <select value={moveDestTableId} onChange={e => setMoveDestTableId(e.target.value)}
               style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'inherit', marginBottom: 10 }}>
               <option value="">-- Select destination table --</option>
-              {(tables || []).filter(t => t.id !== order.table_id && t.branch_id === (tables || []).find(x => x.id === order.table_id)?.branch_id).map(t => (
+              {(tables || []).filter(t => t.id !== order.table_id && t.section !== 'staff' && t.branch_id === (tables || []).find(x => x.id === order.table_id)?.branch_id).map(t => (
                 <option key={t.id} value={t.id}>Table {t.number} — {t.name || ''}</option>
               ))}
             </select>
@@ -1684,8 +1686,24 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
 }
 
 // ══ Add Order Modal ══
-function AddOrderModal({ tableId, tableName, branchId, onClose, onSaved }: { tableId: string; tableName: string; branchId?: string; onClose: () => void; onSaved: () => void }) {
+function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, onSaved }: { tableId: string; tableName: string; branchId?: string; isStaffTable?: boolean; onClose: () => void; onSaved: () => void }) {
   const sb = createClient()
+  // ✅ طاولة الموظفين: لازم نختار الموظف اللي هياخد الوجبة، ويتسجل اسمه على كل صنف (يظهر للمطبخ والفاتورة وملخص الشيفت)
+  const [staffList, setStaffList] = useState<{ id: string; name: string; name_en: string | null; employee_number: string | null }[]>([])
+  const [staffSearch, setStaffSearch] = useState('')
+  const [staffPick, setStaffPick] = useState<{ id: string; label: string } | null>(null)
+  useEffect(() => {
+    if (!isStaffTable) return
+    sb.from('employees').select('id,name,name_en,employee_number').eq('is_active', true).eq('branch_id', branchId || '').order('name')
+      .then(({ data }) => setStaffList(data || []))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStaffTable])
+  const staffMatches = staffSearch.trim()
+    ? staffList.filter(e => {
+        const q = staffSearch.trim().toLowerCase()
+        return e.name.toLowerCase().includes(q) || (e.name_en || '').toLowerCase().includes(q) || (e.employee_number || '').toLowerCase().includes(q)
+      }).slice(0, 8)
+    : []
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
   const [cart, setCart] = useState<{ item: MenuItem; qty: number; notes: string; selectedSize?: { id: string; name: string; name_en?: string; price: number } }[]>([])
@@ -1800,6 +1818,7 @@ function AddOrderModal({ tableId, tableName, branchId, onClose, onSaved }: { tab
 
   async function placeOrder() {
     if (cart.length === 0) return
+    if (isStaffTable && !staffPick) { alert('⚠️ Please choose the employee who took this meal first.'); return }
     setSaving(true)
     // ✅ Fix حرج جدًا: بنتأكد الأول لو الطاولة عندها طلب نشط بالفعل (confirmed/preparing/ready) ونستخدمه،
     // بدل ما ننشئ صف "orders" جديد كل مرة. الكود القديم كان بينشئ صف جديد في كل ضغطة "Add Order"، فلو
@@ -1827,7 +1846,8 @@ function AddOrderModal({ tableId, tableName, branchId, onClose, onSaved }: { tab
       quantity: c.qty, unit_price: c.selectedSize?.price ?? c.item.price,
       // ✅ جديد: نسجل اسم النوع/الحجم المختار (زي نوع الشيشة) عشان يظهر بوضوح للمطبخ والفاتورة
       size_name: c.selectedSize ? (c.selectedSize.name_en || c.selectedSize.name) : null,
-      notes: c.notes || null, status: 'pending',
+      // ✅ طاولة الموظفين: اسم الموظف بيتسجل في بداية ملاحظة كل صنف (staffWho بتقراه في ملخص الشيفت)
+      notes: isStaffTable && staffPick ? (STAFF_TAG + staffPick.label + (c.notes ? ' — ' + c.notes : '')) : (c.notes || null), status: 'pending',
       destination: 'kitchen',
     })))
     // ✅ Fix حرج: وقت الجلوس (occupied_since) بقى يتسجل بس مع أول طلب حقيقي على الطاولة، مش مع كل جولة إضافية -
@@ -1941,6 +1961,33 @@ function AddOrderModal({ tableId, tableName, branchId, onClose, onSaved }: { tab
               <span style={{ color: S.white }}>Total</span>
               <span style={{ color: S.gold }}>MYR {total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
+          </div>
+        )}
+        {isStaffTable && (
+          <div style={{ background: S.tealB, border: `1px solid ${staffPick ? S.teal : S.red}`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: S.teal, fontWeight: 800, marginBottom: 8 }}>👥 Who took this meal? (required)</div>
+            {staffPick ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: S.card, borderRadius: 10, padding: '8px 12px' }}>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: S.white }}>{staffPick.label}</span>
+                <button onClick={() => { setStaffPick(null); setStaffSearch('') }} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 16 }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <input style={{ ...inp }} placeholder="🔍 Search employee by name or number..." value={staffSearch} onChange={e => setStaffSearch(e.target.value)} />
+                {staffMatches.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 10, zIndex: 100, marginTop: 4, maxHeight: 200, overflowY: 'auto' }}>
+                    {staffMatches.map(e => {
+                      const label = `${e.name}${e.name_en ? ' ' + e.name_en : ''}${e.employee_number ? ' #' + e.employee_number : ''}`
+                      return (
+                        <div key={e.id} onClick={() => { setStaffPick({ id: e.id, label }); setStaffSearch('') }}
+                          style={{ padding: '9px 12px', cursor: 'pointer', borderBottom: `1px solid ${S.border}`, fontSize: 13, color: S.white }}>{label}</div>
+                      )
+                    })}
+                  </div>
+                )}
+                {staffSearch.trim() && staffMatches.length === 0 && <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>⚠️ No employee found</div>}
+              </div>
+            )}
           </div>
         )}
         <div style={{ display: 'flex', gap: 10 }}>
@@ -2207,6 +2254,9 @@ const DETAIL_META: Record<string, { label: string; color: string; bg: string }> 
 }
 // أرقام فقط بدون مفتاح الدولة/الصفر الأول — عشان "0132408286" و"+60 13‑240 8286" و"60132408286" كلها تتطابق
 const phoneCore = (s: string) => s.replace(/\D/g, '').replace(/^(60|0)+/, '')
+// ✅ وسم اسم الموظف الآخذ للوجبة في بداية ملاحظة الصنف على طاولة الموظفين (بيتكتب من AddOrderModal)
+const STAFF_TAG = '👥 '
+const staffWho = (notes?: string | null) => { const m = /^👥 (.+?)(?: — |$)/.exec(notes || ''); return m ? m[1] : null }
 const fmtMYR = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function MetricButton({ active, metricKey, label, value, color, onClick, small }: { active: boolean; metricKey: string; label: string; value: number; color: string; onClick: () => void; small?: boolean }) {
@@ -2248,7 +2298,7 @@ function MetricDetailPanel({ metricKey, paidOrders, freeOrders, staffOrders, can
     return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.method + (p.card_bank ? ' ' + p.card_bank : '')))].join(' + ') }
   }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
   else if (metricKey === 'discount') rows = paidOrders.filter(o => o.discount_type !== 'free' && (o.discount_amount || 0) > 0).map(o => ({ o, amt: o.discount_amount || 0, chip: o.discount_type || '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
-  else if (metricKey === 'staff') rows = (staffOrders || []).map(o => ({ o, amt: o.total_amount || 0, chip: '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+  else if (metricKey === 'staff') rows = (staffOrders || []).map(o => ({ o, amt: o.total_amount || 0, chip: [...new Set((o.order_items || []).filter(i => i.status !== 'cancelled').map(i => staffWho(i.notes)).filter(Boolean))].join(' + ') })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
   else if (metricKey === 'cancelled') rows = (cancelledOrders || []).map(o => ({ o, amt: o.total_amount || 0, chip: o.cancel_reason || '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
   else if (metricKey === 'free') rows = freeOrders.map(o => ({ o, amt: o.discount_amount || 0, chip: 'free' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
   const exps = metricKey === 'expPaid' ? expenses.filter(e => e.status === 'paid') : metricKey === 'expPending' ? expenses.filter(e => e.status === 'pending') : []
@@ -2299,6 +2349,12 @@ function MetricDetailPanel({ metricKey, paidOrders, freeOrders, staffOrders, can
                 {o.paid_by_name ? ` · 👤 ${o.paid_by_name}` : ''} · #{o.id.slice(-6).toUpperCase()}
               </div>
               <div style={{ fontSize: 10, color: S.muted, marginTop: 1 }}>{parts}</div>
+              {metricKey === 'staff' && (o.order_items || []).filter(i => i.status !== 'cancelled').map(i => (
+                <div key={i.id} style={{ fontSize: 11, color: S.white, marginTop: 2 }}>
+                  {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                  <span style={{ color: S.teal, fontWeight: 700 }}> · 👥 {staffWho(i.notes) || 'no employee recorded'}</span>
+                </div>
+              ))}
             </div>
           )
         })}
@@ -2332,7 +2388,7 @@ function TransferTableModal({ order, tables, isCashierRole, onClose, onTransferr
   // ✅ Fix: لازم نفلتر الطاولات المتاحة لنقل الطلب إليها بنفس فرع الطاولة الحالية بس، مش كل الفروع
   const currentTable = tables.find(t => t.id === order.table_id)
   const availableTables = tables.filter(t =>
-    t.is_active && t.id !== order.table_id && (t.status || 'available') === 'available'
+    t.is_active && t.id !== order.table_id && t.section !== 'staff' && (t.status || 'available') === 'available'
     && t.branch_id === currentTable?.branch_id
   )
 
@@ -4618,7 +4674,7 @@ export default function CashierPage() {
           onTransferred={() => { setTransferOrder(null); fetchAll() }}
         />
       )}
-      {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} branchId={addOrderTable.branch_id} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
+      {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} branchId={addOrderTable.branch_id} isStaffTable={addOrderTable.section === 'staff'} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
       {/* ✅ جديد: مودال اختيار الطاولة الشريكة للدمج المؤقت */}
       {mergePickerTable && (
         <div onClick={() => setMergePickerTable(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>

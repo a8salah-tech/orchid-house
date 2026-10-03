@@ -2613,6 +2613,10 @@ export default function CashierPage() {
 
   // ✅ جديد: تاريخ تاب "Closed" - افتراضيًا النهاردة، لكن الأدمن يقدر يغيّره لأي يوم قديم
   const [closedDate, setClosedDate] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
+  // ✅ جديد: أي رقم في "Whole Day Total" مفتوح تفاصيله حاليًا (cash/visa/...)، وفلتر البنك داخل تفاصيل الفيزا
+  const [dayDetail, setDayDetail] = useState<string | null>(null)
+  const [dayVisaBank, setDayVisaBank] = useState<'all' | 'maybank' | 'bsn'>('all')
+  const dayDetailRef = useRef<HTMLDivElement | null>(null)
   // ✅ فتح/قفل الطاولة
   const [openTableTarget, setOpenTableTarget] = useState<TableRow | null>(null)
   const [openingTable, setOpeningTable] = useState(false)
@@ -3714,6 +3718,55 @@ export default function CashierPage() {
                       // ✅ جديد: إجمالي المصروفات (المدفوعة والمعلّقة) لليوم كله من زرار "💸 Add Expense"
                       const dExpPaid = closedExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
                       const dExpPending = closedExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
+                      const fmtM = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                      // ✅ جديد: كل رقم في "Whole Day Total" بقى قابل للضغط — بيفتح تحته لوحة بنفس لون الرقم فيها الطاولات/الفواتير
+                      // اللي كوّنته (الطاولة، الوقت، الكاشير، تفاصيل السعر)، والضغط على أي فاتورة بيفتح تفاصيلها الكاملة
+                      const DETAIL_META: Record<string, { label: string; color: string; bg: string }> = {
+                        cash:       { label: '💵 Cash',            color: S.green,  bg: S.greenB },
+                        visa:       { label: '💳 Visa',            color: S.blue,   bg: S.blueB },
+                        online:     { label: '📱 Bank Transfer',   color: S.purple, bg: S.purpleB },
+                        credit:     { label: '🧾 Credit',          color: S.amber,  bg: S.amberB },
+                        discount:   { label: '🏷️ Discounts',       color: S.red,    bg: S.redB },
+                        free:       { label: '🆓 Free Tables',     color: S.amber,  bg: S.amberB },
+                        deposits:   { label: '💰 Deposits',        color: S.teal,   bg: S.tealB },
+                        total:      { label: '💰 Total',           color: S.gold,   bg: S.gold3 },
+                        expPaid:    { label: '💸 Expenses Paid',   color: S.red,    bg: S.redB },
+                        expPending: { label: '⏳ Expenses Pending', color: S.amber,  bg: S.amberB },
+                      }
+                      const openDayDetail = (key: string) => {
+                        setDayDetail(prev => (prev === key ? null : key))
+                        setDayVisaBank('all')
+                        setTimeout(() => dayDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60)
+                      }
+                      type DayRow = { o: Order; amt: number; chip: string }
+                      const paidTime = (o: Order) => new Date(o.paid_at || o.created_at).getTime()
+                      const methodRows = (pred: (p: { method: string; card_bank: string | null; amount: number }) => boolean): DayRow[] =>
+                        dayPaid.map(o => {
+                          const parts = getPaymentBreakdown(o, closedSplitPayments).filter(pred)
+                          return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.card_bank).filter(Boolean))].join(' + ') }
+                        }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+                      let detailRows: DayRow[] = []
+                      if (dayDetail === 'cash') detailRows = methodRows(p => p.method === 'cash')
+                      else if (dayDetail === 'visa') detailRows = methodRows(p => p.method === 'visa' && (dayVisaBank === 'all' || p.card_bank === dayVisaBank))
+                      else if (dayDetail === 'online') detailRows = methodRows(p => p.method === 'online')
+                      else if (dayDetail === 'credit') detailRows = methodRows(p => p.method === 'credit')
+                      else if (dayDetail === 'total') detailRows = dayPaid.map(o => {
+                        const parts = getPaymentBreakdown(o, closedSplitPayments).filter(p => p.method !== 'credit')
+                        return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.method + (p.card_bank ? ' ' + p.card_bank : '')))].join(' + ') }
+                      }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+                      else if (dayDetail === 'discount') detailRows = dayPaid.filter(o => o.discount_type !== 'free' && (o.discount_amount || 0) > 0).map(o => ({ o, amt: o.discount_amount || 0, chip: o.discount_type || '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+                      else if (dayDetail === 'free') detailRows = dFreeOrders.map(o => ({ o, amt: o.discount_amount || 0, chip: 'free' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+                      const detailMeta = dayDetail ? DETAIL_META[dayDetail] : null
+                      const detailExpenses = dayDetail === 'expPaid' ? closedExpenses.filter(e => e.status === 'paid') : dayDetail === 'expPending' ? closedExpenses.filter(e => e.status === 'pending') : []
+                      const detailSum = dayDetail === 'deposits' ? dDepositsTotal : (dayDetail === 'expPaid' || dayDetail === 'expPending') ? detailExpenses.reduce((s, e) => s + (e.amount || 0), 0) : detailRows.reduce((s, r) => s + r.amt, 0)
+                      const detailCount = dayDetail === 'deposits' ? closedDeposits.length : (dayDetail === 'expPaid' || dayDetail === 'expPending') ? detailExpenses.length : detailRows.length
+                      const metric = (key: string, label: string, value: number, color: string) => (
+                        <div key={key} role="button" onClick={() => openDayDetail(key)} title="Click to see the tables behind this number"
+                          style={{ textAlign: 'center', cursor: 'pointer', padding: '6px 12px', borderRadius: 10, border: `1px solid ${dayDetail === key ? color : 'transparent'}`, background: dayDetail === key ? DETAIL_META[key].bg : 'transparent', transition: 'all .15s' }}>
+                          <div style={{ fontSize: 10, color: S.muted }}>{label}</div>
+                          <div style={{ fontSize: 15, fontWeight: 800, color }}>MYR {fmtM(value)}</div>
+                        </div>
+                      )
                       return (
                         <div style={{ background: S.gold3, borderRadius: 16, border: `1px solid ${S.gold}`, padding: '16px 18px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
@@ -3728,61 +3781,86 @@ export default function CashierPage() {
                               🖨️ Print
                             </button>
                           </div>
-                          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-                            <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontSize: 10, color: S.muted }}>💵 Cash</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.green }}>MYR {dCash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{(dVisaMaybank > 0 || dVisaBsn > 0) ? ` (Maybank ${dVisaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${dVisaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : ''}</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.blue }}>MYR {dVisa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontSize: 10, color: S.muted }}>📱 Bank Transfer</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.purple }}>MYR {dOnline.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                            </div>
-                            {dCredit > 0 && (
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit (Grab/Foodpanda/Shopee)</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dCredit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                            )}
-                            {dDiscount > 0 && (
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                            )}
-                            {dFreeOrders.length > 0 && (
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>🆓 Free Tables ({dFreeOrders.length})</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dFreeAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                            )}
-                            {dDepositsTotal > 0 && (
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>💰 Deposits</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.teal }}>MYR {dDepositsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                            )}
-                            <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: S.gold }}>MYR {dTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                            </div>
-                            {/* ✅ جديد: بطاقتي المصروفات المدفوعة/المعلّقة ليوم كامل */}
-                            {dExpPaid > 0 && (
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses Paid</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.red }}>MYR {dExpPaid.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                            )}
-                            {dExpPending > 0 && (
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>⏳ Expenses Pending</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: S.amber }}>MYR {dExpPending.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                            )}
+                          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                            {metric('cash', '💵 Cash', dCash, S.green)}
+                            {metric('visa', `💳 Visa${(dVisaMaybank > 0 || dVisaBsn > 0) ? ` (Maybank ${fmtM(dVisaMaybank)} · BSN ${fmtM(dVisaBsn)})` : ''}`, dVisa, S.blue)}
+                            {metric('online', '📱 Bank Transfer', dOnline, S.purple)}
+                            {dCredit > 0 && metric('credit', '🧾 Credit (Grab/Foodpanda/Shopee)', dCredit, S.amber)}
+                            {dDiscount > 0 && metric('discount', '🏷️ Discounts', dDiscount, S.red)}
+                            {dFreeOrders.length > 0 && metric('free', `🆓 Free Tables (${dFreeOrders.length})`, dFreeAmount, S.amber)}
+                            {dDepositsTotal > 0 && metric('deposits', '💰 Deposits', dDepositsTotal, S.teal)}
+                            {metric('total', '💰 Total', dTotal, S.gold)}
+                            {dExpPaid > 0 && metric('expPaid', '💸 Expenses Paid', dExpPaid, S.red)}
+                            {dExpPending > 0 && metric('expPending', '⏳ Expenses Pending', dExpPending, S.amber)}
                           </div>
+                          {/* ✅ لوحة التفاصيل — بنفس لون الرقم المضغوط، وبتتمرّر لها الشاشة تلقائيًا */}
+                          {dayDetail && detailMeta && (
+                            <div ref={dayDetailRef} style={{ marginTop: 12, borderRadius: 14, border: `2px solid ${detailMeta.color}`, background: detailMeta.bg, overflow: 'hidden' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px', background: detailMeta.color + '33', borderBottom: `1px solid ${detailMeta.color}66` }}>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: detailMeta.color }}>
+                                  {detailMeta.label} · {detailCount} {dayDetail === 'deposits' ? 'deposit' : dayDetail === 'expPaid' || dayDetail === 'expPending' ? 'expense' : 'table'}{detailCount === 1 ? '' : 's'} · MYR {fmtM(detailSum)}
+                                </div>
+                                <button onClick={() => setDayDetail(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+                              </div>
+                              {dayDetail === 'visa' && (
+                                <div style={{ display: 'flex', gap: 6, padding: '8px 14px', flexWrap: 'wrap' }}>
+                                  {(['all', 'maybank', 'bsn'] as const).map(b => (
+                                    <button key={b} onClick={() => setDayVisaBank(b)} style={{ padding: '4px 12px', borderRadius: 20, border: `1px solid ${dayVisaBank === b ? S.blue : S.border}`, background: dayVisaBank === b ? S.blue + '33' : 'transparent', color: dayVisaBank === b ? S.blue : S.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
+                                      {b === 'all' ? 'All banks' : b === 'maybank' ? 'Maybank' : 'BSN'}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={{ maxHeight: 420, overflowY: 'auto', padding: '4px 14px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {detailCount === 0 && <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>Nothing to show</div>}
+                                {detailRows.map(({ o, amt, chip }) => {
+                                  const branchName = isAdmin ? branches.find(b => b.id === tables.find(t => t.id === o.table_id)?.branch_id)?.name : null
+                                  const parts = [
+                                    `Items ${fmtM(o.total_amount || 0)}`,
+                                    (o.service_charge || 0) > 0 ? `Svc ${fmtM(o.service_charge)}` : '',
+                                    (o.sst_amount || 0) > 0 ? `SST ${fmtM(o.sst_amount)}` : '',
+                                    (o.discount_amount || 0) > 0 ? `Disc −${fmtM(o.discount_amount)}` : '',
+                                  ].filter(Boolean).join(' · ')
+                                  return (
+                                    <div key={o.id} onClick={() => setArchiveDetailOrder(o)} title="Open full invoice"
+                                      style={{ background: S.navy2, border: `1px solid ${detailMeta.color}40`, borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                          <span style={{ fontSize: 13, fontWeight: 800, color: S.white }}>{o.tables?.name || `Table ${o.tables?.number}`}</span>
+                                          {branchName && <span style={{ background: S.purpleB, color: S.purple, borderRadius: 8, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>🏢 {branchName}</span>}
+                                          {chip && <span style={{ background: detailMeta.color + '22', color: detailMeta.color, borderRadius: 8, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>{chip}</span>}
+                                        </div>
+                                        <span style={{ fontSize: 14, fontWeight: 800, color: detailMeta.color, whiteSpace: 'nowrap' }}>MYR {fmtM(amt)}</span>
+                                      </div>
+                                      <div style={{ fontSize: 10, color: S.muted, marginTop: 3 }}>
+                                        {new Date(o.paid_at || o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                        {o.paid_by_name ? ` · 👤 ${o.paid_by_name}` : ''} · #{o.id.slice(-6).toUpperCase()}
+                                      </div>
+                                      <div style={{ fontSize: 10, color: S.muted, marginTop: 1 }}>{parts}</div>
+                                    </div>
+                                  )
+                                })}
+                                {dayDetail === 'deposits' && closedDeposits.map(dep => (
+                                  <div key={dep.id} style={{ background: S.navy2, border: `1px solid ${detailMeta.color}40`, borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontSize: 12, color: S.white }}>
+                                      {dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}
+                                      <span style={{ color: S.muted, fontSize: 10 }}> · {dep.created_by_name || '—'} · {new Date(dep.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    </span>
+                                    <span style={{ color: detailMeta.color, fontWeight: 800, fontSize: 14 }}>MYR {fmtM(dep.amount)}</span>
+                                  </div>
+                                ))}
+                                {detailExpenses.map(exp => (
+                                  <div key={exp.id} style={{ background: S.navy2, border: `1px solid ${detailMeta.color}40`, borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontSize: 12, color: S.white }}>
+                                      {exp.description}
+                                      <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    </span>
+                                    <span style={{ color: detailMeta.color, fontWeight: 800, fontSize: 14 }}>MYR {fmtM(exp.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           {/* ✅ جديد: قائمة تفصيلية بكل مصروف على حدة ليوم كامل، عشان يبان واضح إن المصروف اتسجل فعلاً */}
                           {closedExpenses.length > 0 && (
                             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${S.gold}40` }}>

@@ -2179,6 +2179,135 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
   )
 }
 
+// ══ Drill-down: أرقام ملخص الشيفت/اليوم قابلة للضغط وتفتح الطاولات المكوّنة لها ══
+const DETAIL_META: Record<string, { label: string; color: string; bg: string }> = {
+  cash:       { label: '💵 Cash',            color: S.green,  bg: S.greenB },
+  visa:       { label: '💳 Visa',            color: S.blue,   bg: S.blueB },
+  online:     { label: '📱 Bank Transfer',   color: S.purple, bg: S.purpleB },
+  credit:     { label: '🧾 Credit',          color: S.amber,  bg: S.amberB },
+  discount:   { label: '🏷️ Discounts',       color: S.red,    bg: S.redB },
+  free:       { label: '🆓 Free Tables',     color: S.amber,  bg: S.amberB },
+  deposits:   { label: '💰 Deposits',        color: S.teal,   bg: S.tealB },
+  total:      { label: '💰 Total',           color: S.gold,   bg: S.gold3 },
+  expPaid:    { label: '💸 Expenses Paid',   color: S.red,    bg: S.redB },
+  expPending: { label: '⏳ Expenses Pending', color: S.amber,  bg: S.amberB },
+}
+const fmtMYR = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function MetricButton({ active, metricKey, label, value, color, onClick, small }: { active: boolean; metricKey: string; label: string; value: number; color: string; onClick: () => void; small?: boolean }) {
+  return (
+    <div role="button" onClick={onClick} title="Click to see the tables behind this number"
+      style={{ textAlign: 'center', cursor: 'pointer', padding: small ? '4px 8px' : '6px 12px', borderRadius: 10, border: `1px solid ${active ? color : 'transparent'}`, background: active ? DETAIL_META[metricKey].bg : 'transparent', transition: 'all .15s' }}>
+      <div style={{ fontSize: 10, color: S.muted }}>{label}</div>
+      <div style={{ fontSize: small ? 13 : 15, fontWeight: 800, color }}>MYR {fmtMYR(value)}</div>
+    </div>
+  )
+}
+
+type DrillRow = { o: Order; amt: number; chip: string }
+function MetricDetailPanel({ metricKey, paidOrders, freeOrders, splitPayments, deposits, expenses, visaBank, setVisaBank, onClose, onOpenOrder, branchNameOf }: {
+  metricKey: string; paidOrders: Order[]; freeOrders: Order[]
+  splitPayments: { order_id: string; amount: number; payment_method: string; card_bank: string | null }[]
+  deposits: { id: string; amount: number; payment_method: string; card_bank: string | null; created_at: string; created_by_name: string | null }[]
+  expenses: { id: string; description: string; cashier_name: string; amount: number; status: string; created_at: string }[]
+  visaBank: 'all' | 'maybank' | 'bsn'; setVisaBank: (b: 'all' | 'maybank' | 'bsn') => void
+  onClose: () => void; onOpenOrder: (o: Order) => void; branchNameOf: (o: Order) => string | null | undefined
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [metricKey])
+  const meta = DETAIL_META[metricKey]
+  if (!meta) return null
+  const paidTime = (o: Order) => new Date(o.paid_at || o.created_at).getTime()
+  const methodRows = (pred: (p: { method: string; card_bank: string | null; amount: number }) => boolean): DrillRow[] =>
+    paidOrders.map(o => {
+      const parts = getPaymentBreakdown(o, splitPayments).filter(pred)
+      return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.card_bank).filter(Boolean))].join(' + ') }
+    }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+  let rows: DrillRow[] = []
+  if (metricKey === 'cash') rows = methodRows(p => p.method === 'cash')
+  else if (metricKey === 'visa') rows = methodRows(p => p.method === 'visa' && (visaBank === 'all' || p.card_bank === visaBank))
+  else if (metricKey === 'online') rows = methodRows(p => p.method === 'online')
+  else if (metricKey === 'credit') rows = methodRows(p => p.method === 'credit')
+  else if (metricKey === 'total') rows = paidOrders.map(o => {
+    const parts = getPaymentBreakdown(o, splitPayments).filter(p => p.method !== 'credit')
+    return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.method + (p.card_bank ? ' ' + p.card_bank : '')))].join(' + ') }
+  }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+  else if (metricKey === 'discount') rows = paidOrders.filter(o => o.discount_type !== 'free' && (o.discount_amount || 0) > 0).map(o => ({ o, amt: o.discount_amount || 0, chip: o.discount_type || '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+  else if (metricKey === 'free') rows = freeOrders.map(o => ({ o, amt: o.discount_amount || 0, chip: 'free' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+  const exps = metricKey === 'expPaid' ? expenses.filter(e => e.status === 'paid') : metricKey === 'expPending' ? expenses.filter(e => e.status === 'pending') : []
+  const isDeposits = metricKey === 'deposits'
+  const isExp = metricKey === 'expPaid' || metricKey === 'expPending'
+  const count = isDeposits ? deposits.length : isExp ? exps.length : rows.length
+  const sum = isDeposits ? deposits.reduce((s, d) => s + (d.amount || 0), 0) : isExp ? exps.reduce((s, e) => s + (e.amount || 0), 0) : rows.reduce((s, r) => s + r.amt, 0)
+  const cardStyle = { background: S.navy2, border: `1px solid ${meta.color}40`, borderRadius: 10, padding: '8px 12px' }
+  return (
+    <div ref={ref} style={{ marginTop: 12, borderRadius: 14, border: `2px solid ${meta.color}`, background: meta.bg, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px', background: meta.color + '33', borderBottom: `1px solid ${meta.color}66` }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: meta.color }}>
+          {meta.label} · {count} {isDeposits ? 'deposit' : isExp ? 'expense' : 'table'}{count === 1 ? '' : 's'} · MYR {fmtMYR(sum)}
+        </div>
+        <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+      </div>
+      {metricKey === 'visa' && (
+        <div style={{ display: 'flex', gap: 6, padding: '8px 14px', flexWrap: 'wrap' }}>
+          {(['all', 'maybank', 'bsn'] as const).map(b => (
+            <button key={b} onClick={() => setVisaBank(b)} style={{ padding: '4px 12px', borderRadius: 20, border: `1px solid ${visaBank === b ? S.blue : S.border}`, background: visaBank === b ? S.blue + '33' : 'transparent', color: visaBank === b ? S.blue : S.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
+              {b === 'all' ? 'All banks' : b === 'maybank' ? 'Maybank' : 'BSN'}
+            </button>
+          ))}
+        </div>
+      )}
+      <div style={{ maxHeight: 420, overflowY: 'auto', padding: '4px 14px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {count === 0 && <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>Nothing to show</div>}
+        {rows.map(({ o, amt, chip }) => {
+          const branchName = branchNameOf(o)
+          const parts = [
+            `Items ${fmtMYR(o.total_amount || 0)}`,
+            (o.service_charge || 0) > 0 ? `Svc ${fmtMYR(o.service_charge)}` : '',
+            (o.sst_amount || 0) > 0 ? `SST ${fmtMYR(o.sst_amount)}` : '',
+            (o.discount_amount || 0) > 0 ? `Disc −${fmtMYR(o.discount_amount)}` : '',
+          ].filter(Boolean).join(' · ')
+          return (
+            <div key={o.id} onClick={() => onOpenOrder(o)} title="Open full invoice" style={{ ...cardStyle, cursor: 'pointer' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: S.white }}>{o.tables?.name || `Table ${o.tables?.number}`}</span>
+                  {branchName && <span style={{ background: S.purpleB, color: S.purple, borderRadius: 8, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>🏢 {branchName}</span>}
+                  {chip && <span style={{ background: meta.color + '22', color: meta.color, borderRadius: 8, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>{chip}</span>}
+                </div>
+                <span style={{ fontSize: 14, fontWeight: 800, color: meta.color, whiteSpace: 'nowrap' }}>MYR {fmtMYR(amt)}</span>
+              </div>
+              <div style={{ fontSize: 10, color: S.muted, marginTop: 3 }}>
+                {new Date(o.paid_at || o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                {o.paid_by_name ? ` · 👤 ${o.paid_by_name}` : ''} · #{o.id.slice(-6).toUpperCase()}
+              </div>
+              <div style={{ fontSize: 10, color: S.muted, marginTop: 1 }}>{parts}</div>
+            </div>
+          )
+        })}
+        {isDeposits && deposits.map(dep => (
+          <div key={dep.id} style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: S.white }}>
+              {dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}
+              <span style={{ color: S.muted, fontSize: 10 }}> · {dep.created_by_name || '—'} · {new Date(dep.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+            </span>
+            <span style={{ color: meta.color, fontWeight: 800, fontSize: 14 }}>MYR {fmtMYR(dep.amount)}</span>
+          </div>
+        ))}
+        {exps.map(exp => (
+          <div key={exp.id} style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: S.white }}>
+              {exp.description}
+              <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+            </span>
+            <span style={{ color: meta.color, fontWeight: 800, fontSize: 14 }}>MYR {fmtMYR(exp.amount)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ══ Main ══
 function TransferTableModal({ order, tables, isCashierRole, onClose, onTransferred }: { order: Order; tables: TableRow[]; isCashierRole?: boolean; onClose: () => void; onTransferred: () => void }) {
   const sb = createClient()
@@ -2616,7 +2745,7 @@ export default function CashierPage() {
   // ✅ جديد: أي رقم في "Whole Day Total" مفتوح تفاصيله حاليًا (cash/visa/...)، وفلتر البنك داخل تفاصيل الفيزا
   const [dayDetail, setDayDetail] = useState<string | null>(null)
   const [dayVisaBank, setDayVisaBank] = useState<'all' | 'maybank' | 'bsn'>('all')
-  const dayDetailRef = useRef<HTMLDivElement | null>(null)
+  const toggleSessDetail = (sessionId: string, key: string) => { setDayDetail(prev => (prev === sessionId + '|' + key ? null : sessionId + '|' + key)); setDayVisaBank('all') }
   // ✅ فتح/قفل الطاولة
   const [openTableTarget, setOpenTableTarget] = useState<TableRow | null>(null)
   const [openingTable, setOpeningTable] = useState(false)
@@ -3719,53 +3848,10 @@ export default function CashierPage() {
                       const dExpPaid = closedExpenses.filter(e => e.status === 'paid').reduce((s, e) => s + (e.amount || 0), 0)
                       const dExpPending = closedExpenses.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount || 0), 0)
                       const fmtM = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                      // ✅ جديد: كل رقم في "Whole Day Total" بقى قابل للضغط — بيفتح تحته لوحة بنفس لون الرقم فيها الطاولات/الفواتير
-                      // اللي كوّنته (الطاولة، الوقت، الكاشير، تفاصيل السعر)، والضغط على أي فاتورة بيفتح تفاصيلها الكاملة
-                      const DETAIL_META: Record<string, { label: string; color: string; bg: string }> = {
-                        cash:       { label: '💵 Cash',            color: S.green,  bg: S.greenB },
-                        visa:       { label: '💳 Visa',            color: S.blue,   bg: S.blueB },
-                        online:     { label: '📱 Bank Transfer',   color: S.purple, bg: S.purpleB },
-                        credit:     { label: '🧾 Credit',          color: S.amber,  bg: S.amberB },
-                        discount:   { label: '🏷️ Discounts',       color: S.red,    bg: S.redB },
-                        free:       { label: '🆓 Free Tables',     color: S.amber,  bg: S.amberB },
-                        deposits:   { label: '💰 Deposits',        color: S.teal,   bg: S.tealB },
-                        total:      { label: '💰 Total',           color: S.gold,   bg: S.gold3 },
-                        expPaid:    { label: '💸 Expenses Paid',   color: S.red,    bg: S.redB },
-                        expPending: { label: '⏳ Expenses Pending', color: S.amber,  bg: S.amberB },
-                      }
-                      const openDayDetail = (key: string) => {
-                        setDayDetail(prev => (prev === key ? null : key))
-                        setDayVisaBank('all')
-                        setTimeout(() => dayDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60)
-                      }
-                      type DayRow = { o: Order; amt: number; chip: string }
-                      const paidTime = (o: Order) => new Date(o.paid_at || o.created_at).getTime()
-                      const methodRows = (pred: (p: { method: string; card_bank: string | null; amount: number }) => boolean): DayRow[] =>
-                        dayPaid.map(o => {
-                          const parts = getPaymentBreakdown(o, closedSplitPayments).filter(pred)
-                          return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.card_bank).filter(Boolean))].join(' + ') }
-                        }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
-                      let detailRows: DayRow[] = []
-                      if (dayDetail === 'cash') detailRows = methodRows(p => p.method === 'cash')
-                      else if (dayDetail === 'visa') detailRows = methodRows(p => p.method === 'visa' && (dayVisaBank === 'all' || p.card_bank === dayVisaBank))
-                      else if (dayDetail === 'online') detailRows = methodRows(p => p.method === 'online')
-                      else if (dayDetail === 'credit') detailRows = methodRows(p => p.method === 'credit')
-                      else if (dayDetail === 'total') detailRows = dayPaid.map(o => {
-                        const parts = getPaymentBreakdown(o, closedSplitPayments).filter(p => p.method !== 'credit')
-                        return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.method + (p.card_bank ? ' ' + p.card_bank : '')))].join(' + ') }
-                      }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
-                      else if (dayDetail === 'discount') detailRows = dayPaid.filter(o => o.discount_type !== 'free' && (o.discount_amount || 0) > 0).map(o => ({ o, amt: o.discount_amount || 0, chip: o.discount_type || '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
-                      else if (dayDetail === 'free') detailRows = dFreeOrders.map(o => ({ o, amt: o.discount_amount || 0, chip: 'free' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
-                      const detailMeta = dayDetail ? DETAIL_META[dayDetail] : null
-                      const detailExpenses = dayDetail === 'expPaid' ? closedExpenses.filter(e => e.status === 'paid') : dayDetail === 'expPending' ? closedExpenses.filter(e => e.status === 'pending') : []
-                      const detailSum = dayDetail === 'deposits' ? dDepositsTotal : (dayDetail === 'expPaid' || dayDetail === 'expPending') ? detailExpenses.reduce((s, e) => s + (e.amount || 0), 0) : detailRows.reduce((s, r) => s + r.amt, 0)
-                      const detailCount = dayDetail === 'deposits' ? closedDeposits.length : (dayDetail === 'expPaid' || dayDetail === 'expPending') ? detailExpenses.length : detailRows.length
+                      // ✅ كل رقم في "Whole Day Total" قابل للضغط — يفتح تحته لوحة (MetricDetailPanel) بنفس لون الرقم فيها الطاولات المكوّنة له
+                      const toggleDetail = (key: string) => { setDayDetail(prev => (prev === 'day|' + key ? null : 'day|' + key)); setDayVisaBank('all') }
                       const metric = (key: string, label: string, value: number, color: string) => (
-                        <div key={key} role="button" onClick={() => openDayDetail(key)} title="Click to see the tables behind this number"
-                          style={{ textAlign: 'center', cursor: 'pointer', padding: '6px 12px', borderRadius: 10, border: `1px solid ${dayDetail === key ? color : 'transparent'}`, background: dayDetail === key ? DETAIL_META[key].bg : 'transparent', transition: 'all .15s' }}>
-                          <div style={{ fontSize: 10, color: S.muted }}>{label}</div>
-                          <div style={{ fontSize: 15, fontWeight: 800, color }}>MYR {fmtM(value)}</div>
-                        </div>
+                        <MetricButton key={key} active={dayDetail === 'day|' + key} metricKey={key} label={label} value={value} color={color} onClick={() => toggleDetail(key)} />
                       )
                       return (
                         <div style={{ background: S.gold3, borderRadius: 16, border: `1px solid ${S.gold}`, padding: '16px 18px' }}>
@@ -3793,73 +3879,11 @@ export default function CashierPage() {
                             {dExpPaid > 0 && metric('expPaid', '💸 Expenses Paid', dExpPaid, S.red)}
                             {dExpPending > 0 && metric('expPending', '⏳ Expenses Pending', dExpPending, S.amber)}
                           </div>
-                          {/* ✅ لوحة التفاصيل — بنفس لون الرقم المضغوط، وبتتمرّر لها الشاشة تلقائيًا */}
-                          {dayDetail && detailMeta && (
-                            <div ref={dayDetailRef} style={{ marginTop: 12, borderRadius: 14, border: `2px solid ${detailMeta.color}`, background: detailMeta.bg, overflow: 'hidden' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px', background: detailMeta.color + '33', borderBottom: `1px solid ${detailMeta.color}66` }}>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: detailMeta.color }}>
-                                  {detailMeta.label} · {detailCount} {dayDetail === 'deposits' ? 'deposit' : dayDetail === 'expPaid' || dayDetail === 'expPending' ? 'expense' : 'table'}{detailCount === 1 ? '' : 's'} · MYR {fmtM(detailSum)}
-                                </div>
-                                <button onClick={() => setDayDetail(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>✕</button>
-                              </div>
-                              {dayDetail === 'visa' && (
-                                <div style={{ display: 'flex', gap: 6, padding: '8px 14px', flexWrap: 'wrap' }}>
-                                  {(['all', 'maybank', 'bsn'] as const).map(b => (
-                                    <button key={b} onClick={() => setDayVisaBank(b)} style={{ padding: '4px 12px', borderRadius: 20, border: `1px solid ${dayVisaBank === b ? S.blue : S.border}`, background: dayVisaBank === b ? S.blue + '33' : 'transparent', color: dayVisaBank === b ? S.blue : S.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
-                                      {b === 'all' ? 'All banks' : b === 'maybank' ? 'Maybank' : 'BSN'}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                              <div style={{ maxHeight: 420, overflowY: 'auto', padding: '4px 14px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {detailCount === 0 && <div style={{ textAlign: 'center', padding: 20, color: S.muted, fontSize: 12 }}>Nothing to show</div>}
-                                {detailRows.map(({ o, amt, chip }) => {
-                                  const branchName = isAdmin ? branches.find(b => b.id === tables.find(t => t.id === o.table_id)?.branch_id)?.name : null
-                                  const parts = [
-                                    `Items ${fmtM(o.total_amount || 0)}`,
-                                    (o.service_charge || 0) > 0 ? `Svc ${fmtM(o.service_charge)}` : '',
-                                    (o.sst_amount || 0) > 0 ? `SST ${fmtM(o.sst_amount)}` : '',
-                                    (o.discount_amount || 0) > 0 ? `Disc −${fmtM(o.discount_amount)}` : '',
-                                  ].filter(Boolean).join(' · ')
-                                  return (
-                                    <div key={o.id} onClick={() => setArchiveDetailOrder(o)} title="Open full invoice"
-                                      style={{ background: S.navy2, border: `1px solid ${detailMeta.color}40`, borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                          <span style={{ fontSize: 13, fontWeight: 800, color: S.white }}>{o.tables?.name || `Table ${o.tables?.number}`}</span>
-                                          {branchName && <span style={{ background: S.purpleB, color: S.purple, borderRadius: 8, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>🏢 {branchName}</span>}
-                                          {chip && <span style={{ background: detailMeta.color + '22', color: detailMeta.color, borderRadius: 8, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>{chip}</span>}
-                                        </div>
-                                        <span style={{ fontSize: 14, fontWeight: 800, color: detailMeta.color, whiteSpace: 'nowrap' }}>MYR {fmtM(amt)}</span>
-                                      </div>
-                                      <div style={{ fontSize: 10, color: S.muted, marginTop: 3 }}>
-                                        {new Date(o.paid_at || o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                                        {o.paid_by_name ? ` · 👤 ${o.paid_by_name}` : ''} · #{o.id.slice(-6).toUpperCase()}
-                                      </div>
-                                      <div style={{ fontSize: 10, color: S.muted, marginTop: 1 }}>{parts}</div>
-                                    </div>
-                                  )
-                                })}
-                                {dayDetail === 'deposits' && closedDeposits.map(dep => (
-                                  <div key={dep.id} style={{ background: S.navy2, border: `1px solid ${detailMeta.color}40`, borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontSize: 12, color: S.white }}>
-                                      {dep.payment_method === 'cash' ? '💵' : dep.payment_method === 'visa' ? '💳' : '📱'} {dep.payment_method}{dep.card_bank ? ` (${dep.card_bank})` : ''}
-                                      <span style={{ color: S.muted, fontSize: 10 }}> · {dep.created_by_name || '—'} · {new Date(dep.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
-                                    </span>
-                                    <span style={{ color: detailMeta.color, fontWeight: 800, fontSize: 14 }}>MYR {fmtM(dep.amount)}</span>
-                                  </div>
-                                ))}
-                                {detailExpenses.map(exp => (
-                                  <div key={exp.id} style={{ background: S.navy2, border: `1px solid ${detailMeta.color}40`, borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontSize: 12, color: S.white }}>
-                                      {exp.description}
-                                      <span style={{ color: S.muted, fontSize: 10 }}> · {exp.cashier_name} · {new Date(exp.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
-                                    </span>
-                                    <span style={{ color: detailMeta.color, fontWeight: 800, fontSize: 14 }}>MYR {fmtM(exp.amount)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
+                          {dayDetail?.startsWith('day|') && (
+                            <MetricDetailPanel metricKey={dayDetail.slice(4)} paidOrders={dayPaid} freeOrders={dFreeOrders} splitPayments={closedSplitPayments}
+                              deposits={closedDeposits} expenses={closedExpenses} visaBank={dayVisaBank} setVisaBank={setDayVisaBank}
+                              onClose={() => setDayDetail(null)} onOpenOrder={setArchiveDetailOrder}
+                              branchNameOf={(o) => isAdmin ? branches.find(b => b.id === tables.find(t => t.id === o.table_id)?.branch_id)?.name : null} />
                           )}
                           {/* ✅ جديد: قائمة تفصيلية بكل مصروف على حدة ليوم كامل، عشان يبان واضح إن المصروف اتسجل فعلاً */}
                           {closedExpenses.length > 0 && (
@@ -3988,43 +4012,13 @@ export default function CashierPage() {
                               </div>
                             </div>
                             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>💵 Cash</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.green }}>MYR {sCash.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                              <div style={{ textAlign: 'center' }}>
-                                {/* ✅ جديد: لو في خصم في الشيفت، نوري تقسيم الفيزا حسب البنك (Maybank/BSN) على نفس الصف */}
-                                <div style={{ fontSize: 10, color: S.muted }}>💳 Visa{sDiscount > 0 && (sVisaMaybank > 0 || sVisaBsn > 0) ? ` (Maybank ${sVisaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${sVisaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : ''}</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.blue }}>MYR {sVisa.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>📱 Bank Transfer</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.purple }}>MYR {sOnline.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
-                              {sCredit > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>🧾 Credit</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sCredit.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
-                              {sDiscount > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>🏷️ Discounts</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
-                              {sFreeOrders.length > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>🆓 Free Tables ({sFreeOrders.length})</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sFreeAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
-                              {sDepositsTotal > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>💰 Deposits</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.teal }}>MYR {sDepositsTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
+                              <MetricButton active={dayDetail === session.id + '|cash'} metricKey="cash" label={'💵 Cash'} value={sCash} color={S.green} small onClick={() => toggleSessDetail(session.id, 'cash')} />
+                              <MetricButton active={dayDetail === session.id + '|visa'} metricKey="visa" label={`💳 Visa${sDiscount > 0 && (sVisaMaybank > 0 || sVisaBsn > 0) ? ` (Maybank ${sVisaMaybank.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · BSN ${sVisaBsn.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : ''}`} value={sVisa} color={S.blue} small onClick={() => toggleSessDetail(session.id, 'visa')} />
+                              <MetricButton active={dayDetail === session.id + '|online'} metricKey="online" label={'📱 Bank Transfer'} value={sOnline} color={S.purple} small onClick={() => toggleSessDetail(session.id, 'online')} />
+                              {sCredit > 0 && <MetricButton active={dayDetail === session.id + '|credit'} metricKey="credit" label="🧾 Credit" value={sCredit} color={S.amber} small onClick={() => toggleSessDetail(session.id, 'credit')} />}
+                              {sDiscount > 0 && <MetricButton active={dayDetail === session.id + '|discount'} metricKey="discount" label="🏷️ Discounts" value={sDiscount} color={S.red} small onClick={() => toggleSessDetail(session.id, 'discount')} />}
+                              {sFreeOrders.length > 0 && <MetricButton active={dayDetail === session.id + '|free'} metricKey="free" label={`🆓 Free Tables (${sFreeOrders.length})`} value={sFreeAmount} color={S.amber} small onClick={() => toggleSessDetail(session.id, 'free')} />}
+                              {sDepositsTotal > 0 && <MetricButton active={dayDetail === session.id + '|deposits'} metricKey="deposits" label="💰 Deposits" value={sDepositsTotal} color={S.teal} small onClick={() => toggleSessDetail(session.id, 'deposits')} />}
                               {sStaffOrders.length > 0 && (
                                 <div style={{ textAlign: 'center' }}>
                                   <div style={{ fontSize: 10, color: S.muted }}>👥 Staff Table ({sStaffOrders.length})</div>
@@ -4037,10 +4031,7 @@ export default function CashierPage() {
                                   <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sCancelledAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                 </div>
                               )}
-                              <div style={{ textAlign: 'center' }}>
-                                <div style={{ fontSize: 10, color: S.muted }}>💰 Total</div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>MYR {sTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                              </div>
+                              <MetricButton active={dayDetail === session.id + '|total'} metricKey="total" label="💰 Total" value={sTotal} color={S.gold} small onClick={() => toggleSessDetail(session.id, 'total')} />
                               {/* ✅ جديد: طباعة تقرير تفصيلي كامل لهذا الشيفت - كل الطاولات والأصناف والمصروفات */}
                               <button
                                 onClick={() => printClosedShiftReport(
@@ -4052,20 +4043,18 @@ export default function CashierPage() {
                                 🖨️ Print
                               </button>
                               {/* ✅ جديد: مصروفات هذا الشيفت */}
-                              {sExpPaid > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>💸 Expenses</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sExpPaid.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
-                              {sExpPending > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>⏳ Pending Exp.</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.amber }}>MYR {sExpPending.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
+                              {sExpPaid > 0 && <MetricButton active={dayDetail === session.id + '|expPaid'} metricKey="expPaid" label="💸 Expenses" value={sExpPaid} color={S.red} small onClick={() => toggleSessDetail(session.id, 'expPaid')} />}
+                              {sExpPending > 0 && <MetricButton active={dayDetail === session.id + '|expPending'} metricKey="expPending" label="⏳ Pending Exp." value={sExpPending} color={S.amber} small onClick={() => toggleSessDetail(session.id, 'expPending')} />}
                             </div>
                           </div>
+                          {dayDetail?.startsWith(session.id + '|') && (
+                            <div style={{ padding: '0 16px 14px' }}>
+                              <MetricDetailPanel metricKey={dayDetail.slice(session.id.length + 1)} paidOrders={sessPaidOrders} freeOrders={sFreeOrders} splitPayments={closedSplitPayments}
+                                deposits={sessDeposits} expenses={sExpenses} visaBank={dayVisaBank} setVisaBank={setDayVisaBank}
+                                onClose={() => setDayDetail(null)} onOpenOrder={setArchiveDetailOrder}
+                                branchNameOf={(o) => isAdmin ? branches.find(b => b.id === tables.find(t => t.id === o.table_id)?.branch_id)?.name : null} />
+                            </div>
+                          )}
                           {/* ✅ جديد: قائمة تفصيلية بمصروفات هذا الشيفت بالذات */}
                           {sExpenses.length > 0 && (
                             <div style={{ padding: '0 16px 14px', borderTop: `1px solid ${S.border}`, paddingTop: 10 }}>

@@ -3222,8 +3222,10 @@ export default function CashierPage() {
   const [chargePercent, setChargePercent] = useState(100)
   const [chargeNote, setChargeNote] = useState('')
   // ✅ جديد: توزيع المبلغ على أكتر من موظف — chargeEmployeeId هو الأول، وهنا الباقين (كل واحد ياخد حصة متساوية)
-  const [chargeExtraIds, setChargeExtraIds] = useState<string[]>([])
-  const [chargeExtraSearch, setChargeExtraSearch] = useState('')
+  const [chargePeople, setChargePeople] = useState(1)
+  const [chargeExtraIds, setChargeExtraIds] = useState<string[]>([])   // الأشخاص 2..N (فاضي '' لحد ما يتختار)
+  const [chargePcts, setChargePcts] = useState<number[]>([100])         // نسبة كل شخص من المبلغ المخصوم (الأول = chargeEmployeeId)
+  const [chargeRowSearch, setChargeRowSearch] = useState<Record<number, string>>({})
   const [chargeSaving, setChargeSaving] = useState(false)
   // ✅ جديد: الموظف يقدر يدفع جزء (أو كل) المبلغ كاش/شبكة فورًا زي أي عميل عادي، والباقي بس هو اللي ينزل من راتبه
   const [chargePaidNow, setChargePaidNow] = useState('')
@@ -3232,16 +3234,30 @@ export default function CashierPage() {
   const chargeTotalAmount = chargeItemTarget ? chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100) : 0
   const chargePaidNowNum = chargeItemTarget ? Math.max(0, Math.min(chargeTotalAmount, Number(chargePaidNow) || 0)) : 0
   const chargeRemaining = Math.max(0, chargeTotalAmount - chargePaidNowNum)
-  // ✅ كل الموظفين المتحمّلين (الأول + الإضافيين، بدون تكرار) والحصة المتساوية بالسنت — الباقي (لو القسمة مش مظبوطة) يروح للأوائل
-  const chargeAllIds = chargeEmployeeId ? [chargeEmployeeId, ...chargeExtraIds.filter(id => id !== chargeEmployeeId)] : []
+  // ✅ تقسيم المبلغ المخصوم على N موظف زي "Split Bill": لكل واحد نسبة (الافتراضي متساوية وتتعدّل)، والحصة بالسنت
+  // وآخر واحد ياخد الباقي عشان المجموع يساوي المبلغ بالظبط
+  const chargeN = Math.max(1, chargePeople)
+  const chargeAllIds: string[] = [chargeEmployeeId, ...Array.from({ length: chargeN - 1 }, (_, i) => chargeExtraIds[i] || '')]
+  const chargeIdsValid = chargeAllIds.every(Boolean) && new Set(chargeAllIds).size === chargeN
+  const chargePctSum = Array.from({ length: chargeN }, (_, i) => chargePcts[i] || 0).reduce((a, b) => a + b, 0)
+  const chargePctOk = chargeN === 1 || Math.abs(chargePctSum - 100) < 0.01
   const chargeShares: number[] = (() => {
-    const n = chargeAllIds.length
-    if (n === 0) return []
-    const cents = Math.round(chargeRemaining * 100)
-    const base = Math.floor(cents / n)
-    const extra = cents - base * n
-    return chargeAllIds.map((_, i) => (base + (i < extra ? 1 : 0)) / 100)
+    if (chargeN === 1) return [Math.round(chargeRemaining * 100) / 100]
+    const out: number[] = []
+    let used = 0
+    for (let i = 0; i < chargeN - 1; i++) { const v = Math.round(chargeRemaining * (chargePcts[i] || 0)) / 100; out.push(v); used += v }
+    out.push(Math.max(0, Math.round((chargeRemaining - used) * 100) / 100))
+    return out
   })()
+  const chargeCanSubmit = !!chargeEmployeeId && chargeIdsValid && chargePctOk
+  function setChargeCount(n: number) {
+    const k = Math.max(1, Math.min(10, n))
+    const base = Math.floor(10000 / k) / 100
+    const pcts = Array.from({ length: k }, () => base)
+    pcts[0] = Math.round((pcts[0] + (100 - base * k)) * 100) / 100
+    setChargePeople(k); setChargePcts(pcts)
+    setChargeExtraIds(prev => Array.from({ length: k - 1 }, (_, i) => prev[i] || ''))
+  }
 
   // ✅ جديد: طاولة افتراضية "مشتريات الموظفين" لكل فرع - عشان الجزء المدفوع كاش/شبكة يتسجل كبيعة حقيقية
   // وييدخل في إجمالي الكاش/الفيزا بتاعت الشيفت عند القفل، بدل ما يضيع كرقم مكتوب في السبب بس
@@ -3278,7 +3294,7 @@ export default function CashierPage() {
   function resetChargeForm() {
     setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false)
     setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
-    setChargeExtraIds([]); setChargeExtraSearch('')
+    setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
   }
 
   async function openChargeToEmployee(orderId: string, itemId: string, itemName: string, unitPrice: number, totalQty: number) {
@@ -3304,7 +3320,7 @@ export default function CashierPage() {
   }
 
   async function doChargeToEmployee() {
-    if (!chargeItemTarget || !chargeEmployeeId) return
+    if (!chargeItemTarget || !chargeEmployeeId || !chargeIdsValid || !chargePctOk) return
     setChargeSaving(true)
     // ✅ جديد: وضع "الطاولة كاملة" - itemName نفسه بيوصف عدد الأصناف، فمش محتاجين نضيف "×الكمية" (دايمًا 1)
     const isWholeOrder = chargeItemTarget.itemId === 'WHOLE_ORDER'
@@ -3365,7 +3381,7 @@ export default function CashierPage() {
       const rows = chargeAllIds.map((empId, i) => ({
         employee_id: empId, amount: chargeShares[i],
         reason: n > 1
-          ? `${fullReason} — حصة ${i + 1} من ${n} (إجمالي المخصوم ${chargeRemaining.toFixed(2)} موزّع على: ${chargeAllIds.map(labelOf).join('، ')})`
+          ? `${fullReason} — حصة ${chargePcts[i]}% (${chargeShares[i].toFixed(2)}) من إجمالي المخصوم ${chargeRemaining.toFixed(2)} الموزّع على: ${chargeAllIds.map(labelOf).join('، ')}`
           : fullReason,
         kind: chargeType === 'mistake' ? 'order_mistake' : 'personal_meal',
         date: new Date().toISOString().split('T')[0], created_by: employee?.id, status: 'active',
@@ -3375,7 +3391,7 @@ export default function CashierPage() {
     }
     setChargeSaving(false)
     const wasHubCharge = !!chargeItemTarget.fromCancelHub
-    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargeExtraIds([]); setChargeExtraSearch('')
+    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
     fetchAll()
     if (wasHubCharge && cancelHubTable) openCancelHub(cancelHubTable)
   }
@@ -5206,41 +5222,64 @@ export default function CashierPage() {
               )}
             </div>
 
-            {/* ✅ جديد: تقسيم المبلغ على أكتر من موظف (مثلًا طاولة 100 رنجت يتحملها 4) — حصص متساوية */}
+            {/* ✅ جديد: تقسيم الفاتورة على أكتر من موظف زي "Split Bill" — حدّد عدد الأشخاص، واختر كل موظف ونسبته (الافتراضي متساوية) */}
             {chargeEmployeeId && (
-              <div style={{ marginBottom: 14, textAlign: 'right', position: 'relative' }}>
-                <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Split with other employees (optional)</div>
-                {chargeExtraIds.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                    {chargeExtraIds.map(id => {
-                      const st = chargeStaffList.find(x => x.id === id)
+              <div style={{ marginBottom: 14, background: S.card, borderRadius: 12, padding: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ color: S.white, fontSize: 12, fontWeight: 700 }}>👥 Split between employees</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button onClick={() => setChargeCount(chargeN - 1)} style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 16 }}>−</button>
+                    <span style={{ color: S.amber, fontSize: 16, fontWeight: 800, minWidth: 22, textAlign: 'center' }}>{chargeN}</span>
+                    <button onClick={() => setChargeCount(chargeN + 1)} style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, cursor: 'pointer', fontSize: 16 }}>+</button>
+                  </div>
+                </div>
+                {chargeN > 1 && (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {Array.from({ length: chargeN }, (_, i) => {
+                      const empId = chargeAllIds[i]
+                      const st = chargeStaffList.find(x => x.id === empId)
+                      const q = (chargeRowSearch[i] || '').trim().toLowerCase()
+                      const matches = i === 0 || !q ? [] : chargeStaffList.filter(x => !chargeAllIds.includes(x.id) &&
+                        (x.name.toLowerCase().includes(q) || (x.name_en || '').toLowerCase().includes(q) || (x.employee_number || '').toLowerCase().includes(q))).slice(0, 6)
                       return (
-                        <span key={id} style={{ background: S.amberB, border: `1px solid ${S.amber}60`, color: S.amber, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          {st ? chargeStaffLabel(st) : id}
-                          <button onClick={() => setChargeExtraIds(prev => prev.filter(x => x !== id))} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
-                        </span>
+                        <div key={i} style={{ position: 'relative' }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{ color: S.muted, fontSize: 11, minWidth: 18 }}>{i + 1}.</span>
+                            {i === 0 || st ? (
+                              <div style={{ flex: 1, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 12, color: S.white, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                                <span>{st ? chargeStaffLabel(st) : '—'}</span>
+                                {i > 0 && <button onClick={() => setChargeExtraIds(prev => prev.map((v, k) => k === i - 1 ? '' : v))} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>}
+                              </div>
+                            ) : (
+                              <input value={chargeRowSearch[i] || ''} onChange={e => setChargeRowSearch(prev => ({ ...prev, [i]: e.target.value }))}
+                                placeholder="🔍 Employee name or number..."
+                                style={{ flex: 1, boxSizing: 'border-box', padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.navy3, color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif' }} />
+                            )}
+                            <input type="number" min={0} max={100} step="0.5" value={chargePcts[i] ?? 0}
+                              onChange={e => setChargePcts(prev => prev.map((v, k) => k === i ? Math.max(0, Math.min(100, Number(e.target.value) || 0)) : v))}
+                              style={{ width: 62, boxSizing: 'border-box', padding: '7px 6px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 12, textAlign: 'center' }} />
+                            <span style={{ color: S.muted, fontSize: 11 }}>%</span>
+                          </div>
+                          {matches.length > 0 && (
+                            <div style={{ position: 'absolute', top: '100%', left: 22, right: 0, zIndex: 20, marginTop: 2, maxHeight: 180, overflowY: 'auto', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+                              {matches.map(x => (
+                                <button key={x.id} onClick={() => { setChargeExtraIds(prev => prev.map((v, k) => k === i - 1 ? x.id : v)); setChargeRowSearch(prev => ({ ...prev, [i]: '' })) }}
+                                  style={{ display: 'block', width: '100%', textAlign: 'right', padding: '8px 10px', background: 'transparent', border: 'none', borderBottom: `1px solid ${S.border}`, color: S.white, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
+                                  {chargeStaffLabel(x)}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )
                     })}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
+                      <button onClick={() => setChargeCount(chargeN)} style={{ background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 8, color: S.muted, cursor: 'pointer', fontSize: 11, padding: '4px 10px', fontFamily: 'Tajawal, sans-serif' }}>⚖️ Split equally</button>
+                      <span style={{ color: chargePctOk ? S.green : S.red, fontWeight: 700 }}>Total {chargePctSum.toFixed(2)}% {chargePctOk ? '✓' : '(must be 100%)'}</span>
+                    </div>
+                    {!chargeIdsValid && <div style={{ color: S.amber, fontSize: 11 }}>⚠️ Choose a different employee for each person.</div>}
                   </div>
                 )}
-                <input value={chargeExtraSearch} onChange={e => setChargeExtraSearch(e.target.value)}
-                  placeholder="➕ Add another employee (name or number)..."
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif' }} />
-                {chargeExtraSearch.trim() && (() => {
-                  const q = chargeExtraSearch.trim().toLowerCase()
-                  const matches = chargeStaffList.filter(st => st.id !== chargeEmployeeId && !chargeExtraIds.includes(st.id) &&
-                    (st.name.toLowerCase().includes(q) || (st.name_en || '').toLowerCase().includes(q) || (st.employee_number || '').toLowerCase().includes(q))).slice(0, 8)
-                  return (
-                    <div style={{ marginTop: 4, maxHeight: 200, overflowY: 'auto', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 10 }}>
-                      {matches.length === 0 ? <div style={{ padding: '10px 12px', fontSize: 12, color: S.muted }}>No matching employees</div> : matches.map(st => (
-                        <button key={st.id} onClick={() => { setChargeExtraIds(prev => [...prev, st.id]); setChargeExtraSearch('') }}
-                          style={{ display: 'block', width: '100%', textAlign: 'right', padding: '9px 12px', background: 'transparent', border: 'none', borderBottom: `1px solid ${S.border}`, color: S.white, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-                          {chargeStaffLabel(st)}
-                        </button>
-                      ))}
-                    </div>
-                  )
-                })()}
               </div>
             )}
 
@@ -5319,14 +5358,14 @@ export default function CashierPage() {
                 <span>Deducted from salary</span>
                 <span>MYR {chargeRemaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
-              {chargeAllIds.length > 1 && (
+              {chargeN > 1 && chargeIdsValid && (
                 <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${S.border}`, fontSize: 12 }}>
                   {chargeAllIds.map((id, i) => {
                     const st = chargeStaffList.find(x => x.id === id)
                     return (
                       <div key={id} style={{ display: 'flex', justifyContent: 'space-between', color: S.white, marginTop: 2 }}>
                         <span>👤 {st ? chargeStaffLabel(st) : id}</span>
-                        <span style={{ color: S.amber, fontWeight: 700 }}>MYR {chargeShares[i].toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span style={{ color: S.amber, fontWeight: 700 }}>{chargePcts[i]}% · MYR {chargeShares[i].toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     )
                   })}
@@ -5335,14 +5374,14 @@ export default function CashierPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargeExtraIds([]); setChargeExtraSearch('') }}
+              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({}) }}
                 style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 Back
               </button>
               <button
                 onClick={doChargeToEmployee}
-                disabled={!chargeEmployeeId || chargeSaving}
-                style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: chargeEmployeeId ? S.amber : S.border, color: chargeEmployeeId ? '#1A1206' : S.muted, cursor: chargeEmployeeId ? 'pointer' : 'not-allowed', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: chargeSaving ? 0.7 : 1 }}>
+                disabled={!chargeCanSubmit || chargeSaving}
+                style={{ flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: chargeCanSubmit ? S.amber : S.border, color: chargeCanSubmit ? '#1A1206' : S.muted, cursor: chargeCanSubmit ? 'pointer' : 'not-allowed', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: chargeSaving ? 0.7 : 1 }}>
                 {chargeSaving ? '⏳...' : '👤 Confirm Charge'}
               </button>
             </div>

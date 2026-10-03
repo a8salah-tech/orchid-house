@@ -1810,6 +1810,8 @@ export default function PayrollPage() {
                     <div style={rowStyle}><span style={{ color: S.muted }}>سعر اليوم</span><span>{fmt2(c.dailyRate)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>ساعات الدوام اليومية</span><span>{payslipRecord.daily_hours || 8}h</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>سعر الساعة</span><span>{fmt2(c.hourlyRate)}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>أيام العمل المنجزة</span><span>{payslipRecord.days_worked} / {payslipRecord.working_days || 30}</span></div>
+                    <div style={rowStyle}><span style={{ color: S.muted }}>المستحق الأساسي</span><span>{fmt2(c.earnedBase)}</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>أيام/ساعات إضافي</span><span>{payslipRecord.overtime_days}d / {payslipRecord.overtime_hours}h</span></div>
                     <div style={rowStyle}><span style={{ color: S.muted }}>بدل إضافي</span><span>{fmt2(c.overtimePay)}</span></div>
                     {payslipRecord.allowance_1 > 0 && <div style={rowStyle}><span style={{ color: S.muted }}>{payslipRecord.allowance_1_label}</span><span>{fmt2(payslipRecord.allowance_1)}</span></div>}

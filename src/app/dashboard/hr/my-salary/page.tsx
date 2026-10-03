@@ -232,7 +232,8 @@ export default function MySalaryPage() {
   const grossSalary = c?.totalEarnings || netSalary
 
   const earnings = myRecord ? [
-    { label: isAr ? 'الراتب الأساسي' : 'Basic Salary', value: myRecord.basic_salary || 0, color: S.green },
+    // ✅ المبلغ المستحق فعلًا (الأساسي ÷ أيام الشهر × الأيام المنجزة) بدل الأساسي الشهري الكامل — عشان الصفوف تجمع لإجمالي الاستحقاقات
+    { label: isAr ? `الراتب الأساسي المستحق (${myRecord.days_worked} من ${myRecord.working_days || 30} يوم)` : `Earned basic (${myRecord.days_worked} of ${myRecord.working_days || 30} days)`, value: c?.earnedBase || 0, color: S.green },
     { label: myRecord.allowance_1_label || (isAr ? 'بدل 1' : 'Allowance 1'), value: myRecord.allowance_1 || 0, color: S.green },
     { label: myRecord.allowance_2_label || (isAr ? 'بدل 2' : 'Allowance 2'), value: myRecord.allowance_2 || 0, color: S.green },
     { label: myRecord.allowance_3_label || (isAr ? 'بدل 3' : 'Allowance 3'), value: myRecord.allowance_3 || 0, color: S.green },
@@ -374,7 +375,7 @@ export default function MySalaryPage() {
           {/* Earnings */}
           {earnings.length > 0 && (
             <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.green }}>➕ {isAr ? 'الإضافات' : 'Earnings'}</div>
+              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${S.border}`, fontSize: 13, fontWeight: 700, color: S.green }}>➕ {isAr ? 'الاستحقاقات' : 'Earnings'}</div>
               {earnings.map((e, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: i < earnings.length - 1 ? `1px solid ${S.border}` : 'none' }}>
                   <span style={{ fontSize: 13, color: S.white }}>{e.label}</span>
@@ -382,7 +383,7 @@ export default function MySalaryPage() {
                 </div>
               ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(34,197,94,0.06)' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{isAr ? 'إجمالي الإضافات' : 'Total Earnings'}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{isAr ? 'إجمالي الاستحقاقات' : 'Total Earnings'}</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: S.green }}>MYR {grossSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             </div>

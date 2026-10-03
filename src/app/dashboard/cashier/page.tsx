@@ -2189,6 +2189,8 @@ const DETAIL_META: Record<string, { label: string; color: string; bg: string }> 
   free:       { label: '🆓 Free Tables',     color: S.amber,  bg: S.amberB },
   deposits:   { label: '💰 Deposits',        color: S.teal,   bg: S.tealB },
   total:      { label: '💰 Total',           color: S.gold,   bg: S.gold3 },
+  staff:      { label: '👥 Staff Table',     color: S.teal,   bg: S.tealB },
+  cancelled:  { label: '❌ Cancelled',       color: S.red,    bg: S.redB },
   expPaid:    { label: '💸 Expenses Paid',   color: S.red,    bg: S.redB },
   expPending: { label: '⏳ Expenses Pending', color: S.amber,  bg: S.amberB },
 }
@@ -2205,8 +2207,8 @@ function MetricButton({ active, metricKey, label, value, color, onClick, small }
 }
 
 type DrillRow = { o: Order; amt: number; chip: string }
-function MetricDetailPanel({ metricKey, paidOrders, freeOrders, splitPayments, deposits, expenses, visaBank, setVisaBank, onClose, onOpenOrder, branchNameOf }: {
-  metricKey: string; paidOrders: Order[]; freeOrders: Order[]
+function MetricDetailPanel({ metricKey, paidOrders, freeOrders, staffOrders, cancelledOrders, splitPayments, deposits, expenses, visaBank, setVisaBank, onClose, onOpenOrder, branchNameOf }: {
+  metricKey: string; paidOrders: Order[]; freeOrders: Order[]; staffOrders?: Order[]; cancelledOrders?: Order[]
   splitPayments: { order_id: string; amount: number; payment_method: string; card_bank: string | null }[]
   deposits: { id: string; amount: number; payment_method: string; card_bank: string | null; created_at: string; created_by_name: string | null }[]
   expenses: { id: string; description: string; cashier_name: string; amount: number; status: string; created_at: string }[]
@@ -2233,6 +2235,8 @@ function MetricDetailPanel({ metricKey, paidOrders, freeOrders, splitPayments, d
     return { o, amt: parts.reduce((s, p) => s + p.amount, 0), chip: [...new Set(parts.map(p => p.method + (p.card_bank ? ' ' + p.card_bank : '')))].join(' + ') }
   }).filter(r => r.amt > 0).sort((a, b) => paidTime(b.o) - paidTime(a.o))
   else if (metricKey === 'discount') rows = paidOrders.filter(o => o.discount_type !== 'free' && (o.discount_amount || 0) > 0).map(o => ({ o, amt: o.discount_amount || 0, chip: o.discount_type || '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+  else if (metricKey === 'staff') rows = (staffOrders || []).map(o => ({ o, amt: o.total_amount || 0, chip: '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
+  else if (metricKey === 'cancelled') rows = (cancelledOrders || []).map(o => ({ o, amt: o.total_amount || 0, chip: o.cancel_reason || '' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
   else if (metricKey === 'free') rows = freeOrders.map(o => ({ o, amt: o.discount_amount || 0, chip: 'free' })).sort((a, b) => paidTime(b.o) - paidTime(a.o))
   const exps = metricKey === 'expPaid' ? expenses.filter(e => e.status === 'paid') : metricKey === 'expPending' ? expenses.filter(e => e.status === 'pending') : []
   const isDeposits = metricKey === 'deposits'
@@ -4019,18 +4023,8 @@ export default function CashierPage() {
                               {sDiscount > 0 && <MetricButton active={dayDetail === session.id + '|discount'} metricKey="discount" label="🏷️ Discounts" value={sDiscount} color={S.red} small onClick={() => toggleSessDetail(session.id, 'discount')} />}
                               {sFreeOrders.length > 0 && <MetricButton active={dayDetail === session.id + '|free'} metricKey="free" label={`🆓 Free Tables (${sFreeOrders.length})`} value={sFreeAmount} color={S.amber} small onClick={() => toggleSessDetail(session.id, 'free')} />}
                               {sDepositsTotal > 0 && <MetricButton active={dayDetail === session.id + '|deposits'} metricKey="deposits" label="💰 Deposits" value={sDepositsTotal} color={S.teal} small onClick={() => toggleSessDetail(session.id, 'deposits')} />}
-                              {sStaffOrders.length > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>👥 Staff Table ({sStaffOrders.length})</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.teal }}>MYR {sStaffAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
-                              {sCancelledOrders.length > 0 && (
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 10, color: S.muted }}>❌ Cancelled ({sCancelledOrders.length})</div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: S.red }}>MYR {sCancelledAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                </div>
-                              )}
+                              {sStaffOrders.length > 0 && <MetricButton active={dayDetail === session.id + '|staff'} metricKey="staff" label={`👥 Staff Table (${sStaffOrders.length})`} value={sStaffAmount} color={S.teal} small onClick={() => toggleSessDetail(session.id, 'staff')} />}
+                              {sCancelledOrders.length > 0 && <MetricButton active={dayDetail === session.id + '|cancelled'} metricKey="cancelled" label={`❌ Cancelled (${sCancelledOrders.length})`} value={sCancelledAmount} color={S.red} small onClick={() => toggleSessDetail(session.id, 'cancelled')} />}
                               <MetricButton active={dayDetail === session.id + '|total'} metricKey="total" label="💰 Total" value={sTotal} color={S.gold} small onClick={() => toggleSessDetail(session.id, 'total')} />
                               {/* ✅ جديد: طباعة تقرير تفصيلي كامل لهذا الشيفت - كل الطاولات والأصناف والمصروفات */}
                               <button
@@ -4049,7 +4043,7 @@ export default function CashierPage() {
                           </div>
                           {dayDetail?.startsWith(session.id + '|') && (
                             <div style={{ padding: '0 16px 14px' }}>
-                              <MetricDetailPanel metricKey={dayDetail.slice(session.id.length + 1)} paidOrders={sessPaidOrders} freeOrders={sFreeOrders} splitPayments={closedSplitPayments}
+                              <MetricDetailPanel metricKey={dayDetail.slice(session.id.length + 1)} paidOrders={sessPaidOrders} freeOrders={sFreeOrders} staffOrders={sStaffOrders} cancelledOrders={sCancelledOrders} splitPayments={closedSplitPayments}
                                 deposits={sessDeposits} expenses={sExpenses} visaBank={dayVisaBank} setVisaBank={setDayVisaBank}
                                 onClose={() => setDayDetail(null)} onOpenOrder={setArchiveDetailOrder}
                                 branchNameOf={(o) => isAdmin ? branches.find(b => b.id === tables.find(t => t.id === o.table_id)?.branch_id)?.name : null} />

@@ -22,5 +22,9 @@ export const DEPT_MANAGER_ROLES: string[] = ['kitchen_manager', 'hall_manager', 
 // الداخلي/مشتريات السوق، مستودع التجهيزات، القائمة الجانبية، الوصول السريع بالداشبورد)
 export const DEPT_MANAGER_ROLES_EXT: string[] = [...DEPT_MANAGER_ROLES, 'kitchen_assistant_manager']
 
+// ✅ مساعد مدير الصالة: صلاحيته محدودة عمدًا — لا يدخل في DEPT_MANAGER_ROLES_EXT (فلا يرث صلاحيات مدير القسم
+// في الحضور وطلبات الموظفين وغيرها). حاليًا مسموح له فقط تعديل الشيفتات العادية لموظفي الصالة في فرعه
+export const HALL_ASSISTANT_ROLE = 'hall_assistant_manager'
+
 // مشرفو الأقسام الثلاثة (مطبخ/صالة/بار)
 export const DEPT_SUPERVISOR_ROLES: string[] = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']

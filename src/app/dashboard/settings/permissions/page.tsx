@@ -29,6 +29,8 @@ const ROLES_INFO: Record<string, { label: string; icon: string; color: string; b
   // الشيفتات والحضور وطلبات الموظفين، ما عدا اعتماد زيادة/سلفة الراتب (مقصورة على الأدمن/مدير الفرع)
   kitchen_assistant_manager: { label: 'مساعد مدير المطبخ', icon: '🍲', color: '#FDBA74', bg: 'rgba(253,186,116,0.12)', desc: 'مفوَّض من مدير المطبخ: شيفتات وحضور وطلبات المطبخ والبار والحلويات' },
   hall_manager:        { label: 'مدير الصالة',    icon: '🏛️', color: '#06B6D4', bg: 'rgba(6,182,212,0.12)',          desc: 'الصالة والحجوزات والعملاء' },
+  // ✅ جديد: صلاحيته على الشيفتات تعتمد على الدور نفسه (تعديل الشيفتات العادية لموظفي الصالة فقط) — هنا باقي الصلاحيات قابلة للتعديل
+  hall_assistant_manager: { label: 'مساعد مدير الصالة', icon: '🍽️', color: '#67E8F9', bg: 'rgba(103,232,249,0.12)', desc: 'مفوَّض من مدير الصالة: تعديل الشيفتات العادية لموظفي الصالة' },
   bar_manager:         { label: 'مدير البار',     icon: '🍹', color: '#6366F1', bg: 'rgba(99,102,241,0.12)',         desc: 'البار والمشروبات والموظفين' },
   // ✅ أضيف هنا — كان غير موجود خالص رغم إنه دور فعلي معيَّن لموظفين حقيقيين، فكان مفيش أي واجهة لإدارة صلاحياته
   kitchen_cleaner:     { label: 'عامل نظافة مطبخ', icon: '🧹', color: '#86EFAC', bg: 'rgba(134,239,172,0.12)',       desc: 'نظافة المطبخ — صلاحيات أساسية فقط' },
@@ -58,6 +60,7 @@ const DEFAULT_PERMISSIONS: Record<string, Record<string, boolean>> = {
   // الوصول لتعيين الشيفتات ولنطاق مطبخ+بار+حلويات مضمون عبر تحقق الدور المباشر في الكود (زي مدير
   // المطبخ بالظبط)، لا عبر صلاحية assign_shifts
   kitchen_assistant_manager: { kitchen: true, bar: true, desserts: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
+  hall_assistant_manager: { hall: true, attendance: true, my_requests: true, my_payroll: true, notifications: true },
   hall_manager:       { hall: true, bookings: true, customers: true, loyalty: true, hr: true, market_purchases: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   bar_manager:        { bar: true, branch_requests: true, internal_warehouse_requests: true, market_purchases: true, prep_warehouse: true, hr: true, my_requests: true, attendance: true, notifications: true, marketing: true, maintenance: true, buffet: true },
   // ✅ Fix: أضفنا desserts هنا - مشرف المطبخ من المفروض يقدر يدخل قسم الحلويات (زي مدير المطبخ بالظبط،

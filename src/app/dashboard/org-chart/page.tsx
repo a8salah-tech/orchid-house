@@ -22,7 +22,7 @@ const S = {
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'مدير النظام', branch_manager: 'مدير الفرع',
-  kitchen_manager: 'مدير المطبخ', kitchen_assistant_manager: 'مساعد مدير المطبخ', hall_manager: 'مدير الصالة', bar_manager: 'مدير البار', warehouse_manager: 'مدير المستودعات',
+  kitchen_manager: 'مدير المطبخ', kitchen_assistant_manager: 'مساعد مدير المطبخ', hall_manager: 'مدير الصالة', hall_assistant_manager: 'مساعد مدير الصالة', bar_manager: 'مدير البار', warehouse_manager: 'مدير المستودعات',
   kitchen_supervisor: 'مشرف المطبخ', hall_supervisor: 'مشرف الصالة', bar_supervisor: 'مشرف البار', general_supervisor: 'مشرف عام',
   warehouse_keeper: 'أمين المستودع', cashier: 'كاشير', cashier_manager: 'مدير كاشير',
   kitchen_cleaner: 'عامل نظافة المطبخ', hall_cleaner: 'عامل نظافة الصالة', hall_worker: 'عامل صالة',

@@ -69,6 +69,7 @@ const ROLE_LABELS: Record<string, { label: string; label_en: string; icon: strin
   kitchen_manager:    { label: 'مدير المطبخ',  label_en: 'Kitchen Manager',    icon: '🍳' },
   kitchen_assistant_manager: { label: 'مساعد مدير المطبخ', label_en: 'Asst. Kitchen Manager', icon: '🍲' },
   hall_manager:       { label: 'مدير الصالة',  label_en: 'Hall Manager',       icon: '🏛️' },
+  hall_assistant_manager: { label: 'مساعد مدير الصالة', label_en: 'Asst. Hall Manager', icon: '🍽️' },
   kitchen_supervisor: { label: 'مشرف المطبخ',  label_en: 'Kitchen Supervisor', icon: '👨‍🍳' },
   hall_supervisor:    { label: 'مشرف الصالة',  label_en: 'Hall Supervisor',    icon: '🍽️' },
   bar_supervisor:     { label: 'مشرف البار',   label_en: 'Bar Supervisor',     icon: '☕' },
@@ -105,7 +106,7 @@ function EmployeeDashboard({ employee }: { employee: any }) {
   // ✅ أضفنا branch_manager هنا كمان — كان مفقوداً تماماً من كل الروابط في هذه الصفحة (لا شخصية ولا إدارية)،
   // فكانت شاشة "وصول سريع" تظهر فارغة تماماً لمدير الفرع رغم أنه دور حقيقي معرَّف في النظام
   // ✅ أضفنا general_supervisor, cashier_manager, maintenance_worker, delivery_worker هنا — أدوار جديدة
-  const ALL_NON_ADMIN = ['branch_manager','kitchen_manager','kitchen_assistant_manager','hall_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','general_supervisor','cashier','assistant_cashier','cashier_manager','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner','hall_worker','maintenance_worker','delivery_worker']
+  const ALL_NON_ADMIN = ['branch_manager','kitchen_manager','kitchen_assistant_manager','hall_manager','hall_assistant_manager','bar_manager','kitchen_supervisor','hall_supervisor','bar_supervisor','general_supervisor','cashier','assistant_cashier','cashier_manager','employee','warehouse_keeper','warehouse_manager','hall_cleaner','kitchen_cleaner','hall_worker','maintenance_worker','delivery_worker']
   const KITCHEN_ROLES = ['kitchen_manager','kitchen_assistant_manager','kitchen_supervisor','general_supervisor']
   const HALL_ROLES = ['hall_manager','hall_supervisor','general_supervisor']
   const BAR_ROLES = ['bar_manager','bar_supervisor','general_supervisor','kitchen_assistant_manager']

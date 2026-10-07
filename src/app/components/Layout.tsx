@@ -6,7 +6,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from './AuthProvider'
 import NotificationBell from './NotificationBell'
 import { LanguageContext } from './LanguageContext'
-import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../lib/roles'
 
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
@@ -48,6 +48,7 @@ const ROLE_LABELS: Record<string, { ar: string; en: string; icon: string; color:
   // موظفين) على نفس نطاق مدير المطبخ (مطبخ+بار+حلويات)، ما عدا زيادة/سلفة الراتب
   kitchen_assistant_manager: { ar: 'مساعد مدير المطبخ', en: 'Asst. Kitchen Manager', icon: '🍲', color: '#FDBA74' },
   hall_manager:        { ar: 'مدير الصالة',   en: 'Hall Manager',       icon: '🏛️', color: '#06B6D4' },
+  hall_assistant_manager: { ar: 'مساعد مدير الصالة', en: 'Asst. Hall Manager', icon: '🍽️', color: '#67E8F9' },
   bar_manager:         { ar: 'مدير البار',    en: 'Bar Manager',        icon: '🍹', color: '#6366F1' },
   kitchen_supervisor:  { ar: 'مشرف المطبخ',   en: 'Kitchen Supervisor', icon: '👨‍🍳', color: S.red },
   hall_supervisor:     { ar: 'مشرف الصالة',   en: 'Hall Supervisor',    icon: '🍽️', color: S.blue },
@@ -279,6 +280,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       isAdmin || employee?.role === 'branch_manager' ||
       DEPT_MANAGER_ROLES_EXT.includes(employee?.role || '') ||
       employee?.role === 'general_supervisor' ||
+      employee?.role === HALL_ASSISTANT_ROLE ||
       DEPT_SUPERVISOR_ROLES.includes(employee?.role || '')
     ) :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)

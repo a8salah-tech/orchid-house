@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @next/next/no-img-element -- صور المنتجات روابط Supabase Storage عامة بأحجام متفاوتة */
 
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -74,6 +75,14 @@ interface Product {
   id: string; name: string; name_en?: string; category: string; product_code?: string
   current_stock: number; min_stock: number; last_purchase_price: number
   unit_id: string; units?: Unit; is_active: boolean
+  // ✅ جديد: صورة المنتج (اختيارية) — db/warehouse_product_image.sql
+  image_url?: string | null
+}
+// ✅ جديد: سطر من تاريخ مشتريات المنتج (من فواتير الشراء) لمقارنة الأسعار
+type PriceRow = {
+  id: string; quantity: number; unit_price: number; unit_id: string | null; discount_amount: number | null; created_at: string
+  purchase_invoices?: { invoice_date: string; invoice_number: string | null; status: string; warehouse_suppliers?: { name: string } | null } | null
+  units?: { symbol: string } | null
 }
 interface Movement { id: string; created_at: string; movement_type: string; quantity: number; unit_price: number; product_id?: string; destination: string; destination_custom: string; notes: string; movement_date: string; warehouse_products?: { name: string; units?: Unit }; warehouses?: { name: string } }
 interface Invoice { id: string; invoice_number: string; invoice_date: string; total_amount: number; status: string; notes: string; image_url: string; warehouse_suppliers?: { name: string }; warehouses?: { name: string } }
@@ -1047,6 +1056,26 @@ export default function WarehouseDetailPage() {
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
   const [editCategoryName, setEditCategoryName] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  // ✅ جديد: تاريخ أسعار شراء المنتج المفتوح (مربوط بـ id المنتج عشان ما يظهرش تاريخ منتج سابق أثناء التحميل) + صورة المنتج
+  const [priceHistory, setPriceHistory] = useState<{ id: string; rows: PriceRow[] } | null>(null)
+  const [viewImage, setViewImage] = useState<string | null>(null)
+  const [uploadingImg, setUploadingImg] = useState(false)
+  useEffect(() => {
+    if (!selectedProduct) return
+    const id = selectedProduct.id
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase.from('purchase_invoice_items')
+        .select('id,quantity,unit_price,unit_id,discount_amount,created_at,purchase_invoices(invoice_date,invoice_number,status,warehouse_suppliers(name)),units(symbol)')
+        .eq('product_id', id).order('created_at', { ascending: false }).limit(60)
+      if (cancelled) return
+      const rows = ((data || []) as unknown as PriceRow[]).filter(r => r.purchase_invoices && r.purchase_invoices.status !== 'cancelled')
+        .sort((a, b) => (b.purchase_invoices!.invoice_date || '').localeCompare(a.purchase_invoices!.invoice_date || '') || b.created_at.localeCompare(a.created_at))
+      setPriceHistory({ id, rows })
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProduct?.id])
   const [showUnitConversion, setShowUnitConversion] = useState<Product | null>(null)
   const [showInventory, setShowInventory] = useState(false)
   const [inventoryData, setInventoryData] = useState<Record<string, { units: string; pieces: string }>>({})
@@ -1093,6 +1122,30 @@ export default function WarehouseDetailPage() {
   }, [warehouseId])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // ✅ جديد: رفع/تغيير/حذف صورة المنتج — في bucket "employees" (نفس باقي صور اللوحة) تحت warehouse-products/
+  async function uploadProductImage(product: Product, file: File) {
+    if (!file.type.startsWith('image/')) { alert('اختر ملف صورة فقط'); return }
+    if (file.size > 10 * 1024 * 1024) { alert('حجم الصورة أكبر من 10MB'); return }
+    setUploadingImg(true)
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    const { data: up, error: upErr } = await supabase.storage.from('employees').upload(`warehouse-products/${product.id}-${Date.now()}.${ext}`, file, { contentType: file.type })
+    if (upErr || !up) { setUploadingImg(false); alert('فشل رفع الصورة: ' + (upErr?.message || 'unknown')); return }
+    const url = supabase.storage.from('employees').getPublicUrl(up.path).data.publicUrl
+    const { error } = await supabase.from('warehouse_products').update({ image_url: url }).eq('id', product.id)
+    setUploadingImg(false)
+    if (error) { alert('فشل حفظ الصورة: ' + error.message + ' — تأكد من تشغيل db/warehouse_product_image.sql'); return }
+    setSelectedProduct(p => p && p.id === product.id ? { ...p, image_url: url } : p)
+    fetchAll()
+  }
+
+  async function removeProductImage(product: Product) {
+    if (!confirm('هل تريد حذف صورة هذا المنتج؟')) return
+    const { error } = await supabase.from('warehouse_products').update({ image_url: null }).eq('id', product.id)
+    if (error) { alert('خطأ: ' + error.message); return }
+    setSelectedProduct(p => p && p.id === product.id ? { ...p, image_url: null } : p)
+    fetchAll()
+  }
 
   async function toggleActive(product: Product) {
     await supabase.from('warehouse_products').update({ is_active: !product.is_active }).eq('id', product.id)
@@ -1567,10 +1620,19 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                           </span>
                         </td>
                         {/* اسم المنتج */}
-                        <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
-                          <div style={{ fontWeight: 700, color: S.white, fontSize: 13, marginBottom: 3 }}>{p.name}</div>
-                          {p.name_en && <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{p.name_en}</div>}
-
+                        <td style={{ padding: '10px 16px', cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {/* ✅ جديد: صورة مصغّرة للمنتج (أو أيقونة لو مفيش صورة) */}
+                            {p.image_url ? (
+                              <img src={p.image_url} alt={p.name} loading="lazy" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}`, flexShrink: 0, background: '#fff' }} />
+                            ) : (
+                              <div style={{ width: 40, height: 40, borderRadius: 8, background: S.card2, border: `1px dashed ${S.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0, opacity: 0.7 }}>{CATEGORY_ICONS[p.category] || '📦'}</div>
+                            )}
+                            <div>
+                              <div style={{ fontWeight: 700, color: S.white, fontSize: 13, marginBottom: 3 }}>{p.name}</div>
+                              {p.name_en && <div style={{ fontSize: 11, color: S.muted, fontStyle: 'italic' }}>{p.name_en}</div>}
+                            </div>
+                          </div>
                         </td>
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ background: S.card2, borderRadius: 20, padding: '3px 10px', fontSize: 11, color: S.muted }}>
@@ -1878,16 +1940,45 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
         </div>
       )}
 
+      {/* ✅ جديد: عرض صورة المنتج بالحجم الكامل */}
+      {viewImage && (
+        <div onClick={() => setViewImage(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
+          <img src={viewImage} alt="product" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12, background: '#fff' }} />
+        </div>
+      )}
+
       {/* ══ Product Detail Modal ══ */}
       {selectedProduct && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 480, padding: 28 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+          <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, padding: 28, margin: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h3 style={{ color: S.gold, fontSize: 18, fontWeight: 700 }}>{selectedProduct.name}</h3>
                 {selectedProduct.name_en && <p style={{ fontSize: 13, color: S.muted, fontStyle: 'italic' }}>{selectedProduct.name_en}</p>}
               </div>
               <button onClick={() => setSelectedProduct(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            {/* ✅ جديد: صورة المنتج بحجم واضح (الضغط عليها يفتحها بالحجم الكامل) + رفع/تغيير/حذف */}
+            <div style={{ marginBottom: 16 }}>
+              {selectedProduct.image_url ? (
+                <div style={{ background: '#fff', borderRadius: 14, border: `1px solid ${S.border}`, overflow: 'hidden', textAlign: 'center' }}>
+                  <img src={selectedProduct.image_url} alt={selectedProduct.name} onClick={() => setViewImage(selectedProduct.image_url!)}
+                    style={{ maxWidth: '100%', maxHeight: 280, objectFit: 'contain', cursor: 'zoom-in', display: 'block', margin: '0 auto' }} />
+                </div>
+              ) : (
+                <div style={{ border: `1px dashed ${S.border}`, borderRadius: 14, padding: '22px 12px', textAlign: 'center', color: S.muted, fontSize: 13 }}>📷 لا توجد صورة لهذا المنتج</div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <label style={{ flex: 1, padding: '8px 12px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                  {uploadingImg ? '⏳ جاري الرفع...' : selectedProduct.image_url ? '🔄 تغيير الصورة' : '📷 إضافة صورة'}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} disabled={uploadingImg}
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadProductImage(selectedProduct, f) }} />
+                </label>
+                {selectedProduct.image_url && (
+                  <button onClick={() => removeProductImage(selectedProduct)} style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>🗑️ حذف</button>
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
@@ -1903,6 +1994,55 @@ ${items.map(p=>`<tr><td><b>${p.name}</b></td><td style="direction:ltr;text-align
                   <span style={{ fontSize: 13, fontWeight: 700, color: row.color || S.white }}>{row.value}</span>
                 </div>
               ))}
+              {/* ✅ جديد: تاريخ مشتريات المنتج لمقارنة الأسعار — كل عملية شراء: التاريخ، المورد، الكمية، سعر الوحدة، والتغيّر عن آخر شراء بنفس الوحدة */}
+              {(() => {
+                const rows = priceHistory && priceHistory.id === selectedProduct.id ? priceHistory.rows : null
+                const priced = (rows || []).filter(r => r.unit_price > 0)
+                // 🏆 على أرخص سعر بس لو الأسعار فعلًا اتغيّرت (لو كلها نفس السعر مفيش داعي نعلّم الكل)
+                const minRaw = priced.length > 1 ? Math.min(...priced.map(r => r.unit_price)) : null
+                const minPrice = minRaw !== null && priced.some(r => r.unit_price !== minRaw) ? minRaw : null
+                return (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 8 }}>📈 تاريخ الشراء ومقارنة الأسعار</div>
+                    {rows === null ? (
+                      <div style={{ fontSize: 12, color: S.muted, textAlign: 'center', padding: 12 }}>⏳ جاري التحميل...</div>
+                    ) : rows.length === 0 ? (
+                      <div style={{ fontSize: 12, color: S.muted, textAlign: 'center', padding: 12 }}>لا توجد عمليات شراء مسجّلة لهذا المنتج</div>
+                    ) : (
+                      <div style={{ overflowX: 'auto', border: `1px solid ${S.border}`, borderRadius: 10 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 460 }}>
+                          <thead>
+                            <tr style={{ background: S.navy3 }}>
+                              {['التاريخ', 'المورد', 'الكمية', 'سعر الوحدة', 'التغيّر'].map(h => (
+                                <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r, i) => {
+                              // التغيّر مقارنة بأقرب عملية شراء أقدم لنفس الوحدة (صندوق مقابل عبوة مثلًا مايتقارنوش)
+                              const prev = rows.slice(i + 1).find(x => x.unit_id === r.unit_id && x.unit_price > 0)
+                              const delta = prev && r.unit_price > 0 ? ((r.unit_price - prev.unit_price) / prev.unit_price) * 100 : null
+                              const isMin = minPrice !== null && r.unit_price === minPrice
+                              return (
+                                <tr key={r.id} style={{ borderBottom: `1px solid ${S.border}`, background: isMin ? 'rgba(34,197,94,0.07)' : undefined }}>
+                                  <td style={{ padding: '8px 10px', fontSize: 12, color: S.white, whiteSpace: 'nowrap' }}>{r.purchase_invoices?.invoice_date || '—'}</td>
+                                  <td style={{ padding: '8px 10px', fontSize: 12, color: S.muted }}>{r.purchase_invoices?.warehouse_suppliers?.name || '—'}</td>
+                                  <td style={{ padding: '8px 10px', fontSize: 12, color: S.white, whiteSpace: 'nowrap' }}>{fmtQty(r.quantity)} <span style={{ color: S.muted }}>{r.units?.symbol || ''}</span></td>
+                                  <td style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: S.gold, whiteSpace: 'nowrap' }}>{r.unit_price > 0 ? `${r.unit_price} MYR` : '—'}{isMin && <span title="أرخص سعر شراء" style={{ marginRight: 4 }}>🏆</span>}</td>
+                                  <td style={{ padding: '8px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: delta === null ? S.muted : delta > 0 ? S.red : delta < 0 ? S.green : S.muted }}>
+                                    {delta === null ? '—' : delta === 0 ? '＝' : `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(1)}%`}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
               <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 8 }}>آخر الحركات</div>
                 {movements.filter(m => m.warehouse_products?.name === selectedProduct.name).slice(0, 5).map(m => (

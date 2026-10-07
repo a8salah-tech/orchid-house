@@ -128,7 +128,7 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
 }
 
 // ══ Assign Monthly Modal ══
-function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initialMonth, initialYear, canEditPastDays, normalOnly }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null; initialMonth?: number; initialYear?: number; canEditPastDays?: boolean; normalOnly?: boolean }) {
+function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initialMonth, initialYear, canEditPastDays }: { employees: any[]; shifts: any[]; onClose: () => void; onSaved: () => void; initialEmpId?: string | null; initialMonth?: number; initialYear?: number; canEditPastDays?: boolean }) {
   const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
   // ✅ هوية المستخدم الحالي — لازمة لتسجيل "مين عمل التغيير" في كل حفظ (assigned_by كان دايماً فاضياً من قبل)
   const { employee: currentUser } = useAuth()
@@ -293,8 +293,6 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   function applyBulk() {
     if (selectedDates.size === 0) { alert('اختر أيام أولاً'); return }
     if (bulkType === 'shift' && !bulkShift) { alert('اختر الشيفت'); return }
-    // ✅ مساعد مدير الصالة: شيفتات عادية فقط (من قائمة الشيفتات) أو مسح يوم — لا وقت مخصص ولا إجازات
-    if (normalOnly && (bulkType === 'custom' || bulkType === 'leave')) { alert('غير مسموح لك بتعيين هذا النوع — الشيفتات العادية فقط'); return }
     if (bulkType === 'custom' && (!customStart || !customEnd)) { alert('أدخل وقت البداية والنهاية'); return }
     setCalendarMap(prev => {
       const next = { ...prev }
@@ -346,7 +344,6 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   function applyEditDay(type: string, shiftId?: string, cs?: string, ce?: string) {
     if (!editDay) return
     if (isPastDate(editDay)) return // ✅ حماية أخيرة — لن يحدث عادةً لأن نافذة التعديل أصلاً لا تُفتح ليوم ماضٍ
-    if (normalOnly && (type === 'custom' || type === 'leave')) return
     setCalendarMap(prev => {
       const next = { ...prev }
       if (type === 'off') delete next[editDay]
@@ -486,7 +483,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               { key: 'custom', label: '🕐 وقت مخصص', color: S.purple, bg: S.purpleB },
               { key: 'leave', label: '🏖️ إجازة', color: S.amber, bg: S.amberB },
               { key: 'off', label: '❌ مسح', color: S.red, bg: S.redB },
-            ].filter(t => !(normalOnly && (t.key === 'custom' || t.key === 'leave'))).map(t => (
+            ].map(t => (
               <button key={t.key} onClick={() => setBulkType(t.key as any)}
                 style={{ padding: isMobile ? '6px 11px' : '7px 16px', borderRadius: 8, border: `2px solid ${bulkType === t.key ? t.color : S.border}`, background: bulkType === t.key ? t.bg : 'transparent', color: bulkType === t.key ? t.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 {t.label}
@@ -553,14 +550,14 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
                   {s.name}
                 </button>
               ))}
-              {!normalOnly && <button onClick={() => applyEditDay('custom', undefined, customStart, customEnd)}
+              <button onClick={() => applyEditDay('custom', undefined, customStart, customEnd)}
                 style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 🕐 {customStart}—{customEnd}
-              </button>}
-              {!normalOnly && <button onClick={() => applyEditDay('leave')}
+              </button>
+              <button onClick={() => applyEditDay('leave')}
                 style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 🏖️ إجازة
-              </button>}
+              </button>
               <button onClick={() => applyEditDay('off')}
                 style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 ❌ مسح
@@ -790,17 +787,17 @@ export default function ShiftsPage() {
   // ✅ الوصول لهذه الصفحة الآن محصور صراحةً في: مدير النظام، مدير الفرع، مدير القسم (+مساعد مدير
   // المطبخ)، والمشرف العام (عرض فقط) — لا يوجد أي مسار آخر، حتى لو مُنح موظف آخر صلاحية
   // "assign_shifts" يدويًا من صفحة إدارة الصلاحيات، الصفحة لا تظهر له إطلاقًا
-  // ✅ مساعد مدير الصالة: يعدّل جدول الشيفتات (الشيفتات العادية فقط) لموظفي الصالة في فرعه — بدون إنشاء/تعديل أنواع الشيفتات
-  // نفسها ولا الإجازات ولا الوقت المخصص ولا اعتماد طلبات التغيير (isManager فقط)
+  // ✅ مساعد مدير الصالة: صلاحيات مدير الصالة كاملة داخل صفحة الشيفتات فقط (تعيين/تعديل الشيفتات، إنشاء وتعديل أنواع
+  // الشيفتات، الوقت المخصص والإجازات، واعتماد/رفض طلبات التغيير) لموظفي الصالة في فرعه — ولا يرث شيئًا خارج هذه الصفحة
   const isHallAssistant = employee?.role === HALL_ASSISTANT_ROLE
-  const canAssignShifts = isAdmin || isBranchManager || isDeptManager || isHallAssistant
-  const isManager = isAdmin || isBranchManager || isDeptManager
+  const isManager = isAdmin || isBranchManager || isDeptManager || isHallAssistant
+  const canAssignShifts = isManager
   // ✅ المشرف العام يشوف جدول فرعه (كل الأقسام) للعرض فقط - بلا أي صلاحية تعيين/تعديل شيفتات
   const isBranchViewer = employee?.role === 'general_supervisor'
   // ✅ مشرفو الأقسام (مطبخ/صالة/بار): يشوفون جدول قسمهم في فرعهم للعرض فقط — بلا أي تعيين/تعديل/اعتماد
   const isDeptViewer = DEPT_SUPERVISOR_ROLES.includes(employee?.role||'')
   const isViewOnly = isBranchViewer || isDeptViewer
-  const isEmployee = !isManager && !isHallAssistant && !isViewOnly
+  const isEmployee = !isManager && !isViewOnly
 
   // ── منع الوصول لغير المصرح لهم ──
   if (employee && !canAssignShifts && !isViewOnly) {
@@ -1069,9 +1066,6 @@ export default function ShiftsPage() {
     {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
     {key:'shifts_list',label:'الشيفتات',icon:'⏰'},
     {key:'requests',label:'طلبات التغيير',icon:'🔄',badge:requests.length},
-  ] : isHallAssistant ? [
-    {key:'schedule',label:'جدول الصالة',icon:'📅'},
-    {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
   ] : isViewOnly ? [
     // ✅ المشرف العام (فرعه) ومشرف القسم (قسمه): عرض فقط - بلا تاب "طلبات" (ده مش عرض، ده اعتماد/رفض)
     {key:'schedule',label:isDeptViewer?'جدول قسمي':'جدول فرعي',icon:'📅'},
@@ -1104,7 +1098,7 @@ export default function ShiftsPage() {
             <>
               {isManager&&<button onClick={()=>setShowAddShift(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.purple}`,background:S.purpleB,color:S.purple,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>⏰ شيفت جديد</button>}
               {/* المشرف العام ضمن !isEmployee لكنه عرض فقط - زرار التعيين (كتابة فعلية) يظهر فقط لمدير/مدير فرع/مدير قسم */}
-              {(isManager||isHallAssistant)&&<button onClick={()=>setShowAssign(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>📅 تعيين جدول شهري</button>}
+              {isManager&&<button onClick={()=>setShowAssign(true)} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.gold}`,background:S.gold3,color:S.gold,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>📅 تعيين جدول شهري</button>}
               <button onClick={printSchedule} style={{padding:'10px 18px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>🖨️ طباعة</button>
             </>
           )}
@@ -1514,7 +1508,7 @@ export default function ShiftsPage() {
       {(showAddShift||editShift)&&<ShiftModal shift={editShift} onClose={()=>{setShowAddShift(false);setEditShift(null)}} onSaved={()=>{setShowAddShift(false);setEditShift(null);refresh()}} />}
       {/* ✅ تعديل الأيام الماضية مقصور على الأدمن فقط — مدير القسم/الفرع يقدر يعدّل الأيام القادمة بس، والأيام
           السابقة تظهر مقفولة (🔒). كان قبل كده متاحًا لأي مدير (isManager). */}
-      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} initialMonth={viewMonth} initialYear={viewYear} canEditPastDays={isAdmin} normalOnly={isHallAssistant} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
+      {showAssign&&<AssignModal employees={employees} shifts={shifts} initialEmpId={assignEmpId} initialMonth={viewMonth} initialYear={viewYear} canEditPastDays={isAdmin} onClose={()=>{setShowAssign(false);setAssignEmpId(null)}} onSaved={()=>{setShowAssign(false);setAssignEmpId(null);refresh()}} />}
       {showRequest&&employee?.id&&<RequestModal shifts={shifts} employeeId={employee.id} onClose={()=>setShowRequest(false)} onSaved={()=>{setShowRequest(false);refresh()}} />}
     </div>
   )

@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @next/next/no-img-element -- صور الإيصالات روابط Supabase Storage عامة بأحجام متفاوتة، next/image مش مناسب هنا */
 
 
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -29,6 +30,8 @@ type Booking = {
   branch_id: string | null
   // ✅ جديد: العربون — يُدخله الموظف هنا فقط (لا يوجد حقل عربون في نموذج حجز العميل نفسه)
   deposit_amount: number | null
+  // ✅ جديد: صورة إيصال/إثبات العربون — اختيارية (db/bookings_deposit_image.sql)
+  deposit_image_url?: string | null
 }
 
 // ✅ جديد: أيام مُغلقة للحجز لكل فرع — مدير النظام فقط يقدر يضيف/يحذف
@@ -51,12 +54,13 @@ const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: 
 
 // ✅ جديد: نفس جدول الحجوزات، مستخدَم لكل مجموعة (اليوم/غدًا/...) ولجدول الأرشيف، بدل تكرار نفس الكود.
 // مكوّن مستقل خارج BookingsPage (مش دالة معرّفة جوه الـrender) عشان مايتعادش إنشاؤه كل مرة
-function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdateDeposit, onRowClick }: {
+function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdateDeposit, onRowClick, onViewImage }: {
   rows: Booking[]; branches: { id: string; name: string }[]
   onUpdateTable: (id: string, table_number: number | null) => void
   onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled') => void
   onUpdateDeposit: (id: string, deposit_amount: number | null) => void
   onRowClick: (b: Booking) => void
+  onViewImage: (url: string) => void
 }) {
   return (
     <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
@@ -92,9 +96,15 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
                       onChange={e => onUpdateTable(b.id, parseInt(e.target.value) || null)} />
                   </td>
                   <td style={{ padding: '8px 14px' }} onClick={e => e.stopPropagation()}>
-                    <input type="number" style={{ ...inp, width: 90, fontSize: 12, padding: '5px 8px' }}
-                      placeholder="MYR —" value={b.deposit_amount ?? ''} min={0} step={0.01}
-                      onChange={e => onUpdateDeposit(b.id, e.target.value === '' ? null : parseFloat(e.target.value))} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="number" style={{ ...inp, width: 90, fontSize: 12, padding: '5px 8px' }}
+                        placeholder="MYR —" value={b.deposit_amount ?? ''} min={0} step={0.01}
+                        onChange={e => onUpdateDeposit(b.id, e.target.value === '' ? null : parseFloat(e.target.value))} />
+                      {b.deposit_image_url && (
+                        <img src={b.deposit_image_url} alt="deposit receipt" title="Deposit receipt — click to view" onClick={() => onViewImage(b.deposit_image_url!)}
+                          style={{ width: 30, height: 30, objectFit: 'cover', borderRadius: 6, border: `1px solid ${S.gold}`, cursor: 'zoom-in', flexShrink: 0 }} />
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: '12px 14px', color: S.muted, fontSize: 12, maxWidth: 150 }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.notes || '—'}</div>
@@ -145,6 +155,9 @@ export default function BookingsPage() {
   const [page, setPage] = useState(0)
   // ✅ جديد: الحجز اللي تم الضغط عليه — يظهر في نافذة التفاصيل الكاملة
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null)
+  // ✅ جديد: رفع صورة إثبات العربون + عرضها بالحجم الكامل
+  const [uploadingDeposit, setUploadingDeposit] = useState<string | null>(null)
+  const [viewImage, setViewImage] = useState<string | null>(null)
   // ✅ جديد: الأيام المُغلقة للحجز + نافذة إدارتها (أدمن فقط)
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
   const [showClosedDaysModal, setShowClosedDaysModal] = useState(false)
@@ -219,6 +232,30 @@ export default function BookingsPage() {
     fetchBookings()
   }
 
+  // ✅ جديد: رفع صورة إثبات العربون لحجز — في نفس bucket "employees" المستخدم في باقي صور اللوحة، وبعدها نحفظ الرابط في الحجز
+  async function uploadDepositImage(id: string, file: File) {
+    if (!file.type.startsWith('image/')) { alert('اختر ملف صورة فقط'); return }
+    if (file.size > 10 * 1024 * 1024) { alert('حجم الصورة أكبر من 10MB'); return }
+    setUploadingDeposit(id)
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    const { data: up, error: upErr } = await sb.storage.from('employees').upload(`booking-deposits/${id}-${Date.now()}.${ext}`, file, { contentType: file.type })
+    if (upErr || !up) { setUploadingDeposit(null); alert('فشل رفع الصورة: ' + (upErr?.message || 'unknown')); return }
+    const url = sb.storage.from('employees').getPublicUrl(up.path).data.publicUrl
+    const { error } = await sb.from('bookings').update({ deposit_image_url: url }).eq('id', id)
+    setUploadingDeposit(null)
+    if (error) { alert('فشل حفظ الصورة: ' + error.message + ' — تأكد من تشغيل db/bookings_deposit_image.sql'); return }
+    setDetailBooking(p => p && p.id === id ? { ...p, deposit_image_url: url } : p)
+    fetchBookings()
+  }
+
+  async function removeDepositImage(id: string) {
+    if (!confirm('هل تريد حذف صورة العربون من هذا الحجز؟')) return
+    const { error } = await sb.from('bookings').update({ deposit_image_url: null }).eq('id', id)
+    if (error) { alert('خطأ: ' + error.message); return }
+    setDetailBooking(p => p && p.id === id ? { ...p, deposit_image_url: null } : p)
+    fetchBookings()
+  }
+
   // ✅ نفس updateTable/updateStatus/updateDeposit، لكن بتحدّث كمان نسخة نافذة التفاصيل المفتوحة أول بأول (مش بس القائمة بعد إعادة الجلب)
   function updateTableAndDetail(id: string, table_number: number | null) {
     updateTable(id, table_number)
@@ -234,9 +271,10 @@ export default function BookingsPage() {
   }
 
   // ✅ جديد: تاريخ اليوم بصيغة قابلة للمقارنة، لتحديد الأرشيف
-  const todayStr = new Date().toISOString().split('T')[0]
+  // ✅ Fix: "اليوم" بتوقيت ماليزيا (UTC+8) مش UTC — وإلا بين 12 منتصف الليل و8 صباحًا يُحسب "أمس" ويدخل حجز اليوم في الأرشيف
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
   // ✅ جديد: حدود التجميع (اليوم / غدًا / هذا الأسبوع / لاحقًا) لعرض احترافي بدل جدول واحد طويل
-  const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().split('T')[0] }
+  const addDays = (n: number) => { const d = new Date(todayStr + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().split('T')[0] }
   const tomorrowStr = addDays(1)
   const weekEndStr = addDays(7)
   const sortByWhen = (a: Booking, b: Booking) => a.booking_date === b.booking_date ? a.booking_time.localeCompare(b.booking_time) : a.booking_date.localeCompare(b.booking_date)
@@ -246,8 +284,9 @@ export default function BookingsPage() {
     const matchDate = !dateFilter || b.booking_date === dateFilter
     const matchSearch = !search || b.customer_name.toLowerCase().includes(search.toLowerCase()) || b.customer_phone.includes(search) || b.customer_email.toLowerCase().includes(search.toLowerCase())
     const matchBranch = !branchFilter || b.branch_id === branchFilter
-    // ✅ جديد: الأرشيف = تاريخ الحجز فات. النشطة = اليوم فما بعد
-    const matchArchive = showArchive ? b.booking_date < todayStr : b.booking_date >= todayStr
+    // ✅ Fix: لما يتحدد تاريخ معيّن من التقويم، نعرض حجوزات اليوم ده بالظبط سواء فات أو لسه — كان فلتر "النشطة/القادمة"
+    // بيستبعد أي تاريخ سابق فيرجّع نتيجة فاضية رغم إن الحجوزات موجودة. بدون تاريخ محدد: الأرشيف = فات، النشطة = اليوم فما بعد
+    const matchArchive = dateFilter ? true : (showArchive ? b.booking_date < todayStr : b.booking_date >= todayStr)
     return matchStatus && matchDate && matchSearch && matchBranch && matchArchive
   })
 
@@ -268,7 +307,7 @@ export default function BookingsPage() {
   // ✅ جديد: في تاب "النشطة/القادمة" نعرض الحجوزات مقسّمة لمجموعات (اليوم، غدًا، هذا الأسبوع، لاحقًا)
   // بدل جدول واحد طويل — كل مجموعة مرتبة بترتيب زمني تصاعدي (الأقرب أولًا)، وتُخفى لو فاضية.
   // الأرشيف يفضل جدول واحد بترقيم صفحات عادي، لأنه أكبر حجمًا وتاريخي بطبيعته
-  const groups = showArchive ? null : [
+  const groups = (showArchive || dateFilter) ? null : [
     { key: 'today', label: '📌 Today', rows: filtered.filter(b => b.booking_date === todayStr).sort(sortByWhen) },
     { key: 'tomorrow', label: '🔜 Tomorrow', rows: filtered.filter(b => b.booking_date === tomorrowStr).sort(sortByWhen) },
     { key: 'week', label: '📆 This Week', rows: filtered.filter(b => b.booking_date > tomorrowStr && b.booking_date <= weekEndStr).sort(sortByWhen) },
@@ -446,7 +485,10 @@ export default function BookingsPage() {
         {dateFilter && <button onClick={() => setDateFilter('')} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ Clear</button>}
       </div>
 
-      <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>{filtered.length} booking{filtered.length !== 1 ? 's' : ''} found</div>
+      <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>
+        {filtered.length} booking{filtered.length !== 1 ? 's' : ''} found
+        {dateFilter && <span style={{ color: S.gold }}> · 📅 all bookings on {new Date(dateFilter).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })} (Active/Archive toggle ignored while a date is selected)</span>}
+      </div>
 
       {/* Table */}
       {loading ? (
@@ -465,13 +507,13 @@ export default function BookingsPage() {
                 <h2 style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{g.label}</h2>
                 <span style={{ fontSize: 11, fontWeight: 700, color: S.gold, background: S.gold3, borderRadius: 20, padding: '2px 10px' }}>{g.rows.length}</span>
               </div>
-              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} />
+              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} />
             </div>
           ))}
         </div>
       ) : (
         <>
-          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} />
+          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} />
 
           {/* ✅ تصفح الصفحات - 20 حجز في كل صفحة (للأرشيف فقط، النشطة/القادمة مقسّمة بالمجموعات) */}
           {totalPages > 1 && (
@@ -488,6 +530,13 @@ export default function BookingsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ✅ جديد: عرض صورة العربون بالحجم الكامل */}
+      {viewImage && (
+        <div onClick={() => setViewImage(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.9)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
+          <img src={viewImage} alt="deposit receipt" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12 }} />
+        </div>
       )}
 
       {/* ✅ جديد: نافذة تفاصيل الحجز الكاملة — تظهر عند الضغط على أي صف في الجدول */}
@@ -538,6 +587,31 @@ export default function BookingsPage() {
                   <input type="number" style={{ ...inp, width: '100%' }} placeholder="Not recorded" value={b.deposit_amount ?? ''} min={0} step={0.01}
                     onChange={e => updateDepositAndDetail(b.id, e.target.value === '' ? null : parseFloat(e.target.value))} />
                 </div>
+              </div>
+
+              {/* ✅ جديد: صورة إثبات العربون (اختيارية) */}
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🧾 Deposit receipt (optional)</div>
+                {b.deposit_image_url ? (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: 'rgba(255,255,255,.03)', borderRadius: 12, padding: 10 }}>
+                    <img src={b.deposit_image_url} alt="deposit receipt" onClick={() => setViewImage(b.deposit_image_url!)}
+                      style={{ width: 92, height: 92, objectFit: 'cover', borderRadius: 10, border: `1px solid ${S.gold}`, cursor: 'zoom-in' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <label style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                        {uploadingDeposit === b.id ? '⏳ Uploading...' : '🔄 Replace'}
+                        <input type="file" accept="image/*" style={{ display: 'none' }} disabled={uploadingDeposit === b.id}
+                          onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadDepositImage(b.id, f) }} />
+                      </label>
+                      <button onClick={() => removeDepositImage(b.id)} style={{ padding: '7px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>🗑️ Remove</button>
+                    </div>
+                  </div>
+                ) : (
+                  <label style={{ display: 'block', padding: '12px', borderRadius: 12, border: `1px dashed ${S.border}`, color: S.muted, cursor: 'pointer', fontSize: 12.5, textAlign: 'center' }}>
+                    {uploadingDeposit === b.id ? '⏳ Uploading...' : '📎 Attach deposit receipt (photo)'}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={uploadingDeposit === b.id}
+                      onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadDepositImage(b.id, f) }} />
+                  </label>
+                )}
               </div>
 
               {b.notes && (

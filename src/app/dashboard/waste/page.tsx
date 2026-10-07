@@ -84,7 +84,8 @@ export default function WastePage() {
 
   const role = employee?.role || ''
   const isAdmin = role === 'admin' || (employee as any)?.permissions?.all === true
-  const canRecord = isAdmin || [...DEPT_MANAGER_ROLES,...DEPT_SUPERVISOR_ROLES,'branch_manager','warehouse_keeper'].includes(role)
+  // ✅ المشرف العام يقدر يسجّل هدر كمان (لفرعه، وأي قسم من قايمة الأقسام) — بدون صلاحية اعتماد؛ الاعتماد لحاله للأدمن/مدير الفرع/مدير القسم
+  const canRecord = isAdmin || [...DEPT_MANAGER_ROLES,...DEPT_SUPERVISOR_ROLES,'branch_manager','warehouse_keeper','general_supervisor'].includes(role)
   const isBranchManager = role === 'branch_manager'
   const isDeptManager   = DEPT_MANAGER_ROLES.includes(role)
   const isSupervisor    = DEPT_SUPERVISOR_ROLES.includes(role)

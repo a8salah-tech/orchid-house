@@ -32,6 +32,8 @@ type Booking = {
   deposit_amount: number | null
   // ✅ جديد: صورة إيصال/إثبات العربون — اختيارية (db/bookings_deposit_image.sql)
   deposit_image_url?: string | null
+  // ✅ جديد: سبب الإلغاء (إجباري عند الإلغاء) + من ألغى ومتى — db/bookings_cancel_reason.sql
+  cancel_reason?: string | null; cancelled_by_name?: string | null; cancelled_at?: string | null
 }
 
 // ✅ جديد: أيام مُغلقة للحجز لكل فرع — مدير النظام فقط يقدر يضيف/يحذف
@@ -54,13 +56,14 @@ const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: 
 
 // ✅ جديد: نفس جدول الحجوزات، مستخدَم لكل مجموعة (اليوم/غدًا/...) ولجدول الأرشيف، بدل تكرار نفس الكود.
 // مكوّن مستقل خارج BookingsPage (مش دالة معرّفة جوه الـrender) عشان مايتعادش إنشاؤه كل مرة
-function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdateDeposit, onRowClick, onViewImage }: {
+function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdateDeposit, onRowClick, onViewImage, onRequestCancel }: {
   rows: Booking[]; branches: { id: string; name: string }[]
   onUpdateTable: (id: string, table_number: number | null) => void
   onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled') => void
   onUpdateDeposit: (id: string, deposit_amount: number | null) => void
   onRowClick: (b: Booking) => void
   onViewImage: (url: string) => void
+  onRequestCancel: (b: Booking) => void
 }) {
   return (
     <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
@@ -76,8 +79,11 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
           <tbody>
             {rows.map(b => {
               const st = STATUS_CFG[b.status]
+              // ✅ جديد: الحجز اللي عليه عربون يتميّز بلون مختلف للسطر كله (خلفية ذهبية + شريط جانبي)
+              const hasDeposit = (b.deposit_amount || 0) > 0 && b.status !== 'cancelled'
               return (
-                <tr key={b.id} onClick={() => onRowClick(b)} style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer' }}>
+                <tr key={b.id} onClick={() => onRowClick(b)}
+                  style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer', background: hasDeposit ? 'rgba(201,168,76,0.14)' : undefined, boxShadow: hasDeposit ? `inset 4px 0 0 ${S.gold}` : undefined, opacity: b.status === 'cancelled' ? 0.75 : 1 }}>
                   <td style={{ padding: '12px 14px' }}>
                     <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{b.customer_name}</div>
                     <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
@@ -111,6 +117,11 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
                   </td>
                   <td style={{ padding: '12px 14px' }}>
                     <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 10px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
+                    {b.status === 'cancelled' && (
+                      <div title={b.cancel_reason || ''} style={{ marginTop: 4, fontSize: 10.5, color: S.red, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.cancel_reason ? `❌ ${b.cancel_reason}` : '❌ no reason recorded'}
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '8px 14px' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -118,7 +129,7 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
                         <button onClick={() => onUpdateStatus(b.id, 'confirmed')} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✓</button>
                       )}
                       {b.status !== 'cancelled' && (
-                        <button onClick={() => onUpdateStatus(b.id, 'cancelled')} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✕</button>
+                        <button onClick={() => onRequestCancel(b)} style={{ padding: '5px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✕</button>
                       )}
                     </div>
                   </td>
@@ -130,6 +141,49 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
       </div>
     </div>
   )
+}
+
+// ✅ جديد: إحصائية كل يوم — عدد الحجوزات والعملاء (مجموع guests) في كل قسم لنفس اليوم، بدون الحجوزات الملغاة
+function DayHeader({ date, rows }: { date: string; rows: Booking[] }) {
+  const active = rows.filter(b => b.status !== 'cancelled')
+  const sections = Array.from(new Set([...Object.keys(SECTION_LABELS), ...active.map(b => b.section)]))
+  const per = sections.map(k => {
+    const r = active.filter(b => b.section === k)
+    return { key: k, bookings: r.length, guests: r.reduce((sum, b) => sum + (b.guests || 0), 0) }
+  }).filter(x => x.bookings > 0 || SECTION_LABELS[x.key])
+  const totalGuests = active.reduce((sum, b) => sum + (b.guests || 0), 0)
+  const cancelled = rows.length - active.length
+  const withDeposit = active.filter(b => (b.deposit_amount || 0) > 0).length
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8, background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: '10px 14px' }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: S.white }}>
+        📅 {new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+        {per.map(x => (
+          <span key={x.key} style={{ background: x.guests > 0 ? S.blueB : 'transparent', border: `1px solid ${x.guests > 0 ? S.blue + '55' : S.border}`, color: x.guests > 0 ? S.white : S.muted, borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>
+            {SECTION_LABELS[x.key] || x.key} · <b style={{ color: x.guests > 0 ? S.gold : S.muted }}>{x.guests}</b> guest{x.guests === 1 ? '' : 's'} <span style={{ color: S.muted, fontWeight: 400 }}>({x.bookings})</span>
+          </span>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: S.muted, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ color: S.gold, fontWeight: 800 }}>👥 {totalGuests} total</span>
+        {withDeposit > 0 && <span>💰 {withDeposit} with deposit</span>}
+        {cancelled > 0 && <span style={{ color: S.red }}>❌ {cancelled} cancelled</span>}
+      </div>
+    </div>
+  )
+}
+
+// تجميع الصفوف حسب التاريخ مع الحفاظ على ترتيبها الحالي
+function groupByDate(rows: Booking[]): [string, Booking[]][] {
+  const out: [string, Booking[]][] = []
+  for (const b of rows) {
+    const last = out[out.length - 1]
+    if (last && last[0] === b.booking_date) last[1].push(b)
+    else out.push([b.booking_date, [b]])
+  }
+  return out
 }
 
 export default function BookingsPage() {
@@ -155,6 +209,10 @@ export default function BookingsPage() {
   const [page, setPage] = useState(0)
   // ✅ جديد: الحجز اللي تم الضغط عليه — يظهر في نافذة التفاصيل الكاملة
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null)
+  // ✅ جديد: الإلغاء يتطلب سبب إجباري (نافذة وسط الشاشة) — يتسجّل مع اسم من ألغى ووقت الإلغاء
+  const [cancelTarget, setCancelTarget] = useState<Booking | null>(null)
+  const [cancelReasonText, setCancelReasonText] = useState('')
+  const [cancelSaving, setCancelSaving] = useState(false)
   // ✅ جديد: رفع صورة إثبات العربون + عرضها بالحجم الكامل
   const [uploadingDeposit, setUploadingDeposit] = useState<string | null>(null)
   const [viewImage, setViewImage] = useState<string | null>(null)
@@ -216,7 +274,29 @@ export default function BookingsPage() {
   }, [sb, fetchBookings])
 
   async function updateStatus(id: string, status: 'confirmed' | 'cancelled') {
-    await sb.from('bookings').update({ status }).eq('id', id)
+    // ✅ لو الحجز كان ملغي وبيتأكّد تاني، نمسح بيانات الإلغاء القديمة (السبب/من ألغى) بدل ما تفضل عالقة عليه
+    const wasCancelled = bookings.find(b => b.id === id)?.status === 'cancelled'
+    const patch = wasCancelled && status === 'confirmed'
+      ? { status, cancel_reason: null, cancelled_by_name: null, cancelled_at: null }
+      : { status }
+    const { error } = await sb.from('bookings').update(patch).eq('id', id)
+    if (error) { alert('خطأ: ' + error.message + (wasCancelled ? ' — تأكد من تشغيل db/bookings_cancel_reason.sql' : '')); return }
+    fetchBookings()
+  }
+
+  function requestCancel(b: Booking) { setCancelTarget(b); setCancelReasonText('') }
+
+  async function confirmCancel() {
+    if (!cancelTarget) return
+    const reason = cancelReasonText.trim()
+    if (reason.length < 3) { alert('اكتب سبب الإلغاء (إجباري)'); return }
+    setCancelSaving(true)
+    const patch = { status: 'cancelled' as const, cancel_reason: reason, cancelled_by_name: employee?.name || null, cancelled_at: new Date().toISOString() }
+    const { error } = await sb.from('bookings').update(patch).eq('id', cancelTarget.id)
+    setCancelSaving(false)
+    if (error) { alert('فشل الإلغاء: ' + error.message + ' — تأكد من تشغيل db/bookings_cancel_reason.sql'); return }
+    setDetailBooking(p => p && p.id === cancelTarget.id ? { ...p, ...patch } : p)
+    setCancelTarget(null); setCancelReasonText('')
     fetchBookings()
   }
 
@@ -507,13 +587,23 @@ export default function BookingsPage() {
                 <h2 style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{g.label}</h2>
                 <span style={{ fontSize: 11, fontWeight: 700, color: S.gold, background: S.gold3, borderRadius: 20, padding: '2px 10px' }}>{g.rows.length}</span>
               </div>
-              <BookingsTable rows={g.rows} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} />
+              {groupByDate(g.rows).map(([date, rs]) => (
+                <div key={date} style={{ marginBottom: 18 }}>
+                  <DayHeader date={date} rows={rs} />
+                  <BookingsTable rows={rs} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} onRequestCancel={requestCancel} />
+                </div>
+              ))}
             </div>
           ))}
         </div>
       ) : (
         <>
-          <BookingsTable rows={paginated} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} />
+          {groupByDate(paginated).map(([date, rs]) => (
+            <div key={date} style={{ marginBottom: 18 }}>
+              <DayHeader date={date} rows={rs} />
+              <BookingsTable rows={rs} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} onRequestCancel={requestCancel} />
+            </div>
+          ))}
 
           {/* ✅ تصفح الصفحات - 20 حجز في كل صفحة (للأرشيف فقط، النشطة/القادمة مقسّمة بالمجموعات) */}
           {totalPages > 1 && (
@@ -530,6 +620,28 @@ export default function BookingsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ✅ جديد: نافذة سبب الإلغاء الإجباري */}
+      {cancelTarget && (
+        <div onClick={() => setCancelTarget(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.red}`, borderRadius: 18, padding: 24, maxWidth: 420, width: '100%' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.white, marginBottom: 4 }}>❌ Cancel booking — {cancelTarget.customer_name}</div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 12 }}>
+              {new Date(cancelTarget.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })} · {cancelTarget.booking_time} · {cancelTarget.guests} guests
+              {(cancelTarget.deposit_amount || 0) > 0 ? ` · 💰 deposit MYR ${cancelTarget.deposit_amount}` : ''}
+            </div>
+            <textarea autoFocus rows={4} value={cancelReasonText} onChange={e => setCancelReasonText(e.target.value)} placeholder="Reason for cancellation (required)..."
+              style={{ ...inp, width: '100%', resize: 'vertical', border: `1px solid ${cancelReasonText.trim().length >= 3 ? S.border : S.red}`, marginBottom: 14 }} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setCancelTarget(null)} style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>Back</button>
+              <button onClick={confirmCancel} disabled={cancelSaving || cancelReasonText.trim().length < 3}
+                style={{ flex: 1, padding: '11px', borderRadius: 12, border: 'none', background: cancelReasonText.trim().length >= 3 ? S.red : S.border, color: cancelReasonText.trim().length >= 3 ? '#fff' : S.muted, cursor: cancelReasonText.trim().length >= 3 ? 'pointer' : 'not-allowed', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: cancelSaving ? 0.7 : 1 }}>
+                {cancelSaving ? '⏳...' : '❌ Confirm cancellation'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ✅ جديد: عرض صورة العربون بالحجم الكامل */}
@@ -556,6 +668,18 @@ export default function BookingsPage() {
         return (
           <div onClick={() => setDetailBooking(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
             <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, padding: 26, maxWidth: 480, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+              {/* ✅ جديد: لو الحجز ملغي، سبب الإلغاء ومن ألغى ومتى — أول شيء يظهر في النافذة */}
+              {b.status === 'cancelled' && (
+                <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: S.red, marginBottom: 4 }}>❌ Booking cancelled</div>
+                  <div style={{ fontSize: 13.5, color: S.white, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{b.cancel_reason || 'No reason was recorded for this cancellation.'}</div>
+                  {(b.cancelled_by_name || b.cancelled_at) && (
+                    <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>
+                      {b.cancelled_by_name ? `By ${b.cancelled_by_name}` : ''}{b.cancelled_by_name && b.cancelled_at ? ' · ' : ''}{b.cancelled_at ? new Date(b.cancelled_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : ''}
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 900, color: S.white }}>{b.customer_name}</div>
@@ -631,7 +755,7 @@ export default function BookingsPage() {
                     style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✓ Confirm</button>
                 )}
                 {b.status !== 'cancelled' && (
-                  <button onClick={() => updateStatusAndDetail(b.id, 'cancelled')}
+                  <button onClick={() => requestCancel(b)}
                     style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✕ Cancel</button>
                 )}
               </div>

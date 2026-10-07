@@ -9,7 +9,7 @@ import { useLang } from '../../../components/LanguageContext'
 // الموظفين عند اعتماد "تصحيح الحضور"، فيبقى مصدر الحقيقة واحدًا لا يختلف حسب مكان الاستدعاء
 import { scheduledShiftMinutes, resolveShiftWindow, computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
 import { biometricSupported, registerBiometric, verifyBiometric } from '../../../../lib/webauthn'
-import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -218,6 +218,23 @@ function MyAttendanceCard() {
         if (shiftStartToday.getTime() > checkoutTime.getTime()) {
           effectiveTodayRecord = null
         }
+      }
+    }
+    // ✅ Fix: الصفحة بتدوّر على صف "تاريخ النهارده" بتوقيت ماليزيا. لكن أكتر من نص التسجيلات (شيفتات بتخلص بعد
+    // 12 بالليل) صف حضورها تاريخه "أمس" — فبعد تسجيل الخروج مباشرة (النهارده بقى تاريخ جديد) الصف المقفول يختفي من
+    // الكارت: مفيش وقت دخول ولا خروج ظاهر، مع إن السجل صح في قاعدة البيانات. هنا لو مفيش صف مفتوح ولا صف للنهارده،
+    // نعرض آخر صف اتقفل خلال آخر 4 ساعات (من الأيام السابقة) — إلا لو الموظف عنده شيفت جديد النهارده يبدأ بعد وقت
+    // خروجه، فنسيبه فاضي زي الأول عشان يقدر يسجّل دخوله
+    if (!effectiveTodayRecord) {
+      const last = (hist.data || [])[0] as AttendanceRecord | undefined
+      if (last?.check_in_time && last?.check_out_time && last.date !== today_date) {
+        const outMs = new Date(last.check_out_time).getTime()
+        const sinceOut = Date.now() - outMs
+        const sch = schToday.data as unknown as { custom_start?: string | null; shifts?: { start_time?: string } | null } | null
+        const startStr = sch?.custom_start || sch?.shifts?.start_time
+        const nextShiftStartMs = startStr ? new Date(`${today_date}T${String(startStr).slice(0, 5)}:00+08:00`).getTime() : null
+        const hasLaterShift = nextShiftStartMs !== null && nextShiftStartMs > outMs
+        if (sinceOut > -CLOCK_SKEW_GRACE_MS && sinceOut < 4 * 60 * 60 * 1000 && !hasLaterShift) effectiveTodayRecord = last
       }
     }
     // لو يوجد شيفت مفتوح (من اليوم أو من يوم سابق)، اعرضه كالحالة الحالية. غير ذلك اعرض صف اليوم (سواء فاضي أو مكتمل)
@@ -916,7 +933,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         // ✅ جديد: مشرف عام - زي مدير الفرع بالظبط (كل الأقسام)، بس بلا صلاحيات الأدمن في هذا الجدول
         if (role === 'branch_manager' || role === 'general_supervisor') q = q.eq('branch_id', branchId)
         else if (role === 'kitchen_manager' || role === 'kitchen_assistant_manager') q = q.eq('branch_id', branchId).in('department', ['المطبخ','البار','الحلويات','Kitchen','Bar','Desserts'])
-        else if (role === 'hall_manager') q = q.eq('branch_id', branchId).in('department', ['الصالة','Hall'])
+        else if (role === 'hall_manager' || role === HALL_ASSISTANT_ROLE) q = q.eq('branch_id', branchId).in('department', ['الصالة','Hall'])
         else if (role === 'bar_manager') q = q.eq('branch_id', branchId).in('department', ['البار','Bar'])
         else if (role === 'kitchen_supervisor') q = q.eq('branch_id', branchId).in('department', ['المطبخ','Kitchen'])
         else if (role === 'hall_supervisor') q = q.eq('branch_id', branchId).in('department', ['الصالة','Hall'])
@@ -2269,7 +2286,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 export default function AttendancePage() {
   const { isAr } = useLang()
   const { employee, permissions } = useAuth()
-  const isManager = permissions?.all === true || ['branch_manager', ...DEPT_MANAGER_ROLES_EXT, ...DEPT_SUPERVISOR_ROLES, 'general_supervisor'].includes(employee?.role || '')
+  const isManager = permissions?.all === true || ['branch_manager', ...DEPT_MANAGER_ROLES_EXT, ...DEPT_SUPERVISOR_ROLES, 'general_supervisor', HALL_ASSISTANT_ROLE].includes(employee?.role || '')
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>

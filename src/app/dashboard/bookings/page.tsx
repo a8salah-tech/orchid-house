@@ -38,6 +38,9 @@ type Booking = {
 
 // ✅ جديد: أيام مُغلقة للحجز لكل فرع — مدير النظام فقط يقدر يضيف/يحذف
 type ClosedDay = { id: string; branch_id: string; closed_date: string; note: string | null }
+// ✅ جديد: سجل تعديلات الحجز — مين عدّل (بالاسم الكامل) وإيه اللي اتغيّر بالظبط (من → إلى)
+type BookingEdit = { id: string; booking_id: string; edited_by_name: string | null; changes: { field: string; from: string; to: string }[]; created_at: string }
+
 // ✅ جديد: قسم مُغلق للحجز في يوم معيّن لفرع معيّن (مثلًا الصالة الداخلية فول) — لا يظهر للعميل في صفحة الحجز
 type ClosedSection = { id: string; branch_id: string; closed_date: string; section: string; note: string | null }
 
@@ -220,18 +223,46 @@ export default function BookingsPage() {
   // ✅ جديد: تعديل بيانات الحجز (التاريخ/الوقت/عدد الأشخاص/القسم) من نافذة التفاصيل — لأي شخص له صلاحية الصفحة
   const [editDraft, setEditDraft] = useState<{ id: string; date: string; time: string; guests: string; section: string } | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
+  // سجل تعديلات الحجز المفتوح (مربوط بـ id الحجز عشان ماتظهرش تعديلات حجز تاني أثناء التحميل)
+  const [editHistory, setEditHistory] = useState<{ id: string; rows: BookingEdit[] } | null>(null)
+  const loadEditHistory = useCallback(async (bookingId: string) => {
+    const { data, error } = await sb.from('booking_edit_log').select('*').eq('booking_id', bookingId).order('created_at', { ascending: false })
+    setEditHistory({ id: bookingId, rows: error ? [] : ((data as BookingEdit[]) || []) })
+  }, [])
+  const openBookingId = detailBooking?.id
+  useEffect(() => {
+    if (!openBookingId) return
+    let cancelled = false
+    sb.from('booking_edit_log').select('*').eq('booking_id', openBookingId).order('created_at', { ascending: false })
+      .then(({ data, error }) => { if (!cancelled) setEditHistory({ id: openBookingId, rows: error ? [] : ((data as BookingEdit[]) || []) }) })
+    return () => { cancelled = true }
+  }, [openBookingId])
   async function saveBookingEdit(b: Booking) {
     const d = editDraft && editDraft.id === b.id ? editDraft : null
     if (!d) return
     const guests = parseInt(d.guests)
     if (!d.date || !d.time || !guests || guests < 1) { alert('اكتب التاريخ والوقت وعدد الأشخاص (1 أو أكثر)'); return }
     const patch = { booking_date: d.date, booking_time: d.time, guests, section: d.section }
+    // ✅ نسجّل بالظبط إيه اللي اتغيّر (من → إلى) عشان يظهر تحت التعديل نفسه مع اسم اللي عدّل
+    const fmtDate = (v: string) => new Date(v).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+    const oldTime = (b.booking_time || '').slice(0, 5)
+    const changes: { field: string; from: string; to: string }[] = []
+    if (d.date !== b.booking_date) changes.push({ field: 'Date', from: fmtDate(b.booking_date), to: fmtDate(d.date) })
+    if (d.time !== oldTime) changes.push({ field: 'Time', from: oldTime, to: d.time })
+    if (guests !== b.guests) changes.push({ field: 'Guests', from: String(b.guests), to: String(guests) })
+    if (d.section !== b.section) changes.push({ field: 'Section', from: SECTION_LABELS[b.section] || b.section, to: SECTION_LABELS[d.section] || d.section })
     setSavingEdit(true)
     const { error } = await sb.from('bookings').update(patch).eq('id', b.id)
+    if (error) { setSavingEdit(false); alert('فشل حفظ التعديل: ' + error.message); return }
+    if (changes.length > 0) {
+      const fullName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'Unknown'
+      const { error: logErr } = await sb.from('booking_edit_log').insert({ booking_id: b.id, edited_by: employee?.id || null, edited_by_name: fullName, changes })
+      if (logErr) alert('تم حفظ التعديل، لكن فشل تسجيله في سجل التعديلات: ' + logErr.message + ' — تأكد من تشغيل db/booking_edit_log.sql')
+    }
     setSavingEdit(false)
-    if (error) { alert('فشل حفظ التعديل: ' + error.message); return }
     setDetailBooking(p => p && p.id === b.id ? { ...p, ...patch } : p)
     setEditDraft(null)
+    loadEditHistory(b.id)
     fetchBookings()
   }
 
@@ -817,6 +848,33 @@ export default function BookingsPage() {
                         <button onClick={() => setEditDraft(null)} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12.5, fontFamily: 'Tajawal, sans-serif' }}>Reset</button>
                       </div>
                     )}
+                  </div>
+                )
+              })()}
+
+              {/* ✅ جديد: سجل التعديلات — كل تعديل بالاسم الكامل لمن عدّل، وتحته التغيير نفسه (من → إلى) */}
+              {(() => {
+                const hist = editHistory && editHistory.id === b.id ? editHistory.rows : null
+                if (!hist || hist.length === 0) return null
+                const icon: Record<string, string> = { Date: '📅', Time: '🕐', Guests: '👥', Section: '📍' }
+                return (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 8, fontWeight: 700 }}>🕘 Edit history ({hist.length})</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {hist.map(h => (
+                        <div key={h.id} style={{ background: 'rgba(255,255,255,.03)', border: `1px solid ${S.border}`, borderRadius: 12, padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>👤 {h.edited_by_name || 'Unknown'}</span>
+                            <span dir="ltr" style={{ fontSize: 11, color: S.muted }}>{new Date(h.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                          </div>
+                          {(h.changes || []).map((c, i) => (
+                            <div key={i} dir="ltr" style={{ fontSize: 12.5, color: S.white, lineHeight: 1.8, textAlign: 'right' }}>
+                              {icon[c.field] || '•'} {c.field}: <span style={{ color: S.red, textDecoration: 'line-through' }}>{c.from}</span> → <span style={{ color: S.green, fontWeight: 700 }}>{c.to}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )
               })()}

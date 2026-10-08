@@ -110,7 +110,14 @@ export async function POST(req: NextRequest) {
         } catch { /* الإشعار اختياري — لا يوقف نجاح الحجز */ }
       }
 
-      return NextResponse.json({ id: data.id })
+      // ✅ رقم الحجز القصير (3 حروف + 3 أرقام) بيتولّد في قاعدة البيانات — بنقراه بشكل منفصل وبأمان: لو العمود لسه
+      // ما اتعملش (db/booking_ref.sql) نرجّع من غيره والعميل يشوف الرقم القديم بدل ما الحجز يفشل
+      let ref: string | null = null
+      try {
+        const { data: r, error: refErr } = await sb.from('bookings').select('booking_ref').eq('id', data.id).maybeSingle()
+        if (!refErr) ref = (r as { booking_ref?: string | null } | null)?.booking_ref || null
+      } catch { /* اختياري */ }
+      return NextResponse.json({ id: data.id, ref })
     }
 
     return NextResponse.json({ error: 'action غير معروف' }, { status: 400 })

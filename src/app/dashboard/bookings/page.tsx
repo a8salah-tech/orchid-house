@@ -24,6 +24,8 @@ const S = {
 
 type Booking = {
   id: string; customer_name: string; customer_email: string; customer_phone: string
+  // ✅ جديد: رقم الحجز القصير (3 حروف + 3 أرقام مثل KDR482) — db/booking_ref.sql
+  booking_ref?: string | null
   booking_date: string; booking_time: string; guests: number
   section: string; table_number: number | null; notes: string | null
   status: 'pending' | 'confirmed' | 'cancelled'; created_at: string
@@ -92,6 +94,7 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
                   <td style={{ padding: '12px 14px' }}>
                     <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{b.customer_name}</div>
                     <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
+                    {b.booking_ref && <div dir="ltr" style={{ display: 'inline-block', marginTop: 3, fontSize: 10.5, fontWeight: 800, letterSpacing: 1.5, color: S.gold, background: S.gold3, borderRadius: 6, padding: '1px 7px' }}>#{b.booking_ref}</div>}
                   </td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}><span dir="ltr" style={{ display: 'inline-block' }}>{b.customer_phone}</span></td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{branches.find(br => br.id === b.branch_id)?.name || '—'}</td>
@@ -450,7 +453,7 @@ export default function BookingsPage() {
   const filtered = bookings.filter(b => {
     const matchStatus = filter === 'all' || b.status === filter
     const matchDate = !dateFilter || b.booking_date === dateFilter
-    const matchSearch = !search || b.customer_name.toLowerCase().includes(search.toLowerCase()) || b.customer_phone.includes(search) || b.customer_email.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = !search || (b.booking_ref || '').toLowerCase().includes(search.toLowerCase().replace('#', '')) || b.customer_name.toLowerCase().includes(search.toLowerCase()) || b.customer_phone.includes(search) || b.customer_email.toLowerCase().includes(search.toLowerCase())
     const matchBranch = !branchFilter || b.branch_id === branchFilter
     // ✅ Fix: لما يتحدد تاريخ معيّن من التقويم، نعرض حجوزات اليوم ده بالظبط سواء فات أو لسه — كان فلتر "النشطة/القادمة"
     // بيستبعد أي تاريخ سابق فيرجّع نتيجة فاضية رغم إن الحجوزات موجودة. بدون تاريخ محدد: الأرشيف = فات، النشطة = اليوم فما بعد
@@ -543,7 +546,7 @@ export default function BookingsPage() {
     const win = window.open('', '_blank')
     if (!win) return
     const branchName = branches.find(br => br.id === b.branch_id)?.name || '—'
-    const bookingRef = b.id.slice(-8).toUpperCase()
+    const bookingRef = b.booking_ref || b.id.slice(-8).toUpperCase()
 
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Booking Card #${bookingRef}</title>
@@ -653,7 +656,7 @@ export default function BookingsPage() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <input style={{ ...inp, flex: 1, minWidth: 200 }} placeholder="🔍 Search name, phone, email..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input style={{ ...inp, flex: 1, minWidth: 200 }} placeholder="🔍 Search name, phone, email, #ref..." value={search} onChange={e => setSearch(e.target.value)} />
         <input type="date" style={{ ...inp, width: 'auto' }} value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
         {dateFilter && <button onClick={() => setDateFilter('')} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ Clear</button>}
       </div>
@@ -776,6 +779,7 @@ export default function BookingsPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 900, color: S.white }}>{b.customer_name}</div>
+                  {b.booking_ref && <div dir="ltr" style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2, color: S.gold, marginTop: 2 }}>#{b.booking_ref}</div>}
                   <span style={{ display: 'inline-block', marginTop: 6, background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
                 </div>
                 <button onClick={() => setDetailBooking(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>

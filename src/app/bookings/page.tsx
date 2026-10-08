@@ -174,6 +174,7 @@ export default function BookingPage() {
     setSubmitting(true)
     // ✅ إنشاء الحجز يمرّ من السيرفر (مفتاح service-role)
     let newId: string | null = null
+    let newRef: string | null = null
     try {
       const res = await fetch('/api/book', {
         method: 'POST',
@@ -196,11 +197,11 @@ export default function BookingPage() {
         }),
       })
       const data = await res.json().catch(() => null)
-      if (res.ok && data?.id) newId = data.id
+      if (res.ok && data?.id) { newId = data.id; newRef = data.ref || null }
     } catch { /* يعالَج أدناه */ }
 
     if (!newId) { setSubmitting(false); alert('Error submitting booking. Please try again.'); return }
-    setBookingRef(newId.slice(-8).toUpperCase())
+    setBookingRef(newRef || newId.slice(-8).toUpperCase())
     setPhase('done')
     setSubmitting(false)
   }

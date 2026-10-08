@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
-import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -930,7 +930,8 @@ export default function InternalWarehouseRequestsPage() {
   // ✅ دور جديد: مدير المستودعات - يشوف ويعالج طلبات كل الفروع مع بعض (زي الأدمن في موضوع رؤية الفروع بس)
   const isWarehouseManager = role === 'warehouse_manager'
   const canSeeAllBranches = isAdmin || isWarehouseManager
-  const canCreate = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, ...SENIOR_ROLES].includes(role)
+  // ✅ مساعد مدير الصالة يقدر يطلب من المستودع الداخلي لقسمه
+  const canCreate = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, ...SENIOR_ROLES, HALL_ASSISTANT_ROLE].includes(role)
 
   // طلبات الفرع النشط (أو كل الفروع لو activeBranch فاضي و admin/مدير المستودعات)
   const branchRequests = activeBranch ? requests.filter(r => r.branch_id === activeBranch) : requests

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
-import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -872,7 +872,7 @@ function ExchangeTab({ employee, branches, sb, isAr, isAdmin }: { employee: any;
   const role = employee?.role || ''
   const myBranchId = employee?.branch_id || ''
   // ✅ Fix: إضافة أمين المستودع ومدير المستودعات لقائمة المسموح لهم بالتبادل بين الفروع
-  const ALLOWED_EX_ROLES = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, 'warehouse_keeper', 'warehouse_manager']
+  const ALLOWED_EX_ROLES = [...SUPERVISOR_ROLES, ...MANAGER_ROLES, HALL_ASSISTANT_ROLE, 'warehouse_keeper', 'warehouse_manager']
 
   // ✅ جديد: قائمة أصناف مستودع الفرع الحالي - لدعم البحث الذكي عند إضافة صنف، بنفس منطق مشتريات السوق
   const [branchProducts, setBranchProducts] = useState<{ id: string; name: string; name_en?: string; unit_symbol?: string }[]>([])
@@ -1462,6 +1462,8 @@ export default function BranchRequestsPage() {
   const isBranchManager = role === 'branch_manager'
   const isDeptManager = MANAGER_ROLES.includes(role)
   const isSupervisor = SUPERVISOR_ROLES.includes(role)
+  // ✅ جديد: مساعد مدير الصالة يشوف طلبات قسمه (الصالة) في فرعه — عرض فقط، بدون إنشاء/اعتماد
+  const isHallAssistant = role === HALL_ASSISTANT_ROLE
   const isWarehouse = role === 'warehouse_keeper'
   // ✅ دور جديد: مدير المستودعات - يشوف طلبات كل الفروع مع بعض (زي الأدمن في موضوع رؤية الفروع بس)
   const isWarehouseManager = role === 'warehouse_manager'
@@ -1492,7 +1494,7 @@ export default function BranchRequestsPage() {
 
   // فلترة إضافية حسب القسم لمديري ومشرفي الأقسام (بعد فلترة الفرع)
   const deptScopedRequests = (() => {
-    if (isDeptManager || isSupervisor) {
+    if (isDeptManager || isSupervisor || isHallAssistant) {
       const myDeptNormalized = normalizeDept(myDept) ||
         (role.includes('kitchen') ? 'المطبخ' : role.includes('hall') ? 'الصالة' : role.includes('bar') ? 'البار' : '')
       return branchRequests.filter(r => normalizeDept(r.department) === myDeptNormalized)
@@ -1606,7 +1608,7 @@ export default function BranchRequestsPage() {
           style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${mainView === 'requests' ? S.gold : S.border}`, background: mainView === 'requests' ? S.gold3 : 'transparent', color: mainView === 'requests' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainView === 'requests' ? 700 : 400 }}>
           📦 {isAr ? 'طلبات الفروع' : 'Branch Requests'}
         </button>
-        {(SUPERVISOR_ROLES.includes(role) || MANAGER_ROLES.includes(role) || ['warehouse_keeper', 'warehouse_manager'].includes(role) || isAdmin) && (
+        {(SUPERVISOR_ROLES.includes(role) || MANAGER_ROLES.includes(role) || role === HALL_ASSISTANT_ROLE || ['warehouse_keeper', 'warehouse_manager'].includes(role) || isAdmin) && (
           <button onClick={() => setMainView('exchange')}
             style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${mainView === 'exchange' ? S.gold : S.border}`, background: mainView === 'exchange' ? S.gold3 : 'transparent', color: mainView === 'exchange' ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: mainView === 'exchange' ? 700 : 400 }}>
             🔄 {isAr ? 'التبادل بين الفروع' : 'Inter-Branch Exchange'}

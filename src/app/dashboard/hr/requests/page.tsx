@@ -76,6 +76,8 @@ interface EmployeeRequest {
   id: string; created_at: string; request_number: number
   employee_id: string; request_type: string; status: string
   title: string; description: string; amount: number
+  // ✅ جديد: المبلغ المعتمد المحفوظ لسلفة الراتب قبل التسليم (db/employee_requests_approved_amount.sql) — amount يبقى المطلوب لحد الاعتماد النهائي
+  approved_amount?: number | null
   start_date: string; end_date: string; days_count: number
   approved_by: string; approved_at: string; rejection_reason: string
   // ✅ جديد: مين بالضبط ضغط "إنشاء" — يفرق عن employee_id (لصالح مين الطلب)، مهم لتصحيح الحضور اللي أدمن بيعمله لموظف تاني
@@ -643,7 +645,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
 ) : (
   <select style={{ ...inp }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
     <option value="">اختر الموظف</option>
-    {employees.map(e => <option key={e.id} value={e.id}>{e.name} — {e.department || e.role}</option>)}
+    {employees.map(e => <option key={e.id} value={e.id}>{e.name}{e.name_en ? ' ' + e.name_en : ''} — {e.department || e.role}</option>)}
   </select>
 )}
           </div>
@@ -824,7 +826,20 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   const [rejectionReason, setRejectionReason] = useState('')
   const [showReject, setShowReject] = useState(false)
   // ✅ سلفة الراتب: المعتمِد يقدر يعتمد مبلغاً أقل من المطلوب — يبدأ بالمبلغ المطلوب وقابل للتعديل
-  const [approvedAmount, setApprovedAmount] = useState(request.amount != null ? String(request.amount) : '')
+  const [approvedAmount, setApprovedAmount] = useState(request.approved_amount != null ? String(request.approved_amount) : request.amount != null ? String(request.amount) : '')
+  // ✅ حفظ المبلغ المعتمد فقط (بدون اعتماد ولا خصم) — يُستكمل الاعتماد لاحقًا عند تسليم السلفة
+  const [savingAmount, setSavingAmount] = useState(false)
+  async function saveApprovedAmount() {
+    const v = parseFloat(approvedAmount)
+    if (!(v > 0)) { alert('يرجى إدخال مبلغ صحيح'); return }
+    if (request.amount && v > request.amount + 0.001) { alert('المبلغ المحفوظ أكبر من المبلغ المطلوب. لا يمكن اعتماد أكثر من المطلوب.'); return }
+    setSavingAmount(true)
+    const { error } = await supabase.from('employee_requests').update({ approved_amount: parseFloat(v.toFixed(2)) }).eq('id', request.id)
+    setSavingAmount(false)
+    if (error) { alert('تعذّر حفظ المبلغ: ' + error.message + (error.message.includes('approved_amount') ? ' — شغّل ملف db/employee_requests_approved_amount.sql أولًا' : '')); return }
+    alert('تم حفظ المبلغ المعتمد MYR ' + v.toFixed(2) + ' — الطلب ما زال بانتظار الاعتماد النهائي عند التسليم')
+    onUpdate()
+  }
   // ✅ الموظف لا يقدر يعتمد/يرفض طلبه الخاص (لأي نوع طلب)
   const isOwnRequest = currentUser?.id === request.employee_id
   // ✅ سلفة الراتب: التأكيد والاعتماد لـ admin فقط - مثل ما هي بالظبط، من غير أي تغيير
@@ -916,6 +931,8 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   }
 
   async function deleteRequest() {
+    // ✅ الحذف لمدير النظام فقط (لكل أنواع الطلبات)
+    if (!isAdmin) { alert('حذف الطلبات لمدير النظام فقط'); return }
     if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return
     // ✅ لو الطلب كان "completed" (أي أن مبلغ السلفة أُضيف بالفعل للرواتب)، لازم نعكس الأثر قبل الحذف النهائي —
     // وإلا يبقى المبلغ عالقاً في الرواتب للأبد رغم اختفاء الطلب نفسه من السجل
@@ -1366,6 +1383,13 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                       <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>
                         المطلوب: MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت في الطلب ويُخصم من الراتب
                       </div>
+                      {request.approved_amount != null && (
+                        <div style={{ fontSize: 11.5, color: S.green, marginBottom: 10 }}>💾 مبلغ محفوظ: MYR {request.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — لم يُعتمد ولم يُخصم بعد</div>
+                      )}
+                      <button onClick={saveApprovedAmount} disabled={savingAmount || updating}
+                        style={{ width: '100%', marginBottom: 8, padding: '9px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                        {savingAmount ? '⏳' : '💾 حفظ المبلغ فقط (بدون اعتماد)'}
+                      </button>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => updateStatus('completed')} disabled={updating}
                           style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
@@ -1472,10 +1496,12 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <button onClick={deleteRequest}
-            style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            🗑️ حذف الطلب
-          </button>
+          {isAdmin ? (
+            <button onClick={deleteRequest}
+              style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              🗑️ حذف الطلب
+            </button>
+          ) : <span />}
           <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
         </div>
       </div>
@@ -1736,12 +1762,24 @@ export default function EmployeeRequestsPage() {
     // ✅ تصحيح الحضور: لمدير النظام فقط — لا يُجلب لأي دور آخر (ولا حتى طلب الموظف نفسه)
     if (!isAdmin) reqQuery = reqQuery.neq('request_type', 'attendance_correction')
 
+    // ✅ Supabase يقطع أي استعلام عند 1000 صف — فنجلب الطلبات على دفعات متتالية لحد ما تخلص، عشان كل الطلبات تظهر
+    const fetchAllRequests = async () => {
+      const PAGE = 1000
+      let all: EmployeeRequest[] = []
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await reqQuery.range(from, from + PAGE - 1)
+        if (error || !data) return { data: all.length ? all : null, error }
+        all = all.concat(data as EmployeeRequest[])
+        if (data.length < PAGE) break
+      }
+      return { data: all, error: null }
+    }
     const [req, emp, br] = await Promise.all([
-      reqQuery,
+      fetchAllRequests(),
       supabase.from('employees').select('id,name,name_en,employee_number,role,department,join_date,branch_id').eq('is_active', true).order('name'),
       supabase.from('branches').select('id,name').order('name'),
     ])
-    setRequests(req.data || [])
+    setRequests((req.data as EmployeeRequest[]) || [])
     setEmployees(emp.data || [])
     setBranches(br.data || [])
     setLoading(false)
@@ -1771,9 +1809,18 @@ export default function EmployeeRequestsPage() {
     const matchStatus = filterStatus === 'all' || r.status === filterStatus
     const matchType = filterType === 'all' || r.request_type === filterType
     const matchEmp = filterEmp === 'all' || r.employee_id === filterEmp
-    const matchSearch = !search || r.employees?.name?.includes(search) || r.employees?.name_en?.toLowerCase().includes(search.toLowerCase()) || r.employees?.employee_number?.includes(search) || String(r.request_number).includes(search)
+    const matchSearch = !search || [r.employees?.name, r.employees?.name_en].filter(Boolean).join(' ').toLowerCase().includes(search.trim().toLowerCase()) || r.employees?.employee_number?.includes(search) || String(r.request_number).includes(search)
     return matchStatus && matchType && matchEmp && matchSearch
   })
+
+  // ✅ تقسيم القائمة لصفحات: ١٠٠ طلب في الصفحة. رقم الصفحة مربوط بمفتاح الفلاتر، فأي تغيير في الفلتر يرجّع للصفحة الأولى تلقائيًا
+  const REQ_PAGE_SIZE = 100
+  const filterKey = [search, filterStatus, filterType, filterEmp, filterBranch].join('|')
+  const [pageState, setPageState] = useState<{ key: string; page: number }>({ key: '', page: 0 })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / REQ_PAGE_SIZE))
+  const curPage = Math.min(pageState.key === filterKey ? pageState.page : 0, totalPages - 1)
+  const pagedRequests = filtered.slice(curPage * REQ_PAGE_SIZE, (curPage + 1) * REQ_PAGE_SIZE)
+  const goPage = (p: number) => setPageState({ key: filterKey, page: Math.max(0, Math.min(totalPages - 1, p)) })
 
   return (
     <div style={{ fontFamily: 'Tajawal, sans-serif', direction: 'rtl', color: S.white }}>
@@ -1884,7 +1931,7 @@ export default function EmployeeRequestsPage() {
         {!isEmployee && (
           <select style={{ ...inp, width: 'auto', minWidth: 160 }} value={filterEmp} onChange={e => setFilterEmp(e.target.value)}>
             <option value="all">كل الموظفين</option>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {employees.map(e => <option key={e.id} value={e.id}>{e.name}{e.name_en ? ' ' + e.name_en : ''}</option>)}
           </select>
         )}
         {(search || filterStatus !== 'all' || filterType !== 'all' || filterEmp !== 'all' || filterBranch !== 'all') && (
@@ -1919,7 +1966,7 @@ export default function EmployeeRequestsPage() {
                     <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد طلبات</div>
                   </td></tr>
-                ) : filtered.map(req => {
+                ) : pagedRequests.map(req => {
                   const st = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending
                   const rt = REQUEST_TYPES[req.request_type] || REQUEST_TYPES.other
                   return (
@@ -1949,7 +1996,7 @@ export default function EmployeeRequestsPage() {
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
-                        {req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        {req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{req.request_type === 'salary_advance' && req.status === 'pending' && req.approved_amount != null && <span style={{ display: 'block', fontSize: 11, color: S.green }}>💾 محفوظ: {req.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}</span>
                           : req.days_count ? <span style={{ color: S.blue, fontWeight: 700, fontSize: 13 }}>{req.days_count} يوم</span>
                           : <span style={{ color: S.muted }}>—</span>}
                       </td>
@@ -1968,6 +2015,13 @@ export default function EmployeeRequestsPage() {
               </tbody>
             </table>
           </div>
+          {filtered.length > REQ_PAGE_SIZE && (
+            <div style={{ padding: '12px 20px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button onClick={() => goPage(curPage - 1)} disabled={curPage === 0} style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage === 0 ? S.muted : S.white, cursor: curPage === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>→ السابق</button>
+              <span style={{ fontSize: 13, color: S.muted }}>صفحة {curPage + 1} من {totalPages} · {curPage * REQ_PAGE_SIZE + 1}–{Math.min((curPage + 1) * REQ_PAGE_SIZE, filtered.length)} من {filtered.length}</span>
+              <button onClick={() => goPage(curPage + 1)} disabled={curPage >= totalPages - 1} style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage >= totalPages - 1 ? S.muted : S.white, cursor: curPage >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>التالي ←</button>
+            </div>
+          )}
         </div>
       )}
 

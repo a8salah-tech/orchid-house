@@ -595,10 +595,12 @@ export default function BookingsPage() {
         <tr><td class="k">Date</td><td class="v">${new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</td></tr>
         <tr><td class="k">Time</td><td class="v">${(b.booking_time || '').slice(0, 5)}</td></tr>
         <tr><td class="k">Section</td><td class="v">${SECTION_LABELS[b.section] || b.section}</td></tr>
-        <tr><td class="k">Table</td><td class="v">${b.table_number || 'Not assigned'}</td></tr>
         <tr><td class="k">Phone</td><td class="v">${escapeHtml(b.customer_phone)}</td></tr>
       </table>
-      <div class="g"><div class="n">${b.guests}</div><div class="gl">GUESTS<br>عدد الأشخاص</div></div>
+      <div class="g">
+        <div class="half"><div class="gl">GUESTS · عدد الأشخاص</div><div class="n">${b.guests}</div></div>
+        <div class="half t"><div class="gl">TABLE · الطاولة</div><div class="n">${b.table_number || '—'}</div></div>
+      </div>
     </div>`
   }
 
@@ -614,8 +616,8 @@ export default function BookingsPage() {
       * { box-sizing: border-box; }
       body { font-family: Arial, sans-serif; margin: 0; }
       .grid { display: grid; grid-template-columns: repeat(${single ? 1 : 2}, 100mm); grid-auto-rows: 70mm; justify-content: center; }
-      .card { width: 100mm; height: 70mm; border: 1.5px dashed #0A1628; padding: 4mm 4.5mm; display: flex; gap: 3.5mm; align-items: stretch; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
-      .l { width: 32mm; display: flex; flex-direction: column; min-width: 0; }
+      .card { width: 100mm; height: 70mm; border: 1.5px dashed #0A1628; padding: 4mm 4.5mm; display: flex; gap: 3mm; align-items: stretch; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
+      .l { width: 28mm; display: flex; flex-direction: column; min-width: 0; }
       .logo { font-size: 13px; font-weight: bold; }
       .sub { font-size: 8px; color: #555; margin-bottom: 4px; }
       .ref { font-size: 10px; letter-spacing: 2px; color: #888; margin-bottom: 6px; }
@@ -623,11 +625,13 @@ export default function BookingsPage() {
       .status { display: inline-block; margin-top: auto; align-self: flex-start; padding: 2px 9px; border-radius: 20px; font-size: 8.5px; font-weight: bold; }
       table.info { flex: 1; border-collapse: collapse; font-size: 10px; align-self: center; min-width: 0; }
       table.info td { padding: 2.5px 2px; border-top: 1px solid #ddd; vertical-align: top; }
-      table.info td.k { color: #555; width: 38%; }
+      table.info td.k { color: #555; width: 34%; }
       table.info td.v { font-weight: bold; word-break: break-word; }
-      .g { width: 17mm; display: flex; flex-direction: column; align-items: center; justify-content: center; border-left: 1px solid #ddd; padding-left: 2mm; }
+      .g { width: 20mm; display: flex; flex-direction: column; border-left: 1px solid #ddd; padding-left: 2mm; }
+      .g .half { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .g .half.t { border-top: 1px solid #ddd; }
       .g .n { font-size: 34px; font-weight: bold; color: #0A1628; line-height: 1; }
-      .g .gl { font-size: 7px; color: #555; text-align: center; margin-top: 3px; }
+      .g .gl { font-size: 6.5px; color: #555; text-align: center; margin-bottom: 3px; }
       @media print { @page { size: ${single ? '100mm 70mm' : 'A4'}; margin: ${single ? '0' : '4mm'}; } }
     </style></head><body>
     <div class="grid">${sorted.map(cardHTML).join('')}</div>

@@ -279,7 +279,7 @@ function RequestCard({ req, role, onOpen }: { req: BranchRequest; role: string; 
   const needsAction =
     ([...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && req.status === 'pending') ||
     (WAREHOUSE_ROLES.includes(role) && ['manager_approved','branch_approved'].includes(req.status)) ||
-    ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && req.status === 'warehouse_processing')
+    ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES,HALL_ASSISTANT_ROLE].includes(role) && req.status === 'warehouse_processing')
 
   return (
     <div onClick={onOpen} style={{ background: needsAction ? 'rgba(245,158,11,0.05)' : S.card2, border: `1px solid ${needsAction ? S.amber+'50' : S.border}`, borderRadius: 14, padding: '14px 18px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
@@ -570,10 +570,10 @@ function RequestDetailModal({ request, currentEmployee, onClose, onUpdate }: { r
     setEditingItems(false)
     onUpdate()
   }
-  const canReceive = ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role)) && request.status === 'warehouse_processing'
+  const canReceive = ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES,HALL_ASSISTANT_ROLE].includes(role)) && request.status === 'warehouse_processing'
   const canConfirmManager = [...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && request.status === 'supervisor_received'
   const canReject = [...MANAGER_ROLES,...SENIOR_ROLES].includes(role) && ['pending','manager_approved'].includes(request.status)
-  const canCancel = ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role)) && ['pending','manager_approved'].includes(request.status)
+  const canCancel = ([...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES,HALL_ASSISTANT_ROLE].includes(role)) && ['pending','manager_approved'].includes(request.status)
   const hasAction = canApprove || canWarehouse || canReceive || canConfirmManager
 
   return (
@@ -1462,7 +1462,7 @@ export default function BranchRequestsPage() {
   const isBranchManager = role === 'branch_manager'
   const isDeptManager = MANAGER_ROLES.includes(role)
   const isSupervisor = SUPERVISOR_ROLES.includes(role)
-  // ✅ جديد: مساعد مدير الصالة يشوف طلبات قسمه (الصالة) في فرعه — عرض فقط، بدون إنشاء/اعتماد
+  // ✅ جديد: مساعد مدير الصالة يشوف طلبات قسمه (الصالة) في فرعه وينشئ طلب عادي ويستلمه/يلغيه مثل المشرف — بدون اعتماد
   const isHallAssistant = role === HALL_ASSISTANT_ROLE
   const isWarehouse = role === 'warehouse_keeper'
   // ✅ دور جديد: مدير المستودعات - يشوف طلبات كل الفروع مع بعض (زي الأدمن في موضوع رؤية الفروع بس)
@@ -1522,7 +1522,7 @@ export default function BranchRequestsPage() {
       label: isAr ? 'تجهيز المستودع' : 'Warehouse',
       icon: '🏭',
       statuses: ['warehouse_processing'],
-      show: isAdmin || isBranchManager || isDeptManager || isSupervisor || isWarehouse,
+      show: isAdmin || isBranchManager || isDeptManager || isSupervisor || isHallAssistant || isWarehouse,
       filter: (r: BranchRequest) => r.status === 'warehouse_processing'
     },
     {
@@ -1544,7 +1544,7 @@ export default function BranchRequestsPage() {
     return tabMatch && searchMatch
   })
 
-  const canCreate = [...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES].includes(role)
+  const canCreate = [...SUPERVISOR_ROLES,...MANAGER_ROLES,...SENIOR_ROLES,HALL_ASSISTANT_ROLE].includes(role)
   const canSeeDeptProducts = isAdmin || isWarehouse || isWarehouseManager
 
   // تقرير مقارن لكل فرع (admin فقط)

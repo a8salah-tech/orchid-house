@@ -153,7 +153,7 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
 }
 
 // ✅ جديد: إحصائية كل يوم — عدد الحجوزات والعملاء (مجموع guests) في كل قسم لنفس اليوم، بدون الحجوزات الملغاة
-function DayHeader({ date, rows }: { date: string; rows: Booking[] }) {
+function DayHeader({ date, rows, branchName, onPrintCards }: { date: string; rows: Booking[]; branchName?: string | null; onPrintCards?: () => void }) {
   const active = rows.filter(b => b.status !== 'cancelled')
   const sections = Array.from(new Set([...Object.keys(SECTION_LABELS), ...active.map(b => b.section)]))
   const per = sections.map(k => {
@@ -167,6 +167,7 @@ function DayHeader({ date, rows }: { date: string; rows: Booking[] }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8, background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: '10px 14px' }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: S.white }}>
         📅 {new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}
+        {branchName && <span style={{ marginInlineStart: 10, background: S.gold3, border: `1px solid ${S.gold}55`, color: S.gold, borderRadius: 20, padding: '2px 12px', fontSize: 12, fontWeight: 800 }}>🏪 {branchName}</span>}
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1 }}>
         {per.map(x => (
@@ -179,6 +180,7 @@ function DayHeader({ date, rows }: { date: string; rows: Booking[] }) {
         <span style={{ color: S.gold, fontWeight: 800 }}>👥 {totalGuests} total</span>
         {withDeposit > 0 && <span>💰 {withDeposit} with deposit</span>}
         {cancelled > 0 && <span style={{ color: S.red }}>❌ {cancelled} cancelled</span>}
+        {onPrintCards && <button onClick={onPrintCards} title="Print this day's booking cards" style={{ padding: '4px 12px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>🪪 Cards</button>}
       </div>
     </div>
   )
@@ -197,6 +199,17 @@ function groupByDate(rows: Booking[]): [string, Booking[]][] {
 
 // عميل Supabase واحد على مستوى الملف (بدل useRef جوه المكوّن) — نفس نمط صفحة الشيفتات، ويمنع تحذيرات قراءة ref وقت العرض
 const sb = createClient()
+
+// ✅ جديد: داخل كل يوم، مجموعة منفصلة لكل فرع — عشان إحصائيات كل فرع تظهر لوحدها (ولو الفرع محدد من الفلتر تظهر مجموعة واحدة)
+function groupByDateBranch(rows: Booking[]): { date: string; branchId: string | null; rows: Booking[] }[] {
+  const out: { date: string; branchId: string | null; rows: Booking[] }[] = []
+  for (const [date, rs] of groupByDate(rows)) {
+    const byBranch = new Map<string | null, Booking[]>()
+    for (const b of rs) byBranch.set(b.branch_id, [...(byBranch.get(b.branch_id) || []), b])
+    for (const [branchId, list] of byBranch) out.push({ date, branchId, rows: list })
+  }
+  return out
+}
 
 export default function BookingsPage() {
   // ✅ جديد: مدير النظام فقط يقدر يغلق/يفتح يوم حجز لفرع معيّن
@@ -488,6 +501,25 @@ export default function BookingsPage() {
   function printReport() {
     const win = window.open('', '_blank')
     if (!win) return
+    // ✅ Fix: إحصائيات أعلى التقرير كانت بتُحسب من كل الحجوزات (counts) مش من الصفوف المطبوعة — فعند طباعة يوم واحد أو فرع
+    // واحد كانت الأرقام لا تطابق الجدول. دلوقتي كلها من نفس filtered اللي بتتطبع
+    const activeRows = filtered.filter(b => b.status !== 'cancelled')
+    const pc = {
+      total: filtered.length,
+      pending: filtered.filter(b => b.status === 'pending').length,
+      confirmed: filtered.filter(b => b.status === 'confirmed').length,
+      cancelled: filtered.length - activeRows.length,
+      guests: activeRows.reduce((sum, b) => sum + (b.guests || 0), 0),
+      sections: Object.entries(SECTION_LABELS).map(([k, label]) => {
+        const r = activeRows.filter(b => b.section === k)
+        return { label: label.replace(/^\S+\s/, ''), bookings: r.length, guests: r.reduce((sum, b) => sum + (b.guests || 0), 0) }
+      }),
+    }
+    const filterDesc = [
+      dateFilter ? `Date: ${new Date(dateFilter).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}` : (showArchive ? 'Archive' : 'Active / Upcoming'),
+      `Branch: ${branchFilter ? (branches.find(b => b.id === branchFilter)?.name || '—') : (isAdmin ? 'All branches' : (branches.find(b => b.id === employee?.branch_id)?.name || '—'))}`,
+      filter !== 'all' ? `Status: ${filter}` : '',
+    ].filter(Boolean).join(' · ')
     // ✅ الطباعة بتاخد كل النتائج المفلترة (كل الصفحات مع بعض)، مش صفحة واحدة بس
     const rows = filtered.map((b, i) => `
       <tr>
@@ -521,12 +553,15 @@ export default function BookingsPage() {
       @media print{@page{size:A4 landscape;margin:8mm;}}
     </style></head><body>
     <h2>🌸 Orchid House — Reservations Report</h2>
-    <h3>Printed: ${new Date().toLocaleString('en-GB')} · ${filtered.length} bookings ${showArchive ? '(Archive)' : '(Active/Upcoming)'}</h3>
+    <h3 style="text-align:center;font-size:11px;color:#555;margin-bottom:6px;">Printed: ${new Date().toLocaleString('en-GB')} · ${filtered.length} bookings ${showArchive ? '(Archive)' : '(Active/Upcoming)'}</h3>
+    <h3 style="text-align:center;font-size:12px;color:#0A1628;margin-bottom:14px;">${filterDesc}</h3>
     <div class="sum">
-      <div class="box"><div class="v">${counts.all}</div><div>Total</div></div>
-      <div class="box"><div class="v" style="color:#F59E0B">${counts.pending}</div><div>Pending</div></div>
-      <div class="box"><div class="v" style="color:#22C55E">${counts.confirmed}</div><div>Confirmed</div></div>
-      <div class="box"><div class="v" style="color:#EF4444">${counts.cancelled}</div><div>Cancelled</div></div>
+      <div class="box"><div class="v">${pc.total}</div><div>Bookings</div></div>
+      <div class="box"><div class="v" style="color:#F59E0B">${pc.pending}</div><div>Pending</div></div>
+      <div class="box"><div class="v" style="color:#22C55E">${pc.confirmed}</div><div>Confirmed</div></div>
+      <div class="box"><div class="v" style="color:#EF4444">${pc.cancelled}</div><div>Cancelled</div></div>
+      <div class="box"><div class="v" style="color:#0A1628">${pc.guests}</div><div>Guests (excl. cancelled)</div></div>
+      ${pc.sections.map(x => `<div class="box"><div class="v">${x.guests}</div><div>${x.label}<br>(${x.bookings} bookings)</div></div>`).join('')}
     </div>
     <table><thead><tr>
       <th>#</th><th>Name</th><th>Phone</th><th>Email</th><th>Branch</th>
@@ -542,52 +577,79 @@ export default function BookingsPage() {
   // — بحجم إيصال طابعة حرارية (80mm)، تُسلَّم للعميل أو تُوضع على الطاولة
   function escapeHtml(s: string) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)) }
 
-  function printBookingCard(b: Booking) {
-    const win = window.open('', '_blank')
-    if (!win) return
+  // ✅ كروت الحجز بالعرض (Landscape) بنفس المقاس تقريبًا لكن مقلوب: 100×70 ملم. كارت واحد، أو يوم كامل (شبكة 2×4 على A4)
+  function cardHTML(b: Booking) {
     const branchName = branches.find(br => br.id === b.branch_id)?.name || '—'
-    const bookingRef = b.booking_ref || b.id.slice(-8).toUpperCase()
-
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>Booking Card #${bookingRef}</title>
-    <style>
-      * { box-sizing: border-box; }
-      body { font-family: Arial, sans-serif; margin: 0; padding: 10px; width: 80mm; }
-      .card { border: 2px dashed #0A1628; border-radius: 8px; padding: 14px; text-align: center; }
-      .logo { font-size: 22px; font-weight: bold; margin-bottom: 2px; }
-      .sub { font-size: 10px; color: #555; margin-bottom: 10px; }
-      .ref { font-size: 11px; letter-spacing: 2px; color: #888; margin-bottom: 10px; }
-      .name { font-size: 20px; font-weight: bold; margin-bottom: 4px; word-break: break-word; }
-      .guests { font-size: 34px; font-weight: bold; color: #0A1628; margin: 8px 0 2px; }
-      .guests-label { font-size: 10px; color: #555; margin-bottom: 12px; }
-      table.info { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; margin-top: 6px; }
-      table.info td { padding: 4px 2px; border-top: 1px solid #ddd; }
-      table.info td.k { color: #555; width: 40%; }
-      table.info td.v { font-weight: bold; }
-      .status { display: inline-block; margin-top: 10px; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; }
-      @media print { @page { size: 80mm auto; margin: 3mm; } }
-    </style></head><body>
-    <div class="card">
-      <div class="logo">🌸 Orchid House</div>
-      <div class="sub">Table Reservation</div>
-      <div class="ref">#${bookingRef}</div>
-      <div class="name">${escapeHtml(b.customer_name)}</div>
-      <div class="guests">${b.guests}</div>
-      <div class="guests-label">GUESTS · عدد الأشخاص</div>
+    const ref = b.booking_ref || b.id.slice(-8).toUpperCase()
+    const st = STATUS_CFG[b.status]
+    return `<div class="card">
+      <div class="l">
+        <div class="logo">🌸 Orchid House</div>
+        <div class="sub">Table Reservation</div>
+        <div class="ref">#${escapeHtml(ref)}</div>
+        <div class="name">${escapeHtml(b.customer_name)}</div>
+        <span class="status" style="background:${st.bg};color:${st.color}">${st.label.toUpperCase()}</span>
+      </div>
       <table class="info">
         <tr><td class="k">Branch</td><td class="v">${escapeHtml(branchName)}</td></tr>
         <tr><td class="k">Date</td><td class="v">${new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</td></tr>
-        <tr><td class="k">Time</td><td class="v">${b.booking_time}</td></tr>
+        <tr><td class="k">Time</td><td class="v">${(b.booking_time || '').slice(0, 5)}</td></tr>
         <tr><td class="k">Section</td><td class="v">${SECTION_LABELS[b.section] || b.section}</td></tr>
         <tr><td class="k">Table</td><td class="v">${b.table_number || 'Not assigned'}</td></tr>
         <tr><td class="k">Phone</td><td class="v">${escapeHtml(b.customer_phone)}</td></tr>
       </table>
-      <span class="status" style="background:${STATUS_CFG[b.status].bg};color:${STATUS_CFG[b.status].color}">${STATUS_CFG[b.status].label.toUpperCase()}</span>
-    </div>
+      <div class="g"><div class="n">${b.guests}</div><div class="gl">GUESTS<br>عدد الأشخاص</div></div>
+    </div>`
+  }
+
+  function printCards(list: Booking[], label: string) {
+    if (list.length === 0) { alert('لا توجد حجوزات لطباعة كروتها'); return }
+    const win = window.open('', '_blank')
+    if (!win) return
+    const single = list.length === 1
+    const sorted = [...list].sort((a, b) => (a.booking_time || '').localeCompare(b.booking_time || ''))
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Booking Cards ${escapeHtml(label)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 0; }
+      .grid { display: grid; grid-template-columns: repeat(${single ? 1 : 2}, 100mm); grid-auto-rows: 70mm; justify-content: center; }
+      .card { width: 100mm; height: 70mm; border: 1.5px dashed #0A1628; padding: 4mm 4.5mm; display: flex; gap: 3.5mm; align-items: stretch; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
+      .l { width: 32mm; display: flex; flex-direction: column; min-width: 0; }
+      .logo { font-size: 13px; font-weight: bold; }
+      .sub { font-size: 8px; color: #555; margin-bottom: 4px; }
+      .ref { font-size: 10px; letter-spacing: 2px; color: #888; margin-bottom: 6px; }
+      .name { font-size: 14px; font-weight: bold; word-break: break-word; line-height: 1.2; }
+      .status { display: inline-block; margin-top: auto; align-self: flex-start; padding: 2px 9px; border-radius: 20px; font-size: 8.5px; font-weight: bold; }
+      table.info { flex: 1; border-collapse: collapse; font-size: 10px; align-self: center; min-width: 0; }
+      table.info td { padding: 2.5px 2px; border-top: 1px solid #ddd; vertical-align: top; }
+      table.info td.k { color: #555; width: 38%; }
+      table.info td.v { font-weight: bold; word-break: break-word; }
+      .g { width: 17mm; display: flex; flex-direction: column; align-items: center; justify-content: center; border-left: 1px solid #ddd; padding-left: 2mm; }
+      .g .n { font-size: 34px; font-weight: bold; color: #0A1628; line-height: 1; }
+      .g .gl { font-size: 7px; color: #555; text-align: center; margin-top: 3px; }
+      @media print { @page { size: ${single ? '100mm 70mm' : 'A4'}; margin: ${single ? '0' : '4mm'}; } }
+    </style></head><body>
+    <div class="grid">${sorted.map(cardHTML).join('')}</div>
     <script>window.onload=()=>window.print()<\/script>
     </body></html>`)
     win.document.close()
   }
+
+  function printBookingCard(b: Booking) { printCards([b], b.booking_ref || b.id.slice(-8).toUpperCase()) }
+
+  // كروت يوم معيّن (وفرع معيّن لو محدد)، بدون الحجوزات الملغاة
+  function dayCards(date: string, branchId: string | null) {
+    return bookings.filter(b => b.booking_date === date && b.status !== 'cancelled' && (branchId === null ? true : b.branch_id === branchId))
+  }
+
+  // نافذة اختيار يوم لطباعة كل كروته
+  const [showCardsModal, setShowCardsModal] = useState(false)
+  const [cardsDate, setCardsDate] = useState('')
+  const [cardsBranch, setCardsBranch] = useState('')
+  const [cardsWithCancelled, setCardsWithCancelled] = useState(false)
+  const cardsDateEff = cardsDate || dateFilter || todayStr
+  const cardsList = bookings.filter(b => b.booking_date === cardsDateEff && (cardsWithCancelled || b.status !== 'cancelled') && (!isAdmin ? true : (!cardsBranch || b.branch_id === cardsBranch)))
 
   const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
 
@@ -606,6 +668,7 @@ export default function BookingsPage() {
           {canManageClosedDays && (
             <button onClick={() => { if (!isAdmin && employee?.branch_id) setNewClosedBranch(employee.branch_id); setShowClosedDaysModal(true) }} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Closed Days / Sections{(visibleClosedDays.length + visibleClosedSections.length) > 0 ? ` (${visibleClosedDays.length + visibleClosedSections.length})` : ''}</button>
           )}
+          <button onClick={() => { setCardsDate(dateFilter || ''); setShowCardsModal(true) }} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🪪 Print Cards</button>
           <button onClick={printReport} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Report</button>
           <a href="/bookings" target="_blank" style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center' }}>🔗 Booking Link</a>
         </div>
@@ -683,9 +746,9 @@ export default function BookingsPage() {
                 <h2 style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{g.label}</h2>
                 <span style={{ fontSize: 11, fontWeight: 700, color: S.gold, background: S.gold3, borderRadius: 20, padding: '2px 10px' }}>{g.rows.length}</span>
               </div>
-              {groupByDate(g.rows).map(([date, rs]) => (
-                <div key={date} style={{ marginBottom: 18 }}>
-                  <DayHeader date={date} rows={rs} />
+              {groupByDateBranch(g.rows).map(({ date, branchId, rows: rs }) => (
+                <div key={date + '|' + (branchId || '')} style={{ marginBottom: 18 }}>
+                  <DayHeader date={date} rows={rs} branchName={branches.find(br => br.id === branchId)?.name || null} onPrintCards={() => printCards(dayCards(date, branchId), `${date}`)} />
                   <BookingsTable rows={rs} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} onRequestCancel={requestCancel} />
                 </div>
               ))}
@@ -694,9 +757,9 @@ export default function BookingsPage() {
         </div>
       ) : (
         <>
-          {groupByDate(paginated).map(([date, rs]) => (
-            <div key={date} style={{ marginBottom: 18 }}>
-              <DayHeader date={date} rows={rs} />
+          {groupByDateBranch(paginated).map(({ date, branchId, rows: rs }) => (
+            <div key={date + '|' + (branchId || '')} style={{ marginBottom: 18 }}>
+              <DayHeader date={date} rows={rs} branchName={branches.find(br => br.id === branchId)?.name || null} onPrintCards={() => printCards(dayCards(date, branchId), `${date}`)} />
               <BookingsTable rows={rs} branches={branches} onUpdateTable={updateTable} onUpdateStatus={updateStatus} onUpdateDeposit={updateDeposit} onRowClick={setDetailBooking} onViewImage={setViewImage} onRequestCancel={requestCancel} />
             </div>
           ))}
@@ -716,6 +779,38 @@ export default function BookingsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ✅ جديد: طباعة كروت يوم كامل */}
+      {showCardsModal && (
+        <div onClick={() => setShowCardsModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 18, padding: 24, maxWidth: 420, width: '100%' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.white, marginBottom: 4 }}>🪪 Print booking cards</div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>كل كروت يوم معيّن بالعرض (100×70 ملم) — 8 كروت في صفحة A4</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📅 Day</div>
+            <input type="date" style={{ ...inp, width: '100%', marginBottom: 12 }} value={cardsDateEff} onChange={e => setCardsDate(e.target.value)} />
+            {isAdmin && (
+              <>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🏪 Branch</div>
+                <select style={{ ...inp, width: '100%', marginBottom: 12 }} value={cardsBranch} onChange={e => setCardsBranch(e.target.value)}>
+                  <option value="">All branches</option>
+                  {branches.map(br => <option key={br.id} value={br.id}>{br.name}</option>)}
+                </select>
+              </>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: S.white, marginBottom: 14, cursor: 'pointer' }}>
+              <input type="checkbox" checked={cardsWithCancelled} onChange={e => setCardsWithCancelled(e.target.checked)} /> Include cancelled bookings
+            </label>
+            <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: 13, color: S.white }}>
+              {cardsList.length} card{cardsList.length === 1 ? '' : 's'} · {cardsList.reduce((sum, b) => sum + (b.status === 'cancelled' ? 0 : b.guests || 0), 0)} guests
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowCardsModal(false)} style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>Close</button>
+              <button onClick={() => printCards(cardsList, cardsDateEff)} disabled={cardsList.length === 0}
+                style={{ flex: 1, padding: '11px', borderRadius: 12, border: 'none', background: cardsList.length ? S.gold : S.border, color: cardsList.length ? S.navy : S.muted, cursor: cardsList.length ? 'pointer' : 'not-allowed', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>🖨️ Print {cardsList.length} cards</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ✅ جديد: نافذة سبب الإلغاء الإجباري */}

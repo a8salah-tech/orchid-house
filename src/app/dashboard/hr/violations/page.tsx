@@ -182,8 +182,9 @@ export default function ViolationsPage() {
   const [absForm, setAbsForm] = useState({ employee_id: '', date: new Date().toISOString().split('T')[0], notes: '' })
 
   // ── مخالفة القسم ──
-  const canSubmitDeptViolation = isDeptManager || isSupervisor
-  const canViewDeptViolations  = isAdmin || isBranchManager
+  const canSubmitDeptViolation = isDeptManager || isSupervisor || isHallAssistant
+  // ✅ مساعد مدير الصالة يشوف مخالفات الأقسام (لفرعه) ويرفع مخالفة على أي قسم، زي مدير الفرع في العرض
+  const canViewDeptViolations  = isAdmin || isBranchManager || isHallAssistant
   const [showDeptViolAdd, setShowDeptViolAdd]   = useState(false)
   const [deptViolations, setDeptViolations]     = useState<any[]>([])
   const [deptViolLoading, setDeptViolLoading]   = useState(false)

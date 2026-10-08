@@ -56,6 +56,7 @@ const FAMILY_SET_CATEGORY_ID = '99020816-226e-414c-9f16-32a6bbafb487'
 type SectionPhoto = { branch_id: string; section: string; image_url: string | null }
 // ✅ جديد: الأيام المُغلقة للحجز لكل فرع — يديرها مدير النظام فقط من صفحة "حجوزات العملاء"
 type ClosedDay = { branch_id: string; closed_date: string; note: string | null }
+type ClosedSection = { branch_id: string; closed_date: string; section: string }
 
 export default function BookingPage() {
   const sbRef = useRef(createClient())
@@ -108,13 +109,24 @@ export default function BookingPage() {
     const { data, error } = await sb.from('booking_closed_days').select('branch_id,closed_date,note')
     if (!error && data) setClosedDays(data as ClosedDay[])
   }
+  // ✅ جديد: أقسام مغلقة لتاريخ معيّن (الأدمن/مشرف الصالة بيقفلها من لوحة التحكم) — القسم المغلق مايظهرش للعميل
+  const [closedSections, setClosedSections] = useState<ClosedSection[]>([])
+  async function fetchClosedSections() {
+    // fail-open: لو جدول booking_closed_sections لسه ما اتعملش، نتجاهل الخطأ بدون كسر الصفحة
+    const { data, error } = await sb.from('booking_closed_sections').select('branch_id,closed_date,section')
+    if (!error && data) setClosedSections(data as ClosedSection[])
+  }
+  function isSectionClosed(branchId: string | undefined, date: string, sec: string): boolean {
+    if (!branchId || !date) return false
+    return closedSections.some(d => d.branch_id === branchId && d.closed_date === date && d.section === sec)
+  }
   // ✅ هل هذا التاريخ مغلق للحجز في الفرع المختار؟
   function isDateClosed(branchId: string | undefined, date: string): boolean {
     if (!branchId || !date) return false
     return closedDays.some(d => d.branch_id === branchId && d.closed_date === date)
   }
 
-  useEffect(() => { fetchBranches(); fetchOrchidHouseMenuPreview(); fetchSectionPhotos(); fetchClosedDays() }, [])
+  useEffect(() => { fetchBranches(); fetchOrchidHouseMenuPreview(); fetchSectionPhotos(); fetchClosedDays(); fetchClosedSections() }, [])
 
   // دعم زر الرجوع في المتصفح
   useEffect(() => {
@@ -355,7 +367,13 @@ export default function BookingPage() {
             <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Choose Your Section</h2>
             <p style={{ color: C.silver2, fontSize: 14, marginBottom: 24 }}>Select your preferred dining area</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {SECTIONS.map(s => {
+              {/* ✅ جديد: لو كل أقسام اليوم مغلقة، رسالة واضحة بدل قائمة فاضية */}
+              {SECTIONS.every(s => isSectionClosed(selectedBranch?.id, bookingDate, s.key)) && (
+                <div style={{ background: C.amberB, border: `1px solid ${C.amber}40`, borderRadius: 14, padding: '14px 16px', fontSize: 13, color: C.silver2, lineHeight: 1.7 }}>
+                  No sections are available on this date. Please choose another date. · لا توجد أقسام متاحة في هذا التاريخ، يُرجى اختيار تاريخ آخر.
+                </div>
+              )}
+              {SECTIONS.filter(s => !isSectionClosed(selectedBranch?.id, bookingDate, s.key)).map(s => {
                 // ✅ Fix: صور الأقسام كانت مقصورة على أوركيد هاوس فقط (بقية سياسات القسم في هذا الملف كذلك
                 // بالتصميم)، لكن صفحة الإدارة تسمح برفعها لأي فرع — فصور KLCC كانت تُرفع بنجاح وتُخزَّن
                 // لكن لا تظهر أبدًا للعميل. الصورة نفسها بصرية بحتة فقط، فأصبحت تظهر لأي فرع رفع له الأدمن صورة

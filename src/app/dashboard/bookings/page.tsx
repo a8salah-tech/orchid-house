@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element -- صور الإيصالات روابط Supabase Storage عامة بأحجام متفاوتة، next/image مش مناسب هنا */
 
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 
@@ -38,6 +38,8 @@ type Booking = {
 
 // ✅ جديد: أيام مُغلقة للحجز لكل فرع — مدير النظام فقط يقدر يضيف/يحذف
 type ClosedDay = { id: string; branch_id: string; closed_date: string; note: string | null }
+// ✅ جديد: قسم مُغلق للحجز في يوم معيّن لفرع معيّن (مثلًا الصالة الداخلية فول) — لا يظهر للعميل في صفحة الحجز
+type ClosedSection = { id: string; branch_id: string; closed_date: string; section: string; note: string | null }
 
 const SECTION_LABELS: Record<string, string> = {
   outdoor: '🌿 Outdoor', indoor: '❄️ Indoor', upstairs: '🌅 Upstairs'
@@ -88,12 +90,13 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
                     <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{b.customer_name}</div>
                     <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
                   </td>
-                  <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{b.customer_phone}</td>
+                  <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}><span dir="ltr" style={{ display: 'inline-block' }}>{b.customer_phone}</span></td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{branches.find(br => br.id === b.branch_id)?.name || '—'}</td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, whiteSpace: 'nowrap' }}>
-                    {new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })}
+                    {/* ✅ Fix: واجهة عربية (RTL) كانت بتقلب ترتيب التاريخ/الوقت/الرقم — نعزلها LTR */}
+                    <span dir="ltr" style={{ display: 'inline-block' }}>{new Date(b.booking_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' })}</span>
                   </td>
-                  <td style={{ padding: '12px 14px', color: S.gold, fontWeight: 700, fontSize: 13 }}>{b.booking_time}</td>
+                  <td style={{ padding: '12px 14px', color: S.gold, fontWeight: 700, fontSize: 13 }}><span dir="ltr" style={{ display: 'inline-block' }}>{b.booking_time}</span></td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13, textAlign: 'center' }}>{b.guests}</td>
                   <td style={{ padding: '12px 14px', color: S.white, fontSize: 13 }}>{SECTION_LABELS[b.section] || b.section}</td>
                   <td style={{ padding: '8px 14px' }} onClick={e => e.stopPropagation()}>
@@ -186,9 +189,10 @@ function groupByDate(rows: Booking[]): [string, Booking[]][] {
   return out
 }
 
+// عميل Supabase واحد على مستوى الملف (بدل useRef جوه المكوّن) — نفس نمط صفحة الشيفتات، ويمنع تحذيرات قراءة ref وقت العرض
+const sb = createClient()
+
 export default function BookingsPage() {
-  const sbRef = useRef(createClient())
-  const sb = sbRef.current
   // ✅ جديد: مدير النظام فقط يقدر يغلق/يفتح يوم حجز لفرع معيّن
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
@@ -213,11 +217,35 @@ export default function BookingsPage() {
   const [cancelTarget, setCancelTarget] = useState<Booking | null>(null)
   const [cancelReasonText, setCancelReasonText] = useState('')
   const [cancelSaving, setCancelSaving] = useState(false)
+  // ✅ جديد: تعديل بيانات الحجز (التاريخ/الوقت/عدد الأشخاص/القسم) من نافذة التفاصيل — لأي شخص له صلاحية الصفحة
+  const [editDraft, setEditDraft] = useState<{ id: string; date: string; time: string; guests: string; section: string } | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  async function saveBookingEdit(b: Booking) {
+    const d = editDraft && editDraft.id === b.id ? editDraft : null
+    if (!d) return
+    const guests = parseInt(d.guests)
+    if (!d.date || !d.time || !guests || guests < 1) { alert('اكتب التاريخ والوقت وعدد الأشخاص (1 أو أكثر)'); return }
+    const patch = { booking_date: d.date, booking_time: d.time, guests, section: d.section }
+    setSavingEdit(true)
+    const { error } = await sb.from('bookings').update(patch).eq('id', b.id)
+    setSavingEdit(false)
+    if (error) { alert('فشل حفظ التعديل: ' + error.message); return }
+    setDetailBooking(p => p && p.id === b.id ? { ...p, ...patch } : p)
+    setEditDraft(null)
+    fetchBookings()
+  }
+
   // ✅ جديد: رفع صورة إثبات العربون + عرضها بالحجم الكامل
   const [uploadingDeposit, setUploadingDeposit] = useState<string | null>(null)
   const [viewImage, setViewImage] = useState<string | null>(null)
   // ✅ جديد: الأيام المُغلقة للحجز + نافذة إدارتها (أدمن فقط)
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
+  const [closedSections, setClosedSections] = useState<ClosedSection[]>([])
+  const [newSecBranch, setNewSecBranch] = useState('')
+  const [newSecDate, setNewSecDate] = useState('')
+  const [newSecSection, setNewSecSection] = useState('')
+  const [newSecNote, setNewSecNote] = useState('')
+  const [closingSec, setClosingSec] = useState(false)
   const [showClosedDaysModal, setShowClosedDaysModal] = useState(false)
   const [newClosedBranch, setNewClosedBranch] = useState('')
   const [newClosedDate, setNewClosedDate] = useState('')
@@ -225,28 +253,57 @@ export default function BookingsPage() {
   const [closingDay, setClosingDay] = useState(false)
   // ✅ مشرف الصالة يشوف/يدير أيام فرعه بس؛ مدير النظام يشوف كل الفروع (الكتابة الفعلية أيضًا محصورة بنفس المنطق في RLS)
   const visibleClosedDays = isAdmin ? closedDays : closedDays.filter(d => d.branch_id === employee?.branch_id)
+  const visibleClosedSections = isAdmin ? closedSections : closedSections.filter(d => d.branch_id === employee?.branch_id)
   const closedDaysBranches = isAdmin ? branches : branches.filter(br => br.id === employee?.branch_id)
 
+  const myBranchId = employee?.branch_id || ''
   const fetchBookings = useCallback(async () => {
+    if (!employee) return
+    // ✅ جديد: كل فرع يشوف حجوزاته فقط — مدير النظام وحده يشوف كل الفروع. (لو موظف بلا فرع محدد: مفيش حجوزات تظهر)
+    let q = sb.from('bookings').select('*').order('booking_date', { ascending: false }).order('booking_time', { ascending: false })
+    if (!isAdmin) q = q.eq('branch_id', myBranchId || '00000000-0000-0000-0000-000000000000')
     // ✅ Fix: الترتيب بقى من الأحدث للأقدم (تنازلي) بدل تصاعدي
-    const { data } = await sb.from('bookings').select('*').order('booking_date', { ascending: false }).order('booking_time', { ascending: false })
+    const { data } = await q
     setBookings((data as any) || [])
     setLoading(false)
-  }, [sb])
+  }, [employee, isAdmin, myBranchId])
 
   // ✅ جديد: جلب الفروع لدعم فلتر اختيار الفرع
   const fetchBranches = useCallback(async () => {
     const { data } = await sb.from('branches').select('id,name').eq('is_active', true).order('name')
     setBranches(data || [])
-  }, [sb])
+  }, [])
+  // ✅ جديد: الأقسام المُغلقة للحجز (فشل صامت لو الجدول لسه ما اتعملش — db/booking_closed_sections.sql)
+  const fetchClosedSections = useCallback(async () => {
+    const { data, error } = await sb.from('booking_closed_sections').select('*').order('closed_date')
+    if (!error && data) setClosedSections(data as ClosedSection[])
+  }, [])
 
   // ✅ جديد: جلب الأيام المُغلقة — fail-open لو الجدول لسه ما اتعملش
   const fetchClosedDays = useCallback(async () => {
     const { data, error } = await sb.from('booking_closed_days').select('*').order('closed_date')
     if (!error && data) setClosedDays(data as ClosedDay[])
-  }, [sb])
+  }, [])
 
-  useEffect(() => { fetchBookings(); fetchBranches(); fetchClosedDays() }, [fetchBookings, fetchBranches, fetchClosedDays])
+  useEffect(() => { fetchBookings(); fetchBranches(); fetchClosedDays(); fetchClosedSections() }, [fetchBookings, fetchBranches, fetchClosedDays, fetchClosedSections])
+
+  async function closeSection() {
+    if (!newSecBranch || !newSecDate || !newSecSection) { alert('اختر الفرع والتاريخ والقسم'); return }
+    setClosingSec(true)
+    const { error } = await sb.from('booking_closed_sections')
+      .insert({ branch_id: newSecBranch, closed_date: newSecDate, section: newSecSection, note: newSecNote || null, created_by: employee?.id || null })
+    setClosingSec(false)
+    if (error) { alert('فشل إغلاق القسم: ' + error.message + ' — تأكد من تشغيل db/booking_closed_sections.sql'); return }
+    setNewSecDate(''); setNewSecSection(''); setNewSecNote('')
+    fetchClosedSections()
+  }
+
+  async function reopenSection(id: string) {
+    if (!confirm('هل تريد إعادة فتح هذا القسم للحجز؟')) return
+    const { error } = await sb.from('booking_closed_sections').delete().eq('id', id)
+    if (error) { alert('خطأ: ' + error.message); return }
+    fetchClosedSections()
+  }
 
   async function closeDay() {
     if (!newClosedBranch || !newClosedDate) { alert('اختر الفرع والتاريخ'); return }
@@ -271,7 +328,7 @@ export default function BookingsPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, fetchBookings)
       .subscribe()
     return () => { sb.removeChannel(ch) }
-  }, [sb, fetchBookings])
+  }, [fetchBookings])
 
   async function updateStatus(id: string, status: 'confirmed' | 'cancelled') {
     // ✅ لو الحجز كان ملغي وبيتأكّد تاني، نمسح بيانات الإلغاء القديمة (السبب/من ألغى) بدل ما تفضل عالقة عليه
@@ -513,7 +570,7 @@ export default function BookingsPage() {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {/* ✅ جديد: إغلاق/فتح أيام الحجز — مدير النظام + مشرف الصالة (لفرعه فقط) */}
           {canManageClosedDays && (
-            <button onClick={() => { if (!isAdmin && employee?.branch_id) setNewClosedBranch(employee.branch_id); setShowClosedDaysModal(true) }} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Closed Days{visibleClosedDays.length > 0 ? ` (${visibleClosedDays.length})` : ''}</button>
+            <button onClick={() => { if (!isAdmin && employee?.branch_id) setNewClosedBranch(employee.branch_id); setShowClosedDaysModal(true) }} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🔒 Closed Days / Sections{(visibleClosedDays.length + visibleClosedSections.length) > 0 ? ` (${visibleClosedDays.length + visibleClosedSections.length})` : ''}</button>
           )}
           <button onClick={printReport} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ Print Report</button>
           <a href="/bookings" target="_blank" style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center' }}>🔗 Booking Link</a>
@@ -532,8 +589,13 @@ export default function BookingsPage() {
         </button>
       </div>
 
-      {/* ✅ جديد: اختيار الفرع بأزرار واضحة */}
-      {branches.length > 0 && (
+      {/* ✅ جديد: اختيار الفرع بأزرار واضحة — لمدير النظام فقط؛ بقية الأدوار تشوف فرعها بس */}
+      {!isAdmin && employee?.branch_id && (
+        <div style={{ marginBottom: 16, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, fontSize: 13, fontWeight: 700 }}>
+          🏪 {branches.find(b => b.id === employee.branch_id)?.name || 'My branch'} <span style={{ color: S.muted, fontWeight: 400 }}>· your branch bookings only</span>
+        </div>
+      )}
+      {isAdmin && branches.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <button onClick={() => setBranchFilter('')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${!branchFilter ? S.gold : S.border}`, background: !branchFilter ? S.gold3 : 'transparent', color: !branchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: !branchFilter ? 700 : 400 }}>
@@ -694,7 +756,7 @@ export default function BookingsPage() {
                     <span style={{ fontSize: 17, width: 22, textAlign: 'center', flexShrink: 0 }}>{r.icon}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: S.muted, fontSize: 10.5 }}>{r.label}</div>
-                      <div style={{ color: S.white, fontSize: 13, fontWeight: 600, wordBreak: 'break-word' }}>{r.value}</div>
+                      <div dir={['Date', 'Time', 'Phone', 'Email', 'Submitted'].includes(r.label) ? 'ltr' : undefined} style={{ color: S.white, fontSize: 13, fontWeight: 600, wordBreak: 'break-word', textAlign: ['Date', 'Time', 'Phone', 'Email', 'Submitted'].includes(r.label) ? 'right' : undefined }}>{r.value}</div>
                     </div>
                   </div>
                 ))}
@@ -712,6 +774,52 @@ export default function BookingsPage() {
                     onChange={e => updateDepositAndDetail(b.id, e.target.value === '' ? null : parseFloat(e.target.value))} />
                 </div>
               </div>
+
+              {/* ✅ جديد: تعديل التاريخ/الوقت/عدد الأشخاص/القسم */}
+              {(() => {
+                const d = editDraft && editDraft.id === b.id ? editDraft : { id: b.id, date: b.booking_date, time: (b.booking_time || '').slice(0, 5), guests: String(b.guests), section: b.section }
+                const dirty = d.date !== b.booking_date || d.time !== (b.booking_time || '').slice(0, 5) || d.guests !== String(b.guests) || d.section !== b.section
+                const upd = (k: 'date' | 'time' | 'guests' | 'section', v: string) => setEditDraft({ ...d, [k]: v })
+                const dayClosed = closedDays.some(x => x.branch_id === b.branch_id && x.closed_date === d.date)
+                const secClosed = closedSections.some(x => x.branch_id === b.branch_id && x.closed_date === d.date && x.section === d.section)
+                return (
+                  <div style={{ marginTop: 16, background: 'rgba(255,255,255,.03)', border: `1px solid ${dirty ? S.gold : S.border}`, borderRadius: 14, padding: 14 }}>
+                    <div style={{ fontSize: 12, color: S.gold, fontWeight: 800, marginBottom: 10 }}>✏️ Edit booking details</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📅 Date</div>
+                        <input type="date" style={{ ...inp, width: '100%' }} value={d.date} onChange={e => upd('date', e.target.value)} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🕐 Time</div>
+                        <input type="time" style={{ ...inp, width: '100%' }} value={d.time} onChange={e => upd('time', e.target.value)} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👥 Guests</div>
+                        <input type="number" min={1} style={{ ...inp, width: '100%' }} value={d.guests} onChange={e => upd('guests', e.target.value)} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📍 Section</div>
+                        <select style={{ ...inp, width: '100%' }} value={d.section} onChange={e => upd('section', e.target.value)}>
+                          {Array.from(new Set([...Object.keys(SECTION_LABELS), d.section])).map(k => <option key={k} value={k}>{SECTION_LABELS[k] || k}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {(dayClosed || secClosed) && (
+                      <div style={{ marginTop: 8, fontSize: 11.5, color: S.amber }}>
+                        ⚠️ {dayClosed ? 'This date is closed for online booking' : 'This section is closed for online booking on this date'} — you can still save it as staff.
+                      </div>
+                    )}
+                    {dirty && (
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button onClick={() => saveBookingEdit(b)} disabled={savingEdit}
+                          style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12.5, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>{savingEdit ? '⏳ Saving...' : '💾 Save changes'}</button>
+                        <button onClick={() => setEditDraft(null)} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12.5, fontFamily: 'Tajawal, sans-serif' }}>Reset</button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* ✅ جديد: صورة إثبات العربون (اختيارية) */}
               <div style={{ marginTop: 16 }}>
@@ -809,6 +917,48 @@ export default function BookingsPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* ✅ جديد: إغلاق قسم معيّن في يوم معيّن (مثلًا الصالة الداخلية فول) — القسم ده مايظهرش للعميل في صفحة الحجز لهذا اليوم */}
+            <div style={{ marginTop: 26, paddingTop: 20, borderTop: `1px solid ${S.border}` }}>
+              <div style={{ fontSize: 15, fontWeight: 900, color: S.white }}>🚪 Closed Sections</div>
+              <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>قسم معيّن يتقفل في يوم معيّن (مثلًا الصالة الداخلية فول) — لا يظهر للعميل عند الحجز</div>
+              <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: 16, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <select style={{ ...inp, width: '100%' }} value={newSecBranch || (isAdmin ? '' : (employee?.branch_id || ''))} onChange={e => setNewSecBranch(e.target.value)} disabled={!isAdmin}>
+                  <option value="">Select branch...</option>
+                  {closedDaysBranches.map(br => <option key={br.id} value={br.id}>{br.name}</option>)}
+                </select>
+                <input type="date" style={{ ...inp, width: '100%' }} value={newSecDate} min={new Date().toISOString().split('T')[0]} onChange={e => setNewSecDate(e.target.value)} />
+                <select style={{ ...inp, width: '100%' }} value={newSecSection} onChange={e => setNewSecSection(e.target.value)}>
+                  <option value="">Select section...</option>
+                  {Object.entries(SECTION_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+                <input type="text" style={{ ...inp, width: '100%' }} placeholder="Reason (optional) · السبب (اختياري)" value={newSecNote} onChange={e => setNewSecNote(e.target.value)} />
+                <button onClick={() => { if (!newSecBranch && !isAdmin && employee?.branch_id) setNewSecBranch(employee.branch_id); closeSection() }}
+                  disabled={closingSec || !newSecDate || !newSecSection || (isAdmin && !newSecBranch)}
+                  style={{ padding: '11px', borderRadius: 12, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: closingSec ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: (!newSecDate || !newSecSection || (isAdmin && !newSecBranch)) ? 0.5 : 1 }}>
+                  {closingSec ? '⏳ Closing...' : '🚪 Close This Section'}
+                </button>
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12, color: S.muted, marginBottom: 8 }}>Currently closed sections ({visibleClosedSections.length})</div>
+                {visibleClosedSections.length === 0 ? (
+                  <div style={{ fontSize: 12, color: S.muted, textAlign: 'center', padding: 12 }}>No closed sections · لا توجد أقسام مُغلقة</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {visibleClosedSections.map(d => (
+                      <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,.03)', borderRadius: 12, padding: '10px 14px' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{branches.find(br => br.id === d.branch_id)?.name || '—'} · {SECTION_LABELS[d.section] || d.section}</div>
+                          <div style={{ fontSize: 12, color: S.gold }}>{new Date(d.closed_date).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                          {d.note && <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{d.note}</div>}
+                        </div>
+                        <button onClick={() => reopenSection(d.id)} style={{ padding: '7px 12px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 11.5, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>🔓 Reopen</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

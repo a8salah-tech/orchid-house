@@ -53,6 +53,18 @@ export async function POST(req: NextRequest) {
         if (closed) return NextResponse.json({ error: 'هذا اليوم غير متاح للحجز في هذا الفرع' }, { status: 400 })
       }
 
+      // ✅ جديد: نفس الشيء لو القسم المطلوب مغلق في هذا اليوم لهذا الفرع (booking_closed_sections)
+      if (f.branch_id) {
+        const { data: closedSec } = await sb
+          .from('booking_closed_sections')
+          .select('id')
+          .eq('branch_id', f.branch_id)
+          .eq('closed_date', f.booking_date)
+          .eq('section', f.section)
+          .maybeSingle()
+        if (closedSec) return NextResponse.json({ error: 'هذا القسم غير متاح للحجز في هذا اليوم' }, { status: 400 })
+      }
+
       const { data, error } = await sb
         .from('bookings')
         .insert([{

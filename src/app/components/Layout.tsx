@@ -283,6 +283,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       employee?.role === HALL_ASSISTANT_ROLE ||
       DEPT_SUPERVISOR_ROLES.includes(employee?.role || '')
     ) :
+    // ✅ مساعد مدير الصالة يشوف رابط المخالفات دايمًا (نطاق الصفحة نفسه محصور في موظفي الصالة بفرعه)
+    (perm === 'violations' && employee?.role === HALL_ASSISTANT_ROLE) ? true :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
 
   if (loading) return (

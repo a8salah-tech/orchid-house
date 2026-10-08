@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
-import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
+import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
 import { useLang } from '../../../components/LanguageContext'
 import { VIOLATION_KIND_META, normalizeKind, type ViolationKind } from '../../../../lib/violationKind'
 
@@ -18,7 +18,7 @@ const HALL_DEPTS    = ['الصالة', 'Hall']
 const BAR_DEPTS     = ['البار', 'Bar']
 function deptsForRole(r: string): string[] | null {
   if (r === 'kitchen_manager' || r === 'kitchen_supervisor') return KITCHEN_DEPTS
-  if (r === 'hall_manager'    || r === 'hall_supervisor')    return HALL_DEPTS
+  if (r === 'hall_manager'    || r === 'hall_supervisor' || r === HALL_ASSISTANT_ROLE) return HALL_DEPTS
   if (r === 'bar_manager'     || r === 'bar_supervisor')     return BAR_DEPTS
   return null
 }
@@ -126,14 +126,17 @@ export default function ViolationsPage() {
   // ✅ جديد: المشرف العام يشوف مخالفات كل أقسام فرعه (زي مدير الفرع في النطاق) لكن للعرض فقط —
   // بدون إضافة/اعتماد/إلغاء أي مخالفة (canManage مقصودة تفضل false له)
   const isBranchViewer = role === 'general_supervisor'
+  // ✅ جديد: مساعد مدير الصالة يشوف مخالفات موظفي الصالة في فرعه ويضيف مخالفة — تُسجَّل "بانتظار اعتماد" مدير الصالة
+  // (زي المشرف)، بدون اعتماد/إلغاء ولا تقييمات (isDeptManager مقصودة تفضل false له)
+  const isHallAssistant = role === HALL_ASSISTANT_ROLE
   // ✅ دور غير إداري له صلاحية "المخالفات" (زي أمين المستودعات) — يشوف مخالفاته هو فقط + إحصائياته هو،
   // بدون قوائم باقي الموظفين/الفروع، وبدون إمكانية إضافة مخالفة. (المخالفات سرية — لا تُعرض لغير الإدارة)
   // ✅ Fix: لازم نستبعد isBranchViewer هنا صراحةً - المشرف العام معاه صلاحية violations=true (لازمة
   // أصلاً عشان رابط الصفحة يظهر له)، فكان بيقع في هذا الشرط ويترجع لوضع "مخالفاتي أنا بس" بدل فرعه كامل
-  const isSelfOnly = !canManage && !isBranchViewer && permissions?.violations === true
+  const isSelfOnly = !canManage && !isBranchViewer && !isHallAssistant && permissions?.violations === true
   // ✅ المشرف العام يقدر يضيف مخالفة، لكنها تُسجَّل "بانتظار اعتماد مدير النظام" ولا تُخصم إلا بعد اعتماد الأدمن
-  const canAdd = canManage || isBranchViewer
-  const canAccessPage = canManage || isSelfOnly || isBranchViewer
+  const canAdd = canManage || isBranchViewer || isHallAssistant
+  const canAccessPage = canManage || isSelfOnly || isBranchViewer || isHallAssistant
   const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
   // ✅ بعد اعتماد التقييم، يظهر تفاصيله بس لمدير القسم والأدمن (حتى مدير الفرع مايشوفوش بعد الاعتماد)
   const canViewApprovedEvaluations = isAdmin || isDeptManager
@@ -242,6 +245,10 @@ export default function ViolationsPage() {
       // مدير القسم يشوف قسمه فقط
       const ids = (empData || []).map((e: any) => e.id)
       if (ids.length > 0) vQ = vQ.in('employee_id', ids)
+    } else if (isHallAssistant) {
+      // مساعد مدير الصالة: كل مخالفات موظفي الصالة في فرعه (ولو مفيش موظفين، ما يرجّعش شيء)
+      const ids = (empData || []).map((e: { id: string }) => e.id)
+      vQ = vQ.in('employee_id', ids.length > 0 ? ids : ['__none__'])
     } else if (isSupervisor) {
       // المشرف يشوف اللي هو سجلها بس
       vQ = vQ.eq('created_by', employee?.id || '')
@@ -463,12 +470,12 @@ export default function ViolationsPage() {
       if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); finalAttachment = urlData.publicUrl }
     }
     // المشرف والمشرف العام يسجّلان بحالة submitted (المشرف العام: اعتمادها لمدير النظام وحده)، المدير يسجل مباشرة بحالة active
-    const initStatus = (isSupervisor || isBranchViewer) ? 'submitted' : 'active'
+    const initStatus = (isSupervisor || isBranchViewer || isHallAssistant) ? 'submitted' : 'active'
     const { error } = await sb.from('violations').insert([{
       employee_id: form.employee_id, amount: parseFloat(form.amount),
       reason: form.reason, date: form.date, created_by: employee?.id,
       status: initStatus, attachment_url: finalAttachment || null,
-      submitted_at: (isSupervisor || isBranchViewer) ? new Date().toISOString() : null,
+      submitted_at: (isSupervisor || isBranchViewer || isHallAssistant) ? new Date().toISOString() : null,
     }])
     setSaving(false)
     if (error) { alert('خطأ: ' + error.message); return }

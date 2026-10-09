@@ -3219,7 +3219,8 @@ export default function CashierPage() {
   const [chargeStaffOpen, setChargeStaffOpen] = useState(false)
   const [chargeType, setChargeType] = useState<'mistake' | 'personal'>('mistake')
   // ✅ جديد: نسبة الخصم من قيمة الصنف - مش كل الحالات لازم تتحمّل 100% (مثلاً وجبة شخصية ممكن تتحمّل بنص السعر بس)
-  const [chargePercent, setChargePercent] = useState(100)
+  // ✅ chargePercent = نسبة التخفيض عن سعر الصنف (0 = يتحمّل الموظف السعر كامل، 30 = يدفع 70% من السعر)
+  const [chargePercent, setChargePercent] = useState(0)
   const [chargeNote, setChargeNote] = useState('')
   // ✅ جديد: توزيع المبلغ على أكتر من موظف — chargeEmployeeId هو الأول، وهنا الباقين (كل واحد ياخد حصة متساوية)
   const [chargePeople, setChargePeople] = useState(1)
@@ -3231,7 +3232,7 @@ export default function CashierPage() {
   const [chargePaidNow, setChargePaidNow] = useState('')
   const [chargePaidMethod, setChargePaidMethod] = useState<'cash' | 'visa' | 'online'>('cash')
 
-  const chargeTotalAmount = chargeItemTarget ? chargeItemTarget.unitPrice * chargeQty * (chargePercent / 100) : 0
+  const chargeTotalAmount = chargeItemTarget ? chargeItemTarget.unitPrice * chargeQty * ((100 - chargePercent) / 100) : 0
   const chargePaidNowNum = chargeItemTarget ? Math.max(0, Math.min(chargeTotalAmount, Number(chargePaidNow) || 0)) : 0
   const chargeRemaining = Math.max(0, chargeTotalAmount - chargePaidNowNum)
   // ✅ تقسيم المبلغ المخصوم على N موظف زي "Split Bill": لكل واحد نسبة (الافتراضي متساوية وتتعدّل)، والحصة بالسنت
@@ -3293,7 +3294,7 @@ export default function CashierPage() {
 
   function resetChargeForm() {
     setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false)
-    setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
+    setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
     setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
   }
 
@@ -3328,7 +3329,7 @@ export default function CashierPage() {
     const label = chargeType === 'mistake'
       ? `🍽️ خصم كاشير - خطأ في الطلب: ${itemLabel}`
       : `🍽️ خصم كاشير - وجبة شخصية: ${itemLabel}`
-    const percentNote = chargePercent < 100 ? ` (خصم ${chargePercent}% من السعر)` : ''
+    const percentNote = chargePercent > 0 ? ` (خصم ${chargePercent}% من السعر — يتحمّل الموظف ${100 - chargePercent}%)` : ''
     // ✅ جديد: نوضّح في السبب لو الموظف دفع جزء كاش/شبكة فورًا، عشان يبان واضح في سجل المخالفات ليه المبلغ أقل من قيمة الصنف كاملة
     const paidNoteText = chargePaidNowNum > 0 ? ` — دفع MYR ${chargePaidNowNum.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${chargePaidMethod === 'cash' ? 'كاش' : chargePaidMethod === 'visa' ? 'شبكة' : 'تحويل بنكي'} فورًا` : ''
     const fullReason = chargeNote.trim() ? `${label}${percentNote}${paidNoteText} — ${chargeNote.trim()}` : `${label}${percentNote}${paidNoteText}`
@@ -3391,7 +3392,7 @@ export default function CashierPage() {
     }
     setChargeSaving(false)
     const wasHubCharge = !!chargeItemTarget.fromCancelHub
-    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
+    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
     fetchAll()
     if (wasHubCharge && cancelHubTable) openCancelHub(cancelHubTable)
   }
@@ -5286,7 +5287,7 @@ export default function CashierPage() {
             <div style={{ marginBottom: 14 }}>
               <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Reason</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => { setChargeType('mistake'); setChargePercent(100) }}
+                <button onClick={() => { setChargeType('mistake'); setChargePercent(0) }}
                   style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${chargeType === 'mistake' ? S.red : S.border}`, background: chargeType === 'mistake' ? S.redB : 'transparent', color: chargeType === 'mistake' ? S.red : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                   ❌ Order Mistake
                 </button>
@@ -5299,9 +5300,9 @@ export default function CashierPage() {
 
             {/* ✅ جديد: نسبة الخصم من قيمة الصنف - مش لازم الموظف يتحمّل 100% دايمًا */}
             <div style={{ marginBottom: 14 }}>
-              <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Deduction percentage</div>
+              <div style={{ color: S.white, fontSize: 12, marginBottom: 6 }}>Discount % off the price (employee pays the rest)</div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                {[25, 50, 75, 100].map(p => (
+                {[0, 25, 50, 75].map(p => (
                   <button key={p} onClick={() => setChargePercent(p)}
                     style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${chargePercent === p ? S.amber : S.border}`, background: chargePercent === p ? S.amberB : 'transparent', color: chargePercent === p ? S.amber : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                     {p}%
@@ -5345,7 +5346,7 @@ export default function CashierPage() {
 
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18, fontSize: 13 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: S.white, fontWeight: 800 }}>
-                <span>Total value</span>
+                <span>Charged to employee (after discount)</span>
                 <span>MYR {chargeTotalAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               {chargePaidNowNum > 0 && (
@@ -5374,7 +5375,7 @@ export default function CashierPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(100); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({}) }}
+              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({}) }}
                 style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 Back
               </button>

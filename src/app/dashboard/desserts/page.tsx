@@ -358,10 +358,11 @@ export default function DessertsPage() {
     type ProdRow = { production_date: string; quantity: number; produced_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; photo_urls: string[] | null }
     type LogRow = { quantity: number; source: string; logged_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; tables: { number: number; name: string; branch_id: string | null } | null }
     type SumRow = { quantity: number; branch_id: string | null; tables: { branch_id: string | null } | null }
-    // وقت ماليزيا (UTC+8 ثابت) لحدود الأيام
-    const startTs = `${repFrom}T00:00:00+08:00`
-    const endTs = new Date(new Date(`${repTo}T00:00:00+08:00`).getTime() + 86400000).toISOString()
-    const dayOf = (iso: string) => new Date(new Date(iso).getTime() + 8 * 3600000).toISOString().slice(0, 10)
+    // ✅ "يوم العمل" للكيك = من 08:00 صباحًا بتوقيت ماليزيا إلى 08:00 صباح اليوم التالي (= حدود يوم UTC، نفس عرض اليوم في الصفحة).
+    // يعني مبيعات ما بعد منتصف الليل (مثلًا 00:30 و02:00) تُحسب على يوم الخدمة اللي بدأ قبلها، مش على التاريخ التقويمي الجديد
+    const startTs = `${repFrom}T00:00:00Z`
+    const endTs = new Date(new Date(`${repTo}T00:00:00Z`).getTime() + 86400000).toISOString()
+    const dayOf = (iso: string) => iso.slice(0, 10)
     let prods: ProdRow[] = [], logs: LogRow[] = [], prevProds: { quantity: number; branch_id: string | null }[] = [], prevLogs: SumRow[] = []
     try {
       ;[prods, logs, prevProds, prevLogs] = await Promise.all([
@@ -457,7 +458,7 @@ export default function DessertsPage() {
       @media print { @page { size: A4; margin: 10mm; } }
     </style></head><body>
     <h1>🎂 Cake Report</h1>
-    <div class="meta">${repFrom} → ${repTo} · ${esc(branchName)} · Printed: ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' })}</div>
+    <div class="meta">${repFrom} → ${repTo} · ${esc(branchName)} · Day = 08:00 to 08:00 (Malaysia) · Printed: ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' })}</div>
     ${body}
     ${!repBranch && sections.length > 1 ? `<div class="total"><h2>Total — all branches</h2>${boxes(total)}</div>` : ''}
     <script>window.onload=()=>window.print()<\/script>

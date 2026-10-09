@@ -502,6 +502,8 @@ export default function ViolationsPage() {
   }
 
   async function cancelViolation(id: string) {
+    // ✅ إلغاء المخالفات لمدير النظام فقط (المدراء يقدرون يعيدون المخالفة المعلّقة للمراجعة بدل إلغائها)
+    if (!isAdmin) { alert('إلغاء المخالفات لمدير النظام فقط'); return }
     if (!confirm('إلغاء هذه المخالفة؟')) return
     await sb.from('violations').update({ status: 'cancelled' }).eq('id', id)
     fetchAll()
@@ -684,7 +686,8 @@ export default function ViolationsPage() {
                 {v.status === 'submitted' && (isAdmin || (!sysV && !gsV && isBranchManager)) && (
                   <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>
                 )}
-                {(v.status === 'active' || v.status === 'submitted') && (sysV ? isAdmin : (isAdmin || (!(gsV && v.status === 'submitted') && (isBranchManager || isDeptManager)))) && (
+                {/* ✅ الإلغاء لمدير النظام فقط */}
+                {(v.status === 'active' || v.status === 'submitted') && isAdmin && (
                   <button onClick={() => cancelViolation(v.id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                 )}
               </div>

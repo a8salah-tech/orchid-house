@@ -283,8 +283,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       employee?.role === HALL_ASSISTANT_ROLE ||
       DEPT_SUPERVISOR_ROLES.includes(employee?.role || '')
     ) :
-    // ✅ مساعد مدير الصالة يشوف رابط المخالفات دايمًا (نطاق الصفحة نفسه محصور في موظفي الصالة بفرعه)
-    (employee?.role === HALL_ASSISTANT_ROLE && (perm === 'violations' || perm === 'branch_requests' || perm === 'internal_warehouse_requests')) ? true :
+    // ✅ مساعد مدير الصالة يشوف روابط المخالفات والطلبات والإشعارات دايمًا (نطاق الصفحة نفسه محصور في موظفي الصالة بفرعه)
+    (employee?.role === HALL_ASSISTANT_ROLE && (perm === 'violations' || perm === 'branch_requests' || perm === 'internal_warehouse_requests' || perm === 'marketing')) ? true :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
 
   if (loading) return (

@@ -192,6 +192,15 @@ export default function DessertsPage() {
   const [monthExpired, setMonthExpired] = useState(0)
   const [monthStatsLoading, setMonthStatsLoading] = useState(false)
 
+  // ✅ جديد: تقرير الكيك للطباعة (مدير النظام فقط) — من تاريخ إلى تاريخ، لفرع محدد أو كل الفروع:
+  // كم دخل (إنتاج)، كم خرج، وبأي طريقة (طلب منيو / توزيع يدوي على طاولة / منتهي الصلاحية)
+  const [showCakeReport, setShowCakeReport] = useState(false)
+  const [repFrom, setRepFrom] = useState(todayStr)
+  const [repTo, setRepTo] = useState(todayStr)
+  const [repBranch, setRepBranch] = useState('') // '' = كل الفروع
+  const [repDetails, setRepDetails] = useState(false)
+  const [repLoading, setRepLoading] = useState(false)
+
   const fetchMonthlyStats = useCallback(async () => {
     if (!isAdmin) return
     setMonthStatsLoading(true)
@@ -326,6 +335,135 @@ export default function DessertsPage() {
   const cumulativeProduced = cumProducedFiltered.reduce((s, p) => s + p.quantity, 0)
   const cumulativeDistributed = cumDistributedFiltered.reduce((s, l) => s + l.quantity, 0)
   const remainingForDate = cumulativeProduced - cumulativeDistributed
+
+  // ✅ يجلب كل الصفوف على دفعات (Supabase يقطع الاستعلام الواحد عند 1000 صف)
+  async function fetchAllRows<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown }>): Promise<T[]> {
+    const PAGE = 1000
+    let all: T[] = []
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await build(from, from + PAGE - 1)
+      if (error || !data) throw new Error('fetch failed')
+      all = all.concat(data as T[])
+      if (data.length < PAGE) break
+    }
+    return all
+  }
+
+  async function printCakeReport() {
+    if (!isAdmin) return
+    if (!repFrom || !repTo || repFrom > repTo) { alert('Please choose a valid date range (From must not be after To)'); return }
+    if ((new Date(repTo).getTime() - new Date(repFrom).getTime()) / 86400000 > 366) { alert('The range cannot exceed one year'); return }
+    setRepLoading(true)
+    type ProdRow = { production_date: string; quantity: number; produced_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; photo_urls: string[] | null }
+    type LogRow = { quantity: number; source: string; logged_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; tables: { number: number; name: string; branch_id: string | null } | null }
+    type SumRow = { quantity: number; branch_id: string | null; tables: { branch_id: string | null } | null }
+    // وقت ماليزيا (UTC+8 ثابت) لحدود الأيام
+    const startTs = `${repFrom}T00:00:00+08:00`
+    const endTs = new Date(new Date(`${repTo}T00:00:00+08:00`).getTime() + 86400000).toISOString()
+    const dayOf = (iso: string) => new Date(new Date(iso).getTime() + 8 * 3600000).toISOString().slice(0, 10)
+    let prods: ProdRow[] = [], logs: LogRow[] = [], prevProds: { quantity: number; branch_id: string | null }[] = [], prevLogs: SumRow[] = []
+    try {
+      ;[prods, logs, prevProds, prevLogs] = await Promise.all([
+        fetchAllRows<ProdRow>((a, b) => sb.from('cake_production_log').select('*').gte('production_date', repFrom).lte('production_date', repTo).order('created_at').range(a, b)),
+        fetchAllRows<LogRow>((a, b) => sb.from('cake_table_log').select('*, tables(number,name,branch_id)').gte('created_at', startTs).lt('created_at', endTs).order('created_at').range(a, b)),
+        fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lt('production_date', repFrom).order('id').range(a, b)),
+        fetchAllRows<SumRow>((a, b) => sb.from('cake_table_log').select('quantity, branch_id, tables(branch_id)').lt('created_at', startTs).order('id').range(a, b)),
+      ])
+    } catch {
+      setRepLoading(false); alert('Failed to load report data — please try again'); return
+    }
+    setRepLoading(false)
+
+    const esc = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
+    const fmtTime = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })
+    const methodLabel: Record<string, string> = { menu_order: 'Menu order', manual: 'Manual to table', expired: 'Expired' }
+    const logBranch = (l: { branch_id: string | null; tables: { branch_id: string | null } | null }) => l.tables?.branch_id || l.branch_id || null
+    const list = repBranch ? branches.filter(b => b.id === repBranch) : branches
+
+    type Tot = { opening: number; produced: number; menu: number; manual: number; expired: number; closing: number }
+    const sections = list.map(b => {
+      const p = prods.filter(x => x.branch_id === b.id)
+      const l = logs.filter(x => logBranch(x) === b.id)
+      const opening = prevProds.filter(x => x.branch_id === b.id).reduce((n, x) => n + x.quantity, 0) - prevLogs.filter(x => logBranch(x) === b.id).reduce((n, x) => n + x.quantity, 0)
+      const sum = (src: string) => l.filter(x => x.source === src).reduce((n, x) => n + x.quantity, 0)
+      const produced = p.reduce((n, x) => n + x.quantity, 0)
+      const menu = sum('menu_order'), manual = sum('manual'), expired = sum('expired')
+      const t: Tot = { opening, produced, menu, manual, expired, closing: opening + produced - menu - manual - expired }
+      // جدول يومي: الأيام اللي فيها حركة فقط، مع الرصيد الجاري
+      const days = [...new Set([...p.map(x => x.production_date), ...l.map(x => dayOf(x.created_at))])].sort()
+      let run = opening
+      const dayRows = days.map(d => {
+        const dp = p.filter(x => x.production_date === d).reduce((n, x) => n + x.quantity, 0)
+        const dl = l.filter(x => dayOf(x.created_at) === d)
+        const dm = dl.filter(x => x.source === 'menu_order').reduce((n, x) => n + x.quantity, 0)
+        const dh = dl.filter(x => x.source === 'manual').reduce((n, x) => n + x.quantity, 0)
+        const de = dl.filter(x => x.source === 'expired').reduce((n, x) => n + x.quantity, 0)
+        run += dp - dm - dh - de
+        return { d, dp, dm, dh, de, run }
+      })
+      return { b, p, l, t, dayRows }
+    })
+    const total = sections.reduce<Tot>((a, x) => ({ opening: a.opening + x.t.opening, produced: a.produced + x.t.produced, menu: a.menu + x.t.menu, manual: a.manual + x.t.manual, expired: a.expired + x.t.expired, closing: a.closing + x.t.closing }), { opening: 0, produced: 0, menu: 0, manual: 0, expired: 0, closing: 0 })
+    const boxes = (t: Tot) => `<div class="sum">
+      <div class="box"><div class="v">${t.opening}</div><div>Opening balance</div></div>
+      <div class="box in"><div class="v">+${t.produced}</div><div>IN — Produced</div></div>
+      <div class="box out"><div class="v">-${t.menu}</div><div>OUT — Menu orders</div></div>
+      <div class="box out"><div class="v">-${t.manual}</div><div>OUT — Manual to tables</div></div>
+      <div class="box exp"><div class="v">-${t.expired}</div><div>OUT — Expired</div></div>
+      <div class="box"><div class="v">${t.closing}</div><div>Closing balance</div></div>
+    </div><div class="outtot">Total OUT: <b>${t.menu + t.manual + t.expired}</b> (Menu orders ${t.menu} + Manual to tables ${t.manual} + Expired ${t.expired})</div>`
+    const body = sections.map((x, i) => `
+      <div ${i > 0 ? 'style="page-break-before:always"' : ''}>
+        <h2>🏢 ${esc(x.b.name)}</h2>
+        ${boxes(x.t)}
+        <h3>Daily movement</h3>
+        <table><thead><tr><th>Date</th><th>IN</th><th>OUT menu</th><th>OUT manual</th><th>OUT expired</th><th>Balance</th></tr></thead><tbody>
+          ${x.dayRows.length ? x.dayRows.map(r => `<tr><td>${r.d}</td><td>${r.dp || ''}</td><td>${r.dm || ''}</td><td>${r.dh || ''}</td><td>${r.de || ''}</td><td><b>${r.run}</b></td></tr>`).join('') : '<tr><td colspan="6" class="none">No movement in this period</td></tr>'}
+        </tbody></table>
+        ${repDetails ? `
+        <h3>Production entries (${x.p.length})</h3>
+        <table><thead><tr><th>Date / time</th><th>Cakes</th><th>Produced by</th><th>Notes</th></tr></thead><tbody>
+          ${x.p.length ? x.p.map(r => `<tr><td>${fmtTime(r.created_at)}</td><td><b>${r.quantity}</b></td><td>${esc(r.produced_by_name || '—')}</td><td>${esc(r.notes || '')}</td></tr>`).join('') : '<tr><td colspan="4" class="none">—</td></tr>'}
+        </tbody></table>
+        <h3>Out entries (${x.l.length})</h3>
+        <table><thead><tr><th>Date / time</th><th>Table</th><th>Qty</th><th>Method</th><th>Logged by</th><th>Notes</th></tr></thead><tbody>
+          ${x.l.length ? x.l.map(r => `<tr${r.source === 'expired' ? ' class="expr"' : ''}><td>${fmtTime(r.created_at)}</td><td>${r.tables ? esc(r.tables.name || 'Table ' + r.tables.number) : '—'}</td><td><b>${r.quantity}</b></td><td>${methodLabel[r.source] || esc(r.source)}</td><td>${esc(r.logged_by_name || '—')}</td><td>${esc(r.notes || '')}</td></tr>`).join('') : '<tr><td colspan="6" class="none">—</td></tr>'}
+        </tbody></table>` : ''}
+      </div>`).join('')
+    const win = window.open('', '_blank')
+    if (!win) return
+    const branchName = repBranch ? (branches.find(b => b.id === repBranch)?.name || '') : 'All Branches'
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Cake Report ${repFrom} to ${repTo}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; margin: 16px; color: #111; font-size: 12px; }
+      h1 { text-align: center; font-size: 20px; margin: 0 0 2px; }
+      .meta { text-align: center; color: #555; font-size: 12px; margin-bottom: 12px; }
+      h2 { font-size: 16px; margin: 12px 0 8px; border-bottom: 2px solid #0A1628; padding-bottom: 4px; }
+      h3 { font-size: 13px; margin: 14px 0 6px; }
+      .sum { display: flex; gap: 6px; margin-bottom: 6px; }
+      .box { flex: 1; border: 1px solid #ccc; border-radius: 6px; padding: 7px 4px; text-align: center; font-size: 10.5px; color: #555; }
+      .box .v { font-size: 21px; font-weight: bold; color: #0A1628; }
+      .box.in .v { color: #16A34A; } .box.out .v { color: #2563EB; } .box.exp .v { color: #DC2626; }
+      .outtot { font-size: 12px; margin: 4px 0 8px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+      th, td { border: 1px solid #ccc; padding: 4px 7px; text-align: left; }
+      th { background: #f3f3f3; }
+      tr.expr td { background: #FEF2F2; }
+      td.none { text-align: center; color: #888; }
+      .total { margin-top: 18px; page-break-inside: avoid; page-break-before: always; }
+      @media print { @page { size: A4; margin: 10mm; } }
+    </style></head><body>
+    <h1>🎂 Cake Report</h1>
+    <div class="meta">${repFrom} → ${repTo} · ${esc(branchName)} · Printed: ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' })}</div>
+    ${body}
+    ${!repBranch && sections.length > 1 ? `<div class="total"><h2>Total — all branches</h2>${boxes(total)}</div>` : ''}
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`)
+    win.document.close()
+    setShowCakeReport(false)
+  }
 
 
 
@@ -537,6 +675,11 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
               Back to Today
             </button>
           )}
+          {isAdmin && (
+            <button onClick={() => { setRepFrom(viewDate); setRepTo(viewDate); setRepBranch(branchFilter); setShowCakeReport(true) }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #3B82F6', background: 'rgba(59,130,246,0.12)', color: '#3B82F6', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
+              🖨️ Report (Admin)
+            </button>
+          )}
           <span style={{ color: S.muted, fontSize: 12, marginLeft: isMobile ? 0 : 'auto' }}>
             {branchFilter ? branches.find(b => b.id === branchFilter)?.name : 'All Branches'} · {viewDate === todayStr ? 'Showing today' : `Showing ${viewDate}`}
           </span>
@@ -721,6 +864,43 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
           </div>
         </div>
       </div>
+      )}
+
+
+      {/* ✅ جديد: نافذة تقرير الكيك (مدير النظام فقط) */}
+      {showCakeReport && isAdmin && (
+        <div onClick={() => setShowCakeReport(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 998, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, direction: 'ltr' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.gold}60`, borderRadius: 16, padding: 20, width: '100%', maxWidth: 420 }}>
+            <div style={{ color: S.gold, fontWeight: 800, fontSize: 16, marginBottom: 4 }}>🖨️ Cake Report</div>
+            <div style={{ color: S.muted, fontSize: 12, marginBottom: 14 }}>Admin only · how many came in, how many went out, and how (menu orders / manual to tables / expired)</div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+              <label style={{ flex: 1, fontSize: 12, color: S.muted }}>From
+                <input type="date" value={repFrom} max={todayStr} onChange={e => { setRepFrom(e.target.value); if (e.target.value > repTo) setRepTo(e.target.value) }}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13 }} />
+              </label>
+              <label style={{ flex: 1, fontSize: 12, color: S.muted }}>To
+                <input type="date" value={repTo} min={repFrom} max={todayStr} onChange={e => setRepTo(e.target.value)}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13 }} />
+              </label>
+            </div>
+            <label style={{ display: 'block', fontSize: 12, color: S.muted, marginBottom: 12 }}>Branch
+              <select value={repBranch} onChange={e => setRepBranch(e.target.value)}
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13 }}>
+                <option value="">All branches</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: S.white, marginBottom: 16, cursor: 'pointer' }}>
+              <input type="checkbox" checked={repDetails} onChange={e => setRepDetails(e.target.checked)} /> Include detailed entries (who, when, table)
+            </label>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowCakeReport(false)} style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+              <button onClick={printCakeReport} disabled={repLoading} style={{ flex: 2, padding: '10px', borderRadius: 10, border: '1px solid #3B82F6', background: 'rgba(59,130,246,0.15)', color: '#3B82F6', cursor: repLoading ? 'wait' : 'pointer', fontSize: 13, fontWeight: 700 }}>
+                {repLoading ? '⏳ Loading…' : '🖨️ Print report'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ✅ Image Viewer / Lightbox */}

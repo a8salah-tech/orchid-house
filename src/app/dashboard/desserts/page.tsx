@@ -87,6 +87,20 @@ async function uploadCakePhoto(sb: ReturnType<typeof createClient>, file: File):
   return urlData.publicUrl
 }
 
+// ✅ يجلب كل الصفوف على دفعات (Supabase يقطع الاستعلام الواحد عند 1000 صف) — بدونها كان "الرصيد المتبقي" يتجاهل
+// أي سجل توزيع بعد أول 1000 فيطلع أكبر من الحقيقي
+async function fetchAllRows<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown }>): Promise<T[]> {
+  const PAGE = 1000
+  let all: T[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1)
+    if (error || !data) throw new Error('fetch failed')
+    all = all.concat(data as T[])
+    if (data.length < PAGE) break
+  }
+  return all
+}
+
 const CAKE_CATEGORY_ID = 'c349a109-48e3-4e13-af7f-c3bfe381b335' // "Cake" category in menu_categories
 
 export default function DessertsPage() {
@@ -169,9 +183,9 @@ export default function DessertsPage() {
       sb.from('cake_production_log').select('*').eq('production_date', viewDate).order('created_at', { ascending: false }),
       sb.from('cake_table_log').select('*, tables(number,name,branch_id)').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
       // ✅ everything ever produced up to and including viewDate (for the cumulative "Remaining" figure)
-      sb.from('cake_production_log').select('quantity, branch_id').lte('production_date', viewDate),
+      fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lte('production_date', viewDate).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
       // ✅ everything ever distributed (بما فيه منتهي الصلاحية) up to and including viewDate
-      sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id)').lt('created_at', `${viewDate}T23:59:59.999`),
+      fetchAllRows<{ quantity: number; source: string; branch_id: string | null; tables: { branch_id: string | null } | null }>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id)').lt('created_at', `${viewDate}T23:59:59.999`).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
     ])
     setBranches(br.data || [])
     setTables(tbl.data || [])
@@ -335,19 +349,6 @@ export default function DessertsPage() {
   const cumulativeProduced = cumProducedFiltered.reduce((s, p) => s + p.quantity, 0)
   const cumulativeDistributed = cumDistributedFiltered.reduce((s, l) => s + l.quantity, 0)
   const remainingForDate = cumulativeProduced - cumulativeDistributed
-
-  // ✅ يجلب كل الصفوف على دفعات (Supabase يقطع الاستعلام الواحد عند 1000 صف)
-  async function fetchAllRows<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown }>): Promise<T[]> {
-    const PAGE = 1000
-    let all: T[] = []
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await build(from, from + PAGE - 1)
-      if (error || !data) throw new Error('fetch failed')
-      all = all.concat(data as T[])
-      if (data.length < PAGE) break
-    }
-    return all
-  }
 
   async function printCakeReport() {
     if (!isAdmin) return

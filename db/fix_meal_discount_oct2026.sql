@@ -20,8 +20,3 @@ update violations
  where id = 'bb6788d9-a3e2-45ec-a6b2-85a80e0f8f36'
    and amount = 10.2
    and reason not like '%صُحّح المبلغ%';
-
--- تأكيد النتيجة
-select id, amount, status, left(reason, 120) as reason
-  from violations
- where id in ('10ef3688-07e4-4c68-a136-3a0eae913bd6', 'bb6788d9-a3e2-45ec-a6b2-85a80e0f8f36');

@@ -38,6 +38,8 @@ const ITEM_TYPES = [
   { key: 'chef_hat_white', label: 'White Chef Hat', label_ar: 'طاقية بيضاء', image: '/uniform/chef-hat-white.jpg' },
 ]
 const SIZES = ['S', 'M', 'L', 'XL', 'XXL']
+// صورة بديلة (قميص بسيط) للأصناف الجديدة اللي ما اترفعش لها صورة
+const PLACEHOLDER_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#f3f3f3"/><path d="M30 22l-18 12 9 14 9-5v36h40V43l9 5 9-14-18-12c-3 7-10 10-20 10s-17-3-20-10z" fill="#c9a84c" stroke="#0a1628" stroke-width="2.5" stroke-linejoin="round"/></svg>')
 
 const STATUS_CFG: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   pending:   { label: 'قيد الانتظار', icon: '⏳', color: S.amber, bg: S.amberB },
@@ -49,7 +51,7 @@ interface RequestItem { id: string; item_type: string; size: string; quantity: n
 interface UniformRequest {
   id: string; employee_id: string; status: string
   requested_at: string; delivered_at: string | null; delivered_by: string | null; notes: string | null
-  employees?: { name: string; name_en?: string; employee_number?: string; department?: string }
+  employees?: { name: string; name_en?: string; employee_number?: string; department?: string; branch_id?: string }
   uniform_request_items?: RequestItem[]
 }
 // ✅ جديد: سجل إدخال كمية مخزون يونيفورم — من أدخلها، ولأي فرع
@@ -72,6 +74,27 @@ export default function UniformRequestsPage() {
   const canManage = isAdmin || isBranchManager
 
   const [selections, setSelections] = useState<Record<string, { size: string; quantity: number }>>({})
+
+  // ✅ أصناف إضافية يضيفها مدير النظام/المشرف العام (مثلًا جاكيت بنوع مختلف) — جدول uniform_item_types (db/uniform_item_types.sql)
+  // تُدمج مع الأصناف الثابتة في كل مكان بالصفحة (الطلب، المخزون، التقارير)
+  const [customItems, setCustomItems] = useState<{ key: string; label: string; label_ar: string; image: string }[]>([])
+  const [newItemAr, setNewItemAr] = useState('')
+  const [newItemEn, setNewItemEn] = useState('')
+  const [newItemFile, setNewItemFile] = useState<File | null>(null)
+  const [savingItem, setSavingItem] = useState(false)
+  const loadCustomItems = useCallback(() => {
+    return sb.from('uniform_item_types').select('key, label_ar, label_en, image_url').eq('is_active', true).order('created_at')
+      .then(({ data, error }) => {
+        // لو الجدول لسه ما اتعملش (الملف ما اتشغّلش) نكمّل بالأصناف الثابتة بدون أي خطأ
+        if (error) { setCustomItems([]); return }
+        setCustomItems((data || []).map((r: { key: string; label_ar: string; label_en: string | null; image_url: string | null }) => ({
+          key: r.key, label: r.label_en || r.label_ar, label_ar: r.label_ar, image: r.image_url || PLACEHOLDER_IMG,
+        })))
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => { loadCustomItems() }, [loadCustomItems])
+  const allItems = [...ITEM_TYPES, ...customItems]
   const [submitting, setSubmitting] = useState(false)
   const [myRequests, setMyRequests] = useState<UniformRequest[]>([])
   const [allRequests, setAllRequests] = useState<UniformRequest[]>([])
@@ -288,6 +311,32 @@ export default function UniformRequestsPage() {
     win.document.close()
   }
 
+
+  // ✅ إضافة صنف جديد (مدير النظام / المشرف العام): اسم عربي (مطلوب) + اسم إنجليزي وصورة (اختياريان)
+  async function addCustomItem() {
+    if (!isAdmin) return
+    const ar = newItemAr.trim()
+    if (!ar) { alert('يرجى إدخال اسم الصنف بالعربية'); return }
+    if (allItems.some(i => i.label_ar === ar)) { alert('يوجد صنف بنفس الاسم بالفعل'); return }
+    setSavingItem(true)
+    let imageUrl: string | null = null
+    if (newItemFile) {
+      const ext = (newItemFile.name.split('.').pop() || 'jpg').toLowerCase()
+      const path = `uniform/item_${Date.now()}.${ext}`
+      const { data: up, error: upErr } = await sb.storage.from('employees').upload(path, newItemFile, { upsert: true, contentType: newItemFile.type })
+      if (upErr || !up) { setSavingItem(false); alert('تعذّر رفع الصورة: ' + (upErr?.message || '')); return }
+      imageUrl = sb.storage.from('employees').getPublicUrl(up.path).data.publicUrl
+    }
+    const { error } = await sb.from('uniform_item_types').insert([{
+      key: 'custom_' + Date.now().toString(36), label_ar: ar, label_en: newItemEn.trim() || null, image_url: imageUrl, created_by: currentUser?.id || null,
+    }])
+    setSavingItem(false)
+    if (error) { alert('تعذّر إضافة الصنف: ' + error.message + (/uniform_item_types/.test(error.message) ? ' — شغّل ملف db/uniform_item_types.sql أولًا' : '')); return }
+    setNewItemAr(''); setNewItemEn(''); setNewItemFile(null)
+    await loadCustomItems()
+    alert('تمت إضافة الصنف — يظهر الآن في الطلب والمخزون')
+  }
+
   async function addStockEntry() {
     if (!stockForm.branch_id) { alert('يرجى اختيار الفرع'); return }
     if (stockForm.quantity <= 0) { alert('يرجى إدخال كمية أكبر من صفر'); return }
@@ -355,13 +404,59 @@ export default function UniformRequestsPage() {
     setTab('mine')
   }
 
-  async function markDelivered(requestId: string) {
-    await sb.from('uniform_requests').update({
+  // ✅ التسليم يخصم من مخزون فرع الموظف: لكل صنف/مقاس سجل خصم سالب في uniform_stock_entries مرتبط بالطلب.
+  // الخطوات: (١) نتأكد إن الرصيد كافٍ، (٢) نحجز الطلب (pending → delivered) بشرط إنه لسه pending لمنع التسليم المزدوج،
+  // (٣) نسجّل الخصم، ولو فشل الخصم نرجّع الطلب pending. التسجيلات بأثر رجعي (تبويب "آخر استلام") لا تخصم.
+  async function markDelivered(req: UniformRequest) {
+    const branchId = (req.employees as { branch_id?: string } | undefined)?.branch_id || ''
+    if (!branchId) { alert('لا يمكن التسليم: الموظف غير مرتبط بفرع، فلا يمكن خصم الكمية من مخزون فرع'); return }
+    // نجمّع الكميات المطلوبة لكل صنف/مقاس (قد يتكرر نفس الصنف في أكثر من سطر)
+    const need: Record<string, { item_type: string; size: string; quantity: number }> = {}
+    for (const it of (req.uniform_request_items || [])) {
+      const k = `${it.item_type}|${it.size}`
+      if (!need[k]) need[k] = { item_type: it.item_type, size: it.size, quantity: 0 }
+      need[k].quantity += it.quantity
+    }
+    const lines = Object.values(need)
+    if (lines.length === 0) { alert('الطلب بلا أصناف'); return }
+
+    // (١) الرصيد الحالي لكل صنف/مقاس في فرع الموظف
+    const { data: stockRows, error: stockErr } = await sb.from('uniform_stock_entries')
+      .select('item_type, size, quantity').eq('branch_id', branchId)
+    if (stockErr) { alert('تعذّر قراءة المخزون: ' + stockErr.message); return }
+    const have: Record<string, number> = {}
+    for (const r of (stockRows || []) as { item_type: string; size: string; quantity: number }[]) {
+      const k = `${r.item_type}|${r.size}`
+      have[k] = (have[k] || 0) + r.quantity
+    }
+    const short = lines.filter(l => (have[`${l.item_type}|${l.size}`] || 0) < l.quantity)
+    if (short.length > 0) {
+      alert('الرصيد غير كافٍ في مخزون الفرع — لا يمكن التسليم:\n' + short.map(l => `• ${itemLabel(l.item_type)} (${l.size}): المطلوب ${l.quantity}، المتاح ${have[`${l.item_type}|${l.size}`] || 0}`).join('\n') + '\n\nأضِف الكمية من تبويب المخزون ثم أعد المحاولة.')
+      return
+    }
+
+    // (٢) حجز الطلب: ما يتحوّل لـ delivered إلا لو لسه pending (يمنع الضغط المزدوج/من شخصين)
+    const { data: claimed, error: claimErr } = await sb.from('uniform_requests').update({
       status: 'delivered',
       delivered_at: new Date().toISOString(),
       delivered_by: currentUser?.id,
-    }).eq('id', requestId)
+    }).eq('id', req.id).eq('status', 'pending').select('id')
+    if (claimErr) { alert('تعذّر تسجيل التسليم: ' + claimErr.message); return }
+    if (!claimed || claimed.length === 0) { alert('هذا الطلب لم يعد قيد الانتظار'); await fetchAll(); return }
+
+    // (٣) تسجيل الخصم من المخزون
+    const { error: deductErr } = await sb.from('uniform_stock_entries').insert(lines.map(l => ({
+      item_type: l.item_type, size: l.size, quantity: -l.quantity, branch_id: branchId,
+      added_by: currentUser?.id || null, request_id: req.id,
+    })))
+    if (deductErr) {
+      await sb.from('uniform_requests').update({ status: 'pending', delivered_at: null, delivered_by: null }).eq('id', req.id)
+      alert('تعذّر خصم الكمية من المخزون، فلم يُسجَّل التسليم: ' + deductErr.message + (/request_id|check|constraint/i.test(deductErr.message) ? ' — شغّل ملف db/uniform_stock_deduct.sql أولًا' : ''))
+      await fetchAll()
+      return
+    }
     await fetchAll()
+    if (tab === 'stock') await fetchStock()
   }
 
   async function markRejected(requestId: string) {
@@ -389,13 +484,13 @@ export default function UniformRequestsPage() {
 
   // ✅ Fix per user request: بلا أي أيقونة إيموجي — نص فقط (مُستخدَم في تقرير الطباعة كنص خام)
   function itemLabel(type: string) {
-    const t = ITEM_TYPES.find(i => i.key === type)
+    const t = allItems.find(i => i.key === type)
     return t ? t.label_ar : type
   }
 
   // ✅ جديد: نفس الفكرة، لكن بصورة المنتج الحقيقية بدل أي أيقونة — للاستخدام داخل الصفحة نفسها (JSX)
   function ItemChip({ type }: { type: string }) {
-    const t = ITEM_TYPES.find(i => i.key === type)
+    const t = allItems.find(i => i.key === type)
     if (!t) return <>{type}</>
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -456,7 +551,7 @@ export default function UniformRequestsPage() {
       {tab === 'new' && (
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 14, marginBottom: 20 }}>
-            {ITEM_TYPES.map(item => {
+            {allItems.map(item => {
               const selected = !!selections[item.key]
               return (
                 <div key={item.key} onClick={() => toggleItem(item.key)}
@@ -583,7 +678,7 @@ export default function UniformRequestsPage() {
                 </div>
                 {req.status === 'pending' ? (
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => markDelivered(req.id)}
+                    <button onClick={() => markDelivered(req)}
                       style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                       ✅ تم التسليم
                     </button>
@@ -619,6 +714,35 @@ export default function UniformRequestsPage() {
       {/* ── Stock Management Tab ── */}
       {tab === 'stock' && canManage && (
         <div>
+          {/* ✅ جديد: إضافة صنف جديد (مدير النظام / المشرف العام فقط) */}
+          {isAdmin && (
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.gold}40`, padding: 20, marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: S.gold, marginBottom: 6 }}>🆕 إضافة صنف جديد</div>
+              <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>مثال: جاكيت بنوع مختلف. يظهر الصنف فورًا في طلب اليونيفورم وفي المخزون والتقارير، ثم أضِف له كمية من «إضافة كمية للمخزون».</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>الاسم بالعربية *</div>
+                  <input value={newItemAr} onChange={e => setNewItemAr(e.target.value)} placeholder="مثال: جاكيت رمادي"
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>الاسم بالإنجليزية (اختياري)</div>
+                  <input value={newItemEn} onChange={e => setNewItemEn(e.target.value)} placeholder="e.g. Grey Jacket" dir="ltr"
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>صورة الصنف (اختياري)</div>
+                  <input type="file" accept="image/*" onChange={e => setNewItemFile(e.target.files?.[0] || null)}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.muted, fontSize: 12, boxSizing: 'border-box' }} />
+                </div>
+              </div>
+              <button onClick={addCustomItem} disabled={savingItem}
+                style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: savingItem ? 'wait' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+                {savingItem ? '⏳ جاري الحفظ...' : '➕ إضافة الصنف'}
+              </button>
+            </div>
+          )}
+
           {/* فورم إضافة كمية جديدة */}
           <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: S.white, marginBottom: 16 }}>➕ إضافة كمية للمخزون</div>
@@ -627,7 +751,7 @@ export default function UniformRequestsPage() {
                 <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف</label>
                 <select value={stockForm.item_type} onChange={e => setStockForm(p => ({ ...p, item_type: e.target.value }))}
                   style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
-                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.label_ar}</option>)}
+                  {allItems.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.label_ar}</option>)}
                 </select>
               </div>
               <div>
@@ -673,7 +797,7 @@ export default function UniformRequestsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 12 }}>
                 {Object.values(stockTotals).map((t, i) => {
                   // ✅ Fix per user request: صورة المنتج الحقيقية كبيرة وواضحة بدل أي أيقونة
-                  const meta = ITEM_TYPES.find(x => x.key === t.item_type)
+                  const meta = allItems.find(x => x.key === t.item_type)
                   return (
                     <div key={i} style={{ background: S.card, borderRadius: 12, padding: 12, textAlign: 'center' }}>
                       <div style={{ width: '100%', height: 100, borderRadius: 10, overflow: 'hidden', background: '#fff', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -702,7 +826,7 @@ export default function UniformRequestsPage() {
               <div key={entry.id} style={{ background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}`, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>
-                    <ItemChip type={entry.item_type} /> · {entry.size} · <span style={{ color: S.gold }}>+{entry.quantity}</span>
+                    <ItemChip type={entry.item_type} /> · {entry.size} · {entry.quantity < 0 ? <span style={{ color: S.red }}>{entry.quantity} (خصم تسليم طلب)</span> : <span style={{ color: S.gold }}>+{entry.quantity}</span>}
                   </div>
                   <div style={{ fontSize: 11, color: S.muted, marginTop: 3 }}>
                     🏪 {entry.branches?.name || '—'} · 👤 {entry.added_by_employee ? `${entry.added_by_employee.name}${entry.added_by_employee.name_en ? ' ' + entry.added_by_employee.name_en : ''}` : 'غير معروف'}
@@ -762,7 +886,7 @@ export default function UniformRequestsPage() {
                 <label style={{ fontSize: 11, color: S.muted, display: 'block', marginBottom: 5 }}>الصنف</label>
                 <select value={historyForm.item_type} onChange={e => setHistoryForm(p => ({ ...p, item_type: e.target.value }))}
                   style={{ width: '100%', background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
-                  {ITEM_TYPES.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.label_ar}</option>)}
+                  {allItems.map(it => <option key={it.key} value={it.key} style={{ background: S.navy2 }}>{it.label_ar}</option>)}
                 </select>
               </div>
               <div>

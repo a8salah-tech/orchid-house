@@ -26,5 +26,9 @@ export const DEPT_MANAGER_ROLES_EXT: string[] = [...DEPT_MANAGER_ROLES, 'kitchen
 // وغيرها). حاليًا له صلاحيات المدير الكاملة في صفحة الشيفتات فقط (لموظفي الصالة في فرعه)
 export const HALL_ASSISTANT_ROLE = 'hall_assistant_manager'
 
+// ✅ مساعد مدير المطبخ: يرث صلاحيات مدير المطبخ في صفحات كثيرة (DEPT_MANAGER_ROLES_EXT)، لكنه في المخالفات يعمل بنفس نمط
+// مساعد مدير الصالة: يشوف مخالفات موظفي قسمه (مطبخ+بار+حلويات) في فرعه ويضيف مخالفة "بانتظار الاعتماد"
+export const KITCHEN_ASSISTANT_ROLE = 'kitchen_assistant_manager'
+
 // مشرفو الأقسام الثلاثة (مطبخ/صالة/بار)
 export const DEPT_SUPERVISOR_ROLES: string[] = ['kitchen_supervisor', 'hall_supervisor', 'bar_supervisor']

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
-import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES } from '../../../lib/roles'
+import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES, KITCHEN_ASSISTANT_ROLE } from '../../../lib/roles'
 import { useLang } from '../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
@@ -85,7 +85,7 @@ export default function WastePage() {
   const role = employee?.role || ''
   const isAdmin = role === 'admin' || (employee as any)?.permissions?.all === true
   // ✅ المشرف العام يقدر يسجّل هدر كمان (لفرعه، وأي قسم من قايمة الأقسام) — بدون صلاحية اعتماد؛ الاعتماد لحاله للأدمن/مدير الفرع/مدير القسم
-  const canRecord = isAdmin || [...DEPT_MANAGER_ROLES,...DEPT_SUPERVISOR_ROLES,'branch_manager','warehouse_keeper','general_supervisor'].includes(role)
+  const canRecord = isAdmin || [...DEPT_MANAGER_ROLES,...DEPT_SUPERVISOR_ROLES,KITCHEN_ASSISTANT_ROLE,'branch_manager','warehouse_keeper','general_supervisor'].includes(role)
   const isBranchManager = role === 'branch_manager'
   const isDeptManager   = DEPT_MANAGER_ROLES.includes(role)
   const isSupervisor    = DEPT_SUPERVISOR_ROLES.includes(role)

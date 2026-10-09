@@ -6,7 +6,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from './AuthProvider'
 import NotificationBell from './NotificationBell'
 import { LanguageContext } from './LanguageContext'
-import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE, KITCHEN_ASSISTANT_ROLE } from '../../lib/roles'
 
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
@@ -284,6 +284,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       DEPT_SUPERVISOR_ROLES.includes(employee?.role || '')
     ) :
     // ✅ مساعد مدير الصالة يشوف روابط المخالفات والطلبات والإشعارات دايمًا (نطاق الصفحة نفسه محصور في موظفي الصالة بفرعه)
+    // ✅ مساعد مدير المطبخ يشوف روابط المخالفات وسجل الهدر دايمًا
+    (employee?.role === KITCHEN_ASSISTANT_ROLE && (perm === 'violations' || perm === 'waste')) ? true :
     (employee?.role === HALL_ASSISTANT_ROLE && (perm === 'violations' || perm === 'branch_requests' || perm === 'internal_warehouse_requests' || perm === 'marketing')) ? true :
     perm === null || perm === 'all_employees' || isAdmin || hasPermission(perm)
 

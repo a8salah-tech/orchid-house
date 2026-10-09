@@ -69,6 +69,7 @@ interface Employee {
   role: string; department: string; branch_id: string; phone: string
   email: string; email_account?: string  // ① إيميل شخصي + إيميل النظام
   join_date: string; salary?: number; insurance?: number; work_insurance?: number; is_active: boolean
+  weekly_days_off?: number | null  // ✅ أيام الإجازة الأسبوعية المسموحة (يحدّدها مدير النظام، الافتراضي 2) — db/employees_weekly_days_off.sql
   fixed_salary?: boolean  // ✅ راتب ثابت — بدون حضور: يُدفع كامل شهرياً بلا خصم غياب/تأخير
   notes: string; photo_url?: string; national_id_url?: string
   auth_user_id?: string; branches?: { name: string }
@@ -222,7 +223,7 @@ function ChangePasswordModal({ employee, onClose, onSaved }: { employee: Employe
 }
 
 // ══ Add/Edit Employee Modal ══
-function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Employee | null; branches: Branch[]; onClose: () => void; onSaved: () => void }) {
+function EmployeeModal({ employee, branches, isAdmin, onClose, onSaved }: { employee?: Employee | null; branches: Branch[]; isAdmin?: boolean; onClose: () => void; onSaved: () => void }) {
   const supabase = createClient()
   const photoRef = useRef<HTMLInputElement>(null)
   const idRef = useRef<HTMLInputElement>(null)
@@ -246,6 +247,7 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
     notes: employee?.notes || '',
     is_active: employee?.is_active !== false,
     fixed_salary: employee?.fixed_salary === true,
+    weekly_days_off: String(employee?.weekly_days_off ?? 2),
   })
 
   function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) { const file = e.target.files?.[0]; if (!file) return; setPhotoFile(file); setPhotoPreview(URL.createObjectURL(file)) }
@@ -259,9 +261,12 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
     if (photoFile) { const url = await uploadImage(supabase, photoFile, `photos/${employee?.id || Date.now()}_${Date.now()}.jpg`); if (url) photo_url = url }
     if (idFile) { const url = await uploadImage(supabase, idFile, `ids/${employee?.id || Date.now()}_${Date.now()}.jpg`); if (url) national_id_url = url }
     // ✅ الراتب اتنقل لجدول employee_compensation المقفول — نفصله عن payload جدول employees
-    const { salary: salaryStr, ...formRest } = form
+    const { salary: salaryStr, weekly_days_off: wdoStr, ...formRest } = form
     const salaryNum = parseFloat(salaryStr) || 0
-    const payload = { ...formRest, photo_url, national_id_url, branch_id: form.branch_id || null }
+    const payload: Record<string, unknown> = { ...formRest, photo_url, national_id_url, branch_id: form.branch_id || null }
+    // ✅ حصة الإجازة الأسبوعية: مدير النظام فقط، ونرسلها فقط لو تغيّرت عن القيمة الحالية (الافتراضي 2) — فلا يتأثر حفظ أي موظف قبل تشغيل ملف SQL
+    const wdo = Math.max(1, Math.min(7, parseInt(wdoStr) || 2))
+    if (isAdmin && wdo !== (employee?.weekly_days_off ?? 2)) payload.weekly_days_off = wdo
     let savedId = employee?.id || null
     if (employee) {
       const { error } = await supabase.from('employees').update(payload).eq('id', employee.id)
@@ -331,6 +336,15 @@ function EmployeeModal({ employee, branches, onClose, onSaved }: { employee?: Em
             <input type="checkbox" id="is_active" checked={form.is_active} onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))} style={{ width: 16, height: 16, accentColor: S.green }} />
             <label htmlFor="is_active" style={{ fontSize: 13, color: S.white, cursor: 'pointer' }}>موظف نشط — يظهر في النظام</label>
           </div>
+          {isAdmin && (
+            <div style={{ gridColumn: '1 / -1', padding: 12, background: S.card, borderRadius: 12, border: `1px solid ${S.border}` }}>
+              <label style={{ fontSize: 13, color: S.white, display: 'block', marginBottom: 6 }}>🏖️ أيام الإجازة الأسبوعية المسموحة <span style={{ color: S.muted }}>/ Weekly days off</span></label>
+              <select style={{ ...inp, maxWidth: 220 }} value={form.weekly_days_off} onChange={e => setForm(p => ({ ...p, weekly_days_off: e.target.value }))}>
+                {[1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n === 1 ? 'يوم واحد' : n === 2 ? 'يومان' : n + ' أيام'}</option>)}
+              </select>
+              <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>الافتراضي يومان لكل الموظفين. في إدارة الشيفتات لا يُسمح لمدير القسم/الفرع بإضافة إجازات أكثر من هذا العدد في الأسبوع (الأحد → السبت).</div>
+            </div>
+          )}
           <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12, background: S.card, borderRadius: 12, border: `1px solid ${S.border}` }}>
             <input type="checkbox" id="fixed_salary" checked={form.fixed_salary} onChange={e => setForm(p => ({ ...p, fixed_salary: e.target.checked }))} style={{ width: 16, height: 16, accentColor: S.gold, marginTop: 2 }} />
             <label htmlFor="fixed_salary" style={{ fontSize: 13, color: S.white, cursor: 'pointer' }}>
@@ -1425,7 +1439,7 @@ async function activateRegistration(reg: Registration) {
       )}
 
       {/* Modals */}
-      {(showAdd || editEmp) && <EmployeeModal employee={editEmp} branches={branches} onClose={() => { setShowAdd(false); setEditEmp(null) }} onSaved={() => { setShowAdd(false); setEditEmp(null); fetchAll() }} />}
+      {(showAdd || editEmp) && <EmployeeModal employee={editEmp} branches={branches} isAdmin={isAdmin} onClose={() => { setShowAdd(false); setEditEmp(null) }} onSaved={() => { setShowAdd(false); setEditEmp(null); fetchAll() }} />}
       {detailEmp && <EmployeeDetailModal employee={detailEmp} isAdmin={isAdmin} onClose={() => setDetailEmp(null)} onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }} onCreateAccount={() => { setCreateAccountEmp(detailEmp); setDetailEmp(null) }} onChangePassword={() => { setChangePassEmp(detailEmp); setDetailEmp(null) }} onIncreaseSalary={() => { setIncreaseSalaryEmp(detailEmp); setDetailEmp(null) }} />}
       {createAccountEmp && <CreateAccountModal employee={createAccountEmp} onClose={() => setCreateAccountEmp(null)} onSaved={() => { setCreateAccountEmp(null); fetchAll() }} />}
       {changePassEmp && <ChangePasswordModal employee={changePassEmp} onClose={() => setChangePassEmp(null)} onSaved={() => { setChangePassEmp(null); fetchAll() }} />}

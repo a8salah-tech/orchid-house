@@ -896,7 +896,7 @@ export default function PayrollPage() {
         ? sb.from('violations').select('employee_id,amount,kind').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
       empIds.length > 0
-        ? sb.from('absences').select('employee_id').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
+        ? sb.from('absences').select('employee_id,date').eq('status','active').gte('date',monthStart).lte('date',monthEnd).in('employee_id', empIds)
         : Promise.resolve({ data: [] }),
       fetchAllAttendanceRows(),
       fetchAllShiftSchedules(),
@@ -935,9 +935,18 @@ export default function PayrollPage() {
       target[v.employee_id] = (target[v.employee_id] || 0) + (v.amount || 0)
     }
     const manualAbsMap: Record<string, number> = {}
-    for (const a of (absRes.data || [])) {
+    // ✅ عقوبة الغياب بدون عذر (من أكتوبر 2026): كل يوم غياب معتمد = يومان إضافيان فوق يوم الغياب نفسه
+    const UNEXCUSED_PENALTY_DAYS = 2
+    const useAbsencePenalty = monthStart >= '2026-10-01'
+    const penaltyDatesByEmp: Record<string, Set<string>> = {}
+    for (const a of (absRes.data || []) as { employee_id: string; date: string }[]) {
       manualAbsMap[a.employee_id] = (manualAbsMap[a.employee_id] || 0) + 1
+      // نحسب العقوبة مرة واحدة لكل يوم مميّز للموظف حتى لو اتكرر السجل
+      if (!penaltyDatesByEmp[a.employee_id]) penaltyDatesByEmp[a.employee_id] = new Set()
+      penaltyDatesByEmp[a.employee_id].add(String(a.date).slice(0, 10))
     }
+    const penaltyDaysMap: Record<string, number> = {}
+    for (const id of Object.keys(penaltyDatesByEmp)) penaltyDaysMap[id] = useAbsencePenalty ? penaltyDatesByEmp[id].size * UNEXCUSED_PENALTY_DAYS : 0
     // ✅ إجمالي دقائق التأخير لكل موظف خلال الشهر من جدول الحضور — محوّلة لساعات
     const lateMap: Record<string, number> = {}
     for (const a of attendanceRows) {
@@ -990,9 +999,13 @@ export default function PayrollPage() {
     }
     // ✅ نأخذ الأكبر بين الغياب المُسجَّل يدوياً من قبل (مخالفات مثلاً) والغياب المُحتسَب تلقائياً من الجدول،
     // لكي لا نفقد أي سجل غياب سابق غير مرتبط بشيفت مجدول
+    // ✅ من أكتوبر 2026: أيام الغياب التلقائية (شيفت بلا حضور) + عقوبة يومين لكل غياب بدون عذر معتمد (تُضاف ولا تُمتصّ).
+    // الأشهر السابقة تبقى بالقاعدة القديمة (الأكبر بين اليدوي والتلقائي) فلا تتغير أرقامها
     const absMap: Record<string, number> = {}
     for (const id of new Set([...Object.keys(manualAbsMap), ...Object.keys(autoAbsMap)])) {
-      absMap[id] = Math.max(manualAbsMap[id] || 0, autoAbsMap[id] || 0)
+      absMap[id] = useAbsencePenalty
+        ? (autoAbsMap[id] || 0) + (penaltyDaysMap[id] || 0)
+        : Math.max(manualAbsMap[id] || 0, autoAbsMap[id] || 0)
     }
 
     const existing    = (data || []).filter((r: any) => filteredEmps.some(e => e.id === r.employee_id))
@@ -1062,7 +1075,7 @@ export default function PayrollPage() {
         order_mistake_deduction: parseFloat((mistakeMap[r.employee_id] || 0).toFixed(2)),
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR)` : 'Violations',
         deduction_2: absAmount,
-        deduction_2_label: absDays > 0 ? `غياب بدون عذر (${absDays} يوم)` : 'Absences',
+        deduction_2_label: absDays > 0 ? `غياب بدون عذر (${absDays} يوم${(penaltyDaysMap[r.employee_id] || 0) > 0 ? `، منها ${penaltyDaysMap[r.employee_id]} عقوبة` : ''})` : 'Absences',
       }
     })
     setRecords(allRecords)

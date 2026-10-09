@@ -376,6 +376,9 @@ export default function ViolationsPage() {
     if(!absForm.employee_id||!absForm.date){alert('يرجى اختيار الموظف والتاريخ');return}
     setAbsSaving(true)
     const initStatus = isSupervisor ? 'submitted' : 'active'
+    // ✅ ممنوع تسجيل غياب مكرر لنفس الموظف في نفس اليوم (التكرار كان يضاعف العقوبة)
+    const {data:dup}=await sb.from('absences').select('id').eq('employee_id',absForm.employee_id).eq('date',absForm.date).neq('status','cancelled').limit(1)
+    if(dup&&dup.length>0){setAbsSaving(false);alert('يوجد غياب مسجَّل لهذا الموظف في هذا اليوم');return}
     const {error}=await sb.from('absences').insert([{
       employee_id:absForm.employee_id, created_by:employee?.id,
       date:absForm.date, notes:absForm.notes||null,

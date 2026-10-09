@@ -652,7 +652,7 @@ export default function ViolationsPage() {
                   {/* ✅ جديد: من ألغى المخالفة ومتى (عمود cancelled_by_name من db/violations_cancel_attribution.sql) */}
                   {v.status === 'cancelled' && ('cancelled_by_name' in v) && (
                     v.cancelled_by_name ? (
-                      <div style={{ fontSize: 13, color: S.red, marginTop: 2 }}>🚫 {isAr ? 'ألغاها' : 'Cancelled by'}: <span style={{ fontWeight: 600 }}>{v.cancelled_by_name}</span>{v.cancelled_at && <span dir="ltr" style={{ color: S.muted, fontSize: 11 }}> — {new Date(v.cancelled_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })}</span>}</div>
+                      <div style={{ fontSize: 13, color: S.red, marginTop: 2 }}>🚫 {isAr ? 'ألغاها' : 'Cancelled by'}: <bdi style={{ fontWeight: 600 }}>{v.cancelled_by_name}</bdi>{v.cancelled_at && <bdi dir="ltr" style={{ display: 'inline-block', marginInlineStart: 10, color: S.muted, fontSize: 11 }}>🕐 {new Date(v.cancelled_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })}</bdi>}</div>
                     ) : (
                       <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>🚫 {isAr ? 'غير مسجّل من ألغاها (أُلغيت قبل تفعيل سجل التدقيق)' : 'Canceller not recorded (cancelled before audit logging started)'}</div>
                     )

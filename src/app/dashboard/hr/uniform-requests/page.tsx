@@ -75,6 +75,26 @@ export default function UniformRequestsPage() {
 
   const [selections, setSelections] = useState<Record<string, { size: string; quantity: number }>>({})
 
+  // ✅ إحصائيات صنف في المخزون: عند الضغط على أي بطاقة في "إجمالي الكميات المتاحة" تظهر نافذة فيها آخر من استلم هذا الصنف
+  // وتفاصيله وتاريخ الاستلام، وإجمالي ما أُضيف وما سُلِّم، وآخر الإضافات — لهذا الفرع
+  type StatsDelivery = { id: string; size: string; quantity: number; delivered_at: string | null; emp: { name?: string; name_en?: string; employee_number?: string; department?: string; branch_id?: string } | null; by: { name?: string; name_en?: string } | null }
+  const [statsFor, setStatsFor] = useState<{ item_type: string; size: string; branch_id: string; branchName: string } | null>(null)
+  const [statsRows, setStatsRows] = useState<StatsDelivery[]>([])
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsSize, setStatsSize] = useState('all')
+  async function openStats(t: { item_type: string; size: string; branch_id: string; branchName: string }) {
+    setStatsFor(t); setStatsSize(t.size); setStatsRows([]); setStatsLoading(true)
+    type RawRow = { id: string; size: string; quantity: number; uniform_requests: { status: string; delivered_at: string | null; employees: StatsDelivery['emp']; deliverer?: StatsDelivery['by'] } | null }
+    const base = 'id, size, quantity, uniform_requests!inner(status, delivered_at, employees:employee_id(name, name_en, employee_number, department, branch_id)'
+    let res = await sb.from('uniform_request_items').select(base + ', deliverer:delivered_by(name, name_en))').eq('item_type', t.item_type).eq('uniform_requests.status', 'delivered')
+    // لو علاقة "سلّمه" مش متاحة نكمّل بدونها
+    if (res.error) res = await sb.from('uniform_request_items').select(base + ')').eq('item_type', t.item_type).eq('uniform_requests.status', 'delivered')
+    const raw = ((res.data || []) as unknown as RawRow[]).filter(r => r.uniform_requests && r.uniform_requests.employees?.branch_id === t.branch_id)
+    const rows: StatsDelivery[] = raw.map(r => ({ id: r.id, size: r.size, quantity: r.quantity, delivered_at: r.uniform_requests?.delivered_at || null, emp: r.uniform_requests?.employees || null, by: r.uniform_requests?.deliverer || null }))
+    rows.sort((a, b) => String(b.delivered_at || '').localeCompare(String(a.delivered_at || '')))
+    setStatsRows(rows); setStatsLoading(false)
+  }
+
   // ✅ أصناف إضافية يضيفها مدير النظام/المشرف العام (مثلًا جاكيت بنوع مختلف) — جدول uniform_item_types (db/uniform_item_types.sql)
   // تُدمج مع الأصناف الثابتة في كل مكان بالصفحة (الطلب، المخزون، التقارير)
   const [customItems, setCustomItems] = useState<{ key: string; label: string; label_ar: string; image: string }[]>([])
@@ -799,13 +819,15 @@ export default function UniformRequestsPage() {
                   // ✅ Fix per user request: صورة المنتج الحقيقية كبيرة وواضحة بدل أي أيقونة
                   const meta = allItems.find(x => x.key === t.item_type)
                   return (
-                    <div key={i} style={{ background: S.card, borderRadius: 12, padding: 12, textAlign: 'center' }}>
+                    <div key={i} onClick={() => openStats({ item_type: t.item_type, size: t.size, branch_id: t.branch_id, branchName: t.branchName })} title="اضغط لعرض إحصائيات الصنف ومن استلمه"
+                      style={{ background: S.card, borderRadius: 12, padding: 12, textAlign: 'center', cursor: 'pointer', border: `1px solid ${S.border}` }}>
                       <div style={{ width: '100%', height: 100, borderRadius: 10, overflow: 'hidden', background: '#fff', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {meta && <img src={meta.image} alt={meta.label_ar} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
                       </div>
                       <div style={{ fontSize: 12.5, color: S.white, fontWeight: 700 }}>{meta?.label_ar || t.item_type} · {t.size}</div>
                       <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{t.branchName}</div>
                       <div style={{ fontSize: 20, fontWeight: 900, color: S.gold, marginTop: 6 }}>{t.total}</div>
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 2 }}>📊 اضغط للإحصائيات</div>
                     </div>
                   )
                 })}
@@ -850,6 +872,85 @@ export default function UniformRequestsPage() {
           </div>
         </div>
       )}
+
+      {/* ✅ نافذة إحصائيات الصنف (من بطاقة "إجمالي الكميات المتاحة") */}
+      {statsFor && (() => {
+        const meta = allItems.find(x => x.key === statsFor.item_type)
+        const fullName = (p?: { name?: string; name_en?: string } | null) => [p?.name, p?.name_en].filter(Boolean).join(' ') || '—'
+        const entries = stockEntries.filter(e => e.item_type === statsFor.item_type && e.branch_id === statsFor.branch_id)
+        const sizes = [...new Set(entries.map(e => e.size).concat(statsRows.map(r => r.size)))].sort((a, b) => SIZES.indexOf(a) - SIZES.indexOf(b))
+        const scoped = (sz: string) => entries.filter(e => sz === 'all' || e.size === sz)
+        const added = scoped(statsSize).filter(e => e.quantity > 0).reduce((n, e) => n + e.quantity, 0)
+        const out = scoped(statsSize).filter(e => e.quantity < 0).reduce((n, e) => n - e.quantity, 0)
+        const balance = scoped(statsSize).reduce((n, e) => n + e.quantity, 0)
+        const rows = statsRows.filter(r => statsSize === 'all' || r.size === statsSize)
+        const received = rows.reduce((n, r) => n + r.quantity, 0)
+        const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('ar-SA', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }) : '—'
+        return (
+          <div onClick={() => setStatsFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.gold}50`, borderRadius: 18, width: '100%', maxWidth: 680, padding: 20, margin: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {meta && <img src={meta.image} alt={meta.label_ar} style={{ width: 54, height: 54, borderRadius: 10, objectFit: 'contain', background: '#fff' }} />}
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{meta?.label_ar || statsFor.item_type}</div>
+                    <div style={{ fontSize: 12, color: S.muted }}>🏪 {statsFor.branchName}</div>
+                  </div>
+                </div>
+                <button onClick={() => setStatsFor(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+              </div>
+
+              {/* فلتر المقاس */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                {['all', ...sizes].map(sz => (
+                  <button key={sz} onClick={() => setStatsSize(sz)}
+                    style={{ padding: '5px 14px', borderRadius: 20, border: `1px solid ${statsSize === sz ? S.gold : S.border}`, background: statsSize === sz ? S.gold3 : 'transparent', color: statsSize === sz ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: statsSize === sz ? 700 : 400 }}>
+                    {sz === 'all' ? 'كل المقاسات' : sz}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10, marginBottom: 16 }}>
+                {[{ l: 'المتاح الآن', v: balance, c: S.gold }, { l: 'إجمالي ما أُضيف', v: added, c: S.green }, { l: 'خُصم بالتسليم', v: out, c: S.red }, { l: 'عدد من استلم', v: rows.length, c: S.blue }, { l: 'القطع المُسلَّمة', v: received, c: S.purple }].map(b => (
+                  <div key={b.l} style={{ background: S.card, borderRadius: 12, padding: '10px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: b.c }}>{b.v}</div>
+                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{b.l}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 8 }}>🧾 من استلم هذا الصنف (الأحدث أولًا)</div>
+              {statsLoading ? (
+                <div style={{ textAlign: 'center', padding: 24, color: S.muted }}>⏳ جاري التحميل...</div>
+              ) : rows.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 24, background: S.card, borderRadius: 12, color: S.muted, fontSize: 13 }}>لا توجد عمليات استلام لهذا الصنف في هذا الفرع</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 340, overflowY: 'auto' }}>
+                  {rows.slice(0, 100).map((r, i) => (
+                    <div key={r.id} style={{ background: i === 0 ? S.gold3 : S.card, border: `1px solid ${i === 0 ? S.gold + '60' : S.border}`, borderRadius: 12, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{i === 0 && <span style={{ color: S.gold }}>🥇 آخر من استلم · </span>}{fullName(r.emp)} <span style={{ color: S.muted, fontWeight: 400 }}>({r.emp?.employee_number || '—'})</span></div>
+                        <div style={{ fontSize: 11, color: S.muted, marginTop: 3 }}>{r.emp?.department || '—'} · المقاس {r.size} · ×{r.quantity}{r.by ? ` · سلّمه: ${fullName(r.by)}` : ''}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: S.muted, alignSelf: 'center' }}>📅 {fmt(r.delivered_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ fontSize: 13, fontWeight: 700, color: S.white, margin: '16px 0 8px' }}>📥 آخر الإضافات للمخزون</div>
+              {scoped(statsSize).filter(e => e.quantity > 0).slice(0, 8).map(e => (
+                <div key={e.id} style={{ fontSize: 12, color: S.muted, display: 'flex', justifyContent: 'space-between', padding: '5px 2px', borderBottom: `1px solid ${S.border}` }}>
+                  <span>+{e.quantity} · {e.size} · {e.added_by_employee ? [e.added_by_employee.name, e.added_by_employee.name_en].filter(Boolean).join(' ') : '—'}</span>
+                  <span>{fmt(e.created_at)}</span>
+                </div>
+              ))}
+              {scoped(statsSize).filter(e => e.quantity > 0).length === 0 && <div style={{ fontSize: 12, color: S.muted }}>لا توجد إضافات</div>}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Last Received Report Tab ── */}
       {tab === 'lastReceived' && canManage && (

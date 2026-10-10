@@ -846,7 +846,9 @@ export default function ShiftsPage() {
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
   const isBranchManager = employee?.role === 'branch_manager'
-  const isDeptManager = DEPT_MANAGER_ROLES_EXT.includes(employee?.role||'')
+  // ✅ مدير البار تابع للمطبخ في كل الفروع: لا يعيّن ولا يعدّل شيفتات (عرض فقط لقسمه)، وإدارة شيفتات البار لمدير المطبخ ومساعده
+  const isBarManager = employee?.role === 'bar_manager'
+  const isDeptManager = DEPT_MANAGER_ROLES_EXT.includes(employee?.role||'') && !isBarManager
   // ✅ الوصول لهذه الصفحة الآن محصور صراحةً في: مدير النظام، مدير الفرع، مدير القسم (+مساعد مدير
   // المطبخ)، والمشرف العام (عرض فقط) — لا يوجد أي مسار آخر، حتى لو مُنح موظف آخر صلاحية
   // "assign_shifts" يدويًا من صفحة إدارة الصلاحيات، الصفحة لا تظهر له إطلاقًا
@@ -859,7 +861,7 @@ export default function ShiftsPage() {
   const isBranchViewer = employee?.role === 'general_supervisor'
   // ✅ مشرفو الأقسام (مطبخ/صالة/بار): يشوفون جدول قسمهم في فرعهم للعرض فقط — بلا أي تعيين/تعديل/اعتماد
   const isDeptViewer = DEPT_SUPERVISOR_ROLES.includes(employee?.role||'')
-  const isViewOnly = isBranchViewer || isDeptViewer
+  const isViewOnly = isBranchViewer || isDeptViewer || isBarManager
   const isEmployee = !isManager && !isViewOnly
 
   // ── منع الوصول لغير المصرح لهم ──
@@ -1139,7 +1141,7 @@ export default function ShiftsPage() {
     {key:'requests',label:'طلبات التغيير',icon:'🔄',badge:requests.length},
   ] : isViewOnly ? [
     // ✅ المشرف العام (فرعه) ومشرف القسم (قسمه): عرض فقط - بلا تاب "طلبات" (ده مش عرض، ده اعتماد/رفض)
-    {key:'schedule',label:isDeptViewer?'جدول قسمي':'جدول فرعي',icon:'📅'},
+    {key:'schedule',label:(isDeptViewer||isBarManager)?'جدول قسمي':'جدول فرعي',icon:'📅'},
     {key:'working_now',label:'يعملون الآن',icon:'🟢',badge:workingNow.length},
   ] : [
     {key:'schedule',label:'جدول قسمي',icon:'📅'},

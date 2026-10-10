@@ -1516,7 +1516,8 @@ export default function EmployeeRequestsPage() {
   const { isAr } = useLang()
   const isAdmin = permissions?.all === true
   const isBranchManager = currentUser?.role === 'branch_manager'
-  const isDeptManager = DEPT_MANAGER_ROLES_EXT.includes(currentUser?.role || '')
+  // ✅ مدير البار تابع للمطبخ: لا يعتمد طلبات الموظفين، ومدير المطبخ ومساعده يعتمدون طلبات المطبخ والبار والحلويات
+  const isDeptManager = DEPT_MANAGER_ROLES_EXT.includes(currentUser?.role || '') && currentUser?.role !== 'bar_manager'
   // ✅ جديد: تعريف المشرف - كان مفقود تمامًا، وده سبب عدم رؤيته لطلبات فريقه على الإطلاق من الأساس
   const isSupervisor = DEPT_SUPERVISOR_ROLES.includes(currentUser?.role || '')
   const isManager = isAdmin
@@ -1748,7 +1749,7 @@ export default function EmployeeRequestsPage() {
       // ✅ مساعد مدير المطبخ: نفس نطاق مدير المطبخ بالظبط (مطبخ+بار+حلويات)، بغض النظر عن قسمه
       // الشخصي المسجَّل — مطابقةً لنفس النطاق المستخدم في صفحتَي الشيفتات والحضور لمدير المطبخ
       const ids = (branchEmployees || [])
-        .filter(e => currentUser?.role === 'kitchen_assistant_manager'
+        .filter(e => (currentUser?.role === 'kitchen_assistant_manager' || currentUser?.role === 'kitchen_manager')
           ? ['المطبخ', 'البار', 'الحلويات'].includes(normalizeDept(e.department))
           : normalizeDept(e.department) === normalizeDept(myDept))
         .map(e => e.id)

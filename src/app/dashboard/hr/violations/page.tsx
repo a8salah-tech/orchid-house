@@ -23,6 +23,17 @@ function deptsForRole(r: string): string[] | null {
   return null
 }
 
+// ✅ مخالفة القسم: أسماء القسم بالعربي/الإنجليزي كما تظهر في employees.department، ومدراء كل قسم
+const DEPT_ALIASES: Record<string, string[]> = {
+  'المطبخ': ['المطبخ', 'Kitchen'], 'الصالة': ['الصالة', 'Hall'], 'البار': ['البار', 'Bar'], 'الحلويات': ['الحلويات', 'Desserts'],
+  'الكاشير': ['الكاشير', 'Cashier'], 'التوصيل': ['التوصيل', 'Delivery'], 'المستودع': ['المستودع', 'Warehouse'], 'الإدارة': ['الإدارة', 'Management', 'Administration'],
+}
+const DEPT_MANAGER_ROLES_FOR: Record<string, string[]> = {
+  'المطبخ': ['kitchen_manager'], 'الحلويات': ['kitchen_manager'], 'الصالة': ['hall_manager'], 'البار': ['bar_manager', 'kitchen_manager'],
+}
+// الاسم الكامل (عربي + إنجليزي)
+const fullNameOf = (e?: { name?: string | null; name_en?: string | null } | null) => [e?.name, e?.name_en].filter(Boolean).join(' ') || '—'
+
 const S = {
   navy: '#0A1628', navy2: '#0F2040', navy3: '#0C1A32',
   gold: '#C9A84C', gold3: 'rgba(201,168,76,0.12)',
@@ -184,9 +195,14 @@ export default function ViolationsPage() {
   const [absForm, setAbsForm] = useState({ employee_id: '', date: new Date().toISOString().split('T')[0], notes: '' })
 
   // ── مخالفة القسم ──
-  const canSubmitDeptViolation = isDeptManager || isSupervisor || isHallAssistant
+  // ✅ يرفع مخالفة قسم: مدير النظام، مدراء الأقسام، المشرفون، مساعد مدير الصالة، المشرف العام
+  const canSubmitDeptViolation = isAdmin || isDeptManager || isSupervisor || isHallAssistant || isBranchViewer
+  // الأقسام اللي هذا المستخدم هو مديرها (للاعتماد)
+  const managedDepts = Object.keys(DEPT_MANAGER_ROLES_FOR).filter(d => DEPT_MANAGER_ROLES_FOR[d].includes(role))
   // ✅ مساعد مدير الصالة يشوف مخالفات الأقسام (لفرعه) ويرفع مخالفة على أي قسم، زي مدير الفرع في العرض
   const canViewDeptViolations  = isAdmin || isBranchManager || isHallAssistant
+  // القائمة تظهر لكل من يرفع أو يرى (غير المطّلعين يرون ما سجّلوه، ومدير القسم يرى مخالفات قسمه)
+  const showDeptViolList = canViewDeptViolations || canSubmitDeptViolation
   const [showDeptViolAdd, setShowDeptViolAdd]   = useState(false)
   const [deptViolations, setDeptViolations]     = useState<any[]>([])
   const [deptViolLoading, setDeptViolLoading]   = useState(false)
@@ -199,6 +215,8 @@ export default function ViolationsPage() {
     department: '',
     reason: '',
     date: new Date().toISOString().split('T')[0],
+    amount: '',
+    branch_id: '',
   })
   async function fetchAll() {
     setLoading(true)
@@ -367,7 +385,7 @@ export default function ViolationsPage() {
       const allIds=[...new Set(absData.map((a:any)=>a.employee_id).concat(absData.map((a:any)=>a.created_by)).filter(Boolean))]
       const {data:empNames}=await sb.from('employees').select('id,name,name_en,department,employee_number').in('id',allIds as string[])
       const empMap=Object.fromEntries((empNames||[]).map(e=>[e.id,e]))
-      setAbsences(absData.map((a:any)=>({...a,empName:empMap[a.employee_id]?.name||'—',empNameEn:empMap[a.employee_id]?.name_en||'',empDept:empMap[a.employee_id]?.department||'',empNumber:empMap[a.employee_id]?.employee_number||'',creatorName:empMap[a.created_by]?.name||'—'})))
+      setAbsences(absData.map((a:any)=>({...a,empName:empMap[a.employee_id]?.name||'—',empNameEn:empMap[a.employee_id]?.name_en||'',empDept:empMap[a.employee_id]?.department||'',empNumber:empMap[a.employee_id]?.employee_number||'',creatorName:[empMap[a.created_by]?.name,empMap[a.created_by]?.name_en].filter(Boolean).join(' ')||'—'})))
     } else setAbsences([])
     setAbsLoading(false)
   }
@@ -427,21 +445,30 @@ export default function ViolationsPage() {
       const creatorIds = [...new Set(filteredData.map((d:any) => d.created_by).filter(Boolean))]
       const { data: creators } = await sb.from('employees').select('id,branch_id').in('id', creatorIds as string[])
       const creatorBranchMap = Object.fromEntries((creators || []).map((c: any) => [c.id, c.branch_id]))
-      filteredData = filteredData.filter((d: any) => creatorBranchMap[d.created_by] === branchToFilter)
+      filteredData = filteredData.filter((d: any) => (d.branch_id || creatorBranchMap[d.created_by]) === branchToFilter)
+    }
+    // غير المطّلعين: يرون ما سجّلوه فقط، ومدير القسم يرى فقط المخالفات المعلّقة على قسمه (ليعتمدها)، وبعد الاعتماد تختفي عنه
+    if (!isAdmin && !canViewDeptViolations) {
+      filteredData = filteredData.filter((d: { created_by?: string; department?: string; status?: string }) => d.created_by === employee?.id || (isDeptManager && managedDepts.includes(d.department || '') && d.status === 'pending'))
     }
     if (filteredData.length > 0) {
-      const creatorIds = [...new Set(filteredData.map((d:any) => d.created_by).filter(Boolean))]
-      const { data: names } = await sb.from('employees').select('id,name,name_en').in('id', creatorIds as string[])
+      const nameIds = [...new Set(filteredData.flatMap((d: { created_by?: string; approved_by?: string }) => [d.created_by, d.approved_by]).filter(Boolean))]
+      const { data: names } = await sb.from('employees').select('id,name,name_en').in('id', nameIds as string[])
       const nameMap = Object.fromEntries((names||[]).map(e=>[e.id,e]))
-      setDeptViolations(filteredData.map((d:any) => ({ ...d, creatorName: nameMap[d.created_by]?.name || '—' })))
+      // ✅ الاسم الكامل (عربي + إنجليزي) لمن سجّل ولمن اعتمد — كان يظهر الاسم الأول فقط
+      setDeptViolations(filteredData.map((d:any) => ({ ...d, creatorName: fullNameOf(nameMap[d.created_by]), approverName: d.approved_by ? fullNameOf(nameMap[d.approved_by]) : '' })))
     } else { setDeptViolations([]) }
     setDeptViolLoading(false)
   }
 
   async function saveDeptViolation() {
+    const amount = parseFloat(deptViolForm.amount)
     if (!deptViolForm.department || !deptViolForm.reason || !deptViolForm.date) {
       alert('يرجى إكمال جميع الحقول'); return
     }
+    if (!(amount > 0)) { alert('يرجى إدخال المبلغ الإجمالي للمخالفة'); return }
+    const branchId = isAdmin ? deptViolForm.branch_id : (employee?.branch_id || '')
+    if (!branchId) { alert('يرجى اختيار الفرع'); return }
     setDeptViolSaving(true)
     let attachUrl = ''
     if (deptViolFile) {
@@ -450,18 +477,96 @@ export default function ViolationsPage() {
       const { data: upData } = await sb.storage.from('employees').upload(path, deptViolFile, { upsert: true })
       if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); attachUrl = urlData.publicUrl }
     }
-    const { error } = await sb.from('department_violations').insert([{
+    // مدير النظام أو مدير القسم نفسه: تُعتمد فورًا وتتوزّع الحصص. غيرهم: تبقى معلّقة لحين اعتماد مدير القسم
+    const immediate = isAdmin || (isDeptManager && managedDepts.includes(deptViolForm.department))
+    const { data: created, error } = await sb.from('department_violations').insert([{
       department: deptViolForm.department,
       reason: deptViolForm.reason,
       date: deptViolForm.date,
       created_by: employee?.id,
       attachment_url: attachUrl || null,
-    }])
+      amount, branch_id: branchId,
+      status: immediate ? 'active' : 'pending',
+      approved_by: immediate ? employee?.id : null,
+      approved_at: immediate ? new Date().toISOString() : null,
+    }]).select('id').single()
+    if (error || !created) {
+      setDeptViolSaving(false)
+      alert('خطأ: ' + (error?.message || '') + (/amount|branch_id|status/.test(error?.message || '') ? ' — شغّل ملف db/department_violation_split.sql أولًا' : ''))
+      return
+    }
+    if (immediate) {
+      const res = await applyDeptShares({ id: created.id, department: deptViolForm.department, branch_id: branchId, amount, reason: deptViolForm.reason, date: deptViolForm.date })
+      if (!res.ok) {
+        // فشل التوزيع: نحوّلها لمعلّقة بدل ما تبقى معتمدة بلا حصص
+        await sb.from('department_violations').update({ status: 'pending', approved_by: null, approved_at: null }).eq('id', created.id)
+        alert('سُجّلت المخالفة لكن تعذّر توزيع الحصص فبقيت معلّقة: ' + res.msg)
+      } else {
+        await sb.from('department_violations').update({ applied_count: res.count }).eq('id', created.id)
+      }
+    }
     setDeptViolSaving(false)
-    if (error) { alert('خطأ: ' + error.message); return }
     setShowDeptViolAdd(false)
-    setDeptViolForm({ department: '', reason: '', date: new Date().toISOString().split('T')[0] })
+    setDeptViolForm({ department: '', reason: '', date: new Date().toISOString().split('T')[0], amount: '', branch_id: '' })
     setDeptViolFile(null)
+    fetchDeptViolations()
+  }
+
+  // ✅ مخالفة القسم: المبلغ الإجمالي يُقسَّم بالتساوي على كل موظفي القسم النشطين في الفرع (بما فيهم المدير والمشرفون)،
+  // ويُنشأ لكل موظف سجل مخالفة عادي (يظهر في "راتبي" ويُخصم في الرواتب) مرتبط بمخالفة القسم عبر dept_violation_id.
+  async function applyDeptShares(dv: { id: string; department: string; branch_id: string | null; amount: number; reason: string; date: string }): Promise<{ ok: boolean; count?: number; msg?: string }> {
+    if (!dv.branch_id) return { ok: false, msg: 'المخالفة بلا فرع محدد' }
+    const names = DEPT_ALIASES[dv.department] || [dv.department]
+    const { data: emps, error: empErr } = await sb.from('employees').select('id').eq('is_active', true).eq('branch_id', dv.branch_id).in('department', names).order('id')
+    if (empErr) return { ok: false, msg: empErr.message }
+    const list = (emps || []) as { id: string }[]
+    if (list.length === 0) return { ok: false, msg: 'لا يوجد موظفون نشطون في هذا القسم بهذا الفرع' }
+    // نقسّم بالقروش: كل موظف يأخذ الحصة الأساسية، وفرق التقريب يوزَّع قرشًا قرشًا على أوائل الموظفين فيطلع المجموع هو المبلغ بالضبط
+    const cents = Math.round(dv.amount * 100)
+    const base = Math.floor(cents / list.length)
+    const rem = cents - base * list.length
+    const total = dv.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const rows = list.map((e, i) => ({
+      employee_id: e.id,
+      amount: (base + (i < rem ? 1 : 0)) / 100,
+      reason: `🏢 مخالفة قسم ${dv.department}: ${dv.reason} — حصتك من إجمالي MYR ${total} موزّع على ${list.length} موظف`,
+      date: dv.date, created_by: employee?.id, status: 'active', dept_violation_id: dv.id,
+    })).filter(r => r.amount > 0)
+    const { error } = await sb.from('violations').insert(rows)
+    if (error) return { ok: false, msg: error.message + (/dept_violation_id/.test(error.message) ? ' — شغّل ملف db/department_violation_split.sql أولًا' : '') }
+    return { ok: true, count: rows.length }
+  }
+
+  // اعتماد مخالفة قسم معلّقة: نحجزها (pending → active) ثم نوزّع الحصص، ولو فشل التوزيع نرجّعها معلّقة
+  async function approveDeptViolation(v: { id: string; department: string; branch_id: string | null; amount: number; reason: string; date: string }) {
+    if (!confirm(`اعتماد مخالفة القسم وتوزيع MYR ${v.amount} على كل موظفي ${v.department} في الفرع؟`)) return
+    const { data: claimed, error: cErr } = await sb.from('department_violations')
+      .update({ status: 'active', approved_by: employee?.id, approved_at: new Date().toISOString() }).eq('id', v.id).eq('status', 'pending').select('id')
+    if (cErr) { alert('تعذّر الاعتماد: ' + cErr.message); return }
+    if (!claimed || claimed.length === 0) { alert('هذه المخالفة لم تعد بانتظار الاعتماد'); fetchDeptViolations(); return }
+    const res = await applyDeptShares(v)
+    if (!res.ok) {
+      await sb.from('department_violations').update({ status: 'pending', approved_by: null, approved_at: null }).eq('id', v.id)
+      alert('تعذّر توزيع الحصص، فبقيت المخالفة معلّقة: ' + res.msg)
+    } else {
+      await sb.from('department_violations').update({ applied_count: res.count }).eq('id', v.id)
+    }
+    fetchDeptViolations()
+  }
+
+  async function rejectDeptViolation(id: string) {
+    if (!confirm('رفض مخالفة القسم؟ لن تُوزَّع أي حصص.')) return
+    await sb.from('department_violations').update({ status: 'rejected' }).eq('id', id).eq('status', 'pending')
+    fetchDeptViolations()
+  }
+
+  // إلغاء مخالفة قسم معتمدة (مدير النظام فقط): نلغي كل حصص الموظفين معًا ثم المخالفة نفسها
+  async function cancelDeptViolation(id: string) {
+    if (!isAdmin) { alert('إلغاء المخالفات لمدير النظام فقط'); return }
+    if (!confirm('إلغاء مخالفة القسم؟ ستُلغى حصص كل الموظفين المرتبطة بها.')) return
+    const { error: sErr } = await sb.from('violations').update({ status: 'cancelled' }).eq('dept_violation_id', id).in('status', ['active', 'submitted'])
+    if (sErr) { alert('تعذّر إلغاء الحصص: ' + sErr.message); return }
+    await sb.from('department_violations').update({ status: 'cancelled' }).eq('id', id)
     fetchDeptViolations()
   }
 
@@ -1054,12 +1159,12 @@ export default function ViolationsPage() {
           {/* Notice for non-viewers */}
           {!canViewDeptViolations && canSubmitDeptViolation && (
             <div style={{background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.3)',borderRadius:12,padding:'12px 18px',marginBottom:16,fontSize:13,color:'#F97316'}}>
-              ℹ️ {isAr?'يمكنك رفع مخالفة القسم — يراها مدير الفرع ومدير النظام فقط.':'You can submit a department violation — visible only to the branch manager and system admin.'}
+              ℹ️ {isAr?'تظهر لك هنا مخالفات الأقسام التي سجّلتها (ومدير القسم تظهر له المعلّقة على قسمه ليعتمدها فقط). المخالفة تبقى معلّقة حتى يعتمدها مدير القسم.':'You can submit a department violation — visible only to the branch manager and system admin.'}
             </div>
           )}
 
           {/* Stats — visible only to branch manager / admin */}
-          {canViewDeptViolations && (
+          {showDeptViolList && (
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,marginBottom:20}}>
               {[
                 {label:isAr?'إجمالي المخالفات':'Total',value:deptViolations.length,color:'#F97316',bg:'rgba(249,115,22,0.12)'},
@@ -1072,8 +1177,8 @@ export default function ViolationsPage() {
             </div>
           )}
 
-          {/* List — only for branch manager / admin */}
-          {canViewDeptViolations && (
+          {/* List */}
+          {showDeptViolList && (
             deptViolLoading ? <div style={{textAlign:'center',padding:60,color:S.muted}}>⏳</div>
             : deptViolations.length === 0 ? (
               <div style={{textAlign:'center',padding:60,background:S.navy2,borderRadius:16,border:`1px solid ${S.border}`}}>
@@ -1089,6 +1194,20 @@ export default function ViolationsPage() {
                       <div>
                         <div style={{fontSize:14,fontWeight:700,color:'#F97316',marginBottom:4}}>{v.department}</div>
                         <div style={{fontSize:13,color:S.white,marginBottom:6,lineHeight:1.5}}>{v.reason}</div>
+                        {/* ✅ المبلغ وحالة التوزيع (للمخالفات الجديدة بمبلغ) */}
+                        {v.amount > 0 && (
+                          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6}}>
+                            <span style={{fontSize:14,fontWeight:800,color:S.red}}>MYR {Number(v.amount).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                            <span style={{fontSize:11,fontWeight:700,borderRadius:20,padding:'2px 10px',
+                              background: v.status==='pending' ? S.amberB : v.status==='active' ? S.greenB : v.status==='rejected' ? S.redB : S.card,
+                              color: v.status==='pending' ? S.amber : v.status==='active' ? S.green : v.status==='rejected' ? S.red : S.muted}}>
+                              {v.status==='pending' ? (isAr?'⏳ بانتظار اعتماد مدير القسم':'⏳ Pending dept manager') : v.status==='active' ? (isAr?'✅ معتمدة':'✅ Approved') : v.status==='rejected' ? (isAr?'❌ مرفوضة':'❌ Rejected') : (isAr?'🚫 ملغاة':'🚫 Cancelled')}
+                            </span>
+                            {v.status==='active' && v.applied_count > 0 && (
+                              <span style={{fontSize:11,color:S.muted}}>{isAr?`موزّعة على ${v.applied_count} موظف · الحصة ≈ MYR ${(v.amount/v.applied_count).toFixed(2)}`:`Split across ${v.applied_count} staff · ≈ MYR ${(v.amount/v.applied_count).toFixed(2)} each`}</span>
+                            )}
+                          </div>
+                        )}
                         <div style={{fontSize:11,color:S.muted}}>📅 {v.date} · {isAr?'بواسطة':'by'}: {v.creatorName}</div>
                         {/* ✅ جديد: اسم من اعتمد المخالفة فعلياً */}
                         {v.approverName && (
@@ -1104,6 +1223,18 @@ export default function ViolationsPage() {
                           </div>
                         )}
                       </div>
+                    </div>
+                    {/* ✅ اعتماد/رفض مخالفة القسم (مدير القسم المعني، مدير الفرع، مدير النظام) وإلغاء المعتمدة (مدير النظام فقط) */}
+                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                      {v.status==='pending' && v.amount > 0 && (isAdmin || isBranchManager || (isDeptManager && managedDepts.includes(v.department))) && (
+                        <>
+                          <button onClick={()=>approveDeptViolation(v)} style={{padding:'7px 12px',borderRadius:8,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>✅ {isAr?'اعتماد':'Approve'}</button>
+                          <button onClick={()=>rejectDeptViolation(v.id)} style={{padding:'7px 12px',borderRadius:8,border:`1px solid ${S.red}`,background:S.redB,color:S.red,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>❌ {isAr?'رفض':'Reject'}</button>
+                        </>
+                      )}
+                      {v.status==='active' && v.amount > 0 && isAdmin && (
+                        <button onClick={()=>cancelDeptViolation(v.id)} style={{padding:'7px 12px',borderRadius:8,border:`1px solid ${S.muted}`,background:'transparent',color:S.muted,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif'}}>{isAr?'إلغاء':'Cancel'}</button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1141,6 +1272,22 @@ export default function ViolationsPage() {
                   <option value="">{isAr?'-- اختر القسم --':'-- Select Department --'}</option>
                   {DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}
                 </select>
+              </div>
+              {isAdmin && (
+                <div>
+                  <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'الفرع *':'Branch *'}</label>
+                  <select style={{...inp,cursor:'pointer',background:S.navy3}} value={deptViolForm.branch_id} onChange={e=>setDeptViolForm(p=>({...p,branch_id:e.target.value}))}>
+                    <option value="">{isAr?'-- اختر الفرع --':'-- Select Branch --'}</option>
+                    {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'المبلغ الإجمالي (MYR) *':'Total amount (MYR) *'}</label>
+                <input style={inp} type="number" min={0} step="0.01" value={deptViolForm.amount} onChange={e=>setDeptViolForm(p=>({...p,amount:e.target.value}))} placeholder="0.00" />
+                <div style={{fontSize:11,color:S.muted,marginTop:5,lineHeight:1.6}}>
+                  {isAr?'يُقسَّم المبلغ بالتساوي على كل موظفي القسم في الفرع (بما فيهم المدير والمشرفون) بعد اعتماد مدير القسم، وتُخصم حصة كل موظف من راتبه.':'The total is split equally across every employee of the department in the branch (managers and supervisors included) once the department manager approves.'}
+                </div>
               </div>
               <div>
                 <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'التاريخ *':'Date *'}</label>

@@ -200,7 +200,8 @@ export default function ViolationsPage() {
   // الأقسام اللي هذا المستخدم هو مديرها (للاعتماد)
   const managedDepts = Object.keys(DEPT_MANAGER_ROLES_FOR).filter(d => DEPT_MANAGER_ROLES_FOR[d].includes(role))
   // ✅ مساعد مدير الصالة يشوف مخالفات الأقسام (لفرعه) ويرفع مخالفة على أي قسم، زي مدير الفرع في العرض
-  const canViewDeptViolations  = isAdmin || isBranchManager || isHallAssistant
+  // ✅ مخالفات الأقسام سرية: مدير النظام وحده يرى الكل، وكل شخص آخر يرى ما سجّله هو فقط
+  const canViewDeptViolations  = isAdmin
   // القائمة تظهر لكل من يرفع أو يرى (غير المطّلعين يرون ما سجّلوه، ومدير القسم يرى مخالفات قسمه)
   const showDeptViolList = canViewDeptViolations || canSubmitDeptViolation
   const [showDeptViolAdd, setShowDeptViolAdd]   = useState(false)
@@ -447,9 +448,9 @@ export default function ViolationsPage() {
       const creatorBranchMap = Object.fromEntries((creators || []).map((c: any) => [c.id, c.branch_id]))
       filteredData = filteredData.filter((d: any) => (d.branch_id || creatorBranchMap[d.created_by]) === branchToFilter)
     }
-    // غير المطّلعين: يرون ما سجّلوه فقط، ومدير القسم يرى فقط المخالفات المعلّقة على قسمه (ليعتمدها)، وبعد الاعتماد تختفي عنه
-    if (!isAdmin && !canViewDeptViolations) {
-      filteredData = filteredData.filter((d: { created_by?: string; department?: string; status?: string }) => d.created_by === employee?.id || (isDeptManager && managedDepts.includes(d.department || '') && d.status === 'pending'))
+    // غير مدير النظام: يرى ما سجّله هو فقط
+    if (!isAdmin) {
+      filteredData = filteredData.filter((d: { created_by?: string }) => d.created_by === employee?.id)
     }
     if (filteredData.length > 0) {
       const nameIds = [...new Set(filteredData.flatMap((d: { created_by?: string; approved_by?: string }) => [d.created_by, d.approved_by]).filter(Boolean))]
@@ -477,7 +478,7 @@ export default function ViolationsPage() {
       const { data: upData } = await sb.storage.from('employees').upload(path, deptViolFile, { upsert: true })
       if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); attachUrl = urlData.publicUrl }
     }
-    // مدير النظام أو مدير القسم نفسه: تُعتمد فورًا وتتوزّع الحصص. غيرهم: تبقى معلّقة لحين اعتماد مدير القسم
+    // مدير النظام أو مدير القسم نفسه: تُعتمد فورًا وتتوزّع الحصص. غيرهم: تبقى معلّقة لحين اعتماد مدير النظام
     const immediate = isAdmin || (isDeptManager && managedDepts.includes(deptViolForm.department))
     const { data: created, error } = await sb.from('department_violations').insert([{
       department: deptViolForm.department,
@@ -1159,7 +1160,7 @@ export default function ViolationsPage() {
           {/* Notice for non-viewers */}
           {!canViewDeptViolations && canSubmitDeptViolation && (
             <div style={{background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.3)',borderRadius:12,padding:'12px 18px',marginBottom:16,fontSize:13,color:'#F97316'}}>
-              ℹ️ {isAr?'تظهر لك هنا مخالفات الأقسام التي سجّلتها (ومدير القسم تظهر له المعلّقة على قسمه ليعتمدها فقط). المخالفة تبقى معلّقة حتى يعتمدها مدير القسم.':'You can submit a department violation — visible only to the branch manager and system admin.'}
+              ℹ️ {isAr?'تظهر لك هنا مخالفات الأقسام التي سجّلتها أنت فقط. المخالفة تبقى معلّقة حتى يعتمدها مدير النظام.':'You can submit a department violation — visible only to the branch manager and system admin.'}
             </div>
           )}
 
@@ -1201,7 +1202,7 @@ export default function ViolationsPage() {
                             <span style={{fontSize:11,fontWeight:700,borderRadius:20,padding:'2px 10px',
                               background: v.status==='pending' ? S.amberB : v.status==='active' ? S.greenB : v.status==='rejected' ? S.redB : S.card,
                               color: v.status==='pending' ? S.amber : v.status==='active' ? S.green : v.status==='rejected' ? S.red : S.muted}}>
-                              {v.status==='pending' ? (isAr?'⏳ بانتظار اعتماد مدير القسم':'⏳ Pending dept manager') : v.status==='active' ? (isAr?'✅ معتمدة':'✅ Approved') : v.status==='rejected' ? (isAr?'❌ مرفوضة':'❌ Rejected') : (isAr?'🚫 ملغاة':'🚫 Cancelled')}
+                              {v.status==='pending' ? (isAr?'⏳ بانتظار اعتماد مدير النظام':'⏳ Pending admin approval') : v.status==='active' ? (isAr?'✅ معتمدة':'✅ Approved') : v.status==='rejected' ? (isAr?'❌ مرفوضة':'❌ Rejected') : (isAr?'🚫 ملغاة':'🚫 Cancelled')}
                             </span>
                             {v.status==='active' && v.applied_count > 0 && (
                               <span style={{fontSize:11,color:S.muted}}>{isAr?`موزّعة على ${v.applied_count} موظف · الحصة ≈ MYR ${(v.amount/v.applied_count).toFixed(2)}`:`Split across ${v.applied_count} staff · ≈ MYR ${(v.amount/v.applied_count).toFixed(2)} each`}</span>
@@ -1226,7 +1227,7 @@ export default function ViolationsPage() {
                     </div>
                     {/* ✅ اعتماد/رفض مخالفة القسم (مدير القسم المعني، مدير الفرع، مدير النظام) وإلغاء المعتمدة (مدير النظام فقط) */}
                     <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                      {v.status==='pending' && v.amount > 0 && (isAdmin || isBranchManager || (isDeptManager && managedDepts.includes(v.department))) && (
+                      {v.status==='pending' && v.amount > 0 && isAdmin && (
                         <>
                           <button onClick={()=>approveDeptViolation(v)} style={{padding:'7px 12px',borderRadius:8,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>✅ {isAr?'اعتماد':'Approve'}</button>
                           <button onClick={()=>rejectDeptViolation(v.id)} style={{padding:'7px 12px',borderRadius:8,border:`1px solid ${S.red}`,background:S.redB,color:S.red,cursor:'pointer',fontSize:12,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>❌ {isAr?'رفض':'Reject'}</button>
@@ -1263,7 +1264,7 @@ export default function ViolationsPage() {
               <button onClick={()=>setShowDeptViolAdd(false)} style={{background:'transparent',border:'none',color:S.muted,fontSize:20,cursor:'pointer'}}>✕</button>
             </div>
             <div style={{background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.25)',borderRadius:10,padding:'10px 14px',marginBottom:18,fontSize:12,color:'#F97316'}}>
-              🔒 {isAr?'هذه المخالفة سرية — لا يراها سوى مدير الفرع ومدير النظام':'Confidential — visible only to branch manager and system admin'}
+              🔒 {isAr?'هذه المخالفة سرية — لا يراها سوى مدير النظام (وكل شخص يرى مخالفاته التي سجّلها فقط)':'Confidential — visible only to branch manager and system admin'}
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:14}}>
               <div>
@@ -1286,7 +1287,7 @@ export default function ViolationsPage() {
                 <label style={{fontSize:12,color:S.muted,display:'block',marginBottom:5}}>{isAr?'المبلغ الإجمالي (MYR) *':'Total amount (MYR) *'}</label>
                 <input style={inp} type="number" min={0} step="0.01" value={deptViolForm.amount} onChange={e=>setDeptViolForm(p=>({...p,amount:e.target.value}))} placeholder="0.00" />
                 <div style={{fontSize:11,color:S.muted,marginTop:5,lineHeight:1.6}}>
-                  {isAr?'يُقسَّم المبلغ بالتساوي على كل موظفي القسم في الفرع (بما فيهم المدير والمشرفون) بعد اعتماد مدير القسم، وتُخصم حصة كل موظف من راتبه.':'The total is split equally across every employee of the department in the branch (managers and supervisors included) once the department manager approves.'}
+                  {isAr?'يُقسَّم المبلغ بالتساوي على كل موظفي القسم في الفرع (بما فيهم المدير والمشرفون) بعد اعتماد مدير النظام، وتُخصم حصة كل موظف من راتبه.':'The total is split equally across every employee of the department in the branch (managers and supervisors included) once the system admin approves.'}
                 </div>
               </div>
               <div>

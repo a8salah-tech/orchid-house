@@ -1264,7 +1264,7 @@ export default function ViolationsPage() {
               <button onClick={()=>setShowDeptViolAdd(false)} style={{background:'transparent',border:'none',color:S.muted,fontSize:20,cursor:'pointer'}}>✕</button>
             </div>
             <div style={{background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.25)',borderRadius:10,padding:'10px 14px',marginBottom:18,fontSize:12,color:'#F97316'}}>
-              🔒 {isAr?'هذه المخالفة سرية — لا يراها سوى مدير النظام (وكل شخص يرى مخالفاته التي سجّلها فقط)':'Confidential — visible only to branch manager and system admin'}
+              🔒 {isAr?'هذه المخالفة سرية — لا يراها سوى مدير النظام':'Confidential — visible only to the system admin'}
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:14}}>
               <div>

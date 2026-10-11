@@ -923,6 +923,15 @@ export default function BookingsPage() {
                   <div style={{ fontSize: 18, fontWeight: 900, color: S.white }}>{b.customer_name}</div>
                   {b.booking_ref && <div dir="ltr" style={{ fontSize: 12, fontWeight: 800, letterSpacing: 2, color: S.gold, marginTop: 2 }}>#{b.booking_ref}</div>}
                   <span style={{ display: 'inline-block', marginTop: 6, background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 11, fontWeight: 700 }}>{st.label}</span>
+                  {/* ✅ من أكّد الحجز ومتى — من آخر سجل "Status → Confirmed" في سجل التغييرات (الحجوزات المؤكَّدة قبل تفعيل السجل لا يوجد لها أثر) */}
+                  {b.status === 'confirmed' && editHistory && editHistory.id === b.id && (() => {
+                    const conf = editHistory.rows.find(h => (h.changes || []).some(c => c.field === 'Status' && c.to === STATUS_CFG.confirmed.label))
+                    return conf ? (
+                      <div style={{ marginTop: 6, fontSize: 12, color: S.green }}>✅ Confirmed by <b>{conf.edited_by_name || 'Unknown'}</b> <span dir="ltr" style={{ color: S.muted, fontSize: 11 }}>· {new Date(conf.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })}</span></div>
+                    ) : (
+                      <div style={{ marginTop: 6, fontSize: 11.5, color: S.muted }}>✅ Confirmer not recorded (confirmed before change history started)</div>
+                    )
+                  })()}
                 </div>
                 <button onClick={() => setDetailBooking(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
               </div>

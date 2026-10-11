@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const tableId = typeof body?.tableId === 'string' ? body.tableId : ''
     if (!tableId) return NextResponse.json({ error: 'tableId required' }, { status: 400 })
 
-    const { data: tbl } = await sb.from('tables').select('id, name, number, is_active, branches(name)').eq('id', tableId).maybeSingle()
+    const { data: tbl } = await sb.from('tables').select('id, name, number, is_active, branch_id, branches(name)').eq('id', tableId).maybeSingle()
     if (!tbl || tbl.is_active === false) return NextResponse.json({ error: 'table not found' }, { status: 404 })
 
     // لا نكرّر نداء نفس الطاولة خلال دقيقة (العميل ضغط أكتر من مرة): نردّ بنجاح من غير إشعار جديد
@@ -34,12 +34,17 @@ export async function POST(req: NextRequest) {
 
     const branchName = (tbl.branches as unknown as { name?: string } | null)?.name || ''
     const tableName = tbl.name || `Table ${tbl.number}`
-    // الإشعار اختياري: لو فشل ما نفشلش النداء نفسه (الكاشير هيلتقطه من waiter_calls)
+    // الإشعار اختياري: لو فشل ما نفشلش النداء نفسه (الكاشير هيلتقطه من waiter_calls).
+    // ✅ لكل فرع إشعاره المنفصل: نبعت لموظفي الكاشير (كاشير/مساعد/مدير كاشير) النشطين في فرع الطاولة بس (target_employee_id)،
+    // مش للدور كله (جدول notifications ما فيهوش عمود فرع، فالإشعار بالدور كان بيوصل كل الفروع)
     try {
-      await sb.from('notifications').insert(NOTIFY_ROLES.map(role => ({
-        type: 'waiter_call', title: '🔔 نداء نادل', body: `${tableName}${branchName ? ' — ' + branchName : ''}`,
-        link: '/dashboard/cashier', target_role: role, target_employee_id: null,
-      })))
+      const { data: staff } = await sb.from('employees').select('id').in('role', NOTIFY_ROLES).eq('is_active', true).eq('branch_id', tbl.branch_id)
+      if (staff && staff.length > 0) {
+        await sb.from('notifications').insert(staff.map((e: { id: string }) => ({
+          type: 'waiter_call', title: '🔔 نداء نادل', body: `${tableName}${branchName ? ' — ' + branchName : ''}`,
+          link: '/dashboard/cashier', target_role: null, target_employee_id: e.id,
+        })))
+      }
     } catch { /* اختياري */ }
 
     return NextResponse.json({ ok: true })

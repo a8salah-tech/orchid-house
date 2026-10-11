@@ -2577,6 +2577,14 @@ export default function CashierPage() {
       .then(({ data }) => setBranches(data || []))
   }, [])
 
+  // ✅ إشعارات كل فرع منفصلة: كاشير فرع ما بيوصلوش إشعارات طلبات/نداءات الفرع التاني (الـrealtime بيوصل كل الفروع). الأدمن يشوف الكل
+  // (أو الفرع المختار في فلتر الفروع) مع اسم الفرع في نص الإشعار
+  const notifyScopeRef = useRef<{ isAdmin: boolean; branchId: string; adminBranch: string }>({ isAdmin: false, branchId: '', adminBranch: '' })
+  const inNotifyScope = (tableBranchId?: string | null) => {
+    const sc = notifyScopeRef.current
+    if (sc.isAdmin) return !sc.adminBranch || tableBranchId === sc.adminBranch
+    return !sc.branchId || tableBranchId === sc.branchId
+  }
   // ✅ تاب "نداءات النادل": قائمة ثابتة بآخر نداءات العملاء (آخر 3 ساعات) بدل شريط يختفي بعد ثوانٍ — كل نداء يبقى "بانتظار الرد" لحد
   // ما الكاشير/مساعده يضغط "تم الرد" (يتزامن بين الأجهزة لو أعمدة handled_* موجودة — db/waiter_calls_handled.sql — وإلا يُحفظ على الجهاز)
   type WaiterCall = { id: string; table_id: string; created_at: string; handled_at?: string | null; handled_by_name?: string | null }
@@ -2618,8 +2626,9 @@ export default function CashierPage() {
       if (data?.[0]) {
         const isNew = new Date(data[0].created_at) > new Date(Date.now() - 8000)
         if (isNew && lastId !== '' && data[0].id !== lastId) {
-          const { data: tbl } = await sb.from('tables').select('name,number').eq('id', data[0].table_id).single()
-          const name = tbl?.name || `Table ${tbl?.number || ''}`
+          const { data: tbl } = await sb.from('tables').select('name,number,branch_id').eq('id', data[0].table_id).single()
+          if (!inNotifyScope(tbl?.branch_id)) { lastId = data[0].id; return }
+          const name = (notifyScopeRef.current.isAdmin ? `${branches.find(b => b.id === tbl?.branch_id)?.name || ''} — ` : '') + (tbl?.name || `Table ${tbl?.number || ''}`)
           setNotif(`🔔 Waiter called — ${name}!`)
           setTimeout(() => setNotif(null), 8000)
           playSound('waiter')
@@ -2629,6 +2638,7 @@ export default function CashierPage() {
       }
     }, 4000)
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sb])
 
   function sendNotification(title: string, body: string) {
@@ -2699,6 +2709,9 @@ export default function CashierPage() {
   // "💸 Expenses" وإجماليها لكل يوم، بنفس الطريقة اللي بتظهر بيها في صفحة الشيفت
   const [archiveExpenses, setArchiveExpenses] = useState<{ id: string; shift: string; cashier_name: string; description: string; amount: number; status: string; created_at: string; receipt_urls: string[] | null }[]>([])
   const [adminBranchFilter, setAdminBranchFilter] = useState<string>('')
+  useEffect(() => { notifyScopeRef.current = { isAdmin, branchId: employee?.branch_id || '', adminBranch: adminBranchFilter } }, [isAdmin, employee?.branch_id, adminBranchFilter])
+  // نداءات فرع هذا الكاشير فقط (جدول tables عنده مفلتر بفرعه)؛ الأدمن: الكل أو الفرع المختار
+  const callInScope = (c: { id: string; table_id: string }) => { const t = tables.find(x => x.id === c.table_id); return !!t && (!isAdmin || !adminBranchFilter || t.branch_id === adminBranchFilter) }
   // ✅ Fix: الأدمن يبدأ بـ"كل الفروع" افتراضيًا (بدل ما يتفلتر تلقائيًا على أول فرع في القايمة من غير ما يلاحظ)
   // - ده كان سبب مباشر لمشاكل "الأوردر مش ظاهر" رغم إنه موجود فعليًا، لمجرد إن الأدمن كان شايف فرع تاني
 
@@ -3111,10 +3124,14 @@ export default function CashierPage() {
             if (!orderData || orderData.status === 'cancelled') continue
             const tbl = tablesRef.current.find(t => t.id === orderData.table_id)
             let tableName = tbl?.name || (tbl?.number ? `Table ${tbl.number}` : 'Table')
+            let tableBranch: string | null | undefined = tbl?.branch_id
             if (!tbl && orderData.table_id) {
-              const { data: tblData } = await sb.from('tables').select('name,number').eq('id', orderData.table_id).single()
-              if (tblData) tableName = tblData.name || `Table ${tblData.number}`
+              const { data: tblData } = await sb.from('tables').select('name,number,branch_id').eq('id', orderData.table_id).single()
+              if (tblData) { tableName = tblData.name || `Table ${tblData.number}`; tableBranch = tblData.branch_id }
             }
+            // ✅ طلب من فرع تاني: لا إشعار ولا صوت ولا تنبيه "جديد" لهذا الكاشير
+            if (!inNotifyScope(tableBranch)) continue
+            if (notifyScopeRef.current.isAdmin) tableName = `${branches.find(b => b.id === tableBranch)?.name || ''} — ${tableName}`
             const { data: itemsData } = await sb.from('order_items').select('id').eq('order_id', oid)
             const itemsCount = itemsData?.length || 0
             if (orderData.table_id) setUnseenTableIds(prev => new Set(prev).add(orderData.table_id))
@@ -3166,17 +3183,19 @@ export default function CashierPage() {
       })
 
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waiter_calls' }, async (payload: any) => {
-        const { data: tblData } = await sb.from('tables').select('name,number').eq('id', payload.new?.table_id).single()
-        const tblName = tblData?.name || `Table ${tblData?.number}` || 'Table'
+        const { data: tblData } = await sb.from('tables').select('name,number,branch_id').eq('id', payload.new?.table_id).single()
+        fetchWaiterCalls()
+        if (!inNotifyScope(tblData?.branch_id)) return
+        const tblName = (notifyScopeRef.current.isAdmin ? `${branches.find(b => b.id === tblData?.branch_id)?.name || ''} — ` : '') + (tblData?.name || `Table ${tblData?.number}` || 'Table')
         setNotif(`🔔 Waiter called — ${tblName}!`)
         setTimeout(() => setNotif(null), 6000)
         playSound('waiter')
         sendNotification('🔔 Waiter Call!', `${tblName} is calling for a waiter`)
-        fetchWaiterCalls()
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'waiter_calls' }, () => { fetchWaiterCalls() })
       .subscribe()
     return () => { sb.removeChannel(channel) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sb, fetchAll, fetchWaiterCalls])
 
   useEffect(() => {
@@ -3573,7 +3592,7 @@ export default function CashierPage() {
             {(() => {
               // نداءات آخر 30 دقيقة لسه ما اتردّش عليها — رقم أحمر على التاب
               const nowMs = new Date().getTime() + tick * 0
-              const pending = waiterCalls.filter(c => !isCallHandled(c) && nowMs - new Date(c.created_at).getTime() < 30 * 60 * 1000).length
+              const pending = waiterCalls.filter(c => callInScope(c) && !isCallHandled(c) && nowMs - new Date(c.created_at).getTime() < 30 * 60 * 1000).length
               return (
                 <button onClick={() => setView('calls')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'calls' ? S.amber : pending > 0 ? S.red : S.border}`, background: view === 'calls' ? S.amberB : pending > 0 ? S.redB : 'transparent', color: view === 'calls' ? S.amber : pending > 0 ? S.red : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, animation: pending > 0 && view !== 'calls' ? 'pulse 1.2s infinite' : 'none' }}>
                   🔔 Waiter Calls{pending > 0 ? ` (${pending})` : ''}
@@ -3700,11 +3719,11 @@ export default function CashierPage() {
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 4 }}>🔔 Waiter Calls</div>
             <div style={{ fontSize: 11.5, color: S.muted, marginBottom: 14 }}>آخر 3 ساعات — كل نداء يبقى «بانتظار الرد» حتى تضغط «تم الرد» · Last 3 hours — each call stays pending until you press &quot;Attended&quot;</div>
-            {waiterCalls.length === 0 ? (
+            {waiterCalls.filter(callInScope).length === 0 ? (
               <div style={{ textAlign: 'center', padding: 50, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, color: S.muted }}>✅ No waiter calls</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {waiterCalls.map(c => {
+                {waiterCalls.filter(callInScope).map(c => {
                   const t = tables.find(x => x.id === c.table_id)
                   const handled = isCallHandled(c)
                   const waitMin = Math.max(0, Math.floor((new Date().getTime() + tick * 0 - new Date(c.created_at).getTime()) / 60000))

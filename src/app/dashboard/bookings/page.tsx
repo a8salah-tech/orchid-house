@@ -625,9 +625,13 @@ export default function BookingsPage() {
     const branchName = branches.find(br => br.id === b.branch_id)?.name || '—'
     const ref = b.booking_ref || b.id.slice(-8).toUpperCase()
     const st = STATUS_CFG[b.status]
+    // ✅ لوجو كل فرع على كرته (والاسم بدل "Orchid House" الثابت): الصور تُحمَّل من نفس نطاق الموقع لأن نافذة الطباعة فارغة الأصل
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const logoSrc = /klcc/i.test(branchName) ? origin + '/logo-klcc.png' : /house/i.test(branchName) ? origin + '/logo.png' : ''
     return `<div class="card">
       <div class="l">
-        <div class="logo">🌸 Orchid House</div>
+        ${logoSrc ? `<img class="logoimg" src="${logoSrc}" alt="" onerror="this.style.display='none'">` : ''}
+        <div class="logo">${escapeHtml(branchName)}</div>
         <div class="sub">Table Reservation</div>
         <div class="ref">#${escapeHtml(ref)}</div>
         <div class="name">${escapeHtml(b.customer_name)}</div>
@@ -641,8 +645,8 @@ export default function BookingsPage() {
         <tr><td class="k">Phone</td><td class="v">${escapeHtml(b.customer_phone)}</td></tr>
       </table>
       <div class="g">
-        <div class="half"><div class="gl">GUESTS · عدد الأشخاص</div><div class="n">${b.guests}</div></div>
-        <div class="half t"><div class="gl">TABLE · الطاولة</div><div class="n">${b.table_number || '—'}</div></div>
+        <div class="half"><div class="gl">GUESTS</div><div class="n">${b.guests}</div></div>
+        <div class="half t"><div class="gl">TABLE</div><div class="n">${b.table_number || '—'}</div></div>
       </div>
     </div>`
   }
@@ -661,7 +665,8 @@ export default function BookingsPage() {
       .grid { display: grid; grid-template-columns: repeat(${single ? 1 : 2}, 100mm); grid-auto-rows: 70mm; justify-content: center; }
       .card { width: 100mm; height: 70mm; border: 1.5px dashed #0A1628; padding: 4mm 4.5mm; display: flex; gap: 3mm; align-items: stretch; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
       .l { width: 28mm; display: flex; flex-direction: column; min-width: 0; }
-      .logo { font-size: 13px; font-weight: bold; }
+      .logo { font-size: 12px; font-weight: bold; line-height: 1.15; margin-bottom: 1px; }
+      .logoimg { width: 24mm; height: 14mm; object-fit: cover; border-radius: 1.5mm; display: block; margin-bottom: 1.5mm; }
       .sub { font-size: 8px; color: #555; margin-bottom: 4px; }
       .ref { font-size: 10px; letter-spacing: 2px; color: #888; margin-bottom: 6px; }
       .name { font-size: 14px; font-weight: bold; word-break: break-word; line-height: 1.2; }

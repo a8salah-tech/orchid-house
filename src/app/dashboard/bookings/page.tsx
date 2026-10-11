@@ -255,6 +255,19 @@ export default function BookingsPage() {
     setEditHistory({ id: bookingId, rows: error ? [] : ((data as BookingEdit[]) || []) })
   }, [])
   const openBookingId = detailBooking?.id
+  // ✅ إلغاءات قديمة حُفظ فيها الاسم الأول فقط: نبحث عن موظف نشط بنفس الاسم، ولو طابق واحد فقط نعرض اسمه الكامل (عربي + إنجليزي)
+  const [fullCanceller, setFullCanceller] = useState<{ key: string; name: string } | null>(null)
+  const cancellerKey = detailBooking?.status === 'cancelled' && detailBooking.cancelled_by_name ? `${detailBooking.id}|${detailBooking.cancelled_by_name}` : ''
+  useEffect(() => {
+    if (!cancellerKey) return
+    const nm = cancellerKey.split('|')[1]
+    sb.from('employees').select('name, name_en').eq('name', nm).eq('is_active', true)
+      .then(({ data }) => {
+        const rows = (data || []) as { name: string; name_en: string | null }[]
+        if (rows.length === 1) setFullCanceller({ key: cancellerKey, name: [rows[0].name, rows[0].name_en].filter(Boolean).join(' ') })
+      })
+  }, [cancellerKey])
+  const cancellerName = (b: { id: string; cancelled_by_name?: string | null }) => (fullCanceller && fullCanceller.key === `${b.id}|${b.cancelled_by_name}`) ? fullCanceller.name : (b.cancelled_by_name || '')
   useEffect(() => {
     if (!openBookingId) return
     let cancelled = false
@@ -900,7 +913,7 @@ export default function BookingsPage() {
                   <div style={{ fontSize: 13.5, color: S.white, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{b.cancel_reason || 'No reason was recorded for this cancellation.'}</div>
                   {(b.cancelled_by_name || b.cancelled_at) && (
                     <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>
-                      {b.cancelled_by_name ? `By ${b.cancelled_by_name}` : ''}{b.cancelled_by_name && b.cancelled_at ? ' · ' : ''}{b.cancelled_at ? new Date(b.cancelled_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : ''}
+                      {b.cancelled_by_name ? `By ${cancellerName(b)}` : ''}{b.cancelled_by_name && b.cancelled_at ? ' · ' : ''}{b.cancelled_at ? new Date(b.cancelled_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur' }) : ''}
                     </div>
                   )}
                 </div>
@@ -992,7 +1005,7 @@ export default function BookingsPage() {
                 const hasCancelLog = logged.some(h => (h.changes || []).some(c => c.field === 'Status' && c.to === STATUS_CFG.cancelled.label))
                 // إلغاءات قديمة قبل بدء السجل: نعرضها من بيانات الحجز نفسها (من ألغى + السبب + الوقت)
                 const hist: BookingEdit[] = (b.status === 'cancelled' && b.cancelled_by_name && !hasCancelLog)
-                  ? [{ id: 'legacy-cancel', booking_id: b.id, edited_by_name: b.cancelled_by_name, created_at: b.cancelled_at || b.created_at, changes: [{ field: 'Status', from: '—', to: STATUS_CFG.cancelled.label }, ...(b.cancel_reason ? [{ field: 'Cancel reason', from: '—', to: b.cancel_reason }] : [])] }, ...logged]
+                  ? [{ id: 'legacy-cancel', booking_id: b.id, edited_by_name: cancellerName(b), created_at: b.cancelled_at || b.created_at, changes: [{ field: 'Status', from: '—', to: STATUS_CFG.cancelled.label }, ...(b.cancel_reason ? [{ field: 'Cancel reason', from: '—', to: b.cancel_reason }] : [])] }, ...logged]
                   : logged
                 if (hist.length === 0) return null
                 const icon: Record<string, string> = { Date: '📅', Time: '🕐', Guests: '👥', Section: '📍', Status: '🔔', 'Cancel reason': '📝', Table: '🪑', 'Deposit (MYR)': '💰', 'Deposit receipt': '🧾' }

@@ -90,7 +90,16 @@ function BookingsTable({ rows, branches, onUpdateTable, onUpdateStatus, onUpdate
               const hasDeposit = (b.deposit_amount || 0) > 0 && b.status !== 'cancelled'
               return (
                 <tr key={b.id} onClick={() => onRowClick(b)}
-                  style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer', background: hasDeposit ? 'rgba(201,168,76,0.14)' : undefined, boxShadow: hasDeposit ? `inset 4px 0 0 ${S.gold}` : undefined, opacity: b.status === 'cancelled' ? 0.75 : 1 }}>
+                  style={{
+                    borderBottom: `1px solid ${S.border}`, cursor: 'pointer',
+                    // ✅ لون السطر حسب الحالة: مؤكَّد أخضر، ملغي أحمر، معلّق بلا لون — والعربون شريط ذهبي جانبي إضافي بجانب شريط الحالة
+                    background: b.status === 'confirmed' ? 'rgba(34,197,94,0.10)' : b.status === 'cancelled' ? 'rgba(239,68,68,0.11)' : hasDeposit ? 'rgba(201,168,76,0.10)' : undefined,
+                    boxShadow: [
+                      b.status === 'confirmed' ? `inset 4px 0 0 ${S.green}` : b.status === 'cancelled' ? `inset 4px 0 0 ${S.red}` : null,
+                      hasDeposit ? `inset ${b.status === 'pending' ? 4 : 8}px 0 0 ${S.gold}` : null,
+                    ].filter(Boolean).join(', ') || undefined,
+                    opacity: b.status === 'cancelled' ? 0.85 : 1,
+                  }}>
                   <td style={{ padding: '12px 14px' }}>
                     <div style={{ fontWeight: 700, color: S.white, fontSize: 14 }}>{b.customer_name}</div>
                     <div style={{ fontSize: 11, color: S.muted }}>{b.customer_email}</div>
@@ -377,14 +386,25 @@ export default function BookingsPage() {
     return () => { sb.removeChannel(ch) }
   }, [fetchBookings])
 
+  // ✅ سجل كل تغيير على الحجز (تأكيد/إلغاء/طاولة/عربون/إيصال): نوع التغيير + من (بالاسم الكامل) + التاريخ والساعة، في booking_edit_log
+  const fullEmployeeName = () => [employee?.name, employee?.name_en].filter(Boolean).join(' ') || 'Unknown'
+  async function logBookingChange(bookingId: string, changes: { field: string; from: string; to: string }[]) {
+    if (changes.length === 0) return
+    const { error } = await sb.from('booking_edit_log').insert({ booking_id: bookingId, edited_by: employee?.id || null, edited_by_name: fullEmployeeName(), changes })
+    if (error) { console.error('booking log failed:', error.message); return }
+    loadEditHistory(bookingId)
+  }
+
   async function updateStatus(id: string, status: 'confirmed' | 'cancelled') {
     // ✅ لو الحجز كان ملغي وبيتأكّد تاني، نمسح بيانات الإلغاء القديمة (السبب/من ألغى) بدل ما تفضل عالقة عليه
     const wasCancelled = bookings.find(b => b.id === id)?.status === 'cancelled'
     const patch = wasCancelled && status === 'confirmed'
       ? { status, cancel_reason: null, cancelled_by_name: null, cancelled_at: null }
       : { status }
+    const oldStatus = bookings.find(b => b.id === id)?.status
     const { error } = await sb.from('bookings').update(patch).eq('id', id)
     if (error) { alert('خطأ: ' + error.message + (wasCancelled ? ' — تأكد من تشغيل db/bookings_cancel_reason.sql' : '')); return }
+    await logBookingChange(id, [{ field: 'Status', from: oldStatus ? STATUS_CFG[oldStatus].label : '—', to: STATUS_CFG[status].label }])
     fetchBookings()
   }
 
@@ -395,24 +415,32 @@ export default function BookingsPage() {
     const reason = cancelReasonText.trim()
     if (reason.length < 3) { alert('اكتب سبب الإلغاء (إجباري)'); return }
     setCancelSaving(true)
-    const patch = { status: 'cancelled' as const, cancel_reason: reason, cancelled_by_name: employee?.name || null, cancelled_at: new Date().toISOString() }
+    const patch = { status: 'cancelled' as const, cancel_reason: reason, cancelled_by_name: fullEmployeeName(), cancelled_at: new Date().toISOString() }
     const { error } = await sb.from('bookings').update(patch).eq('id', cancelTarget.id)
     setCancelSaving(false)
     if (error) { alert('فشل الإلغاء: ' + error.message + ' — تأكد من تشغيل db/bookings_cancel_reason.sql'); return }
+    await logBookingChange(cancelTarget.id, [
+      { field: 'Status', from: STATUS_CFG[cancelTarget.status].label, to: STATUS_CFG.cancelled.label },
+      { field: 'Cancel reason', from: '—', to: reason },
+    ])
     setDetailBooking(p => p && p.id === cancelTarget.id ? { ...p, ...patch } : p)
     setCancelTarget(null); setCancelReasonText('')
     fetchBookings()
   }
 
   async function updateTable(id: string, table_number: number | null) {
-    await sb.from('bookings').update({ table_number }).eq('id', id)
+    const oldTable = bookings.find(b => b.id === id)?.table_number ?? null
+    const { error } = await sb.from('bookings').update({ table_number }).eq('id', id)
+    if (!error && oldTable !== table_number) await logBookingChange(id, [{ field: 'Table', from: oldTable == null ? '—' : String(oldTable), to: table_number == null ? '—' : String(table_number) }])
     fetchBookings()
   }
 
   // ✅ جديد: تحديث العربون — نفس نمط updateTable بالضبط
   async function updateDeposit(id: string, deposit_amount: number | null) {
+    const oldDeposit = bookings.find(b => b.id === id)?.deposit_amount ?? null
     const { error } = await sb.from('bookings').update({ deposit_amount }).eq('id', id)
     if (error) { alert('فشل حفظ العربون: ' + error.message + ' — تأكد من تشغيل db/bookings_deposit_amount.sql'); return }
+    if ((oldDeposit || 0) !== (deposit_amount || 0)) await logBookingChange(id, [{ field: 'Deposit (MYR)', from: oldDeposit ? String(oldDeposit) : '—', to: deposit_amount ? String(deposit_amount) : '—' }])
     fetchBookings()
   }
 
@@ -429,6 +457,7 @@ export default function BookingsPage() {
     setUploadingDeposit(null)
     if (error) { alert('فشل حفظ الصورة: ' + error.message + ' — تأكد من تشغيل db/bookings_deposit_image.sql'); return }
     setDetailBooking(p => p && p.id === id ? { ...p, deposit_image_url: url } : p)
+    await logBookingChange(id, [{ field: 'Deposit receipt', from: '—', to: 'Added' }])
     fetchBookings()
   }
 
@@ -437,6 +466,7 @@ export default function BookingsPage() {
     const { error } = await sb.from('bookings').update({ deposit_image_url: null }).eq('id', id)
     if (error) { alert('خطأ: ' + error.message); return }
     setDetailBooking(p => p && p.id === id ? { ...p, deposit_image_url: null } : p)
+    await logBookingChange(id, [{ field: 'Deposit receipt', from: 'Added', to: 'Removed' }])
     fetchBookings()
   }
 
@@ -957,18 +987,24 @@ export default function BookingsPage() {
 
               {/* ✅ جديد: سجل التعديلات — كل تعديل بالاسم الكامل لمن عدّل، وتحته التغيير نفسه (من → إلى) */}
               {(() => {
-                const hist = editHistory && editHistory.id === b.id ? editHistory.rows : null
-                if (!hist || hist.length === 0) return null
-                const icon: Record<string, string> = { Date: '📅', Time: '🕐', Guests: '👥', Section: '📍' }
+                const logged = editHistory && editHistory.id === b.id ? editHistory.rows : null
+                if (!logged) return null
+                const hasCancelLog = logged.some(h => (h.changes || []).some(c => c.field === 'Status' && c.to === STATUS_CFG.cancelled.label))
+                // إلغاءات قديمة قبل بدء السجل: نعرضها من بيانات الحجز نفسها (من ألغى + السبب + الوقت)
+                const hist: BookingEdit[] = (b.status === 'cancelled' && b.cancelled_by_name && !hasCancelLog)
+                  ? [{ id: 'legacy-cancel', booking_id: b.id, edited_by_name: b.cancelled_by_name, created_at: b.cancelled_at || b.created_at, changes: [{ field: 'Status', from: '—', to: STATUS_CFG.cancelled.label }, ...(b.cancel_reason ? [{ field: 'Cancel reason', from: '—', to: b.cancel_reason }] : [])] }, ...logged]
+                  : logged
+                if (hist.length === 0) return null
+                const icon: Record<string, string> = { Date: '📅', Time: '🕐', Guests: '👥', Section: '📍', Status: '🔔', 'Cancel reason': '📝', Table: '🪑', 'Deposit (MYR)': '💰', 'Deposit receipt': '🧾' }
                 return (
                   <div style={{ marginTop: 14 }}>
-                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 8, fontWeight: 700 }}>🕘 Edit history ({hist.length})</div>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 8, fontWeight: 700 }}>🕘 Change history ({hist.length})</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {hist.map(h => (
                         <div key={h.id} style={{ background: 'rgba(255,255,255,.03)', border: `1px solid ${S.border}`, borderRadius: 12, padding: '10px 12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                             <span style={{ fontSize: 13, fontWeight: 800, color: S.gold }}>👤 {h.edited_by_name || 'Unknown'}</span>
-                            <span dir="ltr" style={{ fontSize: 11, color: S.muted }}>{new Date(h.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                            <span dir="ltr" style={{ fontSize: 11, color: S.muted }}>{new Date(h.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })}</span>
                           </div>
                           {(h.changes || []).map((c, i) => (
                             <div key={i} dir="ltr" style={{ fontSize: 12.5, color: S.white, lineHeight: 1.8, textAlign: 'right' }}>

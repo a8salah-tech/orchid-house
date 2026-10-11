@@ -170,6 +170,20 @@ export default function MarketPurchasesPage() {
   const [availableEdits, setAvailableEdits] = useState<Record<string, { qty: string; branchId: string }>>({})
   const [saving, setSaving] = useState(false)
 
+  // ✅ عارض الصور داخل الصفحة (بدل فتح الصورة في تاب/صفحة أخرى): قائمة الصور + رقم الصورة الحالية
+  const [viewer, setViewer] = useState<{ urls: string[]; index: number } | null>(null)
+  // إغلاق بزر Esc والتنقل بالأسهم
+  useEffect(() => {
+    if (!viewer) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setViewer(null)
+      else if (e.key === 'ArrowLeft') setViewer(v => v && v.index < v.urls.length - 1 ? { ...v, index: v.index + 1 } : v)
+      else if (e.key === 'ArrowRight') setViewer(v => v && v.index > 0 ? { ...v, index: v.index - 1 } : v)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [viewer])
+
   // ── Receive confirmation state ──
   const [receivingReq, setReceivingReq] = useState<PurchaseRequest | null>(null)
   // ✅ Fix: بدل صورة واحدة، دلوقتي نقدر نرفع أكتر من صورة إثبات استلام
@@ -1279,11 +1293,13 @@ export default function MarketPurchasesPage() {
                 )}
                 {isDeliveredStatus(req.status) && ((req.delivered_image_urls && req.delivered_image_urls.length > 0) || req.delivered_image_url) && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {(req.delivered_image_urls && req.delivered_image_urls.length > 0 ? req.delivered_image_urls : [req.delivered_image_url!]).map((url, i) => (
-                      <a key={i} href={url} target="_blank" rel="noreferrer">
-                        <img src={url} alt={`إثبات الاستلام ${i + 1}`} style={{ width: 80, height: 80, borderRadius: 10, objectFit: 'cover', border: `1px solid ${S.border}` }} />
-                      </a>
-                    ))}
+                    {(() => {
+                      const urls = req.delivered_image_urls && req.delivered_image_urls.length > 0 ? req.delivered_image_urls : [req.delivered_image_url!]
+                      return urls.map((url, i) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={i} src={url} alt={`إثبات الاستلام ${i + 1}`} onClick={() => setViewer({ urls, index: i })} style={{ width: 80, height: 80, borderRadius: 10, objectFit: 'cover', border: `1px solid ${S.border}`, cursor: 'zoom-in' }} />
+                      ))
+                    })()}
                   </div>
                 )}
               </div>
@@ -1729,11 +1745,13 @@ export default function MarketPurchasesPage() {
                   {/* صورة إثبات الاستلام */}
                   {((r.delivered_image_urls && r.delivered_image_urls.length > 0) || r.delivered_image_url) && (
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                      {(r.delivered_image_urls && r.delivered_image_urls.length > 0 ? r.delivered_image_urls : [r.delivered_image_url!]).map((url, i) => (
-                        <a key={i} href={url} target="_blank" rel="noreferrer">
-                          <img src={url} alt={`إثبات الاستلام ${i + 1}`} style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
-                        </a>
-                      ))}
+                      {(() => {
+                        const urls = r.delivered_image_urls && r.delivered_image_urls.length > 0 ? r.delivered_image_urls : [r.delivered_image_url!]
+                        return urls.map((url, i) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img key={i} src={url} alt={`إثبات الاستلام ${i + 1}`} onClick={() => setViewer({ urls, index: i })} style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}`, cursor: 'zoom-in' }} />
+                        ))
+                      })()}
                     </div>
                   )}
                 </div>
@@ -2103,7 +2121,8 @@ export default function MarketPurchasesPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 8, marginBottom: 14 }}>
                 {receiveImgPreviews.map((src, i) => (
                   <div key={i} style={{ position: 'relative' }}>
-                    <img src={src} alt={`صورة ${i + 1}`} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 8 }} />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`صورة ${i + 1}`} onClick={() => setViewer({ urls: receiveImgPreviews, index: i })} style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in' }} />
                     <button onClick={() => removeReceiveImg(i)}
                       style={{ position: 'absolute', top: 4, left: 4, width: 20, height: 20, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: S.red, cursor: 'pointer', fontSize: 12, lineHeight: '20px', padding: 0 }}>✕</button>
                   </div>
@@ -2114,6 +2133,28 @@ export default function MarketPurchasesPage() {
               style={{ width: '100%', padding: '12px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: confirming ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
               {confirming ? '⏳ جاري التأكيد...' : '✅ تأكيد الاستلام'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ عارض الصور داخل الصفحة */}
+      {viewer && (
+        <div onClick={() => setViewer(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, cursor: 'zoom-out' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '96vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, cursor: 'default' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={viewer.urls[viewer.index]} alt="" style={{ maxWidth: '96vw', maxHeight: '82vh', objectFit: 'contain', borderRadius: 10, background: '#000' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, direction: 'ltr' }}>
+              {viewer.urls.length > 1 && (
+                <button onClick={() => setViewer(v => v && v.index > 0 ? { ...v, index: v.index - 1 } : v)} disabled={viewer.index === 0}
+                  style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'rgba(255,255,255,0.1)', color: viewer.index === 0 ? S.muted : S.white, cursor: viewer.index === 0 ? 'not-allowed' : 'pointer', fontSize: 16 }}>‹</button>
+              )}
+              <span style={{ color: S.white, fontSize: 13 }}>{viewer.index + 1} / {viewer.urls.length}</span>
+              {viewer.urls.length > 1 && (
+                <button onClick={() => setViewer(v => v && v.index < v.urls.length - 1 ? { ...v, index: v.index + 1 } : v)} disabled={viewer.index === viewer.urls.length - 1}
+                  style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'rgba(255,255,255,0.1)', color: viewer.index === viewer.urls.length - 1 ? S.muted : S.white, cursor: viewer.index === viewer.urls.length - 1 ? 'not-allowed' : 'pointer', fontSize: 16 }}>›</button>
+              )}
+            </div>
+            <button onClick={() => setViewer(null)} style={{ position: 'absolute', top: -6, right: -6, width: 38, height: 38, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: 20, cursor: 'pointer' }}>✕</button>
           </div>
         </div>
       )}

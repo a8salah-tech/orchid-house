@@ -768,6 +768,19 @@ function CustomerMenuInner() {
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmedOrderId, table?.id, sb])
+  // ✅ نداء النادل: يرسل فعليًا للكاشير ومساعده (API) ثم يعرض "في الطريق" 5 ثوانٍ؛ لو فشل الإرسال نرجّع الزر ونبلّغ العميل
+  async function callWaiter() {
+    if (!table?.id || waiterCalled) return
+    setWaiterCalled(true)
+    try {
+      const res = await fetch('/api/waiter-call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tableId: table.id }) })
+      if (!res.ok) throw new Error('failed')
+      setTimeout(() => setWaiterCalled(false), 5000)
+    } catch {
+      setWaiterCalled(false)
+      alert(['Could not reach the waiter — please try again.', 'Tidak dapat menghubungi pelayan — sila cuba lagi.', 'تعذّر إرسال النداء، حاول مرة أخرى.'].join(String.fromCharCode(10)))
+    }
+  }
   const movedBanner = movedNotice ? (
     <div style={{ position:'fixed', top:10, left:10, right:10, zIndex:900, background:'rgba(16,185,129,0.96)', color:'#fff', borderRadius:14, padding:'12px 14px', textAlign:'center', boxShadow:'0 8px 24px rgba(0,0,0,0.35)', fontSize:13, lineHeight:1.7 }}>
       <div style={{ fontWeight:800 }}>✅ Your table has been changed to {movedNotice}. It is open — you can keep ordering.</div>
@@ -2068,7 +2081,7 @@ const filteredItems = items
               style={{ background:'rgba(0,200,200,.1)', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 6px', fontSize:12, color:C.silver, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
               {LANGS.map(l => <option key={l.code} value={l.code}>{l.flag} {l.native}</option>)}
             </select>
-            <button onClick={() => { setWaiterCalled(true); setTimeout(() => setWaiterCalled(false), 5000) }}
+            <button disabled={waiterCalled} onClick={callWaiter}
               style={{ background: waiterCalled ? `linear-gradient(135deg,#22C55E,#16A34A)` : `rgba(0,200,200,.1)`, border: waiterCalled ? 'none' : `1px solid ${C.border}`, borderRadius:14, padding:'9px 14px', cursor:'pointer', fontSize:12, color: waiterCalled ? C.white : C.silver, fontWeight:700, transition:'all .3s', whiteSpace:'nowrap' }}>
               {waiterCalled ? t('waiter_coming') : t('call_waiter')}
             </button>

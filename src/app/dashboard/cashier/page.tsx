@@ -2577,6 +2577,36 @@ export default function CashierPage() {
       .then(({ data }) => setBranches(data || []))
   }, [])
 
+  // ✅ تاب "نداءات النادل": قائمة ثابتة بآخر نداءات العملاء (آخر 3 ساعات) بدل شريط يختفي بعد ثوانٍ — كل نداء يبقى "بانتظار الرد" لحد
+  // ما الكاشير/مساعده يضغط "تم الرد" (يتزامن بين الأجهزة لو أعمدة handled_* موجودة — db/waiter_calls_handled.sql — وإلا يُحفظ على الجهاز)
+  type WaiterCall = { id: string; table_id: string; created_at: string; handled_at?: string | null; handled_by_name?: string | null }
+  const [waiterCalls, setWaiterCalls] = useState<WaiterCall[]>([])
+  const [localHandled, setLocalHandled] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('waiter_handled') || '[]') as string[] } catch { return [] }
+  })
+  const fetchWaiterCalls = useCallback(async () => {
+    const since = new Date(new Date().getTime() - 3 * 3600 * 1000).toISOString()
+    const { data } = await sb.from('waiter_calls').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(60)
+    setWaiterCalls((data as WaiterCall[]) || [])
+  }, [sb])
+  useEffect(() => {
+    Promise.resolve().then(() => fetchWaiterCalls())
+    const i = setInterval(fetchWaiterCalls, 5000)
+    return () => clearInterval(i)
+  }, [fetchWaiterCalls])
+  const isCallHandled = (c: WaiterCall) => !!c.handled_at || localHandled.includes(c.id)
+  async function markCallHandled(c: WaiterCall) {
+    const byName = [employee?.name, employee?.name_en].filter(Boolean).join(' ') || activeShiftCashierName || 'Cashier'
+    const { error } = await sb.from('waiter_calls').update({ handled_at: new Date().toISOString(), handled_by_name: byName }).eq('id', c.id)
+    if (error) {
+      // الأعمدة لسه ما اتضافتش (SQL): نحفظ "تم الرد" على هذا الجهاز بس
+      const next = [...localHandled, c.id].slice(-200)
+      setLocalHandled(next)
+      try { localStorage.setItem('waiter_handled', JSON.stringify(next)) } catch { /* لا شيء */ }
+    }
+    fetchWaiterCalls()
+  }
+
   // Polling for waiter calls every 5s
   useEffect(() => {
     let lastId = ''
@@ -2656,7 +2686,7 @@ export default function CashierPage() {
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
   // ✅ جديد: الطاولة اللي بندمجها حاليًا (يفتح مودال اختيار الطاولة الشريكة)
   const [mergePickerTable, setMergePickerTable] = useState<TableRow | null>(null)
-  const [view, setView] = useState<'orders' | 'tables' | 'archive'>('tables')
+  const [view, setView] = useState<'orders' | 'tables' | 'archive' | 'calls'>('tables')
   // ✅ تاب الأرشيف - بحث في الفواتير المقفولة (مدفوعة/ملغية) بالتاريخ أو رقم الطاولة
   const [archiveDate, setArchiveDate] = useState('')
   const [archiveTableSearch, setArchiveTableSearch] = useState('')
@@ -3142,10 +3172,12 @@ export default function CashierPage() {
         setTimeout(() => setNotif(null), 6000)
         playSound('waiter')
         sendNotification('🔔 Waiter Call!', `${tblName} is calling for a waiter`)
+        fetchWaiterCalls()
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'waiter_calls' }, () => { fetchWaiterCalls() })
       .subscribe()
     return () => { sb.removeChannel(channel) }
-  }, [sb, fetchAll])
+  }, [sb, fetchAll, fetchWaiterCalls])
 
   useEffect(() => {
     const t = setInterval(() => setTick(p => p + 1), 1000)
@@ -3538,6 +3570,16 @@ export default function CashierPage() {
             {activeCount > 0 && (
               <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 12, color: S.red, fontWeight: 700 }}>{activeCount} active</div>
             )}
+            {(() => {
+              // نداءات آخر 30 دقيقة لسه ما اتردّش عليها — رقم أحمر على التاب
+              const nowMs = new Date().getTime() + tick * 0
+              const pending = waiterCalls.filter(c => !isCallHandled(c) && nowMs - new Date(c.created_at).getTime() < 30 * 60 * 1000).length
+              return (
+                <button onClick={() => setView('calls')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'calls' ? S.amber : pending > 0 ? S.red : S.border}`, background: view === 'calls' ? S.amberB : pending > 0 ? S.redB : 'transparent', color: view === 'calls' ? S.amber : pending > 0 ? S.red : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, animation: pending > 0 && view !== 'calls' ? 'pulse 1.2s infinite' : 'none' }}>
+                  🔔 Waiter Calls{pending > 0 ? ` (${pending})` : ''}
+                </button>
+              )
+            })()}
             <button onClick={() => setView('tables')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'tables' ? S.gold : S.border}`, background: view === 'tables' ? S.gold3 : 'transparent', color: view === 'tables' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🪑 {isMobile ? '' : 'Tables'}</button>
             <button onClick={() => { setView('orders'); setFilter('active') }} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${view === 'orders' && filter !== 'done' ? S.gold : S.border}`, background: view === 'orders' && filter !== 'done' ? S.gold3 : 'transparent', color: view === 'orders' && filter !== 'done' ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>📋 {isMobile ? '' : 'Orders'}</button>
             {isCashierRole && (
@@ -3653,6 +3695,37 @@ export default function CashierPage() {
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ Loading...</div>
+        ) : view === 'calls' ? (
+          /* ══ WAITER CALLS VIEW ══ */
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 4 }}>🔔 Waiter Calls</div>
+            <div style={{ fontSize: 11.5, color: S.muted, marginBottom: 14 }}>آخر 3 ساعات — كل نداء يبقى «بانتظار الرد» حتى تضغط «تم الرد» · Last 3 hours — each call stays pending until you press &quot;Attended&quot;</div>
+            {waiterCalls.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 50, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, color: S.muted }}>✅ No waiter calls</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {waiterCalls.map(c => {
+                  const t = tables.find(x => x.id === c.table_id)
+                  const handled = isCallHandled(c)
+                  const waitMin = Math.max(0, Math.floor((new Date().getTime() + tick * 0 - new Date(c.created_at).getTime()) / 60000))
+                  return (
+                    <div key={c.id} style={{ background: handled ? S.navy2 : S.redB, border: `1px solid ${handled ? S.border : S.red + '60'}`, borderRadius: 12, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, opacity: handled ? 0.65 : 1, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: S.white }}>🪑 {t?.name || `Table ${t?.number ?? '?'}`}{t?.branch_id ? <span style={{ fontSize: 11, color: S.muted, fontWeight: 600 }}> · {branches.find(b => b.id === t.branch_id)?.name || ''}</span> : null}</div>
+                        <div style={{ fontSize: 11.5, color: S.muted, marginTop: 3 }}>
+                          {new Date(c.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })}
+                          {handled ? ` · ✅ Attended${c.handled_by_name ? ' by ' + c.handled_by_name : ''}` : ` · ⏳ waiting ${waitMin} min`}
+                        </div>
+                      </div>
+                      {!handled && (
+                        <button onClick={() => markCallHandled(c)} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontWeight: 800, fontFamily: 'Tajawal, sans-serif' }}>✓ تم الرد / Attended</button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         ) : view === 'tables' ? (
           /* ══ TABLES VIEW ══ */
           <div>

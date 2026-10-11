@@ -471,6 +471,37 @@ export default function MarketPurchasesPage() {
     return products.filter(p => p.name.toLowerCase().includes(q) || (p.name_en || '').toLowerCase().includes(q)).slice(0, 8)
   }, [products, newItemName])
 
+  // ✅ جديد: سرعة استلام المستخدم الحالي للطلبات (من "تم الشراء" إلى أن يضغط "استلام") — شهر بشهر مع المقارنة بالشهر السابق،
+  // وتنبيه بالطلبات المُشتراة التي لم يستلمها بعد. يظهر في تاب "طلب جديد" تحت تنبيه موعد 12 ظهرًا
+  const receiptTrend = useMemo(() => {
+    const me = currentUser?.id
+    if (!me) return null
+    const myMonth = (iso: string) => new Date(new Date(iso).getTime() + 8 * 3600000).toISOString().slice(0, 7) // وقت ماليزيا (UTC+8)
+    const byMonth: Record<string, number[]> = {}
+    for (const r of requests) {
+      if (r.received_by !== me || !r.purchased_at || !r.delivered_at) continue
+      const h = (new Date(r.delivered_at).getTime() - new Date(r.purchased_at).getTime()) / 3600000
+      if (h < 0) continue
+      const k = myMonth(r.delivered_at)
+      if (!byMonth[k]) byMonth[k] = []
+      byMonth[k].push(h)
+    }
+    const keys = Object.keys(byMonth).sort().reverse().slice(0, 6) // الأحدث أولًا، آخر 6 أشهر
+    const rows = keys.map((k, i) => {
+      const t = byMonth[k]
+      const avg = t.reduce((s, h) => s + h, 0) / t.length
+      const prevKey = keys[i + 1]
+      const prevAvg = prevKey ? byMonth[prevKey].reduce((s, h) => s + h, 0) / byMonth[prevKey].length : null
+      const diff = prevAvg == null ? null : avg - prevAvg
+      return { key: k, count: t.length, avg, over24: t.filter(h => h > 24).length, diff }
+    })
+    const waiting = requests.filter(r => r.requested_by === me && r.status === 'purchased' && r.purchased_at)
+    const nowMs = new Date().getTime()
+    const oldestWaitH = waiting.length > 0 ? Math.max(...waiting.map(r => (nowMs - new Date(r.purchased_at as string).getTime()) / 3600000)) : 0
+    if (rows.length === 0 && waiting.length === 0) return null
+    return { rows, waitingCount: waiting.length, oldestWaitH }
+  }, [requests, currentUser?.id])
+
   const myRequests = requests.filter(r => r.requested_by === currentUser?.id)
   // ✅ Fix: أمين المستودع ومدير المستودعات يشوفوا كل الفروع الآن (زي الأدمن بالظبط)، مش مقيدين بفرعهم بس
   const purchaserRequests = requests
@@ -1049,6 +1080,58 @@ export default function MarketPurchasesPage() {
               </div>
             )
           })()}
+
+          {/* ✅ جديد: سرعة استلامك للطلبات — شهر بشهر */}
+          {receiptTrend && (
+            <div style={{ background: S.navy2, border: `1px solid ${S.amber}50`, borderRadius: 14, padding: '14px 18px', marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: S.amber, marginBottom: 4 }}>⏳ سرعة استلامك للطلبات</div>
+              <div style={{ fontSize: 11.5, color: S.muted, marginBottom: 10, lineHeight: 1.7 }}>
+                المقصود: الوقت بين «تم الشراء» وضغطك زر «استلام». التأخر في الضغط يرفع زمن التنفيذ المسجَّل على الطلب، فيرجى الضغط على «استلام» فور وصول الطلب.
+              </div>
+              {receiptTrend.waitingCount > 0 && (
+                <div style={{ background: S.redB, border: `1px solid ${S.red}50`, borderRadius: 10, padding: '8px 12px', marginBottom: 10, fontSize: 12.5, color: S.red, fontWeight: 700 }}>
+                  ⚠️ لديك {receiptTrend.waitingCount} {receiptTrend.waitingCount === 1 ? 'طلب' : 'طلبات'} تم شراؤها ولم تستلمها بعد — أقدمها منذ {receiptTrend.oldestWaitH >= 48 ? `${Math.floor(receiptTrend.oldestWaitH / 24)} يومًا` : `${receiptTrend.oldestWaitH.toFixed(0)} ساعة`}. افتح «طلباتي» واضغط «استلام».
+                </div>
+              )}
+              {receiptTrend.rows.length > 0 && (
+                <>
+                  {(() => {
+                    const cur = receiptTrend.rows[0]
+                    if (cur.diff == null) return null
+                    const better = cur.diff < -0.5, worse = cur.diff > 0.5
+                    return (
+                      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8, color: better ? S.green : worse ? S.red : S.muted }}>
+                        {better ? `📈 تحسّن: متوسط استلامك هذا الشهر أقل من الشهر الماضي بمقدار ${Math.abs(cur.diff).toFixed(1)} ساعة` : worse ? `📉 تراجع: متوسط استلامك هذا الشهر أعلى من الشهر الماضي بمقدار ${cur.diff.toFixed(1)} ساعة` : '➖ متوسط استلامك ثابت تقريبًا مقارنة بالشهر الماضي'}
+                      </div>
+                    )
+                  })()}
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 420 }}>
+                      <thead><tr style={{ color: S.muted, textAlign: 'right' }}>
+                        {['الشهر', 'عدد الطلبات', 'متوسط الاستلام', 'أكثر من 24 ساعة', 'مقارنة بالشهر السابق'].map(h => <th key={h} style={{ padding: '7px 8px', fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {receiptTrend.rows.map(r => {
+                          const better = r.diff != null && r.diff < -0.5, worse = r.diff != null && r.diff > 0.5
+                          return (
+                            <tr key={r.key} style={{ borderBottom: `1px solid ${S.border}` }}>
+                              <td style={{ padding: '7px 8px', color: S.white, fontWeight: 700 }}>{new Date(r.key + '-01T12:00:00Z').toLocaleDateString('ar-SA', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</td>
+                              <td style={{ padding: '7px 8px', color: S.white }}>{r.count}</td>
+                              <td style={{ padding: '7px 8px', fontWeight: 800, color: r.avg > 48 ? S.red : r.avg > 24 ? S.amber : S.green }}>{r.avg.toFixed(1)} ساعة</td>
+                              <td style={{ padding: '7px 8px', color: r.over24 > 0 ? S.amber : S.muted }}>{r.over24} ({Math.round(100 * r.over24 / r.count)}%)</td>
+                              <td style={{ padding: '7px 8px', fontWeight: 700, color: better ? S.green : worse ? S.red : S.muted }}>
+                                {r.diff == null ? '—' : better ? `📈 تحسّن ${Math.abs(r.diff).toFixed(1)} س` : worse ? `📉 تراجع ${r.diff.toFixed(1)} س` : '➖ ثابت'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* ✅ جديد: نموذج إضافة صنف - بحث ذكي في أصناف المستودع + إمكانية كتابة صنف حر جديد في نفس المكان */}
           <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, padding: 20, marginBottom: 20 }}>

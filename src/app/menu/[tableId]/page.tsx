@@ -732,6 +732,36 @@ function CustomerMenuInner() {
     return () => clearInterval(id)
   }, [tableLocked, table?.id, sb])
 
+  // ✅ لو الكاشير نقل طلب العميل لطاولة تانية: هاتف العميل يتابع طلبه تلقائيًا (كل 5 ثوانٍ) ويتحوّل للطاولة الجديدة المفتوحة،
+  // بدل ما يفضل على شاشة "الطاولة مقفلة" الخاصة بالطاولة القديمة. المتابعة تعتمد على أن الطلب نفسه (confirmedOrderId) صار على طاولة مختلفة،
+  // فلا تتأثر بأي علامات تحويل قديمة ولا تخلط عميلًا جديدًا بجلسة سابقة
+  const [movedNotice, setMovedNotice] = useState<string | null>(null)
+  useEffect(() => {
+    if (!confirmedOrderId || !table?.id) return
+    const id = setInterval(async () => {
+      const { data } = await sb.from('orders').select('table_id').eq('id', confirmedOrderId).maybeSingle()
+      if (data?.table_id && data.table_id !== table.id) {
+        const { data: nt } = await sb.from('tables').select('*').eq('id', data.table_id).maybeSingle()
+        if (nt) {
+          setTable(nt)
+          setTableLocked(false)
+          setMovedNotice(nt.name || `Table ${nt.number}`)
+          setTimeout(() => setMovedNotice(null), 15000)
+        }
+      }
+    }, 5000)
+    return () => clearInterval(id)
+  }, [confirmedOrderId, table?.id, sb])
+  const movedBanner = movedNotice ? (
+    <div style={{ position:'fixed', top:10, left:10, right:10, zIndex:900, background:'rgba(16,185,129,0.96)', color:'#fff', borderRadius:14, padding:'12px 14px', textAlign:'center', boxShadow:'0 8px 24px rgba(0,0,0,0.35)', fontSize:13, lineHeight:1.7 }}>
+      <div style={{ fontWeight:800 }}>✅ Your table has been changed to {movedNotice}. It is open — you can keep ordering.</div>
+      <div dir="ltr">Meja anda telah ditukar ke {movedNotice}. Meja dibuka — anda boleh teruskan membuat pesanan.</div>
+      <div dir="rtl" className="ar-text">تم نقلك إلى {movedNotice}. الطاولة مفتوحة — يمكنك متابعة الطلب.</div>
+      <div dir="ltr">您的桌位已更换为 {movedNotice}，桌位已开启，可继续点餐。</div>
+      <div dir="ltr">Ваш стол изменён на {movedNotice}. Стол открыт — вы можете продолжить заказ.</div>
+    </div>
+  ) : null
+
 // ✅ Currently available categories only (a time-restricted category automatically disappears outside its window)
 const visibleCategories = categories.filter(isCategoryAvailableNow)
 const visibleCategoryIds = new Set(visibleCategories.map(c => c.id))
@@ -1332,6 +1362,7 @@ const filteredItems = items
   if (phase === 'done') return (
     <div dir={dir} style={{ minHeight:'100dvh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <style>{globalStyles}</style>
+      {movedBanner}
       <div style={{ maxWidth:400, width:'100%', textAlign:'center', animation:'fadeUp .6s ease' }}>
         <div style={{ fontSize:90, display:'inline-block', animation:'chefBounce 2s ease-in-out infinite', marginBottom:24, filter:`drop-shadow(0 8px 20px ${C.glow2})` }}>👨‍🍳</div>
         <div style={{ background:C.bg2, borderRadius:28, border:`1px solid ${C.border2}`, padding:'36px 24px', boxShadow:`0 0 40px ${C.glow}` }}>
@@ -1887,6 +1918,7 @@ const filteredItems = items
   if (phase === 'cart') return (
     <div dir={dir} style={{ minHeight:'100dvh', background:C.bg, color:C.white }}>
       <style>{globalStyles}</style>
+      {movedBanner}
       <div style={{ background:C.bg3, padding:'16px 20px', display:'flex', alignItems:'center', gap:12, borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>
         <button onClick={() => setPhase('menu')} style={{ background:`rgba(0,200,200,.1)`, border:`1px solid ${C.border}`, color:C.blue2, width:38, height:38, borderRadius:'50%', cursor:'pointer', fontSize:18 }}>{isRtl ? '→' : '←'}</button>
         <h1 style={{ color:C.white, fontSize:17, fontWeight:900, margin:0 }}>{t('your_order')}</h1>
@@ -1999,6 +2031,7 @@ const filteredItems = items
   return (
     <div dir={dir} style={{ minHeight:'100dvh', background:C.bg, color:C.white, paddingBottom: cartCount > 0 ? 100 : 24 }}>
       <style>{globalStyles}</style>
+      {movedBanner}
 
       {/* ── Header ── */}
       <div style={{ background:C.bg3, padding:'18px 18px 0', borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>

@@ -485,6 +485,8 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
 }) {
   const supabase = createClient()
   const fileRef = useRef<HTMLInputElement>(null)
+  // ✅ مدخل منفصل للكاميرا (capture): على الموبايل مدخل واحد بـ multiple كان يعرض الاستوديو فقط، فالآن زرّان: كاميرا أو استوديو
+  const cameraRef = useRef<HTMLInputElement>(null)
   const [saving, setSaving] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState('')
@@ -857,11 +859,10 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
 
               {invoiceImages.length === 0 ? (
                 <div
-                  onClick={() => fileRef.current?.click()}
                   style={{
                     border: `2px dashed ${S.border}`,
                     borderRadius: 14, padding: 24,
-                    textAlign: 'center', cursor: 'pointer', marginBottom: 10,
+                    textAlign: 'center', marginBottom: 10,
                     background: 'transparent',
                     transition: 'all .2s', minHeight: 140,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -871,7 +872,10 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                     <div style={{ fontSize: 36, marginBottom: 8 }}>📸</div>
                     <div style={{ fontSize: 13, color: S.white, fontWeight: 600, marginBottom: 4 }}>صوّر أو ارفع الفاتورة</div>
                     <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>الذكاء الاصطناعي سيستخرج البيانات تلقائياً</div>
-                    <div style={{ padding: '7px 18px', background: S.gold3, border: `1px solid ${S.gold}`, borderRadius: 8, display: 'inline-block', fontSize: 12, color: S.gold, fontWeight: 700 }}>اختر صورة أو أكثر</div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <button type="button" onClick={() => cameraRef.current?.click()} style={{ padding: '9px 18px', background: S.gold3, border: `1px solid ${S.gold}`, borderRadius: 8, fontSize: 13, color: S.gold, fontWeight: 700, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>📷 تصوير بالكاميرا</button>
+                      <button type="button" onClick={() => fileRef.current?.click()} style={{ padding: '9px 18px', background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 8, fontSize: 13, color: S.white, fontWeight: 700, cursor: 'pointer', fontFamily: 'Tajawal, sans-serif' }}>🖼️ من الاستوديو</button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -885,16 +889,21 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                         <div style={{ position: 'absolute', bottom: 2, right: 2, background: 'rgba(0,0,0,0.7)', borderRadius: 6, padding: '1px 6px', fontSize: 10, color: S.white }}>{idx + 1}</div>
                       </div>
                     ))}
-                    <div onClick={() => fileRef.current?.click()}
+                    <div onClick={() => cameraRef.current?.click()} title="تصوير بالكاميرا"
                       style={{ border: `2px dashed ${S.gold}`, borderRadius: 10, aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: S.gold3, fontSize: 24, color: S.gold }}>
-                      ＋
+                      📷
+                    </div>
+                    <div onClick={() => fileRef.current?.click()} title="من الاستوديو"
+                      style={{ border: `2px dashed ${S.border}`, borderRadius: 10, aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 24, color: S.white }}>
+                      🖼️
                     </div>
                   </div>
                   <div style={{ fontSize: 11, color: S.muted }}>📌 لو الفاتورة في أكتر من صفحة، أضف باقي الصور بنفس الطريقة — كل صفحة هتتحلل وتُضاف أصنافها تلقائياً</div>
                 </div>
               )}
-              {/* ✅ بدون capture — الموبايل يعرض الاختيار: كاميرا أو الاستوديو/الملفات */}
+              {/* ✅ مدخلان: الاستوديو (متعدد الصور) والكاميرا (capture) — كلاهما يمرّ على نفس دالة الرفع والتحليل */}
               <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleImageUpload} />
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleImageUpload} />
 
               {(scanning || scanProgress) && (
                 <div style={{ background: scanning ? S.purpleB : scanProgress.includes('✅') ? S.greenB : S.amberB, border: `1px solid ${scanning ? S.purple : scanProgress.includes('✅') ? S.green : S.amber}`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: scanning ? S.purple : scanProgress.includes('✅') ? S.green : S.amber, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>

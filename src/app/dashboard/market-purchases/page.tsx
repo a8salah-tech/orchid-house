@@ -68,6 +68,8 @@ interface PurchaseRequest {
   requester?: { name: string; name_en?: string; employee_number?: string }
   // ✅ جديد: اسم مستلم الطلب (الفرع) - لعرضه في تقرير الأدمن الشامل
   receiver?: { name: string; name_en?: string }
+  // ✅ جديد: اسم المشتري (من اشترى الطلب) — لفصل زمن الشراء عن زمن الاستلام
+  buyer?: { name: string; name_en?: string }
   market_purchase_request_items?: RequestItem[]
 }
 
@@ -177,7 +179,7 @@ export default function MarketPurchasesPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const baseSelect = `*, branches(name), requester:requested_by(name, name_en, employee_number), receiver:received_by(name, name_en), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol), available_branch:branches!market_purchase_request_items_available_in_warehouse_branc_fkey(name))`
+    const baseSelect = `*, branches(name), requester:requested_by(name, name_en, employee_number), receiver:received_by(name, name_en), buyer:purchased_by(name, name_en), market_purchase_request_items(*, warehouse_products(name, name_en), req_unit:units!market_purchase_request_items_requested_unit_id_fkey(symbol), pur_unit:units!market_purchase_request_items_purchased_unit_id_fkey(symbol), available_branch:branches!market_purchase_request_items_available_in_warehouse_branc_fkey(name))`
     let q = sb.from('market_purchase_requests').select(baseSelect).order('requested_at', { ascending: false })
     const [reqRes, unitsRes, branchesRes] = await Promise.all([
       q,
@@ -728,6 +730,29 @@ export default function MarketPurchasesPage() {
       .map(r => (new Date(r.delivered_at!).getTime() - new Date(r.requested_at).getTime()) / (1000 * 60 * 60))
     const avgDeliveryHours = deliveryTimes.length > 0 ? deliveryTimes.reduce((s, h) => s + h, 0) / deliveryTimes.length : null
 
+    // ✅ جديد: فصل الزمن الكلي إلى مرحلتين عادلتين — (أ) زمن الشراء: من الطلب إلى "تم الشراء" وهو مسؤولية المشتري،
+    // (ب) زمن الاستلام: من "تم الشراء" إلى أن يضغط المستلم "استلام" وهو مسؤولية المستلم. فلا يتحمّل أحدهما تأخير الآخر
+    const hrs = (a: string, b: string) => (new Date(b).getTime() - new Date(a).getTime()) / 3600000
+    const avgOf = (a: number[]) => a.length ? a.reduce((s, h) => s + h, 0) / a.length : null
+    const medOf = (a: number[]) => { if (!a.length) return null; const t = [...a].sort((x, y) => x - y); const m = Math.floor(t.length / 2); return t.length % 2 ? t[m] : (t[m - 1] + t[m]) / 2 }
+    const full = delivered.filter(r => r.delivered_at && r.purchased_at && hrs(r.requested_at, r.purchased_at) >= 0 && hrs(r.purchased_at, r.delivered_at) >= 0)
+    const purchaseTimes = full.map(r => hrs(r.requested_at, r.purchased_at as string))
+    const receiveTimes = full.map(r => hrs(r.purchased_at as string, r.delivered_at as string))
+    const fullName = (e?: { name: string; name_en?: string } | null) => [e?.name, e?.name_en].filter(Boolean).join(' ') || '—'
+    const receiverMap: Record<string, { name: string; branch: string; times: number[] }> = {}
+    const buyerMap: Record<string, { name: string; times: number[] }> = {}
+    for (const r of full) {
+      const rn = fullName(r.receiver), rb = r.branches?.name || '—'
+      const rk = rn + '|' + rb
+      if (!receiverMap[rk]) receiverMap[rk] = { name: rn, branch: rb, times: [] }
+      receiverMap[rk].times.push(hrs(r.purchased_at as string, r.delivered_at as string))
+      const bn = fullName(r.buyer)
+      if (!buyerMap[bn]) buyerMap[bn] = { name: bn, times: [] }
+      buyerMap[bn].times.push(hrs(r.requested_at, r.purchased_at as string))
+    }
+    const receiverStats = Object.values(receiverMap).map(x => ({ name: x.name, branch: x.branch, count: x.times.length, avg: avgOf(x.times) as number, median: medOf(x.times) as number, over24: x.times.filter(h => h > 24).length, max: Math.max(...x.times) })).sort((a, b) => b.avg - a.avg)
+    const buyerStats = Object.values(buyerMap).map(x => ({ name: x.name, count: x.times.length, avg: avgOf(x.times) as number, median: medOf(x.times) as number, max: Math.max(...x.times) })).sort((a, b) => b.avg - a.avg)
+
     // ✅ الأكثر طلبًا (اسم الموظف) - ✅ Fix: الاسم الكامل (عربي + إنجليزي) بدل الاسم الأول بس
     const requesterCounts: Record<string, number> = {}
     for (const r of filtered) {
@@ -750,6 +775,10 @@ export default function MarketPurchasesPage() {
       log: filtered, totalRequests,
       deliveredCount: delivered.length, rejectedCount: rejected.length, pendingCount: pending.length, purchasedCount: purchased.length,
       avgDeliveryHours, topRequesters, topItems,
+      avgPurchaseHours: avgOf(purchaseTimes), medPurchaseHours: medOf(purchaseTimes),
+      avgReceiveHours: avgOf(receiveTimes), medReceiveHours: medOf(receiveTimes),
+      totalSplitCount: full.length, receiverStats, buyerStats,
+      medDeliveryHours: medOf(deliveryTimes),
     }
   }, [requests, adminStatsBranch, adminStatsMonth])
 
@@ -1392,10 +1421,25 @@ export default function MarketPurchasesPage() {
           {/* إحصائيات إضافية */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
             <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>⏱️ متوسط وقت التنفيذ (من الطلب للاستلام)</div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>
-                {adminStatsData.avgDeliveryHours != null ? `${adminStatsData.avgDeliveryHours.toFixed(1)} ساعة` : '—'}
-              </div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>⏱️ زمن التنفيذ — مقسّم بين المشتري والمستلم</div>
+              {(() => {
+                const f = (n: number | null) => n != null ? `${n.toFixed(1)} س` : '—'
+                const line = (label: string, avg: number | null, med: number | null, color: string) => (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, color: S.white }}>{label}</span>
+                    <span style={{ fontSize: 14, fontWeight: 800, color }}>{f(avg)} <span style={{ fontSize: 10, color: S.muted, fontWeight: 400 }}>· الوسيط {f(med)}</span></span>
+                  </div>
+                )
+                return (
+                  <>
+                    {line('🛒 زمن الشراء (طلب ← شراء)', adminStatsData.avgPurchaseHours, adminStatsData.medPurchaseHours, S.blue)}
+                    {line('📥 زمن الاستلام (شراء ← استلام)', adminStatsData.avgReceiveHours, adminStatsData.medReceiveHours, S.amber)}
+                    <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 6, marginTop: 4 }}>
+                      {line('الإجمالي (طلب ← استلام)', adminStatsData.avgDeliveryHours, adminStatsData.medDeliveryHours, S.gold)}
+                    </div>
+                  </>
+                )
+              })()}
             </div>
             <div style={{ background: S.card, borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>👤 الأكثر طلبًا (٥ أشخاص)</div>
@@ -1428,6 +1472,60 @@ export default function MarketPurchasesPage() {
               ) : <div style={{ fontSize: 14, fontWeight: 800, color: S.white }}>—</div>}
             </div>
           </div>
+
+          {/* ✅ جديد: ترتيب المستلمين والمشترين بحسب السرعة — كل واحد يُحاسَب على مرحلته فقط */}
+          <div style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 6 }}>🏁 سرعة المستلمين (من «تم الشراء» إلى ضغط «استلام»)</div>
+          <div style={{ fontSize: 11, color: S.muted, marginBottom: 10 }}>الأبطأ أولًا — يعتمد على {adminStatsData.totalSplitCount} طلب مُسلَّم ضمن الفلاتر الحالية</div>
+          {adminStatsData.receiverStats.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 20, color: S.muted, marginBottom: 24 }}>لا توجد بيانات كافية</div>
+          ) : (
+            <div style={{ overflowX: 'auto', marginBottom: 24, background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}` }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 560 }}>
+                <thead><tr style={{ color: S.muted, textAlign: 'right' }}>
+                  {['#', 'المستلم', 'الفرع', 'عدد الطلبات', 'المتوسط', 'الوسيط', 'أكثر من 24 ساعة', 'الأطول'].map(h => <th key={h} style={{ padding: '9px 10px', fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {adminStatsData.receiverStats.map((x, i) => (
+                    <tr key={x.name + x.branch} style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <td style={{ padding: '8px 10px', color: S.muted }}>{i + 1}</td>
+                      <td style={{ padding: '8px 10px', color: S.white, fontWeight: 700 }}>{x.name}</td>
+                      <td style={{ padding: '8px 10px', color: S.muted }}>{x.branch}</td>
+                      <td style={{ padding: '8px 10px', color: S.white }}>{x.count}</td>
+                      <td style={{ padding: '8px 10px', fontWeight: 800, color: x.avg > 48 ? S.red : x.avg > 24 ? S.amber : S.green }}>{x.avg.toFixed(1)} س</td>
+                      <td style={{ padding: '8px 10px', color: S.white }}>{x.median.toFixed(1)} س</td>
+                      <td style={{ padding: '8px 10px', color: x.over24 > 0 ? S.amber : S.muted }}>{x.over24} ({Math.round(100 * x.over24 / x.count)}%)</td>
+                      <td style={{ padding: '8px 10px', color: S.muted }}>{x.max.toFixed(1)} س</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{ fontSize: 14, fontWeight: 800, color: S.gold, marginBottom: 6 }}>🛒 سرعة المشترين (من الطلب إلى «تم الشراء»)</div>
+          {adminStatsData.buyerStats.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 20, color: S.muted, marginBottom: 24 }}>لا توجد بيانات كافية</div>
+          ) : (
+            <div style={{ overflowX: 'auto', marginBottom: 24, background: S.navy2, borderRadius: 12, border: `1px solid ${S.border}` }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 420 }}>
+                <thead><tr style={{ color: S.muted, textAlign: 'right' }}>
+                  {['#', 'المشتري', 'عدد الطلبات', 'المتوسط', 'الوسيط', 'الأطول'].map(h => <th key={h} style={{ padding: '9px 10px', fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {adminStatsData.buyerStats.map((x, i) => (
+                    <tr key={x.name} style={{ borderBottom: `1px solid ${S.border}` }}>
+                      <td style={{ padding: '8px 10px', color: S.muted }}>{i + 1}</td>
+                      <td style={{ padding: '8px 10px', color: S.white, fontWeight: 700 }}>{x.name}</td>
+                      <td style={{ padding: '8px 10px', color: S.white }}>{x.count}</td>
+                      <td style={{ padding: '8px 10px', fontWeight: 800, color: x.avg > 48 ? S.red : x.avg > 24 ? S.amber : S.green }}>{x.avg.toFixed(1)} س</td>
+                      <td style={{ padding: '8px 10px', color: S.white }}>{x.median.toFixed(1)} س</td>
+                      <td style={{ padding: '8px 10px', color: S.muted }}>{x.max.toFixed(1)} س</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* ✅ جديد: مقارنة استخدام الفروع - مين بيطلب أكتر (بيشمل كل الفروع دايمًا بغض النظر عن فلتر الفرع فوق) */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>

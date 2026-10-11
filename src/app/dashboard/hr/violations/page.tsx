@@ -219,6 +219,57 @@ export default function ViolationsPage() {
     amount: '',
     branch_id: '',
   })
+
+  // ✅ تفاصيل الوجبة لخصومات الكاشير (وجبة شخصية / خطأ في الطلب): نربط المخالفة بأصناف الطلب الملغي عن طريق نص السبب
+  // (نفس النص يُحفظ في order_items.cancel_reason لحظة التحميل) وأقرب وقت إلغاء لوقت تسجيل المخالفة
+  type MealInfo = { items: { name: string; qty: number; price: number }[]; table: string; orderId: string; cashier: string; shift: string; orderTime: string | null; cancelledAt: string | null }
+  const [mealMap, setMealMap] = useState<Record<string, MealInfo>>({})
+  async function loadMealInfo(list: { id: string; reason: string | null; created_at: string; kind?: string | null }[]) {
+    const rows = list.filter(v => { const k = normalizeKind(v.kind); return k === 'personal_meal' || k === 'order_mistake' })
+    if (rows.length === 0) { setMealMap({}); return }
+    type Raw = { quantity: number; unit_price: number; size_name: string | null; cancel_reason: string | null; cancelled_at: string | null; action_by: string | null; order_id: string; menu_items: { name: string; name_en: string | null } | null; orders: { shift: string | null; created_at: string | null; tables: { number: number; name: string | null } | null } | null }
+    const baseOf = (r: string | null) => String(r || '').split(' — حصة')[0]
+    const bases = [...new Set(rows.map(v => baseOf(v.reason)))]
+    let found: Raw[] = []
+    for (let i = 0; i < bases.length; i += 40) {
+      const { data, error } = await sb.from('order_items')
+        .select('quantity, unit_price, size_name, cancel_reason, cancelled_at, action_by, order_id, menu_items(name, name_en), orders(shift, created_at, tables(number, name))')
+        .in('cancel_reason', bases.slice(i, i + 40))
+      if (error) { setMealMap({}); return }
+      found = found.concat((data || []) as unknown as Raw[])
+    }
+    const map: Record<string, MealInfo> = {}
+    for (const v of rows) {
+      const base = baseOf(v.reason)
+      const cands = found.filter(f => f.cancel_reason === base && f.cancelled_at)
+      if (cands.length === 0) continue
+      const t0 = new Date(v.created_at).getTime()
+      const best = cands.reduce((a, b) => Math.abs(new Date(b.cancelled_at as string).getTime() - t0) < Math.abs(new Date(a.cancelled_at as string).getTime() - t0) ? b : a)
+      if (Math.abs(new Date(best.cancelled_at as string).getTime() - t0) > 10 * 60 * 1000) continue
+      const lines = found.filter(f => f.order_id === best.order_id && f.cancel_reason === base)
+      map[v.id] = {
+        items: lines.map(l => ({ name: (l.menu_items?.name_en || l.menu_items?.name || '—') + (l.size_name ? ` (${l.size_name})` : ''), qty: l.quantity, price: l.unit_price })),
+        table: best.orders?.tables ? (best.orders.tables.name || String(best.orders.tables.number)) : '—',
+        orderId: best.order_id, cashier: best.action_by || '—', shift: best.orders?.shift || '—',
+        orderTime: best.orders?.created_at || null, cancelledAt: best.cancelled_at,
+      }
+    }
+    setMealMap(map)
+  }
+
+  // ✅ نافذة تفاصيل المخالفة (مدير النظام فقط): تبويبات التفاصيل / الوجبة / سجل التغييرات
+  const [detailV, setDetailV] = useState<(typeof violations)[number] | null>(null)
+  const [detailTab, setDetailTab] = useState<'info' | 'meal' | 'audit'>('info')
+  type AuditRow = { changed_at: string; actor_name: string | null; actor_role: string | null; action: string; changed_fields: string[] | null; old_row: Record<string, unknown> | null; new_row: Record<string, unknown> | null }
+  const [detailAudit, setDetailAudit] = useState<AuditRow[] | null>(null)
+  function openViolationDetail(v: (typeof violations)[number]) {
+    if (!isAdmin) return
+    setDetailV(v); setDetailTab('info'); setDetailAudit(null)
+    sb.from('audit_log').select('changed_at, actor_name, actor_role, action, changed_fields, old_row, new_row')
+      .eq('table_name', 'violations').eq('row_id', v.id).order('changed_at', { ascending: true })
+      .then(({ data, error }) => setDetailAudit(error ? [] : ((data || []) as AuditRow[])))
+  }
+
   async function fetchAll() {
     setLoading(true)
     let empQ = sb.from('employees').select('id,name,name_en,department,role,branch_id,employee_number').eq('is_active', true).order('name')
@@ -296,7 +347,8 @@ export default function ViolationsPage() {
           ? `${empMap[v.manager_approved_by]?.name || 'غير معروف'} ${empMap[v.manager_approved_by]?.name_en || ''}`.trim()
           : null,
       })))
-    } else { setViolations([]) }
+      loadMealInfo(vData)
+    } else { setViolations([]); setMealMap({}) }
     setLoading(false)
   }
 
@@ -391,7 +443,6 @@ export default function ViolationsPage() {
     setAbsLoading(false)
   }
   useEffect(()=>{if(employee?.id&&activeTab==='absences')fetchAbsences()},[employee?.id,activeTab,absFilterMonth,activeBranch])
-  useEffect(()=>{if(employee?.id&&activeTab==='dept_violations')fetchDeptViolations()},[employee?.id,activeTab,deptViolFilterMonth,activeBranch])
 
   async function saveAbsence(){
     if(!absForm.employee_id||!absForm.date){alert('يرجى اختيار الموظف والتاريخ');return}
@@ -462,6 +513,8 @@ export default function ViolationsPage() {
     setDeptViolLoading(false)
   }
 
+  useEffect(()=>{if(employee?.id&&activeTab==='dept_violations')Promise.resolve().then(()=>fetchDeptViolations())},[employee?.id,activeTab,deptViolFilterMonth,activeBranch])
+
   async function saveDeptViolation() {
     const amount = parseFloat(deptViolForm.amount)
     if (!deptViolForm.department || !deptViolForm.reason || !deptViolForm.date) {
@@ -474,7 +527,7 @@ export default function ViolationsPage() {
     let attachUrl = ''
     if (deptViolFile) {
       const ext = deptViolFile.name.split('.').pop()
-      const path = `dept_violations/${Date.now()}.${ext}`
+      const path = `dept_violations/${new Date().getTime()}.${ext}`
       const { data: upData } = await sb.storage.from('employees').upload(path, deptViolFile, { upsert: true })
       if (upData) { const { data: urlData } = sb.storage.from('employees').getPublicUrl(upData.path); attachUrl = urlData.publicUrl }
     }
@@ -735,7 +788,7 @@ export default function ViolationsPage() {
             const sysV = !v.created_by   // مخالفة من النظام (خصم تلقائي) — إلغاؤها لمدير النظام فقط
             const gsV = v.creatorRole === 'general_supervisor'   // مخالفة سجّلها المشرف العام — اعتمادها/إلغاؤها لمدير النظام فقط
             return (
-            <div key={v.id} style={{ background: v.status === 'cancelled' ? S.card : S.navy2, borderRadius: 14, border: `1px solid ${v.status === 'cancelled' ? S.border : S.red+'30'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
+            <div key={v.id} onClick={e => { if (!isAdmin) return; if ((e.target as HTMLElement).closest('button,a,img')) return; openViolationDetail(v) }} title={isAdmin ? 'اضغط لعرض كل التفاصيل' : undefined} style={{ cursor: isAdmin ? 'pointer' : 'default', background: v.status === 'cancelled' ? S.card : S.navy2, borderRadius: 14, border: `1px solid ${v.status === 'cancelled' ? S.border : S.red+'30'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, opacity: v.status === 'cancelled' ? 0.6 : 1 }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flex: 1 }}>
                 <div style={{ width: 44, height: 44, borderRadius: '50%', background: VIOLATION_KIND_META[normalizeKind(v.kind)].bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{VIOLATION_KIND_META[normalizeKind(v.kind)].icon}</div>
                 <div>
@@ -747,6 +800,10 @@ export default function ViolationsPage() {
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 4 }}>{v.reason}</div>
+                  {/* ✅ الوجبة المحمّلة على الموظف (لخصومات الكاشير) */}
+                  {mealMap[v.id] && (
+                    <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 4, fontWeight: 600 }}>🍽️ {isAr ? 'الوجبة' : 'Meal'}: {mealMap[v.id].items.map(i => `${i.name} ×${i.qty}`).join('، ')} <span style={{ color: S.muted, fontWeight: 400 }}>· {isAr ? 'طاولة' : 'Table'} {mealMap[v.id].table}</span></div>
+                  )}
                   <div style={{ fontSize: 13, color: S.muted }}>📅 {v.date} · <span style={{ color: S.white, fontWeight: 600 }}>{isAr ? 'بواسطة' : 'by'}: {sysV ? (isAr ? '🤖 النظام (خصم تلقائي)' : '🤖 System (auto)') : v.creatorName}</span></div>
                   {sysV && !isAdmin && (v.status === 'active' || v.status === 'submitted') && (
                     <div style={{ fontSize: 11, color: S.amber, marginTop: 3 }}>{isAr ? 'ℹ️ إلغاء مخالفات النظام لمدير النظام فقط' : 'ℹ️ Only the system admin can cancel system violations'}</div>
@@ -1254,6 +1311,107 @@ export default function ViolationsPage() {
           )}
         </div>
       )}
+
+      {/* ✅ نافذة تفاصيل المخالفة — مدير النظام فقط */}
+      {detailV && isAdmin && (() => {
+        const v = detailV
+        const meal = mealMap[v.id]
+        const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }) : '—'
+        const money = (n: number | null | undefined) => 'MYR ' + Number(n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const pct = /خصم (\d+)%/.exec(String(v.reason || ''))
+        const itemsTotal = meal ? meal.items.reduce((n, i) => n + i.price * i.qty, 0) : 0
+        const statusLabel: Record<string, string> = { active: 'نشطة', submitted: 'بانتظار الاعتماد', draft: 'أُعيدت للمراجعة', cancelled: 'ملغاة' }
+        const row = (k: string, val: React.ReactNode) => (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderBottom: `1px solid ${S.border}`, fontSize: 13 }}>
+            <span style={{ color: S.muted, flexShrink: 0 }}>{k}</span><span style={{ color: S.white, fontWeight: 600, textAlign: 'left' }}>{val}</span>
+          </div>
+        )
+        const tabBtn = (key: 'info' | 'meal' | 'audit', label: string) => (
+          <button key={key} onClick={() => setDetailTab(key)} style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${detailTab === key ? S.gold : S.border}`, background: detailTab === key ? S.gold3 : 'transparent', color: detailTab === key ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: detailTab === key ? 700 : 400 }}>{label}</button>
+        )
+        return (
+          <div onClick={() => setDetailV(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, border: `1px solid ${S.gold}50`, borderRadius: 18, width: '100%', maxWidth: 640, padding: 20, margin: 'auto', direction: 'rtl' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>{v.empName} {v.empNameEn}{v.empNumber ? ` (#${v.empNumber})` : ''}</div>
+                  <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{v.empDept} · {money(v.amount)}</div>
+                </div>
+                <button onClick={() => setDetailV(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                {tabBtn('info', '📋 التفاصيل')}
+                {meal && tabBtn('meal', '🍽️ الوجبة')}
+                {tabBtn('audit', '🕘 سجل التغييرات')}
+              </div>
+
+              {detailTab === 'info' && (
+                <div>
+                  {row('الحالة', statusLabel[v.status] || v.status)}
+                  {row('النوع', `${VIOLATION_KIND_META[normalizeKind(v.kind)].icon} ${VIOLATION_KIND_META[normalizeKind(v.kind)].ar}`)}
+                  {row('المبلغ المخصوم', money(v.amount))}
+                  {pct && row('نسبة التخفيض عن السعر', `${pct[1]}% (يتحمّل الموظف ${100 - Number(pct[1])}%)`)}
+                  {row('التاريخ', v.date)}
+                  {row('سجّلها', <span>{v.creatorName}</span>)}
+                  {row('وقت التسجيل', <bdi dir="ltr">{fmt(v.created_at)}</bdi>)}
+                  {v.approverName && row('اعتمدها', v.approverName)}
+                  {v.manager_approved_at && row('وقت الاعتماد', <bdi dir="ltr">{fmt(v.manager_approved_at)}</bdi>)}
+                  {v.status === 'cancelled' && row('ألغاها', v.cancelled_by_name ? <span>{v.cancelled_by_name} <bdi dir="ltr" style={{ color: S.muted, fontSize: 11 }}>— {fmt(v.cancelled_at)}</bdi></span> : 'غير مسجّل')}
+                  {v.dept_violation_id && row('مرتبطة بمخالفة قسم', 'نعم — حصة من مخالفة قسم موزّعة')}
+                  <div style={{ marginTop: 12, background: S.card, borderRadius: 10, padding: '10px 12px', fontSize: 13, color: S.white, lineHeight: 1.8 }}>{v.reason}</div>
+                  {v.attachment_url && <a href={v.attachment_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: S.blue }}>📎 عرض المرفق</a>}
+                </div>
+              )}
+
+              {detailTab === 'meal' && meal && (
+                <div>
+                  {row('الطاولة', meal.table)}
+                  {row('الكاشير', meal.cashier)}
+                  {row('الشيفت', meal.shift)}
+                  {row('وقت الطلب', <bdi dir="ltr">{fmt(meal.orderTime)}</bdi>)}
+                  {row('وقت التحميل على الموظف', <bdi dir="ltr">{fmt(meal.cancelledAt)}</bdi>)}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white, margin: '14px 0 6px' }}>الأصناف</div>
+                  <div style={{ background: S.card, borderRadius: 10, overflow: 'hidden' }}>
+                    {meal.items.map((i, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '8px 12px', borderBottom: idx < meal.items.length - 1 ? `1px solid ${S.border}` : 'none', fontSize: 13 }}>
+                        <span style={{ color: S.white }}>{i.name} <span style={{ color: S.muted }}>×{i.qty}</span></span>
+                        <span style={{ color: S.muted }}>{money(i.price)} × {i.qty} = {money(i.price * i.qty)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    {row('إجمالي الأصناف (قبل التخفيض)', money(itemsTotal))}
+                    {pct && row(`التخفيض ${pct[1]}%`, '− ' + money(itemsTotal * Number(pct[1]) / 100))}
+                    {row('المخصوم من الموظف', money(v.amount))}
+                  </div>
+                </div>
+              )}
+
+              {detailTab === 'audit' && (
+                <div>
+                  {detailAudit === null ? <div style={{ textAlign: 'center', padding: 24, color: S.muted }}>⏳</div>
+                    : detailAudit.length === 0 ? <div style={{ textAlign: 'center', padding: 24, color: S.muted, fontSize: 13 }}>لا توجد سجلات تغيير (سجل التدقيق يعمل منذ ٣١ أغسطس ٢٠٢٦)</div>
+                    : detailAudit.map((a, i) => {
+                      const fields = (a.changed_fields || []).filter(f => f !== 'updated_at')
+                      const short = (x: unknown) => { const t = x === null || x === undefined ? '—' : String(x); return t.length > 40 ? t.slice(0, 40) + '…' : t }
+                      return (
+                        <div key={i} style={{ background: S.card, borderRadius: 10, padding: '9px 12px', marginBottom: 8, fontSize: 12.5 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ color: S.gold, fontWeight: 700 }}>{a.action === 'INSERT' ? '➕ إنشاء' : a.action === 'UPDATE' ? '✏️ تعديل' : '🗑️ حذف'} · {a.actor_name || 'system'}{a.actor_role ? ` (${a.actor_role})` : ''}</span>
+                            <bdi dir="ltr" style={{ color: S.muted }}>{fmt(a.changed_at)}</bdi>
+                          </div>
+                          {a.action === 'UPDATE' && fields.map(f => (
+                            <div key={f} dir="ltr" style={{ color: S.white, marginTop: 4, textAlign: 'right' }}>{f}: <span style={{ color: S.red }}>{short(a.old_row?.[f])}</span> → <span style={{ color: S.green }}>{short(a.new_row?.[f])}</span></div>
+                          ))}
+                        </div>
+                      )
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Add Dept Violation Modal */}
       {showDeptViolAdd && (

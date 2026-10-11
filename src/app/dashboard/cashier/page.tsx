@@ -3313,7 +3313,8 @@ export default function CashierPage() {
     const itemsCount = activeItems.reduce((s, i) => s + i.quantity, 0)
     setChargeItemTarget({
       orderId: order.id, itemId: 'WHOLE_ORDER',
-      itemName: `Whole Table Order (${itemsCount} ${itemsCount === 1 ? 'item' : 'items'})`,
+      // ✅ نكتب أسماء الأصناف في نص السبب عشان تظهر الوجبة في صفحة المخالفات (بدل "Whole Table Order" فقط)
+      itemName: `Whole Table Order (${itemsCount} ${itemsCount === 1 ? 'item' : 'items'}): ${activeItems.map(i => `${i.menu_items?.name_en || i.menu_items?.name || '?'} ×${i.quantity}`).join(', ').slice(0, 160)}`,
       unitPrice: orderTotal, totalQty: 1, fromCancelHub,
     })
     resetChargeForm()

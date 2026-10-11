@@ -59,6 +59,19 @@ type CakeTableLog = {
   created_at: string
   branch_id?: string | null
   tables?: { number: number; name: string; branch_id: string | null }
+  // ✅ جديد: حالة صنف الطلب والطلب نفسه — لإظهار "مدفوع/غير مدفوع" ولإرجاع الكيك الملغي للرصيد
+  order_items?: { status?: string | null; cancel_reason?: string | null; cancelled_at?: string | null; action_by?: string | null } | null
+  orders?: { status?: string | null; paid_at?: string | null } | null
+}
+// ✅ الكيك يُخصم من الرصيد لحظة الطلب (حتى قبل الدفع). لو الطلب/الصنف اتلغى فعلًا يرجع للرصيد، إلا لو الإلغاء تحميل على موظف
+// (وجبة شخصية/خطأ في الطلب = الكيكة استُهلكت) فتفضل مخصومة
+type LogEmbeds = { source?: string; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }
+const CAKE_EMBEDS = 'order_items(status, cancel_reason, cancelled_at, action_by), orders(status, paid_at)'
+const isReturnedLog = (l: LogEmbeds) => {
+  if (l.source !== 'menu_order') return false
+  const itemCancelled = l.order_items?.status === 'cancelled'
+  const charged = itemCancelled && String(l.order_items?.cancel_reason || '').includes('خصم كاشير')
+  return !charged && (itemCancelled || l.orders?.status === 'cancelled')
 }
 type TableRow = { id: string; number: number; name: string; branch_id: string | null }
 type Branch = { id: string; name: string }
@@ -173,7 +186,7 @@ export default function DessertsPage() {
 
   // ✅ Cumulative data (all days up to & including viewDate) - used to compute the real running "Remaining" total
   const [cumProductions, setCumProductions] = useState<{ quantity: number; branch_id: string | null }[]>([])
-  const [cumTableLogs, setCumTableLogs] = useState<{ quantity: number; branch_id?: string | null; tables?: { branch_id: string | null } }[]>([])
+  const [cumTableLogs, setCumTableLogs] = useState<{ source?: string; quantity: number; branch_id?: string | null; tables?: { branch_id: string | null }; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }[]>([])
 
   const fetchCakeData = useCallback(async () => {
     setCakeLoading(true)
@@ -181,11 +194,11 @@ export default function DessertsPage() {
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
       sb.from('tables').select('id,number,name,branch_id').order('number'),
       sb.from('cake_production_log').select('*').eq('production_date', viewDate).order('created_at', { ascending: false }),
-      sb.from('cake_table_log').select('*, tables(number,name,branch_id)').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
+      sb.from('cake_table_log').select(`*, tables(number,name,branch_id), ${CAKE_EMBEDS}`).gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
       // ✅ everything ever produced up to and including viewDate (for the cumulative "Remaining" figure)
       fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lte('production_date', viewDate).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
       // ✅ everything ever distributed (بما فيه منتهي الصلاحية) up to and including viewDate
-      fetchAllRows<{ quantity: number; source: string; branch_id: string | null; tables: { branch_id: string | null } | null }>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id)').lt('created_at', `${viewDate}T23:59:59.999`).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
+      fetchAllRows<{ quantity: number; source: string; branch_id: string | null; tables: { branch_id: string | null } | null; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason), orders(status)').lt('created_at', `${viewDate}T23:59:59.999`).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
     ])
     setBranches(br.data || [])
     setTables(tbl.data || [])
@@ -223,14 +236,14 @@ export default function DessertsPage() {
     const nextMonthStart = new Date(y, m, 1).toISOString().slice(0, 10) // first day of the following month
     const [prod, dist] = await Promise.all([
       sb.from('cake_production_log').select('quantity, branch_id').gte('production_date', monthStart).lt('production_date', nextMonthStart),
-      sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id)').gte('created_at', `${monthStart}T00:00:00`).lt('created_at', `${nextMonthStart}T00:00:00`),
+      sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason), orders(status)').gte('created_at', `${monthStart}T00:00:00`).lt('created_at', `${nextMonthStart}T00:00:00`),
     ])
     const prodData = (prod.data as any[]) || []
     const distData = (dist.data as any[]) || []
     const prodFiltered = branchFilter ? prodData.filter(p => p.branch_id === branchFilter) : prodData
     const distFiltered = branchFilter ? distData.filter(l => (l.tables?.branch_id || l.branch_id) === branchFilter) : distData
     setMonthProduced(prodFiltered.reduce((s, p) => s + p.quantity, 0))
-    setMonthDistributed(distFiltered.filter(l => l.source !== 'expired').reduce((s, l) => s + l.quantity, 0))
+    setMonthDistributed(distFiltered.filter(l => l.source !== 'expired' && !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0))
     setMonthExpired(distFiltered.filter(l => l.source === 'expired').reduce((s, l) => s + l.quantity, 0))
     setMonthStatsLoading(false)
   }, [sb, statsMonth, isAdmin, branchFilter])
@@ -337,7 +350,9 @@ export default function DessertsPage() {
 
   const totalProducedForDate = visibleProductions.reduce((s, p) => s + p.quantity, 0)
   // ✅ Fix: "Distributed" بيحسب بس الأصناف اللي اتوزعت فعليًا على طاولة، مش المنتهية الصلاحية
-  const totalDistributedForDate = visibleTableLogs.filter(l => l.source !== 'expired').reduce((s, l) => s + l.quantity, 0)
+  const totalDistributedForDate = visibleTableLogs.filter(l => l.source !== 'expired' && !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0)
+  // ✅ كيك طلبات اتلغت ورجعت للرصيد في اليوم المختار
+  const totalReturnedForDate = visibleTableLogs.filter(l => isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0)
   // ✅ جديد: إجمالي الأصناف منتهية الصلاحية في اليوم المختار
   const totalExpiredForDate = visibleTableLogs.filter(l => l.source === 'expired').reduce((s, l) => s + l.quantity, 0)
 
@@ -347,7 +362,7 @@ export default function DessertsPage() {
   const cumProducedFiltered = branchFilter ? cumProductions.filter(p => p.branch_id === branchFilter) : cumProductions
   const cumDistributedFiltered = branchFilter ? cumTableLogs.filter(l => (l.tables?.branch_id || l.branch_id) === branchFilter) : cumTableLogs
   const cumulativeProduced = cumProducedFiltered.reduce((s, p) => s + p.quantity, 0)
-  const cumulativeDistributed = cumDistributedFiltered.reduce((s, l) => s + l.quantity, 0)
+  const cumulativeDistributed = cumDistributedFiltered.filter(l => !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0)
   const remainingForDate = cumulativeProduced - cumulativeDistributed
 
   async function printCakeReport() {
@@ -356,8 +371,8 @@ export default function DessertsPage() {
     if ((new Date(repTo).getTime() - new Date(repFrom).getTime()) / 86400000 > 366) { alert('The range cannot exceed one year'); return }
     setRepLoading(true)
     type ProdRow = { production_date: string; quantity: number; produced_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; photo_urls: string[] | null }
-    type LogRow = { quantity: number; source: string; logged_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; tables: { number: number; name: string; branch_id: string | null } | null }
-    type SumRow = { quantity: number; branch_id: string | null; tables: { branch_id: string | null } | null }
+    type LogRow = { order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null; quantity: number; source: string; logged_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; tables: { number: number; name: string; branch_id: string | null } | null }
+    type SumRow = { quantity: number; source?: string; branch_id: string | null; tables: { branch_id: string | null } | null; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }
     // ✅ "يوم العمل" للكيك = من 08:00 صباحًا بتوقيت ماليزيا إلى 08:00 صباح اليوم التالي (= حدود يوم UTC، نفس عرض اليوم في الصفحة).
     // يعني مبيعات ما بعد منتصف الليل (مثلًا 00:30 و02:00) تُحسب على يوم الخدمة اللي بدأ قبلها، مش على التاريخ التقويمي الجديد
     const startTs = `${repFrom}T00:00:00Z`
@@ -367,9 +382,9 @@ export default function DessertsPage() {
     try {
       ;[prods, logs, prevProds, prevLogs] = await Promise.all([
         fetchAllRows<ProdRow>((a, b) => sb.from('cake_production_log').select('*').gte('production_date', repFrom).lte('production_date', repTo).order('created_at').range(a, b)),
-        fetchAllRows<LogRow>((a, b) => sb.from('cake_table_log').select('*, tables(number,name,branch_id)').gte('created_at', startTs).lt('created_at', endTs).order('created_at').range(a, b)),
+        fetchAllRows<LogRow>((a, b) => sb.from('cake_table_log').select(`*, tables(number,name,branch_id), ${CAKE_EMBEDS}`).gte('created_at', startTs).lt('created_at', endTs).order('created_at').range(a, b)),
         fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lt('production_date', repFrom).order('id').range(a, b)),
-        fetchAllRows<SumRow>((a, b) => sb.from('cake_table_log').select('quantity, branch_id, tables(branch_id)').lt('created_at', startTs).order('id').range(a, b)),
+        fetchAllRows<SumRow>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason), orders(status)').lt('created_at', startTs).order('id').range(a, b)),
       ])
     } catch {
       setRepLoading(false); alert('Failed to load report data — please try again'); return
@@ -386,8 +401,9 @@ export default function DessertsPage() {
     const sections = list.map(b => {
       const p = prods.filter(x => x.branch_id === b.id)
       const l = logs.filter(x => logBranch(x) === b.id)
-      const opening = prevProds.filter(x => x.branch_id === b.id).reduce((n, x) => n + x.quantity, 0) - prevLogs.filter(x => logBranch(x) === b.id).reduce((n, x) => n + x.quantity, 0)
-      const sum = (src: string) => l.filter(x => x.source === src).reduce((n, x) => n + x.quantity, 0)
+      const opening = prevProds.filter(x => x.branch_id === b.id).reduce((n, x) => n + x.quantity, 0) - prevLogs.filter(x => logBranch(x) === b.id && !isReturnedLog(x)).reduce((n, x) => n + x.quantity, 0)
+      // ✅ الكيك الملغي (رجع للرصيد) لا يُحسب خارجًا
+      const sum = (src: string) => l.filter(x => x.source === src && !isReturnedLog(x)).reduce((n, x) => n + x.quantity, 0)
       const produced = p.reduce((n, x) => n + x.quantity, 0)
       const menu = sum('menu_order'), manual = sum('manual'), expired = sum('expired')
       const t: Tot = { opening, produced, menu, manual, expired, closing: opening + produced - menu - manual - expired }
@@ -829,7 +845,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
 
             {/* Table distribution log for selected date */}
             <div>
-              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>🍽️ Table Distribution Log ({visibleTableLogs.length})</div>
+              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>🍽️ Table Distribution Log ({visibleTableLogs.length}){totalReturnedForDate > 0 && <span style={{ color: S.red, fontWeight: 600, fontSize: 12, marginLeft: 10 }}>↩️ {totalReturnedForDate} cancelled &amp; returned to balance</span>}</div>
               {cakeLoading ? (
                 <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
               ) : visibleTableLogs.length === 0 ? (
@@ -837,14 +853,26 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {visibleTableLogs.map(l => (
-                    <div key={l.id} style={{ background: l.source === 'expired' ? S.redB : S.navy2, borderRadius: 10, border: `1px solid ${l.source === 'expired' ? S.red + '40' : S.border}`, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div key={l.id} style={{ opacity: isReturnedLog(l) ? 0.6 : 1, background: l.source === 'expired' ? S.redB : S.navy2, borderRadius: 10, border: `1px solid ${l.source === 'expired' ? S.red + '40' : S.border}`, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <span style={{ color: S.white, fontWeight: 700, fontSize: 13 }}>
                           {l.source === 'expired' ? (branches.find(b => b.id === l.branch_id)?.name || 'Expired Stock') : (l.tables?.name || `Table ${l.tables?.number ?? '—'}`)}
                         </span>
-                        <span style={{ color: S.gold, fontWeight: 800, marginLeft: 8 }}>×{l.quantity}</span>
+                        <span style={{ color: S.gold, fontWeight: 800, marginLeft: 8, textDecoration: isReturnedLog(l) ? 'line-through' : 'none' }}>×{l.quantity}</span>
                         {l.source === 'menu_order' ? (
-                          <span style={{ background: S.purpleB, color: S.purple, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>📱 From Menu</span>
+                          <>
+                            <span style={{ background: S.purpleB, color: S.purple, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>📱 From Menu</span>
+                            {/* ✅ حالة الطلب: مدفوع / غير مدفوع بعد / ملغي ورجع للرصيد */}
+                            {isReturnedLog(l) ? (
+                              <span style={{ background: S.redB, color: S.red, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 6, fontWeight: 700 }}>
+                                ↩️ Cancelled — returned to balance{l.order_items?.cancel_reason ? ` (${l.order_items.cancel_reason})` : ''}{l.order_items?.action_by ? ` · ${l.order_items.action_by}` : ''}
+                              </span>
+                            ) : l.orders?.status === 'paid' ? (
+                              <span style={{ background: S.greenB, color: S.green, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 6, fontWeight: 700 }}>💵 Paid</span>
+                            ) : (
+                              <span style={{ background: S.amberB, color: S.amber, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 6, fontWeight: 700 }}>⏳ Unpaid</span>
+                            )}
+                          </>
                         ) : l.source === 'expired' ? (
                           <span style={{ background: S.redB, color: S.red, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>⏰ Expired — {l.logged_by_name || '—'}</span>
                         ) : (

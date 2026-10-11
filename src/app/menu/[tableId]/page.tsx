@@ -736,21 +736,37 @@ function CustomerMenuInner() {
   // بدل ما يفضل على شاشة "الطاولة مقفلة" الخاصة بالطاولة القديمة. المتابعة تعتمد على أن الطلب نفسه (confirmedOrderId) صار على طاولة مختلفة،
   // فلا تتأثر بأي علامات تحويل قديمة ولا تخلط عميلًا جديدًا بجلسة سابقة
   const [movedNotice, setMovedNotice] = useState<string | null>(null)
+  // وقت فتح الصفحة: أي تحويل يحصل بعده للطاولة (redirected_at) يخص جلسة العميل الحالية؛ أما التحويلات الأقدم فتخص عملاء سابقين وتُتجاهل
+  const sessionStartRef = useRef(0)
+  useEffect(() => { sessionStartRef.current = new Date().getTime() }, [])
   useEffect(() => {
-    if (!confirmedOrderId || !table?.id) return
+    if (!table?.id) return
     const id = setInterval(async () => {
-      const { data } = await sb.from('orders').select('table_id').eq('id', confirmedOrderId).maybeSingle()
-      if (data?.table_id && data.table_id !== table.id) {
-        const { data: nt } = await sb.from('tables').select('*').eq('id', data.table_id).maybeSingle()
-        if (nt) {
-          setTable(nt)
-          setTableLocked(false)
-          setMovedNotice(nt.name || `Table ${nt.number}`)
-          setTimeout(() => setMovedNotice(null), 15000)
-        }
+      let targetId: string | null = null
+      if (confirmedOrderId) {
+        // (أ) عندنا طلب معروف: لو صار على طاولة مختلفة نتبعه
+        const { data } = await sb.from('orders').select('table_id').eq('id', confirmedOrderId).maybeSingle()
+        if (data?.table_id && data.table_id !== table.id) targetId = data.table_id
       }
+      if (!targetId) {
+        // (ب) ما عندناش طلب على هذه الصفحة (مثلًا الصفحة اتفتحت والطاولة مقفلة ثم فتحها الكاشير): نتبع علامة التحويل الحديثة على الطاولة
+        const { data: tr } = await sb.from('tables').select('redirected_to_table_id, redirected_at').eq('id', table.id).maybeSingle()
+        if (tr?.redirected_to_table_id && tr.redirected_at && new Date(tr.redirected_at).getTime() > sessionStartRef.current) targetId = tr.redirected_to_table_id
+      }
+      if (!targetId) return
+      const { data: nt } = await sb.from('tables').select('*').eq('id', targetId).maybeSingle()
+      if (!nt) return
+      sessionStartRef.current = new Date().getTime()
+      setTable(nt)
+      setTableLocked(false)
+      setMovedNotice(nt.name || `Table ${nt.number}`)
+      setTimeout(() => setMovedNotice(null), 15000)
+      // نعرض طلب العميل الحالي على الطاولة الجديدة (زي ما يحصل عند فتح الصفحة)
+      const { data: ex } = await sb.from('orders').select('id').eq('table_id', nt.id).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: false }).limit(1)
+      if (ex?.[0]) { setConfirmedOrderId(ex[0].id); setOrderNumber(ex[0].id.slice(-6).toUpperCase()); await fetchLiveOrderItems(ex[0].id); setPhase('done') }
     }, 5000)
     return () => clearInterval(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmedOrderId, table?.id, sb])
   const movedBanner = movedNotice ? (
     <div style={{ position:'fixed', top:10, left:10, right:10, zIndex:900, background:'rgba(16,185,129,0.96)', color:'#fff', borderRadius:14, padding:'12px 14px', textAlign:'center', boxShadow:'0 8px 24px rgba(0,0,0,0.35)', fontSize:13, lineHeight:1.7 }}>

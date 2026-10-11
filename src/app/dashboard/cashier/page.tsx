@@ -580,6 +580,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
       .select('id').eq('table_id', destTable.id).in('status', ['confirmed','preparing','ready']).limit(1).maybeSingle()
     if (destActiveOrder?.id) {
       destOrderId = destActiveOrder.id
+      if ('opened_at' in destTable && !destTable.opened_at && !isCancelDest) await sb.from('tables').update({ opened_at: new Date().toISOString() }).eq('id', destTable.id)
     } else {
       const { data: newOrder, error: newOrderError } = await sb.from('orders').insert([{
         table_id: destTable.id, status: 'confirmed', total_amount: 0, shift: 'shift1',
@@ -594,7 +595,8 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
       destOrderId = newOrder.id
       // ✅ طاولة "Cancellation" بتستقبل أكتر من عملية إلغاء منفصلة في نفس الوقت — منسيبهاش "occupied" بطلب واحد بس
       if (!isCancelDest) {
-        const { error: destTableError } = await sb.from('tables').update({ status: 'occupied', current_order_id: destOrderId, occupied_since: new Date().toISOString() }).eq('id', destTable.id)
+        // ✅ النقل يفتح الطاولة الوجهة فورًا (opened_at) بدل ما تفضل "مقفلة" وعليها طلب — بس لو العمود موجود (قبل تشغيل SQL ما نكتبش عمود مش موجود)
+        const { error: destTableError } = await sb.from('tables').update({ status: 'occupied', current_order_id: destOrderId, occupied_since: new Date().toISOString(), ...('opened_at' in destTable && !destTable.opened_at ? { opened_at: new Date().toISOString() } : {}) }).eq('id', destTable.id)
         if (destTableError) throw new Error('Failed to occupy destination table: ' + destTableError.message)
       }
     }
@@ -2408,6 +2410,8 @@ function TransferTableModal({ order, tables, isCashierRole, onClose, onTransferr
 
     await sb.from('tables').update({
       status: 'occupied', current_order_id: order.id, occupied_since: oldTableData?.occupied_since || new Date().toISOString(),
+      // ✅ الطاولة الجديدة تُفتح فورًا عشان العميل يكمّل طلباته عادي (كانت تفضل opened_at فاضي = مقفلة)
+      ...('opened_at' in newTable && !newTable.opened_at ? { opened_at: new Date().toISOString() } : {}),
       // ✅ Fix: نلغي أي إشارة تحويل قديمة على الطاولة الجديدة لو كانت موجودة (احتياطًا)
       redirected_to_table_id: null,
       redirected_at: null,

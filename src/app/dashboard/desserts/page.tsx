@@ -65,12 +65,17 @@ type CakeTableLog = {
 }
 // ✅ الكيك يُخصم من الرصيد لحظة الطلب (حتى قبل الدفع). لو الطلب/الصنف اتلغى فعلًا يرجع للرصيد، إلا لو الإلغاء تحميل على موظف
 // (وجبة شخصية/خطأ في الطلب = الكيكة استُهلكت) فتفضل مخصومة
-type LogEmbeds = { source?: string; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }
+type LogEmbeds = { source?: string; created_at?: string; order_items?: { status?: string | null; cancel_reason?: string | null; cancelled_at?: string | null } | null; orders?: { status?: string | null } | null }
+// ✅ الإرجاع للرصيد يسري فقط على الإلغاءات التي حصلت بعد تشغيل هذه الميزة (2026-10-11 17:32 UTC). الإلغاءات القديمة كانت محسوبة
+// ومضبوطة مع الجرد الفعلي، فلو رجعت بأثر رجعي يقفز الرصيد فجأة (حدث: 11 ← 27) ولا يطابق الكيك الفعلي
+const RETURN_FROM_MS = Date.parse('2026-10-11T17:32:00Z')
 const CAKE_EMBEDS = 'order_items(status, cancel_reason, cancelled_at, action_by), orders(status, paid_at)'
 const isReturnedLog = (l: LogEmbeds) => {
   if (l.source !== 'menu_order') return false
   const itemCancelled = l.order_items?.status === 'cancelled'
   const charged = itemCancelled && String(l.order_items?.cancel_reason || '').includes('خصم كاشير')
+  const cancelledAt = Date.parse(l.order_items?.cancelled_at || l.created_at || '')
+  if (!(cancelledAt >= RETURN_FROM_MS)) return false
   return !charged && (itemCancelled || l.orders?.status === 'cancelled')
 }
 type TableRow = { id: string; number: number; name: string; branch_id: string | null }
@@ -198,7 +203,7 @@ export default function DessertsPage() {
       // ✅ everything ever produced up to and including viewDate (for the cumulative "Remaining" figure)
       fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lte('production_date', viewDate).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
       // ✅ everything ever distributed (بما فيه منتهي الصلاحية) up to and including viewDate
-      fetchAllRows<{ quantity: number; source: string; branch_id: string | null; tables: { branch_id: string | null } | null; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason), orders(status)').lt('created_at', `${viewDate}T23:59:59.999`).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
+      fetchAllRows<{ quantity: number; source: string; branch_id: string | null; tables: { branch_id: string | null } | null; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason, cancelled_at), orders(status), created_at').lt('created_at', `${viewDate}T23:59:59.999`).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
     ])
     setBranches(br.data || [])
     setTables(tbl.data || [])
@@ -236,7 +241,7 @@ export default function DessertsPage() {
     const nextMonthStart = new Date(y, m, 1).toISOString().slice(0, 10) // first day of the following month
     const [prod, dist] = await Promise.all([
       sb.from('cake_production_log').select('quantity, branch_id').gte('production_date', monthStart).lt('production_date', nextMonthStart),
-      sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason), orders(status)').gte('created_at', `${monthStart}T00:00:00`).lt('created_at', `${nextMonthStart}T00:00:00`),
+      sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason, cancelled_at), orders(status), created_at').gte('created_at', `${monthStart}T00:00:00`).lt('created_at', `${nextMonthStart}T00:00:00`),
     ])
     const prodData = (prod.data as any[]) || []
     const distData = (dist.data as any[]) || []
@@ -384,7 +389,7 @@ export default function DessertsPage() {
         fetchAllRows<ProdRow>((a, b) => sb.from('cake_production_log').select('*').gte('production_date', repFrom).lte('production_date', repTo).order('created_at').range(a, b)),
         fetchAllRows<LogRow>((a, b) => sb.from('cake_table_log').select(`*, tables(number,name,branch_id), ${CAKE_EMBEDS}`).gte('created_at', startTs).lt('created_at', endTs).order('created_at').range(a, b)),
         fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lt('production_date', repFrom).order('id').range(a, b)),
-        fetchAllRows<SumRow>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason), orders(status)').lt('created_at', startTs).order('id').range(a, b)),
+        fetchAllRows<SumRow>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason, cancelled_at), orders(status), created_at').lt('created_at', startTs).order('id').range(a, b)),
       ])
     } catch {
       setRepLoading(false); alert('Failed to load report data — please try again'); return

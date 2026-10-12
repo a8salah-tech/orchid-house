@@ -111,6 +111,67 @@ async function uploadToStorage(supabase: ReturnType<typeof createClient>, file: 
   return urlData.publicUrl
 }
 
+// ══ سجل التعديلات (من audit_log): من عدّل الصنف ومتى وماذا تغيّر ══
+type AuditRow = { id: number; table_name: string; changed_at: string; action: string; actor_name: string | null; actor_role: string | null; changed_fields: string[] | null; old_row: Record<string, unknown> | null; new_row: Record<string, unknown> | null }
+const AUDIT_COLS = 'id, table_name, changed_at, action, actor_name, actor_role, changed_fields, old_row, new_row'
+const FIELD_LABELS: Record<string, [string, string]> = {
+  name: ['الاسم (عربي)', 'Name (AR)'], name_en: ['الاسم (إنجليزي)', 'Name (EN)'], name_ms: ['الاسم (ملايو)', 'Name (MS)'], name_zh: ['الاسم (صيني)', 'Name (ZH)'], name_ru: ['الاسم (روسي)', 'Name (RU)'],
+  description: ['الوصف (عربي)', 'Description (AR)'], description_en: ['الوصف (إنجليزي)', 'Description (EN)'], description_ms: ['الوصف (ملايو)', 'Description (MS)'], description_zh: ['الوصف (صيني)', 'Description (ZH)'], description_ru: ['الوصف (روسي)', 'Description (RU)'],
+  price: ['السعر', 'Price'], cost_price: ['التكلفة', 'Cost'], discount_percent: ['الخصم %', 'Discount %'], or_code: ['رقم الصنف', 'Item code'], sort_order: ['الترتيب', 'Order'],
+  category_id: ['القسم', 'Category'], is_active: ['مفعّل', 'Active'], is_available: ['متاح', 'Available'], image_url: ['الصورة', 'Image'],
+}
+const AUDIT_SKIP = new Set(['id', 'created_at', 'updated_at', 'menu_item_id', 'branch_id'])
+function auditVal(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'boolean') return v ? '✅' : '⛔'
+  const t = String(v)
+  return t.length > 90 ? t.slice(0, 90) + '…' : t
+}
+function AuditHistory({ rows, isAr }: { rows: AuditRow[] | null; isAr: boolean }) {
+  if (rows === null) return <div style={{ textAlign: 'center', padding: 30, color: S.muted, fontSize: 13 }}>{isAr ? '⏳ جاري التحميل...' : '⏳ Loading...'}</div>
+  return (
+    <div>
+      <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: S.muted }}>
+        {isAr ? '📜 كل تعديل على هذا الصنف وأحجامه: من عدّل ومتى وماذا تغيّر. التسجيل يبدأ من تشغيل ملف التدقيق (db/menu_audit.sql). تعديلات SQL تظهر باسم «system».' : '📜 Every change to this item and its sizes: who, when and what changed. Logging starts when db/menu_audit.sql was run. SQL-script changes appear as "system".'}
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 24, color: S.muted, fontSize: 12, background: S.card, borderRadius: 10 }}>{isAr ? 'لا توجد تعديلات مسجّلة بعد' : 'No recorded changes yet'}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rows.map(r => {
+            const isSize = r.table_name === 'menu_item_sizes'
+            const src = r.new_row || r.old_row || {}
+            const sizeName = isSize ? String(src.name_en || src.name || '') : ''
+            const when = new Date(r.changed_at).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            const title = isSize
+              ? (r.action === 'INSERT' ? (isAr ? '➕ إضافة حجم' : '➕ Size added') : r.action === 'DELETE' ? (isAr ? '🗑️ حذف حجم' : '🗑️ Size removed') : (isAr ? '✏️ تعديل حجم' : '✏️ Size edited')) + ': ' + sizeName
+              : (r.action === 'INSERT' ? (isAr ? '🆕 إنشاء الصنف' : '🆕 Item created') : r.action === 'DELETE' ? (isAr ? '🗑️ حذف الصنف' : '🗑️ Item deleted') : (isAr ? '✏️ تعديل الصنف' : '✏️ Item edited'))
+            const fields = r.action === 'UPDATE' ? (r.changed_fields || []).filter(f => !AUDIT_SKIP.has(f)) : []
+            return (
+              <div key={r.id} style={{ background: S.card, borderRadius: 10, padding: '10px 12px', border: `1px solid ${S.border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: fields.length || isSize ? 6 : 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{title}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{when} · <span style={{ color: S.gold, fontWeight: 700 }}>{r.actor_name || '—'}</span>{r.actor_role ? ` (${r.actor_role})` : ''}</div>
+                </div>
+                {isSize && r.action !== 'UPDATE' && (
+                  <div style={{ fontSize: 12, color: S.muted, direction: 'ltr', textAlign: isAr ? 'right' : 'left' }}>{auditVal(src.price)} MYR</div>
+                )}
+                {fields.map(f => (
+                  <div key={f} style={{ fontSize: 12, color: S.muted, marginTop: 3, lineHeight: 1.6 }}>
+                    <span style={{ color: S.amber, fontWeight: 600 }}>{(FIELD_LABELS[f] || [f, f])[isAr ? 0 : 1]}:</span>{' '}
+                    <span style={{ textDecoration: 'line-through', opacity: 0.7 }}>{auditVal(r.old_row?.[f])}</span>{' ← '}
+                    <span style={{ color: S.green }}>{auditVal(r.new_row?.[f])}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ══ Add/Edit Item Modal ══
 function ItemModal({ item, categories, branchId, onClose, onSaved }: {
   item?: MenuItem | null; categories: Category[]; branchId: string
@@ -139,13 +200,32 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [sizes, setSizes] = useState<{id?:string;name:string;name_en:string;name_ms?:string;price:string;is_active:boolean}[]>([])
   const { isAr } = useLang()
-  const [modalTab, setModalTab] = useState<'info'|'sizes'>('info')
+  const [modalTab, setModalTab] = useState<'info'|'sizes'|'history'>('info')
+  const [origSizeIds, setOrigSizeIds] = useState<string[]>([])
+  const [history, setHistory] = useState<AuditRow[] | null>(null)
   useEffect(() => {
     if (!item?.id) return
     supabase.from('menu_item_sizes').select('*').eq('menu_item_id', item.id).order('sort_order').then(({ data }) => {
       setSizes((data || []).map((s: any) => ({ ...s, price: String(s.price) })))
+      setOrigSizeIds((data || []).map((s: { id: string }) => s.id))
     })
   }, [item?.id])
+  // سجل التعديلات: يُجلب عند فتح التبويب فقط (يقرأه مدير النظام فقط حسب RLS)
+  useEffect(() => {
+    if (modalTab !== 'history' || !item?.id || history !== null) return
+    let cancelled = false
+    const id = item.id
+    Promise.all([
+      supabase.from('audit_log').select(AUDIT_COLS).eq('table_name', 'menu_items').eq('row_id', id).order('changed_at', { ascending: false }).limit(100),
+      supabase.from('audit_log').select(AUDIT_COLS).eq('table_name', 'menu_item_sizes').or(`new_row->>menu_item_id.eq.${id},old_row->>menu_item_id.eq.${id}`).order('changed_at', { ascending: false }).limit(100),
+    ]).then(([a, b]) => {
+      if (cancelled) return
+      const rows = [...((a.data as AuditRow[]) || []), ...((b.data as AuditRow[]) || [])].sort((x, y) => y.changed_at.localeCompare(x.changed_at))
+      setHistory(rows)
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalTab, item?.id, history])
 
   async function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
@@ -233,9 +313,22 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
     if (error) { alert('خطأ: ' + error.message); return }
     const savedId = item?.id
     if (savedId) {
-      await supabase.from('menu_item_sizes').delete().eq('menu_item_id', savedId)
+      // ✅ تعديل الأحجام بالمقارنة (تحديث الموجود / إضافة الجديد / حذف المحذوف) بدل حذف الكل وإعادة إدخاله:
+      // يحفظ ترجمات الأحجام (صيني/روسي) ومعرّفاتها، ويظهر في سجل التعديلات التغيير الفعلي فقط
       const valid = sizes.filter((s) => s.name && s.price)
-      if (valid.length > 0) await supabase.from('menu_item_sizes').insert(valid.map((s, i) => ({ menu_item_id: savedId, name: s.name, name_en: s.name_en || null, name_ms: s.name_ms || null, price: parseFloat(s.price), is_active: s.is_active !== false, sort_order: i })))
+      const keep = new Set(valid.filter(s => s.id).map(s => s.id as string))
+      const toDelete = origSizeIds.filter(sid => !keep.has(sid))
+      const errs: string[] = []
+      if (toDelete.length > 0) { const { error: e } = await supabase.from('menu_item_sizes').delete().in('id', toDelete); if (e) errs.push(e.message) }
+      for (let i = 0; i < valid.length; i++) {
+        const sz = valid[i]
+        const row = { name: sz.name, name_en: sz.name_en || null, name_ms: sz.name_ms || null, price: parseFloat(sz.price), is_active: sz.is_active !== false, sort_order: i }
+        const { error: e } = sz.id
+          ? await supabase.from('menu_item_sizes').update(row).eq('id', sz.id)
+          : await supabase.from('menu_item_sizes').insert([{ menu_item_id: savedId, ...row }])
+        if (e) errs.push(e.message)
+      }
+      if (errs.length > 0) { alert('خطأ في حفظ الأحجام: ' + errs[0]); return }
     }
     onSaved()
   }
@@ -258,9 +351,9 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
           <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
         <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
-          {(['info','sizes'] as const).map(t => (
+          {(item?.id ? ['info','sizes','history'] as const : ['info','sizes'] as const).map(t => (
             <button key={t} onClick={() => setModalTab(t)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: modalTab === t ? 700 : 400, background: modalTab === t ? S.gold3 : 'transparent', color: modalTab === t ? S.gold : S.muted }}>
-              {t === 'info' ? (isAr ? '📋 بيانات الصنف' : '📋 Item Info') : (isAr ? '📏 الأحجام' : '📏 Sizes')}
+              {t === 'info' ? (isAr ? '📋 بيانات الصنف' : '📋 Item Info') : t === 'sizes' ? (isAr ? '📏 الأحجام' : '📏 Sizes') : (isAr ? '📜 سجل التعديلات' : '📜 History')}
             </button>
           ))}
         </div>
@@ -427,6 +520,8 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
             )}
           </div>
         )}
+
+        {modalTab === 'history' && <AuditHistory rows={history} isAr={isAr} />}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>

@@ -131,9 +131,6 @@ function AuditHistory({ rows, isAr }: { rows: AuditRow[] | null; isAr: boolean }
   if (rows === null) return <div style={{ textAlign: 'center', padding: 30, color: S.muted, fontSize: 13 }}>{isAr ? '⏳ جاري التحميل...' : '⏳ Loading...'}</div>
   return (
     <div>
-      <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: S.muted }}>
-        {isAr ? '📜 كل تعديل على هذا الصنف وأحجامه: من عدّل ومتى وماذا تغيّر. التسجيل يبدأ من تشغيل ملف التدقيق (db/menu_audit.sql). تعديلات SQL تظهر باسم «system».' : '📜 Every change to this item and its sizes: who, when and what changed. Logging starts when db/menu_audit.sql was run. SQL-script changes appear as "system".'}
-      </div>
       {rows.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 24, color: S.muted, fontSize: 12, background: S.card, borderRadius: 10 }}>{isAr ? 'لا توجد تعديلات مسجّلة بعد' : 'No recorded changes yet'}</div>
       ) : (

@@ -522,7 +522,15 @@ function CustomerMenuInner() {
   const sbRef   = useRef(createClient())
   const sb      = sbRef.current
 
-  const [table, setTable]           = useState<{ id: string; number: number; name: string } | null>(null)
+  const [table, setTable]           = useState<{ id: string; number: number; name: string; branch_id?: string | null } | null>(null)
+  // ✅ اسم فرع الطاولة (يظهر في شاشة القفل) — الطاولات في الفرعين بنفس الأسماء (Table 6 موجودة في كليهما)، فلو ملصق QR اتطبع بالغلط لفرع تاني يتبيّن فورًا
+  const [branchName, setBranchName] = useState('')
+  useEffect(() => {
+    if (!table?.branch_id) return
+    let alive = true
+    sb.from('branches').select('name').eq('id', table.branch_id).maybeSingle().then(({ data }) => { if (alive && data?.name) setBranchName(data.name) })
+    return () => { alive = false }
+  }, [table?.branch_id, sb])
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems]           = useState<MenuItem[]>([])
   const [loading, setLoading]       = useState(true)
@@ -1257,7 +1265,8 @@ const filteredItems = items
       <style>{globalStyles}</style>
       <div style={{ maxWidth:400, width:'100%', background:C.bg2, border:`1px solid ${C.border2}`, borderRadius:28, padding:'34px 22px', boxShadow:`0 0 40px ${C.glow}` }}>
         <div style={{ fontSize:64, marginBottom:8 }}>🔒</div>
-        <div className="ar-text" style={{ fontSize:15, fontWeight:800, color:C.white, marginBottom:16 }}>{table?.name || `Table ${table?.number ?? ''}`}</div>
+        <div className="ar-text" style={{ fontSize:15, fontWeight:800, color:C.white, marginBottom: branchName ? 4 : 16 }}>{table?.name || `Table ${table?.number ?? ''}`}</div>
+        {branchName && <div style={{ fontSize:12, color:C.silver2, marginBottom:16 }}>📍 {branchName}</div>}
         {[
           { d: 'ltr' as const, t: 'This table is locked. Please ask the waiter to open your table.' },
           { d: 'ltr' as const, t: 'Meja ini dikunci. Sila minta pelayan membuka meja anda.' },

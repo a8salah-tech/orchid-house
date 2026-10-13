@@ -8,7 +8,7 @@ import { createBrowserClient } from '@supabase/ssr'
 // ✅ نفس دوال حساب التأخير/الخروج المبكر المستخدمة في صفحة الحضور — عشان اعتماد "تصحيح الحضور"
 // يثبّت في جدول الحضور نفس القيم اللي كانت هتطلع لو الموظف بصم بالأوقات الصحيحة من الأساس
 import { computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
-import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES } from '../../../../lib/roles'
+import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1521,7 +1521,9 @@ export default function EmployeeRequestsPage() {
   // ✅ جديد: تعريف المشرف - كان مفقود تمامًا، وده سبب عدم رؤيته لطلبات فريقه على الإطلاق من الأساس
   const isSupervisor = DEPT_SUPERVISOR_ROLES.includes(currentUser?.role || '')
   const isManager = isAdmin
-  const isEmployee = !isAdmin && !isBranchManager && !isDeptManager && !isSupervisor
+  // ✅ مساعد مدير الصالة: يشوف طلبات موظفي قسم الصالة في فرعه (عرض فقط، بلا اعتماد)، بدون طلبات السلف وزيادة الراتب
+  const isHallAssistant = currentUser?.role === HALL_ASSISTANT_ROLE
+  const isEmployee = !isAdmin && !isBranchManager && !isDeptManager && !isSupervisor && !isHallAssistant
   // ✅ الرؤية وتقديم الطلب: تعتمد على صلاحية ديناميكية من صفحة "إدارة الصلاحيات" + admin دائمًا
   // (الاعتماد الفعلي/الموافقة يبقى مقصورًا على admin فقط بدون استثناء — داخل RequestDetailModal)
   // ✅ طلب زيادة الراتب متاح لكل الموظفين (يمرّ بفحص الاستحقاق)، أما رؤية طلبات الآخرين والاعتماد فلمدير النظام فقط
@@ -1754,12 +1756,19 @@ export default function EmployeeRequestsPage() {
           : normalizeDept(e.department) === normalizeDept(myDept))
         .map(e => e.id)
       reqQuery = reqQuery.in('employee_id', ids.length > 0 ? ids : [myId])
+    } else if (isHallAssistant) {
+      // مساعد مدير الصالة: طلبات موظفي الصالة في فرعه + طلباته هو. نجيب موظفي الفرع ونفلتر بالقسم بعد توحيد الاسم (عربي/إنجليزي)
+      const { data: branchEmployees } = await supabase.from('employees').select('id, department').eq('branch_id', myBranchId)
+      const ids = (branchEmployees || []).filter(e => normalizeDept(e.department) === 'الصالة').map(e => e.id)
+      reqQuery = reqQuery.in('employee_id', Array.from(new Set([...ids, myId])))
     } else {
       // ✅ الموظف العادي والمشرف يشوفوا طلباتهم الشخصية فقط - المشرف ليس له اعتماد، مدير القسم فقط
       reqQuery = reqQuery.eq('employee_id', myId)
     }
     // ✅ طلبات زيادة الراتب لا تُجلب لغير مدير النظام إلا طلبه الشخصي — فلا يراها مدير فرع أو قسم أو مشرف
-    if (!isAdmin) reqQuery = reqQuery.or(`request_type.neq.salary_increase,employee_id.eq.${myId}`)
+    // ✅ مساعد مدير الصالة: لا يرى سلف ولا زيادة راتب غيره (يرى طلباته الشخصية فقط)
+    if (isHallAssistant) reqQuery = reqQuery.or(`and(request_type.neq.salary_increase,request_type.neq.salary_advance),employee_id.eq.${myId}`)
+    else if (!isAdmin) reqQuery = reqQuery.or(`request_type.neq.salary_increase,employee_id.eq.${myId}`)
     // ✅ تصحيح الحضور: لمدير النظام فقط — لا يُجلب لأي دور آخر (ولا حتى طلب الموظف نفسه)
     if (!isAdmin) reqQuery = reqQuery.neq('request_type', 'attendance_correction')
 
@@ -1784,7 +1793,7 @@ export default function EmployeeRequestsPage() {
     setEmployees(emp.data || [])
     setBranches(br.data || [])
     setLoading(false)
-  }, [isAdmin, isBranchManager, isDeptManager, isSupervisor, currentUser?.id, currentUser?.branch_id, currentUser?.department, currentUser?.role])
+  }, [isAdmin, isBranchManager, isDeptManager, isSupervisor, isHallAssistant, currentUser?.id, currentUser?.branch_id, currentUser?.department, currentUser?.role])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 

@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
+import { HALL_ASSISTANT_ROLE } from '../../../lib/roles'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -225,7 +226,8 @@ export default function BookingsPage() {
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
   // ✅ جديد: إغلاق/فتح أيام الحجز أصبح متاحًا لمشرف الصالة كمان، بالإضافة لمدير النظام — لفرعه فقط
-  const canManageClosedDays = isAdmin || employee?.role === 'hall_supervisor'
+  // ✅ مساعد مدير الصالة كمان (لفرعه فقط) — مطابقةً لصلاحية مشرف الصالة
+  const canManageClosedDays = isAdmin || employee?.role === 'hall_supervisor' || employee?.role === HALL_ASSISTANT_ROLE
 
   const [bookings, setBookings] = useState<Booking[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])

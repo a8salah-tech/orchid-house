@@ -654,7 +654,7 @@ export default function BookingsPage() {
         <div class="half"><div class="gl">GUESTS</div><div class="n">${b.guests}</div></div>
         <div class="half t"><div class="gl">TABLE</div><div class="n">${b.table_number || '—'}</div></div>
       </div>
-    </div>${dep > 0 ? `<div class="dep">DEPOSIT / العربون : MYR ${Number(dep).toFixed(2)}</div>` : ''}</div>`
+    </div>${dep > 0 ? `<div class="dep">DEPOSIT: MYR ${Number(dep).toFixed(2)}</div>` : ''}</div>`
   }
 
   function printCards(list: Booking[], label: string) {

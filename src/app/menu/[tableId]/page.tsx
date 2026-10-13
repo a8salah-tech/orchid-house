@@ -849,9 +849,53 @@ const filteredItems = items
     return aOrder - bOrder
   })
 
+  // ✅ شريط الأقسام: لا يظهر اسم القسم إلا لو فيه صنف واحد على الأقل ظاهر للعميل الآن (قسم كل أصنافه مخفية = لا يظهر اسمه)
+  const categoriesWithItems = new Set(items.map(i => i.category_id))
+  const tabCategories = visibleCategories.filter(c => categoriesWithItems.has(c.id))
+
   useEffect(() => {
-    if (activeCat !== 'all' && !visibleCategoryIds.has(activeCat)) setActiveCat('all')
-  }, [activeCat, visibleCategoryIds])
+    if (activeCat !== 'all' && !tabCategories.some(c => c.id === activeCat)) setActiveCat('all')
+  }, [activeCat, tabCategories])
+
+  // ✅ في عرض "الكل": أثناء النزول يُبرَز في الشريط قسم أول صنف ظاهر تحت الهيدر (مع بقاء "الكل" مميّزًا).
+  // أصناف التخفيض (تُعرض أولًا في أعلى القائمة) والوصول لأعلى الصفحة = لا قسم مُبرَز
+  const [spyCat, setSpyCat] = useState<string | null>(null)
+  const headerRef = useRef<HTMLDivElement | null>(null)
+  const tabsRef = useRef<HTMLDivElement | null>(null)
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  useEffect(() => {
+    if (activeCat !== 'all') return
+    const update = () => {
+      const cards = document.querySelectorAll<HTMLElement>('.item-card[data-cat]')
+      if (cards.length === 0 || window.scrollY < 20) { setSpyCat(prev => prev === null ? prev : null); return }
+      const lineY = (headerRef.current?.getBoundingClientRect().bottom ?? 0) + 8
+      let found: HTMLElement | null = null
+      for (const c of Array.from(cards)) { if (c.getBoundingClientRect().bottom > lineY) { found = c; break } }
+      // في نهاية الصفحة: آخر قسم عادي (قد لا يصل آخر قسم للخط العلوي أبدًا)
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 6
+      if (atBottom) { for (const c of Array.from(cards).reverse()) { if (c.dataset.disc !== '1') { found = c; break } } }
+      const next = !found || found.dataset.disc === '1' ? null : (found.dataset.cat || null)
+      setSpyCat(prev => prev === next ? prev : next)
+    }
+    let ticking = false
+    const onScroll = () => { if (ticking) return; ticking = true; requestAnimationFrame(() => { ticking = false; update() }) }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll, { passive: true })
+    requestAnimationFrame(update)
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll) }
+  }, [activeCat, filteredItems.length, search])
+
+  // يحرّك شريط الأقسام أفقيًا ليبقى القسم المُبرَز ظاهرًا في المنتصف (بدون تحريك الصفحة نفسها)
+  const spyShown = activeCat === 'all' ? spyCat : null
+  useEffect(() => {
+    const box = tabsRef.current
+    if (!box) return
+    if (!spyShown) { box.scrollTo({ left: 0, behavior: 'smooth' }); return }
+    const btn = tabRefs.current[spyShown]
+    if (!btn) return
+    const b = btn.getBoundingClientRect(), r = box.getBoundingClientRect()
+    box.scrollBy({ left: (b.left + b.width / 2) - (r.left + r.width / 2), behavior: 'smooth' })
+  }, [spyShown])
 
   // ✅ يختار حتى 6 اقتراحات مناسبة للسلة: بطاطس/مقبلة، مشروبان باردان (واحد لو في السلة مشروب)، إضافة، خبز، حلوى —
   // بدون أي صنف موجود في السلة أو خارج التوفر/الأقسام المتاحة الآن أو له أحجام
@@ -1410,7 +1454,8 @@ const filteredItems = items
           <p style={{ color:C.silver2, fontSize:13, marginBottom:28, lineHeight:1.7 }}>{t('order_prep_sub')}</p>
           <div style={{ background:`linear-gradient(135deg,rgba(0,200,200,.15),rgba(0,150,150,.15))`, border:`1px solid ${C.border2}`, borderRadius:20, padding:'24px 20px', marginBottom:24, animation:'blueGlow 2s ease infinite' }}>
             <div style={{ color:C.silver2, fontSize:10, letterSpacing:3, marginBottom:8 }}>{t('your_order_number')}</div>
-            <div style={{ background:`linear-gradient(135deg,${C.blue1},${C.silver})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontSize:52, fontWeight:900, letterSpacing:8 }}>#{orderNumber}</div>
+            {/* ✅ الرقم الجديد (3 حروف + 3 أرقام) أعرض من القديم: حجم الخط يتكيّف مع عرض الشاشة والعنصر يلتف حول النص، فلا يُقصّ آخر رقم على الهواتف الصغيرة */}
+            <div style={{ display:'inline-block', maxWidth:'100%', whiteSpace:'nowrap', background:`linear-gradient(135deg,${C.blue1},${C.silver})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontSize:'clamp(30px, 10.5vw, 52px)', fontWeight:900, letterSpacing:'clamp(2px, 1.4vw, 8px)' }}>#{orderNumber}</div>
             <div className="ar-text" style={{ color:C.silver2, fontSize:12, marginTop:8 }}>{table?.name || `Table ${table?.number}`}</div>
           </div>
           <div style={{ background:`rgba(255,255,255,.03)`, borderRadius:16, padding:16 }}>
@@ -2073,7 +2118,7 @@ const filteredItems = items
       {movedBanner}
 
       {/* ── Header ── */}
-      <div style={{ background:C.bg3, padding:'18px 18px 0', borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>
+      <div ref={headerRef} style={{ background:C.bg3, padding:'18px 18px 0', borderBottom:`1px solid ${C.border}`, position:'sticky', top:0, zIndex:50 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
           {/* Logo area */}
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -2106,12 +2151,14 @@ const filteredItems = items
         </div>
 
         {/* Categories */}
-        <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:14 }}>
-          {[{ id:'all', name_en: t('cat_all'), name: t('cat_all') }, ...visibleCategories].map(c => {
+        <div ref={tabsRef} style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:14 }}>
+          {[{ id:'all', name_en: t('cat_all'), name: t('cat_all') }, ...tabCategories].map(c => {
             const timeBadge = (c as Category).time_badge_en || (c as Category).time_badge_ar
+            // القسم الذي يمرّ عليه العميل أثناء النزول في "الكل": إبراز أخفّ، و"الكل" يبقى مميّزًا
+            const isSpy = spyShown === c.id
             return (
-              <button key={c.id} onClick={() => setActiveCat(c.id)}
-                style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s', display:'flex', alignItems:'center', gap:6 }}>
+              <button key={c.id} ref={el => { tabRefs.current[c.id] = el }} onClick={() => setActiveCat(c.id)}
+                style={{ padding:'8px 18px', borderRadius:30, border: activeCat === c.id ? 'none' : isSpy ? `1.5px solid ${C.blue2}` : `1px solid ${C.border}`, background: activeCat === c.id ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : isSpy ? 'rgba(0,200,200,.16)' : 'rgba(255,255,255,.05)', color: activeCat === c.id ? C.white : isSpy ? C.blue2 : C.silver2, cursor:'pointer', fontSize:13, fontWeight: activeCat === c.id || isSpy ? 800 : 400, whiteSpace:'nowrap', boxShadow: activeCat === c.id ? `0 4px 16px ${C.glow2}` : 'none', transition:'all .2s', display:'flex', alignItems:'center', gap:6 }}>
                 {c.id === 'all' ? c.name_en : dishName((c as any).name, (c as any).name_en, (c as any).name_ms, (c as any).name_zh, (c as any).name_ru)}
                 {timeBadge && (
                   <span style={{ fontSize:9, background: activeCat === c.id ? 'rgba(255,255,255,.25)' : 'rgba(245,158,11,.15)', color: activeCat === c.id ? C.white : '#F59E0B', border: activeCat === c.id ? 'none' : '1px solid rgba(245,158,11,.4)', borderRadius:8, padding:'2px 6px', fontWeight:800 }}>
@@ -2136,7 +2183,7 @@ const filteredItems = items
           const hasDiscount = !!(item.discount_percent && item.discount_percent > 0)
           const hasSizes = !!(item.sizes && item.sizes.filter((s: any) => s.is_active).length > 0)
           return (
-            <div key={item.id} className="item-card"
+            <div key={item.id} className="item-card" data-cat={item.category_id} data-disc={hasDiscount ? '1' : '0'}
               style={{
                 background:C.bg2, borderRadius:18, overflow:'hidden',
                 border: `2px dashed ${qty > 0 ? C.blue1 : C.border2}`,

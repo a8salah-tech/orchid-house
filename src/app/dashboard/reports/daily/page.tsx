@@ -3,6 +3,7 @@
 
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { orderCode } from '../../../../lib/orderCode'
 import { createBrowserClient } from '@supabase/ssr'
 
 const createClient = () => createBrowserClient(
@@ -1492,7 +1493,7 @@ export default function DailyReportPage() {
             <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <span style={{ fontSize: 12, color: S.muted }}>
-                  {orderDetailModal.tables?.name || `Order #${orderDetailModal.id?.slice(-6).toUpperCase()}`}
+                  {orderDetailModal.tables?.name || `Order #${orderCode(orderDetailModal.id)}`}
                 </span>
                 <span style={{ background: S.goldB, color: S.gold, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
                   {resolveShiftLabel(orderDetailModal)}

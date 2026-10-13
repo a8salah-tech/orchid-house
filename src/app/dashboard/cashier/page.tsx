@@ -2,6 +2,7 @@
 
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { orderCode } from '../../../lib/orderCode'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 
@@ -110,7 +111,7 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
     <tr>
       <td>${i + 1}</td>
       <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
-      <td>#${o.id.slice(-6).toUpperCase()}</td>
+      <td>#${orderCode(o.id)}</td>
       <td>${(o.order_items || []).filter(it => it.status !== 'cancelled').map(it => (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + (it.size_name ? ' (' + it.size_name + ')' : '') + ' ×' + it.quantity).join(', ')}</td>
       <td>${o.payment_method === 'split'
           ? splitPayments.filter(sp => sp.order_id === o.id).map(sp => `${sp.payment_method.toUpperCase()}${sp.card_bank ? ' (' + sp.card_bank + ')' : ''} MYR ${sp.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`).join(' + ') || 'SPLIT'
@@ -126,7 +127,7 @@ function printClosedShiftReport(session: { cashier_name: string; shift: string; 
     <tr>
       <td>${i + 1}</td>
       <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
-      <td>#${o.id.slice(-6).toUpperCase()}</td>
+      <td>#${orderCode(o.id)}</td>
       <td>${(o.order_items || []).map(it => (it.menu_items?.name_en || it.menu_items?.name || '⚠️ Removed Item') + ' ×' + it.quantity).join(', ')}</td>
       <td>${o.cancel_reason || '—'}</td>
       <td>${o.created_at ? new Date(o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
@@ -1160,7 +1161,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
     <div style="font-size:10px;color:#666">${new Date().toLocaleString('en-GB')}</div></div>
     <div class="line"></div>
     <div class="row"><span>Table:</span><span>${order.tables?.name || 'Table ' + order.tables?.number}</span></div>
-    <div class="row"><span>Order #:</span><span>${order.id.slice(-6).toUpperCase()}</span></div>
+    <div class="row"><span>Order #:</span><span>${orderCode(order.id)}</span></div>
     <div class="line"></div>
     ${order.order_items.filter(i => i.status !== 'cancelled').map(i => `
     <div class="row"><span>${i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}${i.size_name ? ' (' + i.size_name + ')' : ''} ×${i.quantity}</span><span>MYR ${(i.unit_price * i.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
@@ -1204,7 +1205,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
         {/* Order Summary */}
         <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>
-            {order.tables?.name || `Table ${order.tables?.number}`} · #{order.id.slice(-6).toUpperCase()}
+            {order.tables?.name || `Table ${order.tables?.number}`} · #{orderCode(order.id)}
             {orderBranchName && <span style={{ background: S.purpleB, color: S.purple, borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 700, marginLeft: 8 }}>🏢 {orderBranchName}</span>}
           </div>
           {groupItemsByRound(order.order_items).map((round, ri) => (
@@ -2103,7 +2104,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
       <tr>
         <td>${i + 1}</td>
         <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
-        <td>#${o.id.slice(-6).toUpperCase()}</td>
+        <td>#${orderCode(o.id)}</td>
         <td>${o.order_items?.map(i => (i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item') + ' ×' + i.quantity).join(', ')}</td>
         <td>${o.payment_method?.toUpperCase() || '—'}</td>
         <td>${o.discount_amount > 0 ? 'MYR ' + o.discount_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
@@ -2214,7 +2215,7 @@ function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { o
                   <tr key={o.id} style={{ background: i % 2 === 0 ? 'transparent' : '#F6FBFA' }}>
                     <td style={tdStyle}>{i + 1}</td>
                     <td style={tdStyle}>{o.tables?.name || 'Table ' + o.tables?.number}</td>
-                    <td style={{ ...tdStyle, color: S.gold }}>#{o.id.slice(-6).toUpperCase()}</td>
+                    <td style={{ ...tdStyle, color: S.gold }}>#{orderCode(o.id)}</td>
                     <td style={tdStyle}>
                       <span style={{ background: o.payment_method === 'cash' ? S.greenB : o.payment_method === 'visa' ? S.blueB : o.payment_method === 'free' ? S.amberB : S.purpleB, color: o.payment_method === 'cash' ? S.green : o.payment_method === 'visa' ? S.blue : o.payment_method === 'free' ? S.amber : S.purple, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
                         {o.payment_method?.toUpperCase() || '—'}
@@ -2348,7 +2349,7 @@ function MetricDetailPanel({ metricKey, paidOrders, freeOrders, staffOrders, can
               </div>
               <div style={{ fontSize: 10, color: S.muted, marginTop: 3 }}>
                 {new Date(o.paid_at || o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                {o.paid_by_name ? ` · 👤 ${o.paid_by_name}` : ''} · #{o.id.slice(-6).toUpperCase()}
+                {o.paid_by_name ? ` · 👤 ${o.paid_by_name}` : ''} · #{orderCode(o.id)}
               </div>
               <div style={{ fontSize: 10, color: S.muted, marginTop: 1 }}>{parts}</div>
               {metricKey === 'staff' && (o.order_items || []).filter(i => i.status !== 'cancelled').map(i => (
@@ -4395,7 +4396,7 @@ export default function CashierPage() {
                             <div key={o.id} style={{ padding: '12px 16px', borderTop: oi === 0 ? 'none' : `1px solid ${S.border}` }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{o.id.slice(-6).toUpperCase()}</span>
+                                  <span style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{orderCode(o.id)}</span>
                                   <span style={{ background: accent + '22', color: accent, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
                                     {isCancelled ? '❌ Cancelled' : isPending ? '⏳ Pending approval' : `↩️ Rejected${o.cancel_rejected_by_name ? ' by ' + o.cancel_rejected_by_name : ''} — still active`}
                                   </span>
@@ -4459,7 +4460,7 @@ export default function CashierPage() {
                             )}
                             <span style={{ background: st.bg, color: st.color, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{st.emoji} {st.label}</span>
                           </div>
-                          <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()} · ago {timeAgo(order.created_at)}</div>
+                          <div style={{ fontSize: 11, color: S.muted }}>#{orderCode(order.id)} · ago {timeAgo(order.created_at)}</div>
                           {lastOrderTime(order) && ['confirmed','preparing','ready'].includes(order.status) && (
                             <div style={{ fontSize: 11, color: S.amber, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>⏱ {elapsed(lastOrderTime(order)!)}</div>
                           )}
@@ -4735,7 +4736,7 @@ export default function CashierPage() {
                     <div key={o.id} style={{ background: S.card, borderRadius: 12, border: `1px solid ${S.border}`, padding: '12px 14px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{o.id.slice(-6).toUpperCase()}</span>
+                          <span style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{orderCode(o.id)}</span>
                           <span style={{ background: accent + '22', color: accent, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
                             {isCancelled ? '❌ Cancelled' : isPending ? '⏳ Pending approval' : `↩️ Rejected${o.cancel_rejected_by_name ? ' by ' + o.cancel_rejected_by_name : ''} — still active`}
                           </span>
@@ -5132,7 +5133,7 @@ export default function CashierPage() {
             <div style={{ background: S.card, borderRadius: 12, padding: 16, marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <span style={{ fontSize: 12, color: S.muted }}>
-                  {archiveDetailOrder.tables?.name || `Table ${archiveDetailOrder.tables?.number}`} · #{archiveDetailOrder.id.slice(-6).toUpperCase()}
+                  {archiveDetailOrder.tables?.name || `Table ${archiveDetailOrder.tables?.number}`} · #{orderCode(archiveDetailOrder.id)}
                 </span>
                 <span style={{ background: archiveDetailOrder.status === 'cancelled' ? S.redB : S.greenB, color: archiveDetailOrder.status === 'cancelled' ? S.red : S.green, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
                   {archiveDetailOrder.status === 'cancelled' ? '❌ Cancelled' : '✅ Paid'}

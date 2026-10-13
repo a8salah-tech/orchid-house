@@ -3,6 +3,7 @@
 
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { orderCode } from '../../../lib/orderCode'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 
@@ -596,7 +597,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                       <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>
                         {order.tables?.name || `طاولة ${order.tables?.number}`}
                       </div>
-                      <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()}</div>
+                      <div style={{ fontSize: 11, color: S.muted }}>#{orderCode(order.id)}</div>
                     </div>
                     <div style={{ color: age, fontWeight: 900, fontSize: 22, fontVariantNumeric: 'tabular-nums' }}>
                       {time}

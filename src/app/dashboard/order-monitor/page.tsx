@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { orderCode } from '../../../lib/orderCode'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 
@@ -417,7 +418,7 @@ export default function OrderMonitorPage() {
                       return (
                         <div key={o.id} style={{ background: S.card, border: `1px solid ${cancelled ? S.red + '40' : S.border}`, borderRadius: 12, padding: '10px 12px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-                            <div style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{o.id.slice(-6).toUpperCase()} · 🪑 {o.tables?.name || '—'} <span style={{ color: S.muted, fontWeight: 400 }}>· 🏪 {branchNameOf(o.tables?.branch_id)}</span></div>
+                            <div style={{ fontSize: 12, color: S.white, fontWeight: 700 }}>#{orderCode(o.id)} · 🪑 {o.tables?.name || '—'} <span style={{ color: S.muted, fontWeight: 400 }}>· 🏪 {branchNameOf(o.tables?.branch_id)}</span></div>
                             <div style={{ fontSize: 12, fontWeight: 800, color: cancelled ? S.red : S.gold }}>MYR {(o.total_amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                           </div>
                           <div style={{ fontSize: 10.5, color: S.muted, marginBottom: 6 }}>🕐 {fmtDT(o.created_at)} · الحالة: <span style={{ color: cancelled ? S.red : S.white, fontWeight: 700 }}>{o.status}</span></div>

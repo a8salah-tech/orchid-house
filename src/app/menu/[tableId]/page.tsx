@@ -2,6 +2,7 @@
 
 
 import { useEffect, useState, useRef, useMemo } from 'react'
+import { orderCode } from '../../../lib/orderCode'
 import { createBrowserClient } from '@supabase/ssr'
 import { useParams } from 'next/navigation'
 
@@ -721,7 +722,7 @@ function CustomerMenuInner() {
       if ('opened_at' in tbl && !['takeaway', 'staff', 'cancel_hub'].includes(String(tbl.section || '')) && !tbl.opened_at && !existing) setTableLocked(true)
       if (existing) {
         setConfirmedOrderId(existing.id)
-        setOrderNumber(existing.id.slice(-6).toUpperCase())
+        setOrderNumber(orderCode(existing.id))
         await fetchLiveOrderItems(existing.id)
         setPhase('done')
       }
@@ -771,7 +772,7 @@ function CustomerMenuInner() {
       setTimeout(() => setMovedNotice(null), 15000)
       // نعرض طلب العميل الحالي على الطاولة الجديدة (زي ما يحصل عند فتح الصفحة)
       const { data: ex } = await sb.from('orders').select('id').eq('table_id', nt.id).in('status', ['confirmed', 'preparing', 'ready']).order('created_at', { ascending: false }).limit(1)
-      if (ex?.[0]) { setConfirmedOrderId(ex[0].id); setOrderNumber(ex[0].id.slice(-6).toUpperCase()); await fetchLiveOrderItems(ex[0].id); setPhase('done') }
+      if (ex?.[0]) { setConfirmedOrderId(ex[0].id); setOrderNumber(orderCode(ex[0].id)); await fetchLiveOrderItems(ex[0].id); setPhase('done') }
     }, 5000)
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1182,7 +1183,7 @@ const filteredItems = items
         return
       }
       orderId = data.orderId
-      setOrderNumber(data.orderNumber || orderId.slice(-6).toUpperCase())
+      setOrderNumber(data.orderNumber || orderCode(orderId))
       setConfirmedOrderId(orderId)
       // ✅ الكارت يتفرغ بعد نجاح الطلب فقط
       setCart([])

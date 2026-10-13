@@ -2,6 +2,7 @@
 
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { orderCode } from '../../../lib/orderCode'
 import { createBrowserClient } from '@supabase/ssr'
 // ⚠️ ملحوظة: عدّل مسار الاستيراد ده لو مكان الملف مختلف عن نمط dashboard/*/page.tsx المعتاد
 import { useAuth } from '../../components/AuthProvider'
@@ -255,7 +256,7 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
       <tr>
         <td>${idx + 1}</td>
         <td>${o.tables?.name || 'Table ' + o.tables?.number}</td>
-        <td>#${o.id.slice(-6).toUpperCase()}</td>
+        <td>#${orderCode(o.id)}</td>
         <td>${o.order_items.filter(i=>i.destination==='bar').map(i => `${i.menu_items?.name_en||i.menu_items?.name} ×${i.quantity}`).join(', ')}</td>
         <td>${o.order_items.some(i=>i.status==='ready') ? '✅ Ready' : '🔄 In Progress'}</td>
         <td>${new Date(o.created_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</td>
@@ -351,7 +352,7 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
                   <tr key={o.id}>
                     <td style={tdS}>{i + 1}</td>
                     <td style={tdS}>{o.tables?.name || `Table ${o.tables?.number}`}</td>
-                    <td style={{ ...tdS, color: S.gold }}>#{o.id.slice(-6).toUpperCase()}</td>
+                    <td style={{ ...tdS, color: S.gold }}>#{orderCode(o.id)}</td>
                     <td style={tdS}>{o.order_items.filter(i => i.destination === 'bar').map(i => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}</td>
                     <td style={tdS}><span style={{ background: o.status === 'ready' ? S.greenB : S.amberB, color: o.status === 'ready' ? S.green : S.amber, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>{o.status === 'ready' ? '✅ Ready' : '🔄 In Progress'}</span></td>
                     <td style={{ ...tdS, color: S.muted }}>{new Date(o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
@@ -719,7 +720,7 @@ export default function BarPage() {
                               return (
                                 <tr key={o.id} style={{ borderBottom: `1px solid ${S.border}` }}>
                                   <td style={{ padding: '10px 12px', color: S.white, fontSize: 13 }}>{o.tables?.name || `Table ${o.tables?.number}`}</td>
-                                  <td style={{ padding: '10px 12px', color: S.gold, fontSize: 12 }}>#{o.id.slice(-6).toUpperCase()}</td>
+                                  <td style={{ padding: '10px 12px', color: S.gold, fontSize: 12 }}>#{orderCode(o.id)}</td>
                                   {isAdmin && <td style={{ padding: '10px 12px', color: S.purple, fontSize: 12 }}>{o.tables?.branches?.name || '—'}</td>}
                                   <td style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>
                                     {activeItemsList.length > 0 && <div>{activeItemsList.map((i: any) => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}</div>}
@@ -802,7 +803,7 @@ export default function BarPage() {
                           <div style={{ fontSize: 10, color: S.red, fontWeight: 900, marginBottom: 2 }}>🔥 OLDEST — PRIORITY</div>
                         )}
                         <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>{order.tables?.name || `Table ${order.tables?.number}`}</div>
-                        <div style={{ fontSize: 11, color: S.muted }}>#{order.id.slice(-6).toUpperCase()}</div>
+                        <div style={{ fontSize: 11, color: S.muted }}>#{orderCode(order.id)}</div>
                       {/* ✅ جديد: شارة اسم الفرع - تظهر للأدمن بس (اللي بيشوف كل الفروع مع بعض) */}
                       {isAdmin && order.tables?.branches?.name && (
                         <div style={{ fontSize: 10, color: S.purple, background: S.purpleB, borderRadius: 20, padding: '1px 8px', display: 'inline-block', marginTop: 4, fontWeight: 700 }}>

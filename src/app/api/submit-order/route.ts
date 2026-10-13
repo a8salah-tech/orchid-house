@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { orderCode } from '../../../lib/orderCode'
 import { createClient } from '@supabase/supabase-js'
 
 // ✅ عميل service-role — صفحة المنيو عامة (زائر مجهول). كل الكتابة على الطلبات تمرّ من هنا
@@ -251,7 +252,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       orderId,
-      orderNumber: orderId.slice(-6).toUpperCase(),
+      orderNumber: orderCode(orderId),
       items: (live || []).map((i: any) => ({
         id: i.id,
         quantity: i.quantity,

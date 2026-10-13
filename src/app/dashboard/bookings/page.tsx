@@ -553,6 +553,8 @@ export default function BookingsPage() {
       confirmed: filtered.filter(b => b.status === 'confirmed').length,
       cancelled: filtered.length - activeRows.length,
       guests: activeRows.reduce((sum, b) => sum + (b.guests || 0), 0),
+      deposit: activeRows.reduce((sum, b) => sum + (b.deposit_amount || 0), 0),
+      depositCount: activeRows.filter(b => (b.deposit_amount || 0) > 0).length,
       sections: Object.entries(SECTION_LABELS).map(([k, label]) => {
         const r = activeRows.filter(b => b.section === k)
         return { label: label.replace(/^\S+\s/, ''), bookings: r.length, guests: r.reduce((sum, b) => sum + (b.guests || 0), 0) }
@@ -577,6 +579,7 @@ export default function BookingsPage() {
         <td>${SECTION_LABELS[b.section] || b.section}</td>
         <td>${b.table_number || '—'}</td>
         <td>${b.status.toUpperCase()}</td>
+        <td style="font-weight:bold;white-space:nowrap">${(b.deposit_amount || 0) > 0 && b.status !== 'cancelled' ? 'MYR ' + Number(b.deposit_amount).toFixed(2) : '—'}</td>
         <td>${b.notes || '—'}</td>
       </tr>`).join('')
 
@@ -604,12 +607,13 @@ export default function BookingsPage() {
       <div class="box"><div class="v" style="color:#22C55E">${pc.confirmed}</div><div>Confirmed</div></div>
       <div class="box"><div class="v" style="color:#EF4444">${pc.cancelled}</div><div>Cancelled</div></div>
       <div class="box"><div class="v" style="color:#0A1628">${pc.guests}</div><div>Guests (excl. cancelled)</div></div>
+      ${pc.deposit > 0 ? `<div class="box"><div class="v" style="color:#0A1628">MYR ${pc.deposit.toFixed(2)}</div><div>Deposits<br>(${pc.depositCount} bookings)</div></div>` : ''}
       ${pc.sections.map(x => `<div class="box"><div class="v">${x.guests}</div><div>${x.label}<br>(${x.bookings} bookings)</div></div>`).join('')}
     </div>
     <table><thead><tr>
       <th>#</th><th>Name</th><th>Phone</th><th>Email</th><th>Branch</th>
       <th>Date</th><th>Time</th><th>Guests</th><th>Section</th>
-      <th>Table</th><th>Status</th><th>Notes</th>
+      <th>Table</th><th>Status</th><th>Deposit</th><th>Notes</th>
     </tr></thead><tbody>${rows}</tbody></table>
     <script>window.onload=()=>window.print()<\/script>
     </body></html>`)
@@ -625,10 +629,12 @@ export default function BookingsPage() {
     const branchName = branches.find(br => br.id === b.branch_id)?.name || '—'
     const ref = b.booking_ref || b.id.slice(-8).toUpperCase()
     const st = STATUS_CFG[b.status]
+    // ✅ العربون: شريط واضح أسفل الكرت (لو الحجز غير ملغي وفيه عربون)
+    const dep = b.status !== 'cancelled' ? (b.deposit_amount || 0) : 0
     // ✅ لوجو كل فرع على كرته (والاسم بدل "Orchid House" الثابت): الصور تُحمَّل من نفس نطاق الموقع لأن نافذة الطباعة فارغة الأصل
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     const logoSrc = /klcc/i.test(branchName) ? origin + '/logo-klcc.png' : /house/i.test(branchName) ? origin + '/logo.png' : ''
-    return `<div class="card">
+    return `<div class="card${dep > 0 ? ' hasdep' : ''}"><div class="main">
       <div class="l">
         ${logoSrc ? `<img class="logoimg" src="${logoSrc}" alt="" onerror="this.style.display='none'">` : ''}
         <div class="logo">${escapeHtml(branchName)}</div>
@@ -648,7 +654,7 @@ export default function BookingsPage() {
         <div class="half"><div class="gl">GUESTS</div><div class="n">${b.guests}</div></div>
         <div class="half t"><div class="gl">TABLE</div><div class="n">${b.table_number || '—'}</div></div>
       </div>
-    </div>`
+    </div>${dep > 0 ? `<div class="dep">DEPOSIT / العربون : MYR ${Number(dep).toFixed(2)}</div>` : ''}</div>`
   }
 
   function printCards(list: Booking[], label: string) {
@@ -663,7 +669,11 @@ export default function BookingsPage() {
       * { box-sizing: border-box; }
       body { font-family: Arial, sans-serif; margin: 0; }
       .grid { display: grid; grid-template-columns: repeat(${single ? 1 : 2}, 100mm); grid-auto-rows: 70mm; justify-content: center; }
-      .card { width: 100mm; height: 70mm; border: 1.5px dashed #0A1628; padding: 4mm 4.5mm; display: flex; gap: 3mm; align-items: stretch; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
+      .card { width: 100mm; height: 70mm; border: 1.5px dashed #0A1628; padding: 4mm 4.5mm; display: flex; flex-direction: column; gap: 1.5mm; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
+      .main { flex: 1; min-height: 0; display: flex; gap: 3mm; align-items: stretch; overflow: hidden; }
+      .dep { flex: none; border: 1.6px solid #000; border-radius: 1.5mm; background: #000; color: #fff; text-align: center; font-size: 14px; font-weight: 900; letter-spacing: 0.3px; padding: 1.2mm 2mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .card.hasdep .logoimg { height: 10mm; margin-bottom: 1mm; }
+      .card.hasdep .ref { margin-bottom: 3px; }
       .l { width: 28mm; display: flex; flex-direction: column; min-width: 0; }
       .logo { font-size: 12px; font-weight: bold; line-height: 1.15; margin-bottom: 1px; }
       .logoimg { width: 24mm; height: 14mm; object-fit: cover; border-radius: 1.5mm; display: block; margin-bottom: 1.5mm; }

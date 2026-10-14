@@ -144,9 +144,9 @@ export default function ViolationsPage() {
   const isKitchenAssistant = role === KITCHEN_ASSISTANT_ROLE
   const isDeptAssistant = isHallAssistant || isKitchenAssistant
   // ✅ مساعد مدير المطبخ/الصالة يعتمد (أو يعيد) مخالفات موظفي قسمه في فرعه (المطبخ: مطبخ+بار+حلويات، الصالة: الصالة) بحالة "بانتظار الاعتماد" — مثل مدير القسم،
-  // لكن لا يعتمد مخالفة سجّلها هو ولا مخالفة على نفسه. الإلغاء يبقى لمدير النظام فقط
+  // يعتمد حتى المخالفة التي سجّلها هو على موظفيه، لكن لا يعتمد مخالفة مسجّلة على نفسه. الإلغاء يبقى لمدير النظام فقط
   const canAssistantApprove = (v: { created_by?: string | null; employee_id?: string }) =>
-    isDeptAssistant && !!employee?.id && v.created_by !== employee.id && v.employee_id !== employee.id
+    isDeptAssistant && !!employee?.id && v.employee_id !== employee.id
   // ✅ دور غير إداري له صلاحية "المخالفات" (زي أمين المستودعات) — يشوف مخالفاته هو فقط + إحصائياته هو،
   // بدون قوائم باقي الموظفين/الفروع، وبدون إمكانية إضافة مخالفة. (المخالفات سرية — لا تُعرض لغير الإدارة)
   // ✅ Fix: لازم نستبعد isBranchViewer هنا صراحةً - المشرف العام معاه صلاحية violations=true (لازمة

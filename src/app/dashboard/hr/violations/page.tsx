@@ -141,7 +141,12 @@ export default function ViolationsPage() {
   // (زي المشرف)، بدون اعتماد/إلغاء ولا تقييمات (isDeptManager مقصودة تفضل false له)
   const isHallAssistant = role === HALL_ASSISTANT_ROLE
   // ✅ جديد: مساعدو المدراء (صالة/مطبخ) — نفس النمط: عرض مخالفات قسمهم + إضافة مخالفة/غياب بانتظار الاعتماد (بدون اعتماد/إلغاء)
-  const isDeptAssistant = isHallAssistant || role === KITCHEN_ASSISTANT_ROLE
+  const isKitchenAssistant = role === KITCHEN_ASSISTANT_ROLE
+  const isDeptAssistant = isHallAssistant || isKitchenAssistant
+  // ✅ مساعد مدير المطبخ يعتمد (أو يعيد) مخالفات موظفي قسمه (مطبخ+بار+حلويات في فرعه) بحالة "بانتظار الاعتماد" — مثل مدير القسم،
+  // لكن لا يعتمد مخالفة سجّلها هو ولا مخالفة على نفسه. الإلغاء يبقى لمدير النظام فقط
+  const canAssistantApprove = (v: { created_by?: string | null; employee_id?: string }) =>
+    isKitchenAssistant && !!employee?.id && v.created_by !== employee.id && v.employee_id !== employee.id
   // ✅ دور غير إداري له صلاحية "المخالفات" (زي أمين المستودعات) — يشوف مخالفاته هو فقط + إحصائياته هو،
   // بدون قوائم باقي الموظفين/الفروع، وبدون إمكانية إضافة مخالفة. (المخالفات سرية — لا تُعرض لغير الإدارة)
   // ✅ Fix: لازم نستبعد isBranchViewer هنا صراحةً - المشرف العام معاه صلاحية violations=true (لازمة
@@ -839,7 +844,7 @@ export default function ViolationsPage() {
                   </span>
                 </div>
                 {/* Submitted - waiting manager approval (مخالفات النظام لا تمرّ بهذا المسار) */}
-                {v.status === 'submitted' && !sysV && !gsV && isDeptManager && (
+                {v.status === 'submitted' && !sysV && !gsV && (isDeptManager || canAssistantApprove(v)) && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => returnViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ {isAr?'إعادة':'Return'}</button>
                     <button onClick={() => approveViolation(v.id)} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ {isAr?'اعتماد':'Approve'}</button>

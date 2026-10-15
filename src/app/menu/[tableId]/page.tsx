@@ -2182,8 +2182,13 @@ const filteredItems = items
           const qty = getQty(item.id)
           const hasDiscount = !!(item.discount_percent && item.discount_percent > 0)
           const hasSizes = !!(item.sizes && item.sizes.filter((s: any) => s.is_active).length > 0)
-          // ✅ صنف له أكثر من 3 أحجام: يأخذ عرض الصف كله (بدل عمود طويل يشدّ الصنف المجاور) وتُعرض أحجامه في عمودين
-          const isWide = !!(item.sizes && item.sizes.filter((s: any) => s.is_active).length > 3)
+          // ✅ صنف له من 4 إلى 8 أحجام: يأخذ عرض الصف كله (بدل عمود طويل يشدّ الصنف المجاور) وتُعرض أحجامه في عمودين.
+          // ✅ أكثر من 8 (مثل الشيشة بـ21 نكهة): بطاقة عادية مختصرة بزر "اختر" يفتح ورقة الصنف لاختيار الحجم، بدل قائمة طويلة جدًا
+          const activeSizes = (item.sizes || []).filter(s => s.is_active)
+          const isWide = activeSizes.length > 3 && activeSizes.length <= 8
+          const manySizes = activeSizes.length > 8
+          const sizedQty = cart.filter(c => c.item.id === item.id).reduce((n, c) => n + c.quantity, 0)
+          const L = (m: Record<Lang, string>) => m[lang] || m.en
           return (
             <div key={item.id} className="item-card" data-cat={item.category_id} data-disc={hasDiscount ? '1' : '0'}
               style={{
@@ -2241,9 +2246,20 @@ const filteredItems = items
                   <div style={{ fontSize:9.5, color:C.silver2, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any, overflow:'hidden' }}>{dishName(item.description, item.description_en, item.description_ms, item.description_zh, item.description_ru)}</div>
                 )}
 
-                {hasSizes ? (
+                {hasSizes && manySizes ? (
+                  // ✅ أكثر من 8 خيارات: عدد الخيارات + أقل سعر + زر "اختر" (الضغط على البطاقة يفتح ورقة الصنف بكل الخيارات)
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6, marginTop:'auto', paddingTop:6 }}>
+                    <div style={{ display:'flex', flexDirection:'column' }}>
+                      <span style={{ fontSize:9.5, color:C.silver2, fontWeight:700 }}>{activeSizes.length} {L({ en:'options', ms:'pilihan', ar:'خيارًا', zh:'种选择', ru:'вариантов' })}</span>
+                      <span style={{ fontSize:12.5, fontWeight:900, color:C.blue2 }}>{L({ en:'from', ms:'dari', ar:'من', zh:'起', ru:'от' })} MYR {Math.min(...activeSizes.map(s => s.price)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div style={{ background: sizedQty > 0 ? `linear-gradient(135deg,${C.blue1},${C.blue2})` : '#FFFFFF', border: sizedQty > 0 ? 'none' : `2px solid ${C.blue1}`, borderRadius:20, padding:'5px 11px', fontSize:11, fontWeight:800, color: sizedQty > 0 ? C.white : C.blue2, boxShadow: sizedQty > 0 ? `0 2px 8px ${C.glow}` : `0 2px 6px rgba(0,180,180,.15)`, whiteSpace:'nowrap' }}>
+                      {sizedQty > 0 ? `✓ ${sizedQty}` : L({ en:'Choose', ms:'Pilih', ar:'اختر', zh:'选择', ru:'Выбрать' })}
+                    </div>
+                  </div>
+                ) : hasSizes ? (
                   // ✅ Multiple sizes — each size in its own clear row
-                  <div style={isWide ? { display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginTop:2 } : { display:'flex', flexDirection:'column', gap:5, marginTop:2 }}>
+                  <div style={isWide ? { display:'grid', gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:6, marginTop:2 } : { display:'flex', flexDirection:'column', gap:5, marginTop:2 }}>
                     {item.sizes!.filter((s: any) => s.is_active).map((size: any) => {
                       const sizeQty = getQty(item.id, size.id)
                       const key = `${item.id}_${size.id}`

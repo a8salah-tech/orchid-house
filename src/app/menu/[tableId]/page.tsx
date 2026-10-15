@@ -463,6 +463,22 @@ function getDeviceId(): string | null {
   } catch { return null }
 }
 
+// ✅ طلب هذا الجهاز: نحفظ مع كل طلب مؤكَّد (معرّف الطلب + رابط الطاولة الذي طُلب منه). لو انتقل الطلب لطاولة أخرى (تحويل من الكاشير)
+// ثم أُعيد فتح الصفحة على الرابط القديم (وقد جلس عليه عميل جديد)، يتبع الجهاز طلبه الحقيقي بدل أن يعرض/يطلب على طاولة العميل الجديد
+const MY_ORDER_KEY = 'orchid_my_order'
+const MY_ORDER_TTL_MS = 12 * 60 * 60 * 1000
+function saveMyOrder(urlTableId: string, orderId: string) {
+  try { localStorage.setItem(MY_ORDER_KEY, JSON.stringify({ urlTableId, orderId, at: Date.now() })) } catch { /* لا شيء */ }
+}
+function readMyOrder(): { urlTableId: string; orderId: string; at: number } | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(MY_ORDER_KEY) || 'null')
+    if (v && typeof v.urlTableId === 'string' && typeof v.orderId === 'string' && Date.now() - Number(v.at || 0) < MY_ORDER_TTL_MS) return v
+  } catch { /* لا شيء */ }
+  return null
+}
+function clearMyOrder() { try { localStorage.removeItem(MY_ORDER_KEY) } catch { /* لا شيء */ } }
+
 // ✅ دعوة تقييم المطعم على جوجل: تظهر بعد تأكيد الجولة الثانية (أو ما بعدها) من الطلب — العميل وقتها يفتح الصفحة فعلاً وراضٍ غالباً.
 // مرة كل 30 يوماً لنفس الجهاز بعد «لاحقاً»، وتتوقف نهائياً بعد الضغط على «قيّمنا». تُطلَق من confirmOrder بحدث window.
 function GoogleReviewPrompt() {
@@ -524,6 +540,7 @@ function CustomerMenuInner() {
   const sb      = sbRef.current
 
   const [table, setTable]           = useState<{ id: string; number: number; name: string; branch_id?: string | null } | null>(null)
+  const [movedNotice, setMovedNotice] = useState<string | null>(null)
   // ✅ اسم فرع الطاولة (يظهر في شاشة القفل) — الطاولات في الفرعين بنفس الأسماء (Table 6 موجودة في كليهما)، فلو ملصق QR اتطبع بالغلط لفرع تاني يتبيّن فورًا
   const [branchName, setBranchName] = useState('')
   useEffect(() => {
@@ -718,6 +735,29 @@ function CustomerMenuInner() {
       // Following a redirected order is now limited to "Order More" only, if the customer still has the same tab open without closing it
       // (see checkAndFollowRedirect) - this fixes the duplicate-order issue without affecting a new customer seated afterward
 
+      // ✅ هذا الجهاز طلب من هذا الرابط سابقًا، وطلبه ما زال مفتوحًا لكنه انتقل لطاولة أخرى (تحويل من الكاشير): نتبع طلبه هو،
+      // ولا نعرض/نطلب على هذه الطاولة التي قد يجلس عليها الآن عميل آخر. لو انتهى الطلب (مدفوع/ملغى) نمسح الذاكرة ونتصرف كعميل عادي
+      const mine = readMyOrder()
+      if (mine && mine.urlTableId === tbl.id) {
+        const { data: mo } = await sb.from('orders').select('id, table_id, status').eq('id', mine.orderId).maybeSingle()
+        if (!mo || !['confirmed', 'preparing', 'ready'].includes(mo.status)) {
+          clearMyOrder()
+        } else if (mo.table_id !== tbl.id) {
+          const { data: nt } = await sb.from('tables').select('*').eq('id', mo.table_id).maybeSingle()
+          if (nt) {
+            setTable(nt)
+            setConfirmedOrderId(mo.id)
+            setOrderNumber(orderCode(mo.id))
+            await fetchLiveOrderItems(mo.id)
+            setPhase('done')
+            setMovedNotice(nt.name || `Table ${nt.number}`)
+            setTimeout(() => setMovedNotice(null), 15000)
+            setLoading(false)
+            return
+          }
+        }
+      }
+
       // ✅ قفل الطاولة: طاولة صالة فارغة بلا طلب نشط ولم تُفتح بعد → شاشة القفل (لو عمود opened_at موجود)
       if ('opened_at' in tbl && !['takeaway', 'staff', 'cancel_hub'].includes(String(tbl.section || '')) && !tbl.opened_at && !existing) setTableLocked(true)
       if (existing) {
@@ -744,7 +784,6 @@ function CustomerMenuInner() {
   // ✅ لو الكاشير نقل طلب العميل لطاولة تانية: هاتف العميل يتابع طلبه تلقائيًا (كل 5 ثوانٍ) ويتحوّل للطاولة الجديدة المفتوحة،
   // بدل ما يفضل على شاشة "الطاولة مقفلة" الخاصة بالطاولة القديمة. المتابعة تعتمد على أن الطلب نفسه (confirmedOrderId) صار على طاولة مختلفة،
   // فلا تتأثر بأي علامات تحويل قديمة ولا تخلط عميلًا جديدًا بجلسة سابقة
-  const [movedNotice, setMovedNotice] = useState<string | null>(null)
   // وقت فتح الصفحة: أي تحويل يحصل بعده للطاولة (redirected_at) يخص جلسة العميل الحالية؛ أما التحويلات الأقدم فتخص عملاء سابقين وتُتجاهل
   const sessionStartRef = useRef(0)
   useEffect(() => { sessionStartRef.current = new Date().getTime() }, [])
@@ -1165,7 +1204,8 @@ const filteredItems = items
   async function checkAndFollowRedirect() {
     if (!table) return
     const { data: freshTableRow } = await sb.from('tables').select('*').eq('id', table.id).single()
-    const isRedirectRecent = freshTableRow?.redirected_at && (Date.now() - new Date(freshTableRow.redirected_at).getTime()) < 4 * 60 * 60 * 1000
+    // ✅ علامة التحويل تخص هذه الجلسة فقط لو حدثت بعد فتح الصفحة (نفس شرط المتابعة التلقائية) — وإلا قد تبقى علامة قديمة فتُحوّل عميلًا جديدًا لطاولة غيره
+    const isRedirectRecent = freshTableRow?.redirected_at && new Date(freshTableRow.redirected_at).getTime() > sessionStartRef.current
     if (freshTableRow?.redirected_to_table_id && isRedirectRecent) {
       const { data: redirectedTableFull } = await sb.from('tables').select('*').eq('id', freshTableRow.redirected_to_table_id).single()
       if (redirectedTableFull) setTable(redirectedTableFull)
@@ -1227,6 +1267,7 @@ const filteredItems = items
         return
       }
       orderId = data.orderId
+      saveMyOrder(tableId, orderId)
       setOrderNumber(data.orderNumber || orderCode(orderId))
       setConfirmedOrderId(orderId)
       // ✅ الكارت يتفرغ بعد نجاح الطلب فقط

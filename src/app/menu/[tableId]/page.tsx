@@ -2172,7 +2172,7 @@ const filteredItems = items
       </div>
 
       {/* ── Items Grid ── */}
-      <div style={{ padding:'18px 14px 100px', display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:16, maxWidth:560, margin:'0 auto' }}>
+      <div style={{ padding:'18px 14px 100px', display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gridAutoFlow:'row dense', gap:16, maxWidth:560, margin:'0 auto' }}>
         {filteredItems.length === 0 ? (
           <div style={{ gridColumn:'1 / -1', textAlign:'center', padding:60, color:C.silver2 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
@@ -2182,10 +2182,12 @@ const filteredItems = items
           const qty = getQty(item.id)
           const hasDiscount = !!(item.discount_percent && item.discount_percent > 0)
           const hasSizes = !!(item.sizes && item.sizes.filter((s: any) => s.is_active).length > 0)
+          // ✅ صنف له أكثر من 3 أحجام: يأخذ عرض الصف كله (بدل عمود طويل يشدّ الصنف المجاور) وتُعرض أحجامه في عمودين
+          const isWide = !!(item.sizes && item.sizes.filter((s: any) => s.is_active).length > 3)
           return (
             <div key={item.id} className="item-card" data-cat={item.category_id} data-disc={hasDiscount ? '1' : '0'}
               style={{
-                background:C.bg2, borderRadius:18, overflow:'hidden',
+                background:C.bg2, borderRadius:18, overflow:'hidden', gridColumn: isWide ? '1 / -1' : undefined,
                 border: `2px dashed ${qty > 0 ? C.blue1 : C.border2}`,
                 cursor:'pointer', position:'relative', display:'flex', flexDirection:'column',
                 boxShadow: qty > 0 ? `0 8px 22px ${C.glow}` : '0 3px 12px rgba(0,180,180,.07)',
@@ -2194,7 +2196,7 @@ const filteredItems = items
               onClick={() => { setSelectedItem(item); setSelectedSize(null) }}>
 
               {/* ── Image ── */}
-              <div style={{ position:'relative', width:'100%', height:190, background:'#EAFDFD', flexShrink:0 }}>
+              <div style={{ position:'relative', width:'100%', height: isWide ? 150 : 190, background:'#EAFDFD', flexShrink:0 }}>
                 {item.image_url
                   ? <img src={item.image_url} alt={item.name_en} loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:34 }}>🍽️</div>
@@ -2241,7 +2243,7 @@ const filteredItems = items
 
                 {hasSizes ? (
                   // ✅ Multiple sizes — each size in its own clear row
-                  <div style={{ display:'flex', flexDirection:'column', gap:5, marginTop:2 }}>
+                  <div style={isWide ? { display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginTop:2 } : { display:'flex', flexDirection:'column', gap:5, marginTop:2 }}>
                     {item.sizes!.filter((s: any) => s.is_active).map((size: any) => {
                       const sizeQty = getQty(item.id, size.id)
                       const key = `${item.id}_${size.id}`
@@ -2249,12 +2251,12 @@ const filteredItems = items
                         <div key={size.id}
                           onClick={e => e.stopPropagation()}
                           style={{
-                            display:'flex', alignItems:'center', justifyContent:'space-between',
+                            display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap: isWide ? 'wrap' : 'nowrap',
                             background: sizeQty > 0 ? `rgba(0,180,180,0.08)` : '#F4FDFD',
                             border: `1px solid ${sizeQty > 0 ? C.blue1 : C.border}`,
                             borderRadius:10, padding:'5px 8px', gap:6,
                           }}>
-                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms, size.name_zh, size.name_ru)}</span>
+                          <span style={{ fontSize:9.5, color: sizeQty > 0 ? C.blue1 : C.silver2, fontWeight:700, flex: isWide ? '1 1 100%' : 1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{dishName(size.name, size.name_en, size.name_ms, size.name_zh, size.name_ru)}</span>
                           <span style={{ fontSize:9.5, fontWeight:900, color:C.white, whiteSpace:'nowrap' }}>MYR {size.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           {sizeQty > 0 ? (
                             <div style={{ display:'flex', alignItems:'center', gap:3 }}>

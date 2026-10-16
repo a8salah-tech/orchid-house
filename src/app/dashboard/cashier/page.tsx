@@ -2442,8 +2442,20 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
     const { data: all } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', order.id)
     const newTotal = (all || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
     await sb.from('orders').update({ total_amount: newTotal }).eq('id', order.id)
+    // لو لم يبق صنف نشط في الطلب: نقفله ونفرّغ الطاولة (وإلا تظل حمراء "مشغولة" وهي فارغة)
+    if (!(all || []).some(i => i.status !== 'cancelled')) await closeEmpty()
     setBusy(null)
     onCharged()
+  }
+
+  // يقفل طلب طاولة الموظفين الفارغ (كل أصنافه حُمِّلت على الرواتب) بإجمالي صفر ويفرّغ الطاولة — لا يدخل في كاش/فيزا لأن إجماليه صفر
+  async function closeEmpty() {
+    await sb.from('orders').update({
+      status: 'paid', payment_method: 'cash', total_amount: 0, discount_amount: 0, discount_type: 'none', service_charge: 0, sst_amount: 0,
+      paid_at: new Date().toISOString(), paid_by: actorId || null, paid_by_name: actorName,
+      notes: [order.notes, '👥 Staff meals charged to payroll'].filter(Boolean).join(' | '),
+    }).eq('id', order.id)
+    await sb.from('tables').update({ status: 'available', current_order_id: null, occupied_since: null, redirected_to_table_id: null, redirected_at: null }).eq('id', order.table_id)
   }
 
   const entries = [...groups.entries()]
@@ -2459,7 +2471,13 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {entries.length === 0 ? (
-            <div style={{ textAlign: 'center', color: S.muted, padding: 30 }}>No items on the Staff table</div>
+            <div style={{ textAlign: 'center', color: S.muted, padding: 30 }}>
+              No items on the Staff table
+              <div style={{ marginTop: 14 }}>
+                <button onClick={async () => { setBusy('__close'); await closeEmpty(); setBusy(null); onCharged(); onClose() }} disabled={busy !== null}
+                  style={{ padding: '10px 18px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontWeight: 800, fontFamily: 'Tajawal, sans-serif' }}>✅ Close empty table</button>
+              </div>
+            </div>
           ) : entries.map(([who, items]) => (
             <div key={who || '__none'} style={{ background: S.card, border: `1px solid ${who ? S.teal + '50' : S.red + '60'}`, borderRadius: 14, padding: 14 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: who ? S.white : S.red, marginBottom: 6 }}>{who ? `👤 ${who}` : '⚠️ No employee name on these items'}</div>

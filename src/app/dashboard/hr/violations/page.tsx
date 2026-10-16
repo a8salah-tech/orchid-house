@@ -155,9 +155,9 @@ export default function ViolationsPage() {
   // ✅ المشرف العام يقدر يضيف مخالفة، لكنها تُسجَّل "بانتظار اعتماد مدير النظام" ولا تُخصم إلا بعد اعتماد الأدمن
   const canAdd = canManage || isBranchViewer || isDeptAssistant
   const canAccessPage = canManage || isSelfOnly || isBranchViewer || isDeptAssistant
-  const canViewEvaluations = isAdmin || isBranchManager || isDeptManager
+  const canViewEvaluations = isAdmin || isBranchManager || isDeptManager || isDeptAssistant
   // ✅ بعد اعتماد التقييم، يظهر تفاصيله بس لمدير القسم والأدمن (حتى مدير الفرع مايشوفوش بعد الاعتماد)
-  const canViewApprovedEvaluations = isAdmin || isDeptManager
+  const canViewApprovedEvaluations = isAdmin || isDeptManager || isDeptAssistant
 
   const [violations, setViolations] = useState<any[]>([])
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
@@ -1012,7 +1012,7 @@ export default function ViolationsPage() {
                   </div>
                 )}
                 {/* Manager buttons: Approve submitted evaluations */}
-                {canEdit && isDeptManager && ex?.status === 'submitted' && (
+                {canEdit && (isDeptManager || isDeptAssistant) && ex?.status === 'submitted' && (
                   <div style={{display:'flex',gap:10}}>
                     <button onClick={()=>saveEval(emp.id,'draft')} disabled={evalSaving===emp.id}
                       style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.red}`,background:S.redB,color:S.red,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
@@ -1034,7 +1034,7 @@ export default function ViolationsPage() {
                   </div>
                 )}
                 {/* Draft - manager can also write and approve directly */}
-                {canEdit && (isDeptManager||isAdmin||isBranchManager) && (!ex || ex?.status === 'draft') && (
+                {canEdit && (isDeptManager||isDeptAssistant||isAdmin||isBranchManager) && (!ex || ex?.status === 'draft') && (
                   <div style={{display:'flex',gap:10}}>
                     <button onClick={()=>saveEval(emp.id,'draft')} disabled={evalSaving===emp.id}
                       style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.blue}`,background:S.blueB,color:S.blue,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>

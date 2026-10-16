@@ -2387,14 +2387,17 @@ function MetricDetailPanel({ metricKey, paidOrders, freeOrders, staffOrders, can
 // ══ طاولة الموظفين: تحميل وجبات كل موظف على راتبه من نفس الطاولة ══
 // الطلب المفتوح على طاولة الموظفين فيه أصناف عدة موظفين (اسم الموظف مكتوب على كل صنف). هنا تُجمَّع الأصناف حسب الموظف،
 // وزر "تحميل على الراتب" لكل موظف يخصم عليه المبلغ ويشطب أصنافه من الفاتورة (نفس آلية "وجبة شخصية" الحالية)، ويمكن تكراره في اليوم
-function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName, canPay, onClose, onPay, onCharged }: {
+function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName, canPay, onClose, onPay, onCharged, onNotice }: {
   order: Order; discountPercent: number; branchId?: string; actorId?: string; actorName: string; canPay: boolean
-  onClose: () => void; onPay: () => void; onCharged: () => void
+  onClose: () => void; onPay: () => void; onCharged: () => void; onNotice: (msg: string) => void
 }) {
   const sb = createClient()
   type Emp = { id: string; name: string; name_en: string | null; employee_number: string | null }
   const [staff, setStaff] = useState<Emp[]>([])
   const [busy, setBusy] = useState<string | null>(null)
+  // ✅ تأكيد داخل الصفحة (بدل نافذة المتصفح) + رسائل الخطأ داخل النافذة
+  const [ask, setAsk] = useState<{ who: string; items: Order['order_items']; net: number } | null>(null)
+  const [errMsg, setErrMsg] = useState<string | null>(null)
   useEffect(() => {
     sb.from('employees').select('id,name,name_en,employee_number').eq('is_active', true).eq('branch_id', branchId || '')
       .then(({ data }) => setStaff((data as Emp[]) || []))
@@ -2415,13 +2418,23 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
   const netOf = (items: typeof activeItems) => round2(grossOf(items) * (1 - (discountPercent || 0) / 100))
   const itemName = (i: (typeof activeItems)[number]) => `${i.menu_items?.name_en || i.menu_items?.name || '?'}${i.size_name ? ` (${i.size_name})` : ''} ×${i.quantity}`
 
+  // الضغط على زر "Charge to payroll": نفحص ثم نعرض لوحة التأكيد داخل النافذة
+  function askCharge(who: string, items: typeof activeItems) {
+    if (busy) return
+    setErrMsg(null)
+    if (!staff.find(e => labelOf(e) === who)) { setErrMsg('⚠️ Employee not found in this branch — check the name on these items.'); return }
+    const net = netOf(items)
+    if (!(net > 0)) { setErrMsg('⚠️ Nothing to charge.'); return }
+    setAsk({ who, items, net })
+  }
+
   async function charge(who: string, items: typeof activeItems) {
     if (busy) return
     const emp = staff.find(e => labelOf(e) === who)
-    if (!emp) { alert('⚠️ Employee not found in this branch — check the name on these items.'); return }
+    if (!emp) { setErrMsg('⚠️ Employee not found in this branch — check the name on these items.'); return }
     const net = netOf(items)
-    if (!(net > 0)) { alert('⚠️ Nothing to charge.'); return }
-    if (!confirm(`Charge MYR ${money(net)} to ${who}'s payroll and remove these items from the bill?`)) return
+    if (!(net > 0)) { setErrMsg('⚠️ Nothing to charge.'); return }
+    setAsk(null)
     setBusy(who)
     const itemsText = items.map(itemName).join(', ').slice(0, 160)
     const reason = `🍽️ خصم كاشير - وجبة شخصية: ${itemsText} (يتحمّل الموظف ${round2(100 - (discountPercent || 0))}% من السعر)`
@@ -2429,14 +2442,14 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
     // 1) خصم من الراتب (نفس جدول المخالفات بحالة نشطة)
     const { data: viol, error: vErr } = await sb.from('violations').insert([{
       employee_id: emp.id, amount: net, reason, kind: 'personal_meal', date: myDate, created_by: actorId, status: 'active',
-    }]).select('id').maybeSingle()
-    if (vErr || !viol) { setBusy(null); alert('❌ ' + (vErr?.message || 'Failed to record the deduction')); return }
+    }]).select('id, status').maybeSingle()
+    if (vErr || !viol) { setBusy(null); setErrMsg('❌ ' + (vErr?.message || 'Failed to record the deduction')); return }
     // 2) شطب أصناف الموظف من الفاتورة؛ لو فشل نتراجع عن الخصم حتى لا يبقى مخصومًا بلا شطب
     const { error: uErr } = await sb.from('order_items').update({ status: 'cancelled', cancel_reason: reason, cancelled_at: new Date().toISOString(), action_by: actorName })
       .in('id', items.map(i => i.id))
     if (uErr) {
       await sb.from('violations').delete().eq('id', viol.id)
-      setBusy(null); alert('❌ ' + uErr.message); return
+      setBusy(null); setErrMsg('❌ ' + uErr.message); return
     }
     // 3) إعادة حساب إجمالي الفاتورة
     const { data: all } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', order.id)
@@ -2445,6 +2458,10 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
     // لو لم يبق صنف نشط في الطلب: نقفله ونفرّغ الطاولة (وإلا تظل حمراء "مشغولة" وهي فارغة)
     if (!(all || []).some(i => i.status !== 'cancelled')) await closeEmpty()
     setBusy(null)
+    // مخالفات المشرف العام تُحفظ "بانتظار اعتماد مدير النظام" ولا تُخصم قبل اعتمادها — نوضّح ذلك بدل الصمت
+    onNotice(viol.status === 'active'
+      ? `✅ MYR ${money(net)} charged to ${who}'s payroll`
+      : `⏳ MYR ${money(net)} recorded for ${who} — waiting for system admin approval (not deducted yet)`)
     onCharged()
   }
 
@@ -2461,7 +2478,22 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
   const entries = [...groups.entries()]
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ position: 'relative', background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+        {/* ✅ تأكيد التحميل داخل الصفحة */}
+        {ask && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 5, background: 'rgba(10,22,40,0.94)', borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 22 }}>
+            <div style={{ width: '100%', maxWidth: 420, background: S.navy3, border: `1px solid ${S.amber}`, borderRadius: 16, padding: 20, textAlign: 'center' }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: S.white, marginBottom: 6 }}>💳 Confirm charge to payroll</div>
+              <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>{ask.who}</div>
+              <div style={{ fontSize: 26, fontWeight: 900, color: S.gold, marginBottom: 6 }}>MYR {money(ask.net)}</div>
+              <div style={{ fontSize: 11.5, color: S.muted, marginBottom: 16 }}>{(ask.items || []).map(itemName).join('، ')}<br />These items will be removed from the bill.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setAsk(null)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Back</button>
+                <button onClick={() => charge(ask.who, ask.items as typeof activeItems)} style={{ flex: 1.4, padding: '11px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amber, color: S.navy, cursor: 'pointer', fontSize: 14, fontWeight: 900, fontFamily: 'Tajawal, sans-serif' }}>✅ Confirm</button>
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{ padding: '18px 22px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 800, color: S.teal }}>👥 {order.tables?.name || 'Staff'}</div>
@@ -2470,6 +2502,7 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {errMsg && <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: S.red, fontWeight: 700 }}>{errMsg}</div>}
           {entries.length === 0 ? (
             <div style={{ textAlign: 'center', color: S.muted, padding: 30 }}>
               No items on the Staff table
@@ -2492,7 +2525,7 @@ function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName
                     <div style={{ fontSize: 10, color: S.muted }}>Employee pays</div>
                     <div style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>MYR {money(netOf(items))}</div>
                   </div>
-                  <button onClick={() => charge(who, items)} disabled={busy !== null}
+                  <button onClick={() => askCharge(who, items)} disabled={busy !== null}
                     style={{ padding: '10px 16px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: busy ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 800, fontFamily: 'Tajawal, sans-serif' }}>
                     {busy === who ? '⏳...' : '💳 Charge to payroll'}
                   </button>
@@ -4959,7 +4992,8 @@ export default function CashierPage() {
           actorId={employee?.id} actorName={employee?.name || employee?.name_en || 'Unknown'} canPay={isCashierRole}
           onClose={() => setStaffChargeTableId(null)}
           onPay={() => { setStaffChargeTableId(null); setPayOrder(o) }}
-          onCharged={() => fetchAll()} />
+          onCharged={() => fetchAll()}
+          onNotice={(m) => { setNotif(m); setTimeout(() => setNotif(null), 9000) }} />
       })()}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} branchId={addOrderTable.branch_id} isStaffTable={addOrderTable.section === 'staff'} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
       {/* ✅ جديد: مودال اختيار الطاولة الشريكة للدمج المؤقت */}

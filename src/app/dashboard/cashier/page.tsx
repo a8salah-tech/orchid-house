@@ -2384,6 +2384,118 @@ function MetricDetailPanel({ metricKey, paidOrders, freeOrders, staffOrders, can
   )
 }
 
+// ══ طاولة الموظفين: تحميل وجبات كل موظف على راتبه من نفس الطاولة ══
+// الطلب المفتوح على طاولة الموظفين فيه أصناف عدة موظفين (اسم الموظف مكتوب على كل صنف). هنا تُجمَّع الأصناف حسب الموظف،
+// وزر "تحميل على الراتب" لكل موظف يخصم عليه المبلغ ويشطب أصنافه من الفاتورة (نفس آلية "وجبة شخصية" الحالية)، ويمكن تكراره في اليوم
+function StaffChargeModal({ order, discountPercent, branchId, actorId, actorName, canPay, onClose, onPay, onCharged }: {
+  order: Order; discountPercent: number; branchId?: string; actorId?: string; actorName: string; canPay: boolean
+  onClose: () => void; onPay: () => void; onCharged: () => void
+}) {
+  const sb = createClient()
+  type Emp = { id: string; name: string; name_en: string | null; employee_number: string | null }
+  const [staff, setStaff] = useState<Emp[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  useEffect(() => {
+    sb.from('employees').select('id,name,name_en,employee_number').eq('is_active', true).eq('branch_id', branchId || '')
+      .then(({ data }) => setStaff((data as Emp[]) || []))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId])
+  const labelOf = (e: Emp) => `${e.name}${e.name_en ? ' ' + e.name_en : ''}${e.employee_number ? ' #' + e.employee_number : ''}`
+  const money = (v: number) => v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const round2 = (v: number) => Math.round(v * 100) / 100
+
+  const activeItems = (order.order_items || []).filter(i => i.status !== 'cancelled')
+  const groups = new Map<string, typeof activeItems>()
+  for (const i of activeItems) {
+    const who = staffWho(i.notes) || ''
+    groups.set(who, [...(groups.get(who) || []), i])
+  }
+  const grossOf = (items: typeof activeItems) => items.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+  // المبلغ على الموظف = السعر بعد نسبة الطاولة (بدون ذكر الخصم في الواجهة)
+  const netOf = (items: typeof activeItems) => round2(grossOf(items) * (1 - (discountPercent || 0) / 100))
+  const itemName = (i: (typeof activeItems)[number]) => `${i.menu_items?.name_en || i.menu_items?.name || '?'}${i.size_name ? ` (${i.size_name})` : ''} ×${i.quantity}`
+
+  async function charge(who: string, items: typeof activeItems) {
+    if (busy) return
+    const emp = staff.find(e => labelOf(e) === who)
+    if (!emp) { alert('⚠️ Employee not found in this branch — check the name on these items.'); return }
+    const net = netOf(items)
+    if (!(net > 0)) { alert('⚠️ Nothing to charge.'); return }
+    if (!confirm(`Charge MYR ${money(net)} to ${who}'s payroll and remove these items from the bill?`)) return
+    setBusy(who)
+    const itemsText = items.map(itemName).join(', ').slice(0, 160)
+    const reason = `🍽️ خصم كاشير - وجبة شخصية: ${itemsText} (يتحمّل الموظف ${round2(100 - (discountPercent || 0))}% من السعر)`
+    const myDate = new Date(new Date().getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10) // تاريخ ماليزيا
+    // 1) خصم من الراتب (نفس جدول المخالفات بحالة نشطة)
+    const { data: viol, error: vErr } = await sb.from('violations').insert([{
+      employee_id: emp.id, amount: net, reason, kind: 'personal_meal', date: myDate, created_by: actorId, status: 'active',
+    }]).select('id').maybeSingle()
+    if (vErr || !viol) { setBusy(null); alert('❌ ' + (vErr?.message || 'Failed to record the deduction')); return }
+    // 2) شطب أصناف الموظف من الفاتورة؛ لو فشل نتراجع عن الخصم حتى لا يبقى مخصومًا بلا شطب
+    const { error: uErr } = await sb.from('order_items').update({ status: 'cancelled', cancel_reason: reason, cancelled_at: new Date().toISOString(), action_by: actorName })
+      .in('id', items.map(i => i.id))
+    if (uErr) {
+      await sb.from('violations').delete().eq('id', viol.id)
+      setBusy(null); alert('❌ ' + uErr.message); return
+    }
+    // 3) إعادة حساب إجمالي الفاتورة
+    const { data: all } = await sb.from('order_items').select('unit_price, quantity, status').eq('order_id', order.id)
+    const newTotal = (all || []).filter(i => i.status !== 'cancelled').reduce((s, i) => s + i.unit_price * i.quantity, 0)
+    await sb.from('orders').update({ total_amount: newTotal }).eq('id', order.id)
+    setBusy(null)
+    onCharged()
+  }
+
+  const entries = [...groups.entries()]
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 560, maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '18px 22px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: S.teal }}>👥 {order.tables?.name || 'Staff'}</div>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>Charge each employee&apos;s meals to payroll</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 22, cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {entries.length === 0 ? (
+            <div style={{ textAlign: 'center', color: S.muted, padding: 30 }}>No items on the Staff table</div>
+          ) : entries.map(([who, items]) => (
+            <div key={who || '__none'} style={{ background: S.card, border: `1px solid ${who ? S.teal + '50' : S.red + '60'}`, borderRadius: 14, padding: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: who ? S.white : S.red, marginBottom: 6 }}>{who ? `👤 ${who}` : '⚠️ No employee name on these items'}</div>
+              {items.map(i => (
+                <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: S.muted, padding: '2px 0' }}>
+                  <span>{itemName(i)}</span>
+                </div>
+              ))}
+              {who ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: S.muted }}>Employee pays</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: S.gold }}>MYR {money(netOf(items))}</div>
+                  </div>
+                  <button onClick={() => charge(who, items)} disabled={busy !== null}
+                    style={{ padding: '10px 16px', borderRadius: 10, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: busy ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 800, fontFamily: 'Tajawal, sans-serif' }}>
+                    {busy === who ? '⏳...' : '💳 Charge to payroll'}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: S.red, marginTop: 8 }}>These items can&apos;t be charged — no employee name. Ask an admin to cancel them.</div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: '12px 18px', borderTop: `1px solid ${S.border}`, display: 'flex', gap: 10 }}>
+          {canPay && entries.length > 0 && (
+            <button onClick={onPay} style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 Invoice / Pay</button>
+          )}
+          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ══ Main ══
 function TransferTableModal({ order, tables, isCashierRole, onClose, onTransferred }: { order: Order; tables: TableRow[]; isCashierRole?: boolean; onClose: () => void; onTransferred: () => void }) {
   const sb = createClient()
@@ -2695,6 +2807,9 @@ export default function CashierPage() {
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [transferOrder, setTransferOrder] = useState<Order | null>(null)
   const [addOrderTable, setAddOrderTable] = useState<TableRow | null>(null)
+  // ✅ طاولة الموظفين: نافذة تحميل وجبات كل موظف على راتبه — للكاشير ومساعد الكاشير (ومدير النظام)
+  const [staffChargeTableId, setStaffChargeTableId] = useState<string | null>(null)
+  const canStaffCharge = isCashierRole || employee?.role === 'assistant_cashier'
   // ✅ جديد: الطاولة اللي بندمجها حاليًا (يفتح مودال اختيار الطاولة الشريكة)
   const [mergePickerTable, setMergePickerTable] = useState<TableRow | null>(null)
   const [view, setView] = useState<'orders' | 'tables' | 'archive' | 'calls'>('tables')
@@ -3779,6 +3894,8 @@ export default function CashierPage() {
                       // ✅ جديد: طاولة "Cancellation" لها عرض خاص مجمّع (كل طلبات الإلغاء في الشيفت مع
                       // السبب لكل واحد) بدل تدفّقها في منطق الدفع/إضافة الطلب العادي للطاولات
                       if (table.section === 'cancel_hub') { openCancelHub(table); return }
+                      // ✅ طاولة الموظفين المشغولة: نافذة التحميل على الراتب حسب الموظف (منها زر للفاتورة/الدفع)
+                      if (table.section === 'staff' && activeOrder && canStaffCharge) { setStaffChargeTableId(table.id); return }
                       if (activeOrder) {
                         // جيب كل الطلبات النشطة للطاولة
                         let tableOrders = orders.filter(o => o.table_id === table.id && ['confirmed','preparing','ready'].includes(o.status))
@@ -3843,6 +3960,11 @@ export default function CashierPage() {
                       const sstPct = table.sst_percent ?? 6
                       const discPct = table.discount_percent || 0
                       const raw = activeOrder.total_amount || 0
+                      // ✅ طاولة الموظفين: الرقم الظاهر = ما يتحمّله الموظفون (بدون خدمة/ضريبة وبدون إظهار الخصم)
+                      if (table.section === 'staff') {
+                        const net = Math.round(raw * (1 - discPct / 100) * 100) / 100
+                        return <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {net.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      }
                       const preDiscount = raw + (svcPct > 0 ? raw * svcPct / 100 : 0) + (sstPct > 0 ? raw * sstPct / 100 : 0)
                       const withFees = discPct > 0 ? preDiscount * (1 - discPct / 100) : preDiscount
                       return <div style={{ fontSize: 10, color: S.gold, marginTop: 2 }}>MYR {withFees.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
@@ -4811,6 +4933,16 @@ export default function CashierPage() {
           onTransferred={() => { setTransferOrder(null); fetchAll() }}
         />
       )}
+      {staffChargeTableId && (() => {
+        const t = tables.find(x => x.id === staffChargeTableId)
+        const o = orders.find(x => x.table_id === staffChargeTableId && ['confirmed', 'preparing', 'ready'].includes(x.status))
+        if (!t || !o) return null
+        return <StaffChargeModal order={o} discountPercent={t.discount_percent || 0} branchId={t.branch_id}
+          actorId={employee?.id} actorName={employee?.name || employee?.name_en || 'Unknown'} canPay={isCashierRole}
+          onClose={() => setStaffChargeTableId(null)}
+          onPay={() => { setStaffChargeTableId(null); setPayOrder(o) }}
+          onCharged={() => fetchAll()} />
+      })()}
       {addOrderTable && <AddOrderModal tableId={addOrderTable.id} tableName={addOrderTable.name || `Table ${addOrderTable.number}`} branchId={addOrderTable.branch_id} isStaffTable={addOrderTable.section === 'staff'} onClose={() => setAddOrderTable(null)} onSaved={() => { setAddOrderTable(null); fetchAll() }} />}
       {/* ✅ جديد: مودال اختيار الطاولة الشريكة للدمج المؤقت */}
       {mergePickerTable && (

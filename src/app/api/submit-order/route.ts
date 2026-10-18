@@ -154,6 +154,7 @@ export async function POST(req: NextRequest) {
         size_name: sizeName,
         destination: catMap.get(mi.category_id) || 'kitchen',
         status: 'pending',
+        source: 'qr',
       })
     }
     serverTotal = parseFloat(serverTotal.toFixed(2))
@@ -203,6 +204,11 @@ export async function POST(req: NextRequest) {
     // ── إدراج البنود مع 3 محاولات ──
     const payloadWithOrder = itemsPayload.map((p) => ({ ...p, order_id: orderId }))
     let itemsError = (await sb.from('order_items').insert(payloadWithOrder)).error
+    // ✅ لو عمود source لم يُضَف بعد (db/order_items_source.sql) نعيد الإدراج بدونه حتى لا يتعطل طلب العميل
+    if (itemsError && /source/i.test(itemsError.message || '')) {
+      payloadWithOrder.forEach((p) => { delete p.source })
+      itemsError = (await sb.from('order_items').insert(payloadWithOrder)).error
+    }
     let attemptCount = 1
     while (itemsError && attemptCount < 3) {
       await sleep(500)

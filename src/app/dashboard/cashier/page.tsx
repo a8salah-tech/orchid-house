@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { orderCode } from '../../../lib/orderCode'
+import SourceTag from '../../components/SourceTag'
 import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 
@@ -415,7 +416,7 @@ type TableRow = { id: string; number: number; name: string; status: string; is_a
 // ✅ قفل الطاولات الفارغة: طاولة صالة (مش تيك أواي/موظفين/كنسلة) عمود opened_at موجود فيها → لازم الكاشير يفتحها قبل ما العميل يطلب من المنيو.
 // ('opened_at' in t) عشان لو SQL لسه ما اتشغّلش ما تتقفلش كل الطاولات بالغلط)
 const isLockableTable = (t: TableRow) => 'opened_at' in t && !['takeaway', 'staff', 'cancel_hub'].includes(t.section || '')
-type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
+type OrderItem = { id: string; quantity: number; unit_price: number; notes: string; size_name?: string | null; source?: string | null; destination: string; status: string; created_at?: string; cancel_reason?: string | null; menu_items: { name: string; name_en: string; or_code?: string } }
 type Order = {
   id: string; table_id: string; status: string; total_amount: number
   discount_amount: number; discount_type: string; payment_method: string
@@ -1223,7 +1224,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
                     <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
                       {/* ✅ Fix: الكود أولًا ثم الاسم بجانبه مباشرة - نفس ترتيب "#246 Cafe Latte" */}
                       {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
-                      <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                      <span><SourceTag source={i.source} />{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                     </span>
                     <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
@@ -1691,6 +1692,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
 // ══ Add Order Modal ══
 function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, onSaved }: { tableId: string; tableName: string; branchId?: string; isStaffTable?: boolean; onClose: () => void; onSaved: () => void }) {
   const sb = createClient()
+  const { employee, permissions } = useAuth()
   // ✅ طاولة الموظفين: لازم نختار الموظف اللي هياخد الوجبة، ويتسجل اسمه على كل صنف (يظهر للمطبخ والفاتورة وملخص الشيفت)
   const [staffList, setStaffList] = useState<{ id: string; name: string; name_en: string | null; employee_number: string | null }[]>([])
   const [staffSearch, setStaffSearch] = useState('')
@@ -1844,7 +1846,10 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
       if (!newOrder) { setSaving(false); return }
       orderId = newOrder.id
     }
-    await sb.from('order_items').insert(cart.map(c => ({
+    // ✅ علامة من أضاف الصنف: الكاشير/مساعده/موظف آخر (ويظهر QR لأصناف العميل)
+    const srcRole = employee?.role || ''
+    const itemSource = (permissions?.all === true || srcRole === 'cashier' || srcRole === 'general_supervisor') ? 'cashier' : srcRole === 'assistant_cashier' ? 'assistant_cashier' : 'staff'
+    const itemRows = cart.map(c => ({
       order_id: orderId, menu_item_id: c.item.id,
       quantity: c.qty, unit_price: c.selectedSize?.price ?? c.item.price,
       // ✅ جديد: نسجل اسم النوع/الحجم المختار (زي نوع الشيشة) عشان يظهر بوضوح للمطبخ والفاتورة
@@ -1852,7 +1857,10 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
       // ✅ طاولة الموظفين: اسم الموظف بيتسجل في بداية ملاحظة كل صنف (staffWho بتقراه في ملخص الشيفت)
       notes: isStaffTable && staffPick ? (STAFF_TAG + staffPick.label + (c.notes ? ' — ' + c.notes : '')) : (c.notes || null), status: 'pending',
       destination: 'kitchen',
-    })))
+    }))
+    // لو عمود source لم يُضَف بعد (db/order_items_source.sql) نُدرج بدونه حتى لا يضيع الطلب
+    const { error: itemsInsErr } = await sb.from('order_items').insert(itemRows.map(r => ({ ...r, source: itemSource })))
+    if (itemsInsErr && /source/i.test(itemsInsErr.message || '')) await sb.from('order_items').insert(itemRows)
     // ✅ Fix حرج: وقت الجلوس (occupied_since) بقى يتسجل بس مع أول طلب حقيقي على الطاولة، مش مع كل جولة إضافية -
     // قبل كده كان بيتحدّث في كل مرة (حتى لو الطاولة شغالة بالفعل)، فالعداد الظاهر على الطاولة كان بيرجع للصفر
     // مع كل جولة جديدة، بدل ما يفضل من أول ما العميل قعد فعليًا
@@ -2693,7 +2701,7 @@ export default function CashierPage() {
     setCancelHubTable(table)
     setCancelHubLoading(true)
     const since = shiftStart ? shiftStart.toISOString() : new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
-    const SEL_HUB = `id,table_id,status,total_amount,created_at,cancel_reason,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,menu_items(name,name_en))`
+    const SEL_HUB = `id,table_id,status,total_amount,created_at,cancel_reason,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section),order_items(id,quantity,unit_price,notes,size_name,destination,status,source,menu_items(name,name_en))`
     const { data } = await sb.from('orders').select(SEL_HUB).eq('table_id', table.id).gte('created_at', since).order('created_at', { ascending: false })
     setCancelHubOrders((data as any) || [])
     setCancelHubLoading(false)
@@ -2885,7 +2893,7 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,source,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
     if (archiveDate) {
       // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
@@ -2947,7 +2955,7 @@ export default function CashierPage() {
   // من قاعدة البيانات لسه مش متزامنة تمامًا (تأخير طبيعي بسيط)، منمنعهاش من إرجاع الطلب المدفوع للشاشة بالغلط
   const recentlyPaidTableIdsRef = useRef<Set<string>>(new Set())
   const fetchAll = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,source,menu_items(name,name_en,or_code))`
     let tablesQuery = sb.from('tables').select('*').order('number')
     // ✅ غير الأدمن يشوف بس طاولات فرعه
     if (!isAdmin && employee?.branch_id) tablesQuery = tablesQuery.eq('branch_id', employee.branch_id)
@@ -3022,7 +3030,7 @@ export default function CashierPage() {
 
   // Separate fetch for shift report (paid orders)
   const fetchPaidOrders = useCallback(async () => {
-    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,source,menu_items(name,name_en,or_code))`
     const { data } = await sb.from('orders').select(SEL).eq('status', 'paid').order('paid_at', { ascending: false }).limit(200)
     return (data as any) || []
   }, [sb])
@@ -3195,7 +3203,7 @@ export default function CashierPage() {
       if (new Date(sEnd).getTime() > new Date(ordersRangeEnd).getTime()) ordersRangeEnd = sEnd
     }
 
-    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,menu_items(name,name_en,or_code))`
+    const SEL_CLOSED = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,source,menu_items(name,name_en,or_code))`
     // ✅ الطلبات المدفوعة بنحدد نطاقها بـ paid_at (وقت القفل الفعلي) على مدى النطاق الموسّع (يغطي شيفتات عابرة لمنتصف الليل)
     // والملغية (مالهاش paid_at) بتتحدد بـ created_at من بداية اليوم الفعلي لحد نهاية النطاق الموسّع (ordersRangeEnd) —
     // مش dayEnd — وإلا طلب اتلغى بعد نص الليل داخل شيفت بدأ قبله يقع في فجوة: ما يظهرش في شيفته ولا في اليوم اللي بعده
@@ -4589,7 +4597,7 @@ export default function CashierPage() {
                               <div>
                                 {(o.order_items || []).map(i => (
                                   <div key={i.id} style={{ fontSize: 12, padding: '2px 0', color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
-                                    {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                                    <SourceTag source={i.source} />{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
                                     {i.notes && <span style={{ color: S.gold, fontSize: 10 }}> · 📝 {i.notes}</span>}
                                   </div>
                                 ))}
@@ -4684,7 +4692,7 @@ export default function CashierPage() {
                               <div key={i.id} style={{ padding: '3px 0', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                                   <span style={{ color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none', flex: 1 }}>
-                                    {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                                    <SourceTag source={i.source} />{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
                                   </span>
                                   {isCashierRole && i.status !== 'cancelled' && !['paid', 'cancelled'].includes(order.status) && (
                                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -4929,7 +4937,7 @@ export default function CashierPage() {
                       <div>
                         {(o.order_items || []).map(i => (
                           <div key={i.id} style={{ fontSize: 12, padding: '2px 0', color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
-                            {i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
+                            <SourceTag source={i.source} />{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span>
                           </div>
                         ))}
                       </div>
@@ -5339,7 +5347,7 @@ export default function CashierPage() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: i.status === 'cancelled' ? S.muted : S.white, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>
                           {i.menu_items?.or_code && <span style={{ fontWeight: 700, color: S.gold }}>#{i.menu_items.or_code}</span>}
-                          <span>{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
+                          <span><SourceTag source={i.source} />{i.menu_items?.name_en || i.menu_items?.name || '⚠️ Removed Item'}{i.size_name ? ` (${i.size_name})` : ''} <span style={{ color: S.muted }}>×{i.quantity}</span></span>
                         </span>
                         <span style={{ color: i.status === 'cancelled' ? S.muted : S.gold, textDecoration: i.status === 'cancelled' ? 'line-through' : 'none' }}>MYR {(i.unit_price * i.quantity).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>

@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { orderCode } from '../../../lib/orderCode'
+import SourceTag from '../../components/SourceTag'
 import { createBrowserClient } from '@supabase/ssr'
 // ⚠️ ملحوظة: عدّل مسار الاستيراد ده لو مكان الملف مختلف عن نمط dashboard/*/page.tsx المعتاد
 import { useAuth } from '../../components/AuthProvider'
@@ -31,6 +32,7 @@ type OrderItem = {
   size_name?: string | null
   cancel_reason?: string | null
   cancelled_at?: string | null
+  source?: string | null
   menu_items: { id: string; name: string; name_en: string; menu_categories?: { name_en: string } | null }
 }
 
@@ -460,7 +462,7 @@ export default function KitchenPage() {
     const { data } = await sb.from('orders').select(`
       id, status, created_at,
       tables(number, name, branch_id, branches(name)),
-      order_items(id, quantity, notes, status, destination, created_at, ready_at, size_name, cancel_reason, cancelled_at, menu_items(id, name, name_en, menu_categories(name_en)))
+      order_items(id, quantity, notes, status, destination, created_at, ready_at, size_name, cancel_reason, cancelled_at, source, menu_items(id, name, name_en, menu_categories(name_en)))
     `)
       // ✅ Fix: بنجيب الطلبات الملغاة كمان (مش بس confirmed/preparing/ready) - عشان تفضل ظاهرة في المطبخ بدل ما تختفي فورًا
       .in('status', ['confirmed', 'preparing', 'ready', 'cancelled']).order('created_at', { ascending: false }) // ✅ Fix: الطلب الأحدث دلوقتي يظهر أول واحد فوق
@@ -836,7 +838,7 @@ export default function KitchenPage() {
                             <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: isCancelled ? S.redB : item.status === 'ready' ? S.greenB : S.card, borderRadius: 10, border: `1px solid ${isCancelled ? S.red + '60' : item.status === 'ready' ? S.green + '40' : S.border}`, opacity: isCancelled ? 0.75 : 1 }}>
                               <div>
                                 <div style={{ color: isCancelled ? S.red : item.status === 'ready' ? S.green : S.white, fontWeight: 700, fontSize: 14, textDecoration: isCancelled ? 'line-through' : 'none' }}>
-                                  {isCancelled ? '❌ ' : item.status === 'ready' ? '✅ ' : ''}{item.menu_items?.name_en || item.menu_items?.name}{item.size_name ? ` (${item.size_name})` : ''}
+                                  {isCancelled ? '❌ ' : item.status === 'ready' ? '✅ ' : ''}<SourceTag source={item.source} />{item.menu_items?.name_en || item.menu_items?.name}{item.size_name ? ` (${item.size_name})` : ''}
                                   <span style={{ color: isCancelled ? S.red : S.gold, marginLeft: 6, fontWeight: 900 }}>×{item.quantity}</span>
                                 </div>
                                 {isCancelled ? (

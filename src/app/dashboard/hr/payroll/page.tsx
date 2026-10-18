@@ -246,6 +246,10 @@ function solidOver(rgba: string, baseHex: string = '#0F2040'): string {
   return `rgb(${mix(baseR, r)}, ${mix(baseG, g)}, ${mix(baseB, b)})`
 }
 
+// ✅ استقالة لم يلتزم صاحبها بمدة الإشعار (قرار مدير النظام): صافي راتبه صفر عن شهر نهاية الخدمة وأي شهر لاحق.
+// المفتاح: `${payroll_month_id}|${employee_id}` — يُملأ عند تحميل الشهر (db/resignation_requests.sql → app_resignation_forfeits)
+const RESIGN_FORFEIT = new Set<string>()
+
 function calcRecord(r: PayrollRecord) {
   const dailyRate   = r.basic_salary / (r.working_days || 30)
   // ✅ قاسم متغيّر حسب ساعات دوام الموظف الفعلية (من شيفته) بدل الرقم الثابت 8 لكل الموظفين
@@ -261,12 +265,14 @@ function calcRecord(r: PayrollRecord) {
   // ✅ إذن الخروج: بسعر ساعة الموظف (hourlyRate) — بعكس التأخير/الخروج المبكر بلا إذن (مبلغ ثابت لكل ساعة)
   const permitDed   = hourlyRate * (r.exit_permit_hours || 0)
   const totalDeductions = absenceDed + lateDed + earlyDed + permitDed + r.insurance + r.tax + r.deduction_1 + r.deduction_2 + r.deduction_3 + (r.personal_meal_deduction || 0) + (r.order_mistake_deduction || 0) + r.advance
-  const netSalary   = totalEarnings - totalDeductions + r.carried_forward
+  const forfeit     = RESIGN_FORFEIT.has(`${r.payroll_month_id}|${r.employee_id}`)
+  // السلفة تبقى ظاهرة في totalDeductions كدَين (لا تُخصم من صفر)
+  const netSalary   = forfeit ? 0 : totalEarnings - totalDeductions + r.carried_forward
   // ✅ جبر الكسور: المبلغ المستحق فقط يُقرَّب لأعلى رينغيت كامل (Math.ceil) لصالح الموظف —
   // صافي الراتب وباقي الخانات تظل بقيمتها الدقيقة بالقروش
   const amountDue   = netSalary > 0 ? Math.ceil(netSalary) : 0
   const balance     = amountDue - r.amount_paid
-  return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, permitDed, totalDeductions, netSalary, amountDue, balance }
+  return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, permitDed, totalDeductions, netSalary, amountDue, balance, forfeit }
 }
 
 function Cell({ value, onChange, readOnly = false, extra, minWidth = 80 }: { value: any; onChange: (v: any) => void; readOnly?: boolean; extra?: React.ReactNode; minWidth?: number }) {
@@ -353,6 +359,11 @@ function PayrollRow({ record, empMap, onChange, onOpenPayslip, readOnly = false,
         {emp?.fixed_salary && (
           <div style={{ fontSize: 9, color: S.gold, marginTop: 2, fontWeight: 700, whiteSpace: 'normal' }} title="راتب ثابت — يُدفع كامل شهرياً بلا احتساب حضور أو غياب">
             📌 راتب ثابت · Fixed salary
+          </div>
+        )}
+        {calc.forfeit && (
+          <div style={{ fontSize: 9, color: S.red, marginTop: 2, fontWeight: 700, whiteSpace: 'normal' }}>
+            استقالة دون التزام بمدة الإشعار — لا راتب{record.advance > 0 ? ` · سلفة قائمة ${fmt(record.advance)}` : ''}
           </div>
         )}
         {record.notes && (record.notes.startsWith('⏸') || record.notes.startsWith('⚠️')) && (
@@ -801,6 +812,16 @@ export default function PayrollPage() {
   async function loadMonthRecords(month: PayrollMonth, branch?: Branch | null) {
     setSelectedMonth(month)
     setSelectedBranch(branch || null)
+
+    // ✅ استقالة لم يلتزم صاحبها بمدة الإشعار: صافي راتبه صفر عن شهر نهاية الخدمة وما بعده (الأشهر السابقة لا تتأثر)
+    RESIGN_FORFEIT.clear()
+    {
+      const { data: fz } = await sb.rpc('app_resignation_forfeits')
+      const ym = `${month.year}-${String(month.month).padStart(2, '0')}`
+      for (const f of (fz || []) as { employee_id: string; final_month: string }[]) {
+        if (ym >= String(f.final_month).slice(0, 7)) RESIGN_FORFEIT.add(`${month.id}|${f.employee_id}`)
+      }
+    }
 
     let emps = employees
     if (emps.length === 0) {

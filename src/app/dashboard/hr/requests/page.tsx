@@ -9,6 +9,7 @@ import { createBrowserClient } from '@supabase/ssr'
 // يثبّت في جدول الحضور نفس القيم اللي كانت هتطلع لو الموظف بصم بالأوقات الصحيحة من الأساس
 import { computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
+import { Stethoscope, Siren, Utensils, TriangleAlert, Lightbulb, ClipboardList, Clock, TrendingUp, Banknote, DoorOpen, CalendarDays, LogOut, CircleCheck, CircleX, Flag, Hourglass, X, Info, Send, Plus, Printer, Trash2, Lock, Check, ChartColumn, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,26 +40,37 @@ const inp: React.CSSProperties = {
   colorScheme: 'dark',
 }
 
-const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: string; color: string; bg: string; hasAmount?: boolean; hasDates?: boolean }> = {
-  leave_sick:    { label: 'إجازة مرضية', label_en: 'Sick Leave',     icon: '🏥', color: S.red,    bg: S.redB,    hasDates: true },
-  leave_emergency:{ label: 'إجازة طارئة', label_en: 'Emergency Leave',    icon: '🚨', color: S.amber,  bg: S.amberB,  hasDates: true },
-  extra_meal:    { label: 'وجبة إضافية', label_en: 'Extra Meal',     icon: '🍽️', color: S.teal,  bg: S.tealB },
-  complaint:     { label: 'شكوى / مشكلة', label_en: 'Complaint / Issue',    icon: '⚠️', color: S.red,   bg: S.redB },
-  suggestion:    { label: 'اقتراح', label_en: 'Suggestion',           icon: '💡', color: S.green,  bg: S.greenB },
-  other:           { label: 'طلب آخر', label_en: 'Other Request',               icon: '📋', color: S.muted,  bg: S.card2 },
-  attendance_correction: { label: 'تصحيح حضور', label_en: 'Attendance Correction', icon: '🕐', color: S.teal, bg: S.tealB, hasDates: true },
-  salary_increase: { label: 'زيادة راتب', label_en: 'Salary Increase', icon: '📈', color: S.green, bg: S.greenB, hasAmount: true },
-  salary_advance:  { label: 'سلفة راتب', label_en: 'Salary Advance',   icon: '💸', color: S.gold,  bg: S.gold3,  hasAmount: true },
-  early_exit_permit: { label: 'إذن خروج مبكر', label_en: 'Early Exit Permit', icon: '🚪', color: S.amber, bg: S.amberB, hasDates: true },
-  shift_assigned:  { label: 'تعيين شيفت', label_en: 'Shift Assigned',  icon: '🗓️', color: S.blue,  bg: S.blueB, hasDates: true },
+// أيقونات خطية (lucide) بدل الإيموجي — نفس لغة تصميم نظام BIDLX
+type IconC = React.ComponentType<{ size?: number; strokeWidth?: number }>
+
+const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: IconC; color: string; bg: string; hasAmount?: boolean; hasDates?: boolean }> = {
+  leave_sick:    { label: 'إجازة مرضية', label_en: 'Sick Leave',     icon: Stethoscope, color: S.red,    bg: S.redB,    hasDates: true },
+  leave_emergency:{ label: 'إجازة طارئة', label_en: 'Emergency Leave',    icon: Siren, color: S.amber,  bg: S.amberB,  hasDates: true },
+  extra_meal:    { label: 'وجبة إضافية', label_en: 'Extra Meal',     icon: Utensils, color: S.teal,  bg: S.tealB },
+  complaint:     { label: 'شكوى / مشكلة', label_en: 'Complaint / Issue',    icon: TriangleAlert, color: S.red,   bg: S.redB },
+  suggestion:    { label: 'اقتراح', label_en: 'Suggestion',           icon: Lightbulb, color: S.green,  bg: S.greenB },
+  other:           { label: 'طلب آخر', label_en: 'Other Request',               icon: ClipboardList, color: S.muted,  bg: S.card2 },
+  attendance_correction: { label: 'تصحيح حضور', label_en: 'Attendance Correction', icon: Clock, color: S.teal, bg: S.tealB, hasDates: true },
+  salary_increase: { label: 'زيادة راتب', label_en: 'Salary Increase', icon: TrendingUp, color: S.green, bg: S.greenB, hasAmount: true },
+  salary_advance:  { label: 'سلفة راتب', label_en: 'Salary Advance',   icon: Banknote, color: S.gold,  bg: S.gold3,  hasAmount: true },
+  early_exit_permit: { label: 'إذن خروج مبكر', label_en: 'Early Exit Permit', icon: DoorOpen, color: S.amber, bg: S.amberB, hasDates: true },
+  shift_assigned:  { label: 'تعيين شيفت', label_en: 'Shift Assigned',  icon: CalendarDays, color: S.blue,  bg: S.blueB, hasDates: true },
+  resignation:     { label: 'طلب استقالة', label_en: 'Resignation',     icon: LogOut, color: S.red,   bg: S.redB },
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  pending:  { label: 'قيد الانتظار', color: S.amber,  bg: S.amberB,  icon: '⏳' },
-  approved: { label: 'موافق عليه',   color: S.green,  bg: S.greenB,  icon: '✅' },
-  rejected: { label: 'مرفوض',        color: S.red,    bg: S.redB,    icon: '❌' },
-  completed:{ label: 'مكتمل',        color: S.teal,   bg: S.tealB,   icon: '🏁' },
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IconC }> = {
+  pending:  { label: 'قيد الانتظار', color: S.amber,  bg: S.amberB,  icon: Hourglass },
+  approved: { label: 'موافق عليه',   color: S.green,  bg: S.greenB,  icon: CircleCheck },
+  rejected: { label: 'مرفوض',        color: S.red,    bg: S.redB,    icon: CircleX },
+  completed:{ label: 'مكتمل',        color: S.teal,   bg: S.tealB,   icon: Flag },
 }
+
+// أزرار موحّدة (نفس ترتيب أزرار BIDLX: أساسي / ثانوي / خطر / نجاح) داخل الغلاف الداكن
+const btnBase: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '10px 18px', borderRadius: 12, fontSize: 13, fontWeight: 700, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer', lineHeight: 1.2, transition: 'all .15s' }
+const btnPrimary: React.CSSProperties = { ...btnBase, background: S.gold, color: S.navy, border: `1px solid ${S.gold}` }
+const btnSecondary: React.CSSProperties = { ...btnBase, background: 'transparent', color: S.white, border: '1px solid rgba(255,255,255,0.18)' }
+const btnDanger: React.CSSProperties = { ...btnBase, background: S.redB, color: S.red, border: `1px solid ${S.red}55` }
+const btnSuccess: React.CSSProperties = { ...btnBase, background: S.greenB, color: S.green, border: `1px solid ${S.green}55` }
 
 interface Employee { id: string; name: string; name_en?: string; employee_number?: string; role: string; department: string; salary?: number; join_date?: string; branch_id?: string }
 
@@ -91,6 +103,10 @@ interface EmployeeRequest {
   raise_approved_percent?: number | null
   raise_snapshot?: { total_score: number; expected_percent: number; requested_percent: number; current_salary: number; new_salary: number; reason: string; eval_avg: number | null; eval_count: number; absence_days: number; late_hours: number; violations: number; service_months: number; last_raise_at: string | null; last_raise_amount?: number | null; achievements_points: number } | null
   raise_achievements?: { label: string; applies: boolean; details: string }[] | null
+  // ✅ طلب الاستقالة (db/resignation_requests.sql): مدة الإشعار وآخر يوم عمل وقرار مدير النظام اليدوي
+  resignation_notice_days?: number | null
+  resignation_last_day?: string | null
+  resignation_outcome?: 'complied' | 'violated' | null
   employees?: { name: string; name_en?: string; role: string; department: string; employee_number?: string; branch_id?: string; branches?: { name: string } }
 }
 
@@ -177,14 +193,14 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
     })
     setSaving(false)
     if (error) { alert(raiseErrorText(error.message, isAr)); return }
-    alert(isAr ? '✅ تم تقديم طلبك، ويصل لمدير النظام فقط. لو اعتُمد، لا يمكنك تقديم طلب آخر قبل مرور 6 أشهر من تاريخه.' : '✅ Your request has been submitted and goes only to the system admin. If approved, you cannot submit another request until 6 months have passed from that date.')
+    alert(isAr ? 'تم تقديم طلبك، ويصل لمدير النظام فقط. لو اعتُمد، لا يمكنك تقديم طلب آخر قبل مرور 6 أشهر من تاريخه.' : 'Your request has been submitted and goes only to the system admin. If approved, you cannot submit another request until 6 months have passed from that date.')
     onSaved()
   }
 
   const card: React.CSSProperties = { background: S.card, borderRadius: 12, padding: '14px 16px', marginBottom: 12 }
-  const banner = (color: string, bg: string, icon: string, title: string, sub: string) => (
+  const banner = (color: string, bg: string, Icon: IconC, title: string, sub: string) => (
     <div style={{ background: bg, border: `1px solid ${color}55`, borderRadius: 12, padding: '14px 16px', marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
-      <div style={{ fontSize: 28 }}>{icon}</div>
+      <div style={{ flexShrink: 0, color }}><Icon size={28} strokeWidth={1.6} /></div>
       <div>
         <div style={{ fontSize: 15, fontWeight: 800, color }}>{title}</div>
         <div style={{ fontSize: 12.5, color, opacity: 0.9, marginTop: 2 }}>{sub}</div>
@@ -213,13 +229,13 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
 
   let body: React.ReactNode = null
   if (loading) {
-    body = <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>{isAr ? '⏳ جاري فحص الاستحقاق...' : '⏳ Checking eligibility...'}</div>
+    body = <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>{isAr ? 'جاري فحص الاستحقاق...' : 'Checking eligibility...'}</div>
   } else if (loadError || !check) {
     body = <div style={{ ...card, color: S.red, fontSize: 13 }}>{(isAr ? 'تعذّر فحص الاستحقاق: ' : 'Could not check eligibility: ') + (loadError === 'NO_DATA' ? (isAr ? 'لا توجد بيانات' : 'no data') : loadError)}</div>
   } else if (!check.ok.tenure) {
     body = (
       <>
-        {banner(S.amber, S.amberB, '⏳', isAr ? 'التقديم يفتح بعد إتمام شهر من التعيين' : 'Submission opens after one month of service',
+        {banner(S.amber, S.amberB, Hourglass, isAr ? 'التقديم يفتح بعد إتمام شهر من التعيين' : 'Submission opens after one month of service',
           isAr ? `يمكنك تقديم الطلب اعتباراً من ${fmtRaiseDate(check.tenure_opens_at)}.` : `You can submit the request starting ${fmtRaiseDate(check.tenure_opens_at)}.`)}
         {progress(check.join_date, check.tenure_opens_at, isAr ? 'مدة الانتظار منذ التعيين' : 'Waiting period since joining')}
       </>
@@ -227,7 +243,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
   } else if (!check.ok.lock) {
     body = (
       <>
-        {banner(S.amber, S.amberB, '🔒', isAr ? 'حصلت على زيادة مؤخراً' : 'You received a raise recently',
+        {banner(S.amber, S.amberB, Lock, isAr ? 'حصلت على زيادة مؤخراً' : 'You received a raise recently',
           isAr
             ? `آخر زيادة بتاريخ ${fmtRaiseDate(check.last_raise_at)} بمبلغ ${fmt(check.last_raise_amount || 0)} RM. يفتح التقديم من جديد بتاريخ ${fmtRaiseDate(check.next_allowed_at)} (بعد 6 أشهر من آخر زيادة).`
             : `Last raise on ${fmtRaiseDate(check.last_raise_at)} of RM ${fmt(check.last_raise_amount || 0)}. Submission reopens on ${fmtRaiseDate(check.next_allowed_at)} (6 months after the last raise).`)}
@@ -254,16 +270,16 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
     body = (
       <>
         {check.eligible
-          ? banner(S.green, S.greenB, '✅', isAr ? 'أنت مستحق لتقديم الطلب' : 'You are eligible to submit a request',
+          ? banner(S.green, S.greenB, CircleCheck, isAr ? 'أنت مستحق لتقديم الطلب' : 'You are eligible to submit a request',
               isAr ? `الزيادة المتوقعة حسب درجتك: ${expected}%${salary ? ` (نحو ${fmt(salary * expected / 100)} رينغت)` : ''}. النسبة متوقعة وليست مضمونة.`
                    : `Expected raise based on your score: ${expected}%${salary ? ` (about RM ${fmt(salary * expected / 100)})` : ''}. This is an estimate, not a guarantee.`)
-          : banner(S.red, S.redB, '❌', isAr ? 'غير مستحق حالياً' : 'Not currently eligible',
+          : banner(S.red, S.redB, CircleX, isAr ? 'غير مستحق حالياً' : 'Not currently eligible',
               isAr ? `لم يتحقق ${failed} من الشروط. أسباب عدم الاستحقاق ظاهرة أدناه.` : `${failed} condition(s) not met. Reasons are shown below.`)}
 
         <div style={card}>
           {rows.map((r, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: i ? `1px solid ${S.border}` : 'none', fontSize: 13 }}>
-              <span style={{ width: 20, height: 20, borderRadius: '50%', background: r.ok ? S.greenB : S.redB, color: r.ok ? S.green : S.red, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0 }}>{r.ok ? '✓' : '✕'}</span>
+              <span style={{ width: 20, height: 20, borderRadius: '50%', background: r.ok ? S.greenB : S.redB, color: r.ok ? S.green : S.red, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0 }}>{r.ok ? <Check size={12} strokeWidth={3} /> : <X size={12} strokeWidth={3} />}</span>
               <span style={{ flex: 1, color: S.white }}>{r.label}</span>
               <span style={{ color: S.muted, fontSize: 12 }}>{r.value}</span>
             </div>
@@ -273,12 +289,12 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
         {!check.eligible && check.next_possible_at && (
           <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>
             {isAr
-              ? `⏳ من المتوقع استيفاء الشروط الزمنية بحلول ${fmtRaiseDate(check.next_possible_at)} (بافتراض عدم تكرار الغياب/التأخير/المخالفات).`
-              : `⏳ The time-based conditions are expected to be met by ${fmtRaiseDate(check.next_possible_at)} (assuming no further absence/lateness/violations).`}
+              ? `من المتوقع استيفاء الشروط الزمنية بحلول ${fmtRaiseDate(check.next_possible_at)} (بافتراض عدم تكرار الغياب/التأخير/المخالفات).`
+              : `The time-based conditions are expected to be met by ${fmtRaiseDate(check.next_possible_at)} (assuming no further absence/lateness/violations).`}
           </div>
         )}
         {!check.eligible && !check.ok.eval && !check.next_possible_at && (
-          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>{isAr ? '⏳ الشروط الزمنية الأخرى مستوفاة؛ الباقي يحتاج تقييماً جديداً معتمداً.' : '⏳ All other time-based conditions are met; only a new approved evaluation is needed.'}</div>
+          <div style={{ fontSize: 12.5, color: S.amber, marginBottom: 12 }}>{isAr ? 'الشروط الزمنية الأخرى مستوفاة؛ الباقي يحتاج تقييماً جديداً معتمداً.' : 'All other time-based conditions are met; only a new approved evaluation is needed.'}</div>
         )}
 
         {check.eligible ? (
@@ -347,7 +363,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
             )}
             <button onClick={submit} disabled={saving}
               style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
-              {saving ? (isAr ? '⏳ جاري التقديم...' : '⏳ Submitting...') : (isAr ? '📤 تقديم الطلب' : '📤 Submit request')}
+              {saving ? (isAr ? 'جاري التقديم...' : 'Submitting...') : (isAr ? 'تقديم الطلب' : 'Submit request')}
             </button>
             <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>{isAr ? 'كل الحقول إجبارية. يصل الطلب لمدير النظام فقط، ولو اعتُمد لا تقدر تقدّم طلباً آخر قبل مرور 6 أشهر من تاريخه.' : 'All fields are required. The request goes only to the system admin, and if approved you cannot submit another one until 6 months have passed from that date.'}</div>
           </>
@@ -363,11 +379,11 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 680, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{isAr ? '📈 طلب زيادة راتب' : '📈 Salary Raise Request'}</h2>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{isAr ? 'طلب زيادة راتب' : 'Salary Raise Request'}</h2>
             <div style={{ fontSize: 12, color: S.muted }}>{employee.name}{employee.name_en ? ' ' + employee.name_en : ''} · {employee.employee_number || '—'} · {employee.department || '—'}</div>
             {check?.join_date && <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{isAr ? `تاريخ التعيين ${fmtRaiseDate(check.join_date)} (${Math.floor(check.service_months)} شهراً)` : `Join date ${fmtRaiseDate(check.join_date)} (${Math.floor(check.service_months)} month(s))`}</div>}
           </div>
-          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36 }}>✕</button>
+          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36 }}><X size={16} /></button>
         </div>
         {body}
       </div>
@@ -429,15 +445,15 @@ Reason: ${form.reason}`
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 580, padding: 32, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>💸 Salary Advance Request</h2>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Salary Advance Request</h2>
             <p style={{ fontSize: 12, color: S.muted }}>Submit a request for salary advance</p>
           </div>
-          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
         </div>
 
         {/* Employee Info — read only */}
         <div style={{ background: S.card, borderRadius: 12, padding: '16px 18px', marginBottom: 20 }}>
-          <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 10 }}>👤 Employee Information</div>
+          <div style={{ fontSize: 12, color: S.gold, fontWeight: 700, marginBottom: 10 }}>Employee Information</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
               { label: 'Employee Name', value: `${employee.name}${employee.name_en ? ' ' + employee.name_en : ''}` },
@@ -460,7 +476,7 @@ Reason: ${form.reason}`
           </div>
 
           <div style={{ background: S.gold3, border: `1px solid rgba(201,168,76,0.3)`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: S.gold }}>
-            ℹ️ سيتم خصم المبلغ بالكامل من راتب الشهر القادم
+            سيتم خصم المبلغ بالكامل من راتب الشهر القادم
           </div>
 
           <div>
@@ -472,9 +488,127 @@ Reason: ${form.reason}`
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>Cancel</button>
+          <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳ Submitting...' : '📤 Submit Request'}
+            {saving ? 'Submitting...' : 'Submit Request'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══ طلب الاستقالة: مدة الإشعار (الصالة 15 يوماً، وكل الأقسام الأخرى بما فيها المطبخ والبار والحلويات 30 يوماً) ══
+function resignationNoticeDays(dept: string | null | undefined): number {
+  return normalizeDept(dept) === 'الصالة' ? 15 : 30
+}
+function ymdMalaysia(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+}
+function addDaysYmd(ymd: string, n: number): string {
+  const d = new Date(ymd + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+function daysUntilYmd(fromYmd: string, toYmd: string): number {
+  return Math.round((new Date(toYmd + 'T00:00:00Z').getTime() - new Date(fromYmd + 'T00:00:00Z').getTime()) / 86400000)
+}
+
+// الشروط الثلاثة + عدم إمكانية السحب — تظهر بوضوح في نموذج التقديم
+function ResignationTerms({ noticeDays, deptLabel }: { noticeDays: number; deptLabel?: string }) {
+  const items = [
+    'لا تُعدّ الاستقالة مقبولة إلا بعد الموافقة المبدئية من الإدارة. وقبل ذلك يبقى الطلب «قيد الانتظار» ولا يُعدّ قبولاً بأي حال.',
+    'بعد القبول تبدأ مدة الإشعار ويلتزم الموظف بالعمل خلالها: 15 يوماً لقسم الصالة، و30 يوماً لقسم المطبخ (ويشمل البار والحلويات)، و30 يوماً لباقي الأقسام.',
+    'من لا يلتزم بمدة الإشعار لا يستحق راتباً ولا أي مستحقات أخرى.',
+    'لا يمكن سحب الطلب أو تعديله بعد إرساله.',
+  ]
+  return (
+    <div style={{ border: `1px solid ${S.red}55`, background: 'rgba(239,68,68,0.06)', borderRadius: 14, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: S.red, fontWeight: 800, fontSize: 13.5, marginBottom: 10 }}>
+        <Info size={16} /> شروط الاستقالة — يرجى القراءة بعناية
+      </div>
+      <ol style={{ margin: 0, paddingInlineStart: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {items.map((t, i) => (
+          <li key={i} style={{ fontSize: 12.5, color: S.white, lineHeight: 1.8 }}>{t}</li>
+        ))}
+      </ol>
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}`, fontSize: 12.5, color: S.muted }}>
+        {deptLabel ? <>قسمك: <strong style={{ color: S.white }}>{deptLabel}</strong> — </> : null}
+        مدة الإشعار المطبّقة عليك بعد القبول: <strong style={{ color: S.gold }}>{noticeDays} يوماً</strong>
+      </div>
+    </div>
+  )
+}
+
+// ══ نافذة تقديم طلب الاستقالة — للموظف نفسه فقط ══
+function ResignationModal({ employee, onClose, onSaved, submittedByName }: {
+  employee: Employee; onClose: () => void; onSaved: () => void; submittedByName?: string
+}) {
+  const supabase = createClient()
+  const [reason, setReason] = useState('')
+  const [agree, setAgree] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const noticeDays = resignationNoticeDays(employee.department)
+
+  async function submit() {
+    setErr('')
+    if (reason.trim().length < 10) { setErr('اكتب سبب الاستقالة (10 أحرف على الأقل).'); return }
+    if (!agree) { setErr('يجب الإقرار بقراءة الشروط قبل إرسال الطلب.'); return }
+    setSaving(true)
+    const { error } = await supabase.from('employee_requests').insert([{
+      employee_id: employee.id,
+      request_type: 'resignation',
+      title: 'طلب استقالة',
+      description: `${reason.trim()}\n\nمدة الإشعار المطبّقة بعد القبول: ${noticeDays} يوماً`,
+      status: 'pending',
+      created_by_name: submittedByName || null,
+    }])
+    setSaving(false)
+    if (error) {
+      if (error.code === '23505') setErr('لديك طلب استقالة مفتوح بالفعل.')
+      else if (/request_type|check constraint|violates/i.test(error.message)) setErr('النظام لم يُجهَّز بعد لطلبات الاستقالة — تواصل مع مدير النظام.')
+      else setErr('تعذّر إرسال الطلب: ' + error.message)
+      return
+    }
+    onSaved()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 580, padding: 28, margin: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: S.redB, color: S.red, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LogOut size={20} /></div>
+            <div>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, margin: 0 }}>طلب استقالة</h2>
+              <p style={{ fontSize: 12, color: S.muted, margin: '3px 0 0' }}>طلب سرّي — لا يراه إلا أنت ومدير النظام</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="إغلاق" style={{ ...btnSecondary, padding: 0, width: 36, height: 36 }}><X size={16} /></button>
+        </div>
+
+        <ResignationTerms noticeDays={noticeDays} deptLabel={employee.department || undefined} />
+
+        <div style={{ marginTop: 16 }}>
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>سبب الاستقالة *</label>
+          <textarea style={{ ...inp, minHeight: 100, resize: 'vertical' } as React.CSSProperties}
+            value={reason} onChange={e => setReason(e.target.value)} placeholder="اكتب سبب الاستقالة..." />
+        </div>
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14, cursor: 'pointer', fontSize: 12.5, color: S.white, lineHeight: 1.8 }}>
+          <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 5, accentColor: S.red, width: 16, height: 16 }} />
+          <span>قرأتُ الشروط أعلاه وأوافق عليها، وأُقرّ بأنني لا أستطيع سحب الطلب بعد إرساله.</span>
+        </label>
+
+        {err && (
+          <div style={{ marginTop: 14, background: S.redB, border: `1px solid ${S.red}55`, color: S.red, borderRadius: 10, padding: '10px 14px', fontSize: 12.5, fontWeight: 700 }}>{err}</div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={btnSecondary}>إلغاء</button>
+          <button onClick={submit} disabled={saving} style={{ ...btnBase, background: S.red, color: '#fff', border: `1px solid ${S.red}`, opacity: saving ? 0.7 : 1 }}>
+            <Send size={15} /> {saving ? 'جاري الإرسال...' : 'إرسال طلب الاستقالة'}
           </button>
         </div>
       </div>
@@ -607,10 +741,10 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
       <div style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.border}`, width: '100%', maxWidth: 620, padding: 32, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{isAr ? '📋 طلب جديد' : '📋 New Request'}</h2>
+            <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{isAr ? 'طلب جديد' : 'New Request'}</h2>
             <p style={{ fontSize: 12, color: S.muted }}>{isAr ? 'تقديم طلب جديد للإدارة' : 'Submit a new request to management'}</p>
           </div>
-          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
         </div>
 
         {/* نوع الطلب */}
@@ -618,7 +752,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
           <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 10 }}>نوع الطلب *</label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
             {Object.entries(REQUEST_TYPES)
-              .filter(([key]) => key !== 'salary_increase' && key !== 'salary_advance' && (key !== 'attendance_correction' || canSeeAttendanceCorrection))
+              .filter(([key]) => key !== 'salary_increase' && key !== 'salary_advance' && key !== 'resignation' && (key !== 'attendance_correction' || canSeeAttendanceCorrection))
               .map(([key, cfg]) => (
               <button key={key} onClick={() => { if (key === 'shift_assigned') loadShifts(); setForm(p => ({
                 ...p,
@@ -627,7 +761,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
                 start_date: key === 'attendance_correction' ? todayStr : p.start_date,
               })) }}
                 style={{ padding: '10px 8px', borderRadius: 10, border: `1px solid ${form.request_type === key ? cfg.color : S.border}`, background: form.request_type === key ? cfg.bg : 'transparent', color: form.request_type === key ? cfg.color : S.muted, cursor: 'pointer', fontSize: 11, fontFamily: 'Tajawal, sans-serif', fontWeight: form.request_type === key ? 700 : 400, textAlign: 'center', transition: 'all .2s' }}>
-                <div style={{ fontSize: 20, marginBottom: 4 }}>{cfg.icon}</div>
+                <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'center' }}><cfg.icon size={20} strokeWidth={1.8} /></div>
                 {isAr ? cfg.label : cfg.label_en}
               </button>
             ))}
@@ -640,7 +774,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الموظف *</label>
 {currentEmployeeId ? (
   <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#FAFAF8' }}>
-    👤 {employees.find(e => e.id === currentEmployeeId)?.name || 'أنت'} — {employees.find(e => e.id === currentEmployeeId)?.employee_number || ''}
+    {employees.find(e => e.id === currentEmployeeId)?.name || 'أنت'} — {employees.find(e => e.id === currentEmployeeId)?.employee_number || ''}
   </div>
 ) : (
   <select style={{ ...inp }} value={form.employee_id} onChange={e => setForm(p => ({ ...p, employee_id: e.target.value }))}>
@@ -717,7 +851,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
           {/* حقول تصحيح الحضور */}
           {form.request_type === 'attendance_correction' && (
             <div style={{ background: S.tealB, border: `1px solid ${S.teal}30`, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 12 }}>🕐 أوقات الحضور الصحيحة</div>
+              <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 12 }}>أوقات الحضور الصحيحة</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>وقت الدخول الصحيح</label>
@@ -739,7 +873,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
           {/* تعيين شيفت: اختيار الشيفت المطلوب */}
           {form.request_type === 'shift_assigned' && (
             <div style={{ background: S.blueB, border: `1px solid ${S.blue}30`, borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 12, color: S.blue, fontWeight: 700, marginBottom: 10 }}>🗓️ الشيفت المطلوب</div>
+              <div style={{ fontSize: 12, color: S.blue, fontWeight: 700, marginBottom: 10 }}>الشيفت المطلوب</div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                 {([['shift', 'شيفت جاهز'], ['custom', 'وقت مخصص'], ['off', 'إجازة']] as const).map(([k, label]) => (
                   <button key={k} type="button" onClick={() => setForm(p => ({ ...p, shift_mode: k }))}
@@ -770,10 +904,10 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
               {/* ✅ جديد: تنويه واضح — هذا الإذن لا يُطلب إلا بناءً على تعليمات مدير القسم وموافقته المسبقة */}
               <div style={{ background: S.redB, border: `1px solid ${S.red}40`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
                 <div style={{ fontSize: 12.5, color: S.red, fontWeight: 700, lineHeight: 1.8 }}>
-                  ⚠️ تنبيه هام: لا يُقدَّم هذا الطلب إلا بناءً على تعليمات مدير القسم المباشر وبموافقته المسبقة، قبل تقديم طلب الإذن.
+                  تنبيه هام: لا يُقدَّم هذا الطلب إلا بناءً على تعليمات مدير القسم المباشر وبموافقته المسبقة، قبل تقديم طلب الإذن.
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 12 }}>🚪 وقت الخروج المطلوب</div>
+              <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 12 }}>وقت الخروج المطلوب</div>
               <input style={{ ...inp, direction: 'ltr' }} type="time" value={form.permit_time}
                 onChange={e => setForm(p => ({ ...p, permit_time: e.target.value }))} />
               <div style={{ fontSize: 11, color: S.muted, marginTop: 8, lineHeight: 1.7 }}>
@@ -785,7 +919,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
           {/* ✅ جديد: التقرير الطبي - إجباري للإجازة المرضية فقط */}
           {form.request_type === 'leave_sick' && (
             <div style={{ background: S.redB, border: `1px solid ${S.red}30`, borderRadius: 12, padding: 14 }}>
-              <label style={{ fontSize: 12, color: S.red, fontWeight: 700, display: 'block', marginBottom: 8 }}>🏥 التقرير الطبي (من الطبيب أو المستشفى) *</label>
+              <label style={{ fontSize: 12, color: S.red, fontWeight: 700, display: 'block', marginBottom: 8 }}>التقرير الطبي (من الطبيب أو المستشفى) *</label>
               <input type="file" accept="image/*,application/pdf" onChange={e => {
                 const file = e.target.files?.[0]
                 if (!file) return
@@ -798,16 +932,16 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
                   setAttachmentPreview('')
                 }
               }} style={{ fontSize: 12, color: S.white }} />
-              {attachment && !attachmentPreview && <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>📎 {attachment.name}</div>}
+              {attachment && !attachmentPreview && <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>{attachment.name}</div>}
               {attachmentPreview && <img src={attachmentPreview} alt="التقرير الطبي" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, marginTop: 8 }} />}
             </div>
           )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
-          <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? (isAr ? '⏳ جاري الإرسال...' : '⏳ Submitting...') : (isAr ? '📤 إرسال الطلب' : '📤 Submit Request')}
+          <button onClick={onClose} style={btnSecondary}>{isAr ? 'إلغاء' : 'Cancel'}</button>
+          <button onClick={save} disabled={saving} style={btnPrimary}>
+            {saving ? (isAr ? 'جاري الإرسال...' : 'Submitting...') : (isAr ? 'إرسال الطلب' : 'Submit Request')}
           </button>
         </div>
       </div>
@@ -846,10 +980,12 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   const isSalaryAdvance = request.request_type === 'salary_advance'
   // ✅ طلب زيادة الراتب: الاعتماد والرؤية لمدير النظام فقط، والمعتمِد يقدر يوافق بنسبة مختلفة عن المطلوبة
   const isSalaryRaise = request.request_type === 'salary_increase'
+  // ✅ طلب الاستقالة: سرّي، الاعتماد وقرار الالتزام لمدير النظام فقط
+  const isResignation = request.request_type === 'resignation'
   const [approvedPercent, setApprovedPercent] = useState(request.raise_percent != null ? String(request.raise_percent) : '')
   // ✅ مدير الفرع أصبح مخوَّلاً باعتماد طلبات سلفة الراتب لموظفي فرعه (لم يكن مضمَّناً هنا أبداً من قبل رغم
   // أن الاستعلام الأساسي في fetchAll() كان أصلاً يجلب له طلبات فرعه بس بشكل صحيح)
-  const canTakeAction = !isOwnRequest && (
+  const canTakeAction = isResignation ? !!isAdmin : !isOwnRequest && (
     isSalaryAdvance ? (isAdmin || isBranchManager) : isSalaryRaise ? !!isAdmin : (isAdmin || isDeptManager)
   )
 
@@ -864,7 +1000,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       .select('id, status').eq('month', targetMonth).eq('year', targetYear).maybeSingle()
     if (!payrollMonth) return
     if (payrollMonth.status === 'finalized') {
-      alert('⚠️ تنبيه: شهر الرواتب المرتبط بهذا الطلب مُعتمَد (Finalized) بالفعل — لم يُطرح المبلغ تلقائياً. راجع حقل "سلفة" لهذا الموظف يدوياً.')
+      alert('تنبيه: شهر الرواتب المرتبط بهذا الطلب مُعتمَد (Finalized) بالفعل — لم يُطرح المبلغ تلقائياً. راجع حقل "سلفة" لهذا الموظف يدوياً.')
       return
     }
     const { data: existingRecord } = await supabase.from('payroll_records')
@@ -926,8 +1062,41 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     }
     const syncResult = await syncCorrectionToPayroll(request.employee_id, request.start_date)
     if (syncResult === 'finalized') {
-      alert('⚠️ تم تحديث الحضور، لكن كشف راتب هذا الشهر مُعتمَد (Finalized) — لن يتحدث خصم إذن الخروج فيه تلقائياً. يُرجى مراجعته يدوياً في صفحة الرواتب.')
+      alert('تم تحديث الحضور، لكن كشف راتب هذا الشهر مُعتمَد (Finalized) — لن يتحدث خصم إذن الخروج فيه تلقائياً. يُرجى مراجعته يدوياً في صفحة الرواتب.')
     }
+  }
+
+  // ══ طلب الاستقالة: القبول المبدئي (يبدأ مدة الإشعار) ثم قرار مدير النظام اليدوي: التزم / لم يلتزم ══
+  const [outcomeConfirm, setOutcomeConfirm] = useState<null | 'complied' | 'violated'>(null)
+  const [resError, setResError] = useState('')
+  const resNoticeDays = request.resignation_notice_days ?? resignationNoticeDays(request.employees?.department)
+  async function approveResignation() {
+    setResError('')
+    setUpdating(true)
+    const { error } = await supabase.from('employee_requests').update({
+      status: 'approved',
+      approved_by: approvedBy || null,
+      approved_at: new Date().toISOString(),
+      rejection_reason: null,
+      resignation_notice_days: resNoticeDays,
+      resignation_last_day: addDaysYmd(ymdMalaysia(), resNoticeDays),
+    }).eq('id', request.id)
+    setUpdating(false)
+    if (error) { setResError('تعذّر القبول: ' + error.message + (/resignation_/.test(error.message) ? ' — شغّل ملف db/resignation_requests.sql أولًا' : '')); return }
+    onUpdate()
+  }
+  async function finishResignation(outcome: 'complied' | 'violated') {
+    setResError('')
+    setUpdating(true)
+    const today = ymdMalaysia()
+    // آخر يوم فعلي في الخدمة: عند الالتزام = آخر يوم عمل إن كان قد مضى، وإلا اليوم. عند عدم الالتزام = اليوم
+    const endDate = outcome === 'complied' && request.resignation_last_day && request.resignation_last_day < today ? request.resignation_last_day : today
+    const { error } = await supabase.from('employee_requests').update({ status: 'completed', resignation_outcome: outcome }).eq('id', request.id)
+    if (error) { setUpdating(false); setResError('تعذّر تسجيل القرار: ' + error.message); return }
+    const { error: empErr } = await supabase.from('employees').update({ is_active: false, deactivated_at: endDate }).eq('id', request.employee_id)
+    setUpdating(false)
+    if (empErr) alert('سُجّل القرار، لكن تعذّر إيقاف الموظف تلقائياً: ' + empErr.message + '\nأوقفه يدوياً من صفحة الموظفين.')
+    onUpdate()
   }
 
   async function deleteRequest() {
@@ -1093,7 +1262,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
         // ✅ يحدّث ساعات التأخير/الخروج المبكر في كشف راتب نفس الشهر تلقائيًا (لو لسه مش معتمد)
         const syncResult = await syncCorrectionToPayroll(request.employee_id, request.start_date)
         if (syncResult === 'finalized') {
-          alert('⚠️ تم تصحيح الحضور وتثبيته، لكن كشف راتب هذا الشهر مُعتمَد (Finalized) — لن تتحدث ساعات التأخير/الخروج المبكر فيه تلقائيًا. يُرجى مراجعتها يدويًا في صفحة الرواتب.')
+          alert('تم تصحيح الحضور وتثبيته، لكن كشف راتب هذا الشهر مُعتمَد (Finalized) — لن تتحدث ساعات التأخير/الخروج المبكر فيه تلقائيًا. يُرجى مراجعتها يدويًا في صفحة الرواتب.')
         }
       }
     }
@@ -1236,13 +1405,13 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <span style={{ fontSize: 24 }}>{reqType.icon}</span>
+              <span style={{ width: 40, height: 40, borderRadius: 12, background: reqType.bg, color: reqType.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><reqType.icon size={20} strokeWidth={1.8} /></span>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: S.white }}>طلب #{request.request_number}</div>
                 <div style={{ fontSize: 13, color: reqType.color, fontWeight: 600 }}>{reqType.label}</div>
               </div>
-              <span style={{ background: status.bg, color: status.color, borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>
-                {status.icon} {status.label}
+              <span style={{ background: status.bg, color: status.color, borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <status.icon size={13} /> {status.label}
               </span>
             </div>
             <div style={{ fontSize: 12, color: S.muted }}>
@@ -1250,29 +1419,31 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={printRequest} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.gold, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, cursor: 'pointer', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
-              🖨️ طباعة
+            <button onClick={printRequest} style={{ ...btnSecondary, padding: '8px 14px' }}>
+              <Printer size={15} /> طباعة
             </button>
-            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}><X size={16} /></button>
           </div>
         </div>
 
         {/* Info */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
           {[
-            { label: 'الموظف', value: `${request.employees?.name || '—'}${request.employees?.name_en ? ' (' + request.employees.name_en + ')' : ''}`, icon: '👤' },
-            { label: 'رقم الموظف', value: request.employees?.employee_number || '—', icon: '🆔' },
-            { label: 'الفرع', value: request.employees?.branches?.name || '—', icon: '🏪' },
-            { label: 'القسم', value: request.employees?.department || '—', icon: '🏷️' },
-            { label: 'عنوان الطلب', value: request.title || '—', icon: '📋' },
-            request.amount ? { label: (isSalaryAdvance && ['approved', 'completed'].includes(request.status)) ? 'المبلغ المعتمد' : 'المبلغ المطلوب', value: `MYR ${request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: '💰' } : null,
-            request.start_date ? { label: 'من تاريخ', value: request.start_date, icon: '📅' } : null,
-            request.end_date ? { label: 'إلى تاريخ', value: request.end_date, icon: '📅' } : null,
-            request.days_count ? { label: 'عدد الأيام', value: `${request.days_count} يوم`, icon: '⏳' } : null,
-            request.approved_by ? { label: 'تمت الموافقة بواسطة', value: request.approved_by, icon: '✅' } : null,
+            { label: 'الموظف', value: `${request.employees?.name || '—'}${request.employees?.name_en ? ' (' + request.employees.name_en + ')' : ''}` },
+            { label: 'رقم الموظف', value: request.employees?.employee_number || '—' },
+            { label: 'الفرع', value: request.employees?.branches?.name || '—' },
+            { label: 'القسم', value: request.employees?.department || '—' },
+            { label: 'عنوان الطلب', value: request.title || '—' },
+            request.amount ? { label: (isSalaryAdvance && ['approved', 'completed'].includes(request.status)) ? 'المبلغ المعتمد' : 'المبلغ المطلوب', value: `MYR ${request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` } : null,
+            request.start_date ? { label: 'من تاريخ', value: request.start_date } : null,
+            request.end_date ? { label: 'إلى تاريخ', value: request.end_date } : null,
+            request.days_count ? { label: 'عدد الأيام', value: `${request.days_count} يوم` } : null,
+            isResignation && request.resignation_notice_days ? { label: 'مدة الإشعار', value: `${request.resignation_notice_days} يوماً` } : null,
+            isResignation && request.resignation_last_day ? { label: 'آخر يوم عمل', value: request.resignation_last_day } : null,
+            request.approved_by ? { label: 'تمت الموافقة بواسطة', value: request.approved_by } : null,
           ].filter(Boolean).map((row: any, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 10, padding: '10px 14px' }}>
-              <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>{row.icon} {row.label}</div>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>{row.label}</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: S.white }}>{row.value}</div>
             </div>
           ))}
@@ -1286,7 +1457,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
           const fm = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
           return (
             <div style={{ background: S.greenB, border: `1px solid ${S.green}30`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: S.green, fontWeight: 700, marginBottom: 10 }}>📈 فحص الاستحقاق وقت التقديم (لا يتغير لاحقاً)</div>
+              <div style={{ fontSize: 12, color: S.green, fontWeight: 700, marginBottom: 10 }}>فحص الاستحقاق وقت التقديم (لا يتغير لاحقاً)</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
                 {[
                   { label: 'درجة الاستحقاق', value: `${sn.total_score} / 100` },
@@ -1316,7 +1487,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         {/* تصحيح الحضور — عرض التفاصيل */}
         {request.request_type === 'attendance_correction' && (
           <div style={{ background: S.tealB, border: `1px solid ${S.teal}30`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 8 }}>🕐 تفاصيل تصحيح الحضور</div>
+            <div style={{ fontSize: 12, color: S.teal, fontWeight: 700, marginBottom: 8 }}>تفاصيل تصحيح الحضور</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {[
                 { label: 'تاريخ الحضور', value: request.start_date || '—' },
@@ -1331,28 +1502,62 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             </div>
             {/* ✅ جديد: مين بالضبط أنشأ الطلب — تصحيح الحضور مقصور على مديري النظام، وممكن أي واحد منهم يعمله لموظف تاني */}
             {request.created_by_name && (
-              <div style={{ marginTop: 8, fontSize: 11, color: S.muted }}>👤 أنشأه: <strong style={{ color: S.white }}>{request.created_by_name}</strong></div>
+              <div style={{ marginTop: 8, fontSize: 11, color: S.muted }}>أنشأه: <strong style={{ color: S.white }}>{request.created_by_name}</strong></div>
             )}
             {request.status === 'approved' && (
-              <div style={{ marginTop: 8, fontSize: 11, color: S.green }}>✅ تم تطبيق التصحيح على سجل الحضور تلقائياً</div>
+              <div style={{ marginTop: 8, fontSize: 11, color: S.green }}>تم تطبيق التصحيح على سجل الحضور تلقائياً</div>
             )}
           </div>
         )}
 
         {/* Description */}
         <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>📝 تفاصيل الطلب</div>
+          <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>تفاصيل الطلب</div>
           <div style={{ fontSize: 13, color: S.white, lineHeight: 1.8, whiteSpace: 'pre-line' }}>{request.description}</div>
         </div>
+
+        {/* طلب الاستقالة: حالة مدة الإشعار والقرار النهائي */}
+        {isResignation && (() => {
+          const today = ymdMalaysia()
+          const left = request.resignation_last_day ? daysUntilYmd(today, request.resignation_last_day) : null
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+              {request.status === 'pending' && (
+                <div style={{ background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.amber, lineHeight: 1.8, display: 'flex', gap: 8 }}>
+                  <Hourglass size={16} style={{ flexShrink: 0, marginTop: 4 }} />
+                  <span>الطلب بانتظار الموافقة المبدئية من الإدارة. لا تُعدّ الاستقالة مقبولة قبل ذلك، ولا يمكن سحب الطلب أو تعديله بعد إرساله.</span>
+                </div>
+              )}
+              {request.status === 'approved' && (
+                <div style={{ background: S.blueB, border: `1px solid ${S.blue}40`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.white, lineHeight: 1.9 }}>
+                  <div style={{ color: S.blue, fontWeight: 800, marginBottom: 4 }}>الاستقالة مقبولة مبدئياً — مدة الإشعار جارية</div>
+                  مدة الإشعار: <strong>{request.resignation_notice_days ?? resNoticeDays} يوماً</strong> · آخر يوم عمل: <strong>{request.resignation_last_day || '—'}</strong>
+                  {left != null && <> · {left > 0 ? <>المتبقي: <strong style={{ color: S.gold }}>{left} يوماً</strong></> : <strong style={{ color: S.green }}>انتهت مدة الإشعار</strong>}</>}
+                  <div style={{ marginTop: 6, color: S.red, fontSize: 12 }}>من لا يلتزم بمدة الإشعار لا يستحق راتباً ولا أي مستحقات أخرى.</div>
+                </div>
+              )}
+              {request.status === 'completed' && request.resignation_outcome === 'complied' && (
+                <div style={{ background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.green, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CircleCheck size={16} /> أتمّ الموظف مدة الإشعار — أُنهيت خدمته ويُصرف راتبه المستحق حتى آخر يوم.
+                </div>
+              )}
+              {request.status === 'completed' && request.resignation_outcome === 'violated' && (
+                <div style={{ background: S.redB, border: `1px solid ${S.red}55`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.red, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CircleX size={16} /> لم يلتزم الموظف بمدة الإشعار — لا راتب له ولا أي مستحقات عن الشهر الأخير وما بعده.
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* ✅ جديد: عرض التقرير الطبي المرفق (للإجازة المرضية) */}
         {request.attachment_url && (
           <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>🏥 التقرير الطبي المرفق</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>التقرير الطبي المرفق</div>
             <a href={request.attachment_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block' }}>
               {/\.(jpe?g|png|webp|gif)$/i.test(request.attachment_url)
                 ? <img src={request.attachment_url} alt="التقرير الطبي" style={{ maxWidth: 220, maxHeight: 220, objectFit: 'cover', borderRadius: 8, border: `1px solid ${S.border}` }} />
-                : <span style={{ fontSize: 13, color: S.blue, textDecoration: 'underline' }}>📎 عرض الملف المرفق</span>}
+                : <span style={{ fontSize: 13, color: S.blue, textDecoration: 'underline' }}>عرض الملف المرفق</span>}
             </a>
           </div>
         )}
@@ -1360,7 +1565,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         {/* Rejection reason */}
         {request.rejection_reason && (
           <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: S.red, marginBottom: 6, fontWeight: 700 }}>❌ سبب الرفض</div>
+            <div style={{ fontSize: 11, color: S.red, marginBottom: 6, fontWeight: 700 }}>سبب الرفض</div>
             <div style={{ fontSize: 13, color: S.white }}>{request.rejection_reason}</div>
           </div>
         )}
@@ -1372,7 +1577,23 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                 <>
                   <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>اسم المعتمد</div>
                   <input style={{ ...inp, marginBottom: 12, opacity: 0.8, cursor: 'not-allowed' }} value={approvedBy} readOnly placeholder="..." />
-                  {isSalaryAdvance ? (
+                  {isResignation ? (
+                    // طلب الاستقالة: موافقة مبدئية (تبدأ مدة الإشعار) أو رفض — لمدير النظام فقط
+                    <>
+                      <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.8, marginBottom: 12 }}>
+                        عند الموافقة المبدئية تبدأ مدة الإشعار ({resNoticeDays} يوماً) ويصبح آخر يوم عمل للموظف <strong style={{ color: S.white }}>{addDaysYmd(ymdMalaysia(), resNoticeDays)}</strong>.
+                      </div>
+                      {resError && <div style={{ background: S.redB, color: S.red, borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 700, marginBottom: 10 }}>{resError}</div>}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={approveResignation} disabled={updating} style={{ ...btnSuccess, flex: 1 }}>
+                          <CircleCheck size={15} /> موافقة مبدئية وبدء مدة الإشعار
+                        </button>
+                        <button onClick={() => setShowReject(true)} style={{ ...btnDanger, flex: 1 }}>
+                          <CircleX size={15} /> رفض
+                        </button>
+                      </div>
+                    </>
+                  ) : isSalaryAdvance ? (
                     // ✅ سلفة الراتب: مرحلة واحدة مدمجة "تأكيد واعتماد التسليم" — تُسجَّل مباشرة كـ completed
                     // لتمثيل لحظة تسليم السلفة فعليًا للموظف، والتي بعدها تُخصم من الراتب.
                     // المعتمِد يحدد المبلغ المعتمد (يبدأ بالمطلوب، ويمكن تقليله) — وهو ما يُثبَّت ويُخصم.
@@ -1384,20 +1605,20 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                         المطلوب: MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — يمكن اعتماد مبلغ أقل، وهو الذي يُثبَّت في الطلب ويُخصم من الراتب
                       </div>
                       {request.approved_amount != null && (
-                        <div style={{ fontSize: 11.5, color: S.green, marginBottom: 10 }}>💾 مبلغ محفوظ: MYR {request.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — لم يُعتمد ولم يُخصم بعد</div>
+                        <div style={{ fontSize: 11.5, color: S.green, marginBottom: 10 }}>مبلغ محفوظ: MYR {request.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — لم يُعتمد ولم يُخصم بعد</div>
                       )}
                       <button onClick={saveApprovedAmount} disabled={savingAmount || updating}
-                        style={{ width: '100%', marginBottom: 8, padding: '9px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                        {savingAmount ? '⏳' : '💾 حفظ المبلغ فقط (بدون اعتماد)'}
+                        style={{ ...btnSecondary, width: '100%', marginBottom: 8 }}>
+                        {savingAmount ? 'جاري الحفظ...' : 'حفظ المبلغ فقط (بدون اعتماد)'}
                       </button>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => updateStatus('completed')} disabled={updating}
-                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                          ✅ اعتماد وخصم MYR {(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          style={{ ...btnSuccess, flex: 1 }}>
+                          <CircleCheck size={15} /> اعتماد وخصم MYR {(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </button>
                         <button onClick={() => setShowReject(true)}
-                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                          ❌ رفض
+                          style={{ ...btnDanger, flex: 1 }}>
+                          <CircleX size={15} /> رفض
                         </button>
                       </div>
                     </>
@@ -1414,12 +1635,12 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                       )}
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => updateStatus('approved')} disabled={updating}
-                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                          ✅ موافقة بنسبة {parseFloat(approvedPercent) || 0}%
+                          style={{ ...btnSuccess, flex: 1 }}>
+                          <CircleCheck size={15} /> موافقة بنسبة {parseFloat(approvedPercent) || 0}%
                         </button>
                         <button onClick={() => setShowReject(true)}
-                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                          ❌ رفض
+                          style={{ ...btnDanger, flex: 1 }}>
+                          <CircleX size={15} /> رفض
                         </button>
                       </div>
                     </>
@@ -1429,12 +1650,12 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                     <>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => updateStatus('approved')} disabled={updating}
-                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                          {request.request_type === 'attendance_correction' ? '✅ موافقة وتطبيق التصحيح على الحضور' : '✅ موافقة'}
+                          style={{ ...btnSuccess, flex: 1 }}>
+                          <CircleCheck size={15} /> {request.request_type === 'attendance_correction' ? 'موافقة وتطبيق التصحيح على الحضور' : 'موافقة'}
                         </button>
                         <button onClick={() => setShowReject(true)}
-                          style={{ flex: 1, padding: '10px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                          ❌ رفض
+                          style={{ ...btnDanger, flex: 1 }}>
+                          <CircleX size={15} /> رفض
                         </button>
                       </div>
                       <div style={{ fontSize: 11, color: S.muted, marginTop: 8, lineHeight: 1.6 }}>
@@ -1451,10 +1672,10 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                   <textarea style={{ ...inp, minHeight: 80, resize: 'vertical', marginBottom: 10 } as React.CSSProperties}
                     value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} placeholder="اشرح سبب الرفض..." />
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => setShowReject(false)} style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
+                    <button onClick={() => setShowReject(false)} style={{ ...btnSecondary, flex: 1 }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
                     <button onClick={() => updateStatus('rejected')} disabled={updating}
-                      style={{ flex: 1, padding: '9px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-                      ❌ تأكيد الرفض
+                      style={{ ...btnDanger, flex: 1 }}>
+                      <CircleX size={15} /> تأكيد الرفض
                     </button>
                   </div>
                 </>
@@ -1464,10 +1685,45 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             // ✅ صاحب الطلب نفسه، أو طلب سلفة راتب لمستخدم غير admin — لا تظهر أزرار الاعتماد على الإطلاق
             <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, textAlign: 'center' }}>
               <div style={{ fontSize: 13, color: S.amber, fontWeight: 700 }}>
-                {isOwnRequest ? '⏳ طلبك قيد المراجعة من الإدارة' : (isSalaryAdvance ? '🔒 هذا الطلب يحتاج اعتماد مدير النظام أو مدير الفرع' : isSalaryRaise ? '🔒 هذا الطلب يحتاج اعتماد مدير النظام فقط' : '🔒 هذا الطلب يحتاج اعتماد مدير القسم أو مدير النظام')}
+                {isOwnRequest ? 'طلبك قيد المراجعة من الإدارة' : (isSalaryAdvance ? 'هذا الطلب يحتاج اعتماد مدير النظام أو مدير الفرع' : isSalaryRaise ? 'هذا الطلب يحتاج اعتماد مدير النظام فقط' : 'هذا الطلب يحتاج اعتماد مدير القسم أو مدير النظام')}
               </div>
             </div>
           )
+        )}
+
+        {/* طلب الاستقالة المقبول مبدئياً: قرار مدير النظام اليدوي — التزم بمدة الإشعار أم لا */}
+        {isResignation && request.status === 'approved' && isAdmin && (
+          <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: S.white, marginBottom: 4 }}>قرار نهاية مدة الإشعار</div>
+            <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.8, marginBottom: 12 }}>
+              تحدّد أنت يدوياً هل التزم الموظف بالمدة. عند التسجيل يُوقَف الموظف ويُغلق الطلب.
+            </div>
+            {resError && <div style={{ background: S.redB, color: S.red, borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 700, marginBottom: 10 }}>{resError}</div>}
+            {outcomeConfirm === null ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={() => setOutcomeConfirm('complied')} style={{ ...btnSuccess, flex: 1 }}><CircleCheck size={15} /> التزم بمدة الإشعار</button>
+                <button onClick={() => setOutcomeConfirm('violated')} style={{ ...btnDanger, flex: 1 }}><CircleX size={15} /> لم يلتزم بالمدة</button>
+              </div>
+            ) : (
+              <div style={{ border: `1px solid ${outcomeConfirm === 'violated' ? S.red : S.green}55`, background: outcomeConfirm === 'violated' ? 'rgba(239,68,68,0.06)' : 'rgba(34,197,94,0.06)', borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 12.5, color: S.white, lineHeight: 1.9, marginBottom: 10 }}>
+                  {outcomeConfirm === 'violated'
+                    ? 'تأكيد: الموظف لم يلتزم بمدة الإشعار. سيُوقَف الآن، ويصبح صافي راتبه صفراً عن الشهر الأخير وأي شهر لاحق غير مدفوع (الأشهر المدفوعة سابقاً لا تتأثر). وتبقى أي سلفة عليه ظاهرة كدَين.'
+                    : 'تأكيد: الموظف أتمّ مدة الإشعار. سيُوقَف عن العمل ويُصرف راتبه المستحق بالتناسب حتى آخر يوم عمل.'}
+                  {outcomeConfirm === 'complied' && request.resignation_last_day && request.resignation_last_day > ymdMalaysia() && (
+                    <div style={{ color: S.amber, marginTop: 4 }}>تنبيه: لم تنتهِ مدة الإشعار بعد (آخر يوم عمل {request.resignation_last_day}).</div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setOutcomeConfirm(null)} disabled={updating} style={{ ...btnSecondary, flex: 1 }}>رجوع</button>
+                  <button onClick={() => finishResignation(outcomeConfirm)} disabled={updating}
+                    style={{ ...(outcomeConfirm === 'violated' ? btnDanger : btnSuccess), flex: 1, opacity: updating ? 0.7 : 1 }}>
+                    {updating ? 'جاري الحفظ...' : 'تأكيد القرار'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* ✅ "تأكيد الاكتمال" لمن له خطوة تنفيذ فعلية فقط (سلفة الراتب وزيادة الراتب) وبيد المعتمِد وحده — باقي الأنواع "موافق عليه" نهائية */}
@@ -1475,7 +1731,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
           <div style={{ marginBottom: 16 }}>
             {isSalaryRaise && (
               <div style={{ background: S.greenB, border: `1px solid ${S.green}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 12.5, color: S.green, lineHeight: 1.7 }}>
-                ✅ اعتُمدت الزيادة بنسبة {request.raise_approved_percent ?? request.raise_percent}% (الراتب الجديد MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). لا تُطبَّق تلقائياً على الراتب: سجّلها من ملف الموظف (زيادة راتب) ثم اضغط «تأكيد الاكتمال».
+                اعتُمدت الزيادة بنسبة {request.raise_approved_percent ?? request.raise_percent}% (الراتب الجديد MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). لا تُطبَّق تلقائياً على الراتب: سجّلها من ملف الموظف (زيادة راتب) ثم اضغط «تأكيد الاكتمال».
               </div>
             )}
             {isSalaryAdvance && canTakeAction && (
@@ -1489,8 +1745,8 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
               </>
             )}
             <button onClick={() => updateStatus('completed')} disabled={updating}
-              style={{ width: '100%', padding: '10px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              {isSalaryAdvance ? `🏁 اعتماد وخصم MYR ${(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '🏁 تأكيد الاكتمال'}
+              style={{ ...btnSuccess, width: '100%' }}>
+              <Flag size={15} /> {isSalaryAdvance ? `اعتماد وخصم MYR ${(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'تأكيد الاكتمال'}
             </button>
           </div>
         )}
@@ -1498,11 +1754,11 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           {isAdmin ? (
             <button onClick={deleteRequest}
-              style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              🗑️ حذف الطلب
+              style={btnDanger}>
+              <Trash2 size={15} /> حذف الطلب
             </button>
           ) : <span />}
-          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إغلاق</button>
+          <button onClick={onClose} style={btnSecondary}>إغلاق</button>
         </div>
       </div>
     </div>
@@ -1537,6 +1793,7 @@ export default function EmployeeRequestsPage() {
   const [showNewType, setShowNewType] = useState('leave_sick')
   const [showSalaryIncrease, setShowSalaryIncrease] = useState(false)
   const [showSalaryAdvance, setShowSalaryAdvance] = useState(false)
+  const [showResignation, setShowResignation] = useState(false)
   const [selected, setSelected] = useState<EmployeeRequest | null>(null)
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterType, setFilterType] = useState('all')
@@ -1680,7 +1937,7 @@ export default function EmployeeRequestsPage() {
 
         return `
           <div class="branch-section">
-            <div class="branch-title">🏪 ${branchName}</div>
+            <div class="branch-title">${branchName}</div>
             ${chunksHtml}
             <div class="branch-total">إجمالي ${branchName}: ${branchTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR (${branchRequests.length} طلب)</div>
           </div>`
@@ -1688,9 +1945,9 @@ export default function EmployeeRequestsPage() {
 
       return `
         <div class="month-section" ${monthIndex > 0 ? 'style="page-break-before: always;"' : ''}>
-          <div class="month-title">📅 ${monthName}</div>
+          <div class="month-title">${monthName}</div>
           ${branchesHtml}
-          <div class="month-total">💰 إجمالي شهر ${monthName} كاملاً: ${monthTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR (${monthRequests.length} طلب)</div>
+          <div class="month-total">إجمالي شهر ${monthName} كاملاً: ${monthTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR (${monthRequests.length} طلب)</div>
         </div>`
     }).join('')
 
@@ -1721,7 +1978,7 @@ export default function EmployeeRequestsPage() {
           <div style="font-size:12px;color:#666;margin-top:4px;">تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA')}</div>
         </div>
         ${monthsHtml}
-        <div class="grand-total">💰 الإجمالي الكلي النهائي لكل السلف: ${grandTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR</div>
+        <div class="grand-total">الإجمالي الكلي النهائي لكل السلف: ${grandTotal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR</div>
         <script>window.onload = function(){ window.print() }</script>
       </body></html>`)
     win.document.close()
@@ -1767,8 +2024,9 @@ export default function EmployeeRequestsPage() {
     }
     // ✅ طلبات زيادة الراتب لا تُجلب لغير مدير النظام إلا طلبه الشخصي — فلا يراها مدير فرع أو قسم أو مشرف
     // ✅ مساعد مدير الصالة: لا يرى سلف ولا زيادة راتب غيره (يرى طلباته الشخصية فقط)
-    if (isHallAssistant) reqQuery = reqQuery.or(`and(request_type.neq.salary_increase,request_type.neq.salary_advance),employee_id.eq.${myId}`)
-    else if (!isAdmin) reqQuery = reqQuery.or(`request_type.neq.salary_increase,employee_id.eq.${myId}`)
+    // ✅ طلبات الاستقالة سرّية: لا يجلبها لغير مدير النظام إلا صاحبها (وقاعدة البيانات تفرض نفس القاعدة)
+    if (isHallAssistant) reqQuery = reqQuery.or(`and(request_type.neq.salary_increase,request_type.neq.salary_advance,request_type.neq.resignation),employee_id.eq.${myId}`)
+    else if (!isAdmin) reqQuery = reqQuery.or(`and(request_type.neq.salary_increase,request_type.neq.resignation),employee_id.eq.${myId}`)
     // ✅ تصحيح الحضور: لمدير النظام فقط — لا يُجلب لأي دور آخر (ولا حتى طلب الموظف نفسه)
     if (!isAdmin) reqQuery = reqQuery.neq('request_type', 'attendance_correction')
 
@@ -1798,7 +2056,9 @@ export default function EmployeeRequestsPage() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   // Stats — تُحسب بناءً على الفرع المختار فقط
-  const branchScopedRequests = filterBranch === 'all' ? requests : requests.filter(r => r.employees?.branch_id === filterBranch)
+  const branchScopedRequests = (filterBranch === 'all' ? requests : requests.filter(r => r.employees?.branch_id === filterBranch))
+    // طلبات الاستقالة سرّية: صاحبها ومدير النظام فقط
+    .filter(r => r.request_type !== 'resignation' || isAdmin || r.employee_id === currentUser?.id)
   const thisMonth = new Date().toISOString().slice(0, 7)
   const monthReqs = branchScopedRequests.filter(r => r.created_at?.startsWith(thisMonth))
   const statusCounts = Object.keys(STATUS_CONFIG).reduce((acc, s) => {
@@ -1846,26 +2106,29 @@ export default function EmployeeRequestsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>
-            {isEmployee ? (isAr ? '📋 طلباتي' : '📋 My Requests') : (isAr ? '📋 طلبات الموظفين' : '📋 Employee Requests')}
+            {isEmployee ? (isAr ? 'طلباتي' : 'My Requests') : (isAr ? 'طلبات الموظفين' : 'Employee Requests')}
           </h1>
           <p style={{ fontSize: 13, color: S.muted }}>
             {isEmployee ? (isAr ? 'طلباتك الشخصية — إجازات، سلف، ومقترحات' : 'Your personal requests — leaves, advances & suggestions') : (isAr ? 'إدارة طلبات الإجازات والسلف والمقترحات' : 'Manage employee requests — leaves, advances & suggestions')}
           </p>
         </div>
 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-  <button onClick={() => setShowNew(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '➕ طلب جديد' : '➕ New Request'}</button>
-  {isAdmin && <button onClick={() => { setShowNewType('attendance_correction'); setShowNew(true); }} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🕐 تصحيح الحضور' : '🕐 Attendance Correction'}</button>}
+  <button onClick={() => setShowNew(true)} style={btnPrimary}><Plus size={15} /> {isAr ? 'طلب جديد' : 'New Request'}</button>
+  {isAdmin && <button onClick={() => { setShowNewType('attendance_correction'); setShowNew(true); }} style={btnSecondary}><Clock size={15} /> {isAr ? 'تصحيح الحضور' : 'Attendance Correction'}</button>}
   {canSeeSalaryIncrease && (
-    <button onClick={() => setShowSalaryIncrease(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '📈 زيادة راتب' : '📈 Salary Increase'}</button>
+    <button onClick={() => setShowSalaryIncrease(true)} style={btnSecondary}><TrendingUp size={15} /> {isAr ? 'زيادة راتب' : 'Salary Increase'}</button>
   )}
-  <button onClick={() => setShowSalaryAdvance(true)} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '💸 سلفة راتب' : '💸 Salary Advance'}</button>
+  <button onClick={() => setShowSalaryAdvance(true)} style={btnSecondary}><Banknote size={15} /> {isAr ? 'سلفة راتب' : 'Salary Advance'}</button>
+  {employees.some(e => e.id === currentUser?.id) && (
+    <button onClick={() => setShowResignation(true)} style={btnDanger}><LogOut size={15} /> {isAr ? 'طلب استقالة' : 'Resignation'}</button>
+  )}
   {(isAdmin || isBranchManager) && (
     <>
       {/* ✅ جديد: اختيار شهر محدد قبل الطباعة - فاضي معناه كل الشهور مع بعض مثل القديم */}
       <input type="month" value={printAdvancesMonth} onChange={e => setPrintAdvancesMonth(e.target.value)}
         title="اختر شهرًا لطباعته فقط (اتركه فاضيًا لكل الشهور)"
         style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', colorScheme: 'dark' }} />
-      <button onClick={printAllSalaryAdvances} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{isAr ? '🖨️ تقرير السلف الشامل' : '🖨️ Full Advances Report'}</button>
+      <button onClick={printAllSalaryAdvances} style={btnSecondary}><Printer size={15} /> {isAr ? 'تقرير السلف الشامل' : 'Full Advances Report'}</button>
     </>
   )}
   {/* ✅ جديد: طباعة استمارات السلفة الفردية دفعة واحدة لكل موظفي فرع ما في شهر محدد */}
@@ -1879,7 +2142,7 @@ export default function EmployeeRequestsPage() {
       <input type="month" value={bulkAppMonth} onChange={e => setBulkAppMonth(e.target.value)}
         title="اختر شهر الطلبات المراد طباعة استماراتها"
         style={{ padding: '9px 12px', borderRadius: 12, border: `1px solid ${S.border}`, background: S.card, color: S.white, fontSize: 13, fontFamily: 'Tajawal, sans-serif', colorScheme: 'dark' }} />
-      <button onClick={printBulkApplications} style={{ padding: '10px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ طباعة استمارات السلف</button>
+      <button onClick={printBulkApplications} style={btnSecondary}><Printer size={15} /> طباعة استمارات السلف</button>
     </>
   )}
 </div>
@@ -1888,19 +2151,19 @@ export default function EmployeeRequestsPage() {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 20 }}>
         <div style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 18px' }}>
-          <div style={{ fontSize: 22, marginBottom: 6 }}>📊</div>
+          <div style={{ marginBottom: 8, color: S.muted }}><ChartColumn size={20} strokeWidth={1.8} /></div>
           <div style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 2 }}>{requests.length}</div>
           <div style={{ fontSize: 12, color: S.muted }}>{isAr ? 'إجمالي الطلبات' : 'Total Requests'}</div>
         </div>
         <div style={{ background: S.gold3, borderRadius: 14, border: `1px solid rgba(201,168,76,0.2)`, padding: '16px 18px' }}>
-          <div style={{ fontSize: 22, marginBottom: 6 }}>📅</div>
+          <div style={{ marginBottom: 8, color: S.gold }}><CalendarDays size={20} strokeWidth={1.8} /></div>
           <div style={{ fontSize: 22, fontWeight: 800, color: S.gold, marginBottom: 2 }}>{monthReqs.length}</div>
           <div style={{ fontSize: 12, color: S.muted }}>{isAr ? 'هذا الشهر' : 'This Month'}</div>
         </div>
         {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
           <div key={key} onClick={() => setFilterStatus(filterStatus === key ? 'all' : key)}
             style={{ background: filterStatus === key ? cfg.bg : S.card2, borderRadius: 14, border: `1px solid ${filterStatus === key ? cfg.color + '50' : S.border}`, padding: '16px 18px', cursor: 'pointer', transition: 'all .2s' }}>
-            <div style={{ fontSize: 22, marginBottom: 6 }}>{cfg.icon}</div>
+            <div style={{ marginBottom: 8, color: cfg.color }}><cfg.icon size={20} strokeWidth={1.8} /></div>
             <div style={{ fontSize: 22, fontWeight: 800, color: cfg.color, marginBottom: 2 }}>{statusCounts[key] || 0}</div>
             <div style={{ fontSize: 12, color: S.muted }}>{cfg.label}</div>
           </div>
@@ -1923,7 +2186,7 @@ export default function EmployeeRequestsPage() {
           return (
             <button key={key} onClick={() => setFilterType(filterType === key ? 'all' : key)}
               style={{ padding: '6px 14px', borderRadius: 20, border: `1px solid ${filterType === key ? cfg.color : S.border}`, background: filterType === key ? cfg.bg : 'transparent', color: filterType === key ? cfg.color : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {cfg.icon} {isAr ? cfg.label : cfg.label_en} ({count})
+              <cfg.icon size={13} /> {isAr ? cfg.label : cfg.label_en} ({count})
             </button>
           )
         })}
@@ -1931,10 +2194,10 @@ export default function EmployeeRequestsPage() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder={isAr ? "🔍 بحث بالاسم أو رقم الطلب..." : "🔍 Search by name or request number..."} />
+        <input style={{ ...inp, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder={isAr ? "بحث بالاسم أو رقم الطلب..." : "Search by name or request number..."} />
         {!isEmployee && (
           <select style={{ ...inp, width: 'auto', minWidth: 150 }} value={filterBranch} onChange={e => setFilterBranch(e.target.value)}>
-            <option value="all">🏪 كل الفروع</option>
+            <option value="all">كل الفروع</option>
             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         )}
@@ -1947,14 +2210,14 @@ export default function EmployeeRequestsPage() {
         {(search || filterStatus !== 'all' || filterType !== 'all' || filterEmp !== 'all' || filterBranch !== 'all') && (
           <button onClick={() => { setSearch(''); setFilterStatus('all'); setFilterType('all'); setFilterEmp('all'); setFilterBranch('all') }}
             style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-            ✕ مسح
+            مسح
           </button>
         )}
       </div>
 
       {/* Table */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>⏳ جاري التحميل...</div>
+        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>جاري التحميل...</div>
       ) : (
         <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.border}`, overflow: 'hidden' }}>
           <div style={{ padding: '14px 20px', borderBottom: `1px solid ${S.border}`, display: 'flex', justifyContent: 'space-between' }}>
@@ -1973,7 +2236,7 @@ export default function EmployeeRequestsPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr><td colSpan={8} style={{ textAlign: 'center', padding: 60, color: S.muted }}>
-                    <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+                    <div style={{ marginBottom: 12, color: S.muted, display: 'flex', justifyContent: 'center' }}><ClipboardList size={40} strokeWidth={1.4} /></div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد طلبات</div>
                   </td></tr>
                 ) : pagedRequests.map(req => {
@@ -1983,8 +2246,8 @@ export default function EmployeeRequestsPage() {
                     <tr key={req.id} className="req-row" onClick={() => setSelected(req)} style={{ borderBottom: `1px solid ${S.border}`, cursor: 'pointer' }}>
                       <td style={{ padding: '14px 16px', color: S.gold, fontWeight: 800 }}>#{req.request_number}</td>
                       <td style={{ padding: '14px 16px' }}>
-                        <span style={{ background: rt.bg, color: rt.color, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 700 }}>
-                          {rt.icon} {isAr ? rt.label : rt.label_en}
+                        <span style={{ background: rt.bg, color: rt.color, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <rt.icon size={13} /> {isAr ? rt.label : rt.label_en}
                         </span>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
@@ -2006,19 +2269,19 @@ export default function EmployeeRequestsPage() {
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
-                        {req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{req.request_type === 'salary_advance' && req.status === 'pending' && req.approved_amount != null && <span style={{ display: 'block', fontSize: 11, color: S.green }}>💾 محفوظ: {req.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}</span>
+                        {req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{req.request_type === 'salary_advance' && req.status === 'pending' && req.approved_amount != null && <span style={{ display: 'block', fontSize: 11, color: S.green }}>محفوظ: {req.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}</span>
                           : req.days_count ? <span style={{ color: S.blue, fontWeight: 700, fontSize: 13 }}>{req.days_count} يوم</span>
                           : <span style={{ color: S.muted }}>—</span>}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
-                        <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
-                          {st.icon} {st.label}
+                        <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <st.icon size={13} /> {st.label}
                         </span>
                       </td>
                       <td style={{ padding: '14px 16px', fontSize: 12, color: S.muted }}>
                         {new Date(req.created_at).toLocaleDateString('ar-SA', { month: 'short', day: 'numeric' })}
                       </td>
-                      <td style={{ padding: '14px 16px', color: S.muted, fontSize: 18 }}>←</td>
+                      <td style={{ padding: '14px 16px', color: S.muted }}><ChevronLeft size={18} /></td>
                     </tr>
                   )
                 })}
@@ -2027,9 +2290,9 @@ export default function EmployeeRequestsPage() {
           </div>
           {filtered.length > REQ_PAGE_SIZE && (
             <div style={{ padding: '12px 20px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <button onClick={() => goPage(curPage - 1)} disabled={curPage === 0} style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage === 0 ? S.muted : S.white, cursor: curPage === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>→ السابق</button>
+              <button onClick={() => goPage(curPage - 1)} disabled={curPage === 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage === 0 ? S.muted : S.white, cursor: curPage === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}><ChevronRight size={14} /> السابق</button>
               <span style={{ fontSize: 13, color: S.muted }}>صفحة {curPage + 1} من {totalPages} · {curPage * REQ_PAGE_SIZE + 1}–{Math.min((curPage + 1) * REQ_PAGE_SIZE, filtered.length)} من {filtered.length}</span>
-              <button onClick={() => goPage(curPage + 1)} disabled={curPage >= totalPages - 1} style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage >= totalPages - 1 ? S.muted : S.white, cursor: curPage >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>التالي ←</button>
+              <button onClick={() => goPage(curPage + 1)} disabled={curPage >= totalPages - 1} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage >= totalPages - 1 ? S.muted : S.white, cursor: curPage >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>التالي <ChevronLeft size={14} /></button>
             </div>
           )}
         </div>
@@ -2040,6 +2303,9 @@ export default function EmployeeRequestsPage() {
        canSeeSalaryIncrease={canSeeSalaryIncrease} canSeeSalaryAdvance={canSeeSalaryAdvance} canSeeAttendanceCorrection={isAdmin} />}
       {showSalaryIncrease && employees.find(e => e.id === currentUser?.id) && (
   <SalaryIncreaseModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryIncrease(false)} onSaved={() => { setShowSalaryIncrease(false); fetchAll() }} />
+)}
+{showResignation && employees.find(e => e.id === currentUser?.id) && (
+  <ResignationModal employee={employees.find(e => e.id === currentUser?.id)!} submittedByName={currentUser?.name ? `${currentUser.name}${currentUser.name_en ? ' (' + currentUser.name_en + ')' : ''}` : ''} onClose={() => setShowResignation(false)} onSaved={() => { setShowResignation(false); fetchAll() }} />
 )}
 {showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
   <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />

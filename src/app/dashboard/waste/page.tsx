@@ -5,6 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES, KITCHEN_ASSISTANT_ROLE } from '../../../lib/roles'
 import { useLang } from '../../components/LanguageContext'
+import { fetchAllRows } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -76,6 +77,272 @@ interface WasteLog {
   branches?: { name: string }
 }
 
+// ══ تقرير الهدر المفصّل: من تاريخ إلى تاريخ، لكل فرع، بكل التفاصيل (النوع، من سجّله، التكلفة، الاعتماد...) ══
+type WasteReportRow = WasteLog & {
+  recorded_by?: string
+  employees?: { name: string; name_en: string; employee_number?: string }
+  approver?: { name?: string; name_en?: string } | null
+}
+
+const escHtml = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const personName = (e?: { name?: string; name_en?: string } | null) => e?.name ? `${e.name.trim()}${e.name_en ? ` (${e.name_en.trim()})` : ''}` : '—'
+const fmtMoney = (n: number) => (n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const klDateTime = (iso?: string | null) => iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'
+
+function WasteDetailReport({ employee, role, isAdmin, isAr, branches, onClose }: {
+  employee: { id?: string; branch_id?: string } | null | undefined; role: string
+  isAdmin: boolean; isAr: boolean; branches: { id: string; name: string }[]; onClose: () => void
+}) {
+  const [sb] = useState(() => createClient())
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+  const [from, setFrom] = useState(today.slice(0, 8) + '01')
+  const [to, setTo] = useState(today)
+  const [branchId, setBranchId] = useState(isAdmin ? '' : (employee?.branch_id || ''))
+  const [type, setType] = useState('all')
+  const [dept, setDept] = useState('all')
+  const [status, setStatus] = useState('all')
+  const [rows, setRows] = useState<WasteReportRow[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+  const [reportMeta, setReportMeta] = useState<{ from: string; to: string; branch: string } | null>(null)
+
+  const typeLabel = (k: string) => { const t = WASTE_TYPES.find(x => x.key === k); return t ? (isAr ? t.labelAr : t.labelEn) : k }
+  const branchName = (id?: string | null) => branches.find(b => b.id === id)?.name || '—'
+
+  async function run() {
+    if (!from || !to) { setErr(isAr ? 'حدّد تاريخ البداية والنهاية.' : 'Pick the start and end dates.'); return }
+    if (from > to) { setErr(isAr ? 'تاريخ البداية بعد تاريخ النهاية.' : 'The start date is after the end date.'); return }
+    setErr(''); setLoading(true)
+    const data = await fetchAllRows<WasteReportRow>((a, b) => {
+      let q = sb.from('waste_logs')
+        .select('*, employees!waste_logs_recorded_by_fkey(name,name_en,employee_number), approver:employees!waste_logs_approved_by_fkey(name,name_en), branches(name)')
+        .gte('waste_date', from).lte('waste_date', to)
+      // نفس قيود الرؤية في صفحة الهدر: غير مدير النظام = فرعه فقط، مدير الصالة = الصالة فقط، المشرف = ما سجّله هو
+      if (!isAdmin) q = q.eq('branch_id', employee?.branch_id || '')
+      else if (branchId) q = q.eq('branch_id', branchId)
+      if (role === 'hall_manager') q = q.in('department', ['الصالة', 'Hall', 'hall'])
+      if (DEPT_SUPERVISOR_ROLES.includes(role)) q = q.eq('recorded_by', employee?.id || '')
+      if (type !== 'all') q = q.eq('waste_type', type)
+      if (dept !== 'all') q = q.eq('department', dept)
+      if (status === 'approved') q = q.not('approved_by', 'is', null)
+      else if (status === 'pending') q = q.is('approved_by', null)
+      return q.order('waste_date', { ascending: false }).order('id').range(a, b)
+    })
+    setRows(data)
+    setReportMeta({ from, to, branch: isAdmin ? (branchId ? branchName(branchId) : (isAr ? 'كل الفروع' : 'All branches')) : branchName(employee?.branch_id) })
+    setLoading(false)
+  }
+
+  const list = rows || []
+  const totalCost = list.reduce((s, r) => s + (r.cost || 0), 0)
+  const totalEst = list.reduce((s, r) => s + (r.estimated_cost || 0), 0)
+  const approvedCount = list.filter(r => r.approved_by).length
+  const group = (keyOf: (r: WasteReportRow) => string) => {
+    const m = new Map<string, { key: string; count: number; cost: number }>()
+    for (const r of list) { const k = keyOf(r); const e = m.get(k) || { key: k, count: 0, cost: 0 }; e.count++; e.cost += r.cost || 0; m.set(k, e) }
+    return Array.from(m.values()).sort((a, b) => b.cost - a.cost || b.count - a.count)
+  }
+  const byType = group(r => typeLabel(r.waste_type))
+  const byDept = group(r => r.department || '—')
+  const byBranch = group(r => r.branches?.name || branchName(r.branch_id))
+  const byPerson = group(r => personName(r.employees))
+
+  const COLS = isAr
+    ? ['#', 'التاريخ', 'الفرع', 'نوع الهدر', 'الصنف', 'الكمية', 'التكلفة (MYR)', 'التقدير المعتمد (MYR)', 'القسم', 'السبب', 'ملاحظات', 'سجّله', 'رقمه', 'وقت التسجيل', 'الحالة', 'اعتمده', 'وقت الاعتماد', 'صورة']
+    : ['#', 'Date', 'Branch', 'Waste type', 'Item', 'Quantity', 'Cost (MYR)', 'Approved estimate (MYR)', 'Department', 'Reason', 'Notes', 'Recorded by', 'Emp. no.', 'Recorded at', 'Status', 'Approved by', 'Approved at', 'Photo']
+  const rowCells = (r: WasteReportRow, i: number): string[] => [
+    String(i + 1), r.waste_date, r.branches?.name || branchName(r.branch_id), typeLabel(r.waste_type), r.item_name,
+    `${r.quantity ?? ''} ${r.unit || ''}`.trim(), (r.cost || 0).toFixed(2), r.approved_by ? (r.estimated_cost || 0).toFixed(2) : '',
+    r.department || '', r.reason || '', r.notes || '', personName(r.employees), r.employees?.employee_number || '',
+    klDateTime(r.created_at), r.approved_by ? (isAr ? 'معتمد' : 'Approved') : (isAr ? 'بانتظار الاعتماد' : 'Pending'),
+    r.approved_by ? personName(r.approver) : '', klDateTime(r.approved_at), r.image_url || '',
+  ]
+
+  function downloadCsv() {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+    const lines = [COLS.map(esc).join(','), ...list.map((r, i) => rowCells(r, i).map(esc).join(','))]
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `waste-report_${reportMeta?.from}_${reportMeta?.to}.csv`
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+
+  function printReport() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const sumTable = (title: string, data: { key: string; count: number; cost: number }[]) => `
+      <h3>${escHtml(title)}</h3>
+      <table class="s"><thead><tr><th>${isAr ? 'البند' : 'Item'}</th><th>${isAr ? 'العدد' : 'Count'}</th><th>${isAr ? 'التكلفة (MYR)' : 'Cost (MYR)'}</th></tr></thead>
+      <tbody>${data.map(d => `<tr><td>${escHtml(d.key)}</td><td>${d.count}</td><td>${fmtMoney(d.cost)}</td></tr>`).join('')}</tbody></table>`
+    win.document.write(`<!DOCTYPE html><html dir="${isAr ? 'rtl' : 'ltr'}"><head><meta charset="UTF-8"><title>${isAr ? 'تقرير الهدر' : 'Waste report'}</title>
+      <style>
+        body { font-family: Tajawal, Arial, sans-serif; padding: 16px; color: #1a1a1a; font-size: 11px; }
+        h1 { font-size: 18px; margin: 0 0 4px; } h3 { font-size: 13px; margin: 14px 0 6px; }
+        .meta { color: #555; margin-bottom: 10px; } .tot { display: flex; gap: 18px; flex-wrap: wrap; margin: 10px 0; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+        th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: ${isAr ? 'right' : 'left'}; vertical-align: top; }
+        th { background: #f0f0f0; } table.s { width: auto; min-width: 320px; }
+        @media print { @page { size: A4 landscape; margin: 8mm; } }
+      </style></head><body>
+      <h1>${isAr ? 'تقرير الهدر' : 'Waste report'} — ${escHtml(reportMeta?.branch)}</h1>
+      <div class="meta">${isAr ? 'من' : 'From'} ${escHtml(reportMeta?.from)} ${isAr ? 'إلى' : 'to'} ${escHtml(reportMeta?.to)} · ${isAr ? 'طُبع في' : 'Printed'} ${escHtml(klDateTime(new Date().toISOString()))}</div>
+      <div class="tot"><span>${isAr ? 'عدد السجلات' : 'Records'}: ${list.length}</span><span>${isAr ? 'إجمالي التكلفة' : 'Total cost'}: MYR ${fmtMoney(totalCost)}</span><span>${isAr ? 'التقدير المعتمد' : 'Approved estimate'}: MYR ${fmtMoney(totalEst)}</span><span>${isAr ? 'المعتمد' : 'Approved'}: ${approvedCount}/${list.length}</span></div>
+      ${sumTable(isAr ? 'حسب نوع الهدر' : 'By waste type', byType)}
+      ${sumTable(isAr ? 'حسب القسم' : 'By department', byDept)}
+      ${isAdmin && !branchId ? sumTable(isAr ? 'حسب الفرع' : 'By branch', byBranch) : ''}
+      ${sumTable(isAr ? 'حسب من سجّله' : 'By recorder', byPerson)}
+      <h3>${isAr ? 'التفاصيل' : 'Details'}</h3>
+      <table><thead><tr>${COLS.filter((_, i) => i !== 17).map(c => `<th>${escHtml(c)}</th>`).join('')}</tr></thead>
+      <tbody>${list.map((r, i) => `<tr>${rowCells(r, i).filter((_, k) => k !== 17).map(c => `<td>${escHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      <script>window.onload=function(){window.print()}<\/script></body></html>`)
+    win.document.close()
+  }
+
+  const lbl: React.CSSProperties = { fontSize: 11, color: S.muted, display: 'block', marginBottom: 4 }
+  const sel: React.CSSProperties = { ...inp, padding: '8px 10px', fontSize: 12, width: 'auto', minWidth: 130 }
+  const th: React.CSSProperties = { padding: '8px 10px', textAlign: isAr ? 'right' : 'left', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}`, whiteSpace: 'nowrap', background: S.navy3, position: 'sticky', top: 0 }
+  const td: React.CSSProperties = { padding: '8px 10px', fontSize: 12, color: S.white, borderBottom: `1px solid ${S.border}`, verticalAlign: 'top' }
+  const miniTable = (title: string, data: { key: string; count: number; cost: number }[]) => (
+    <div style={{ background: S.navy3, borderRadius: 12, overflow: 'hidden', flex: '1 1 240px', minWidth: 220 }}>
+      <div style={{ padding: '8px 12px', fontSize: 12, fontWeight: 800, color: S.gold, borderBottom: `1px solid ${S.border}` }}>{title}</div>
+      <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {data.map(d => (
+              <tr key={d.key}>
+                <td style={td}>{d.key}</td>
+                <td style={{ ...td, color: S.amber }}>{d.count}</td>
+                <td style={{ ...td, color: S.red, fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtMoney(d.cost)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: S.navy, zIndex: 350, overflowY: 'auto', direction: isAr ? 'rtl' : 'ltr', fontFamily: 'Tajawal, sans-serif', color: S.white }}>
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>📑 {isAr ? 'تقرير الهدر المفصّل' : 'Detailed Waste Report'}</h2>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>✕ {isAr ? 'إغلاق' : 'Close'}</button>
+        </div>
+
+        <div style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 14, padding: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16 }}>
+          {isAdmin ? (
+            <div><label style={lbl}>{isAr ? 'الفرع' : 'Branch'}</label>
+              <select style={sel} value={branchId} onChange={e => setBranchId(e.target.value)}>
+                <option value="">{isAr ? 'كل الفروع' : 'All branches'}</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select></div>
+          ) : (
+            <div><label style={lbl}>{isAr ? 'الفرع' : 'Branch'}</label><div style={{ ...sel, opacity: 0.8 }}>{branchName(employee?.branch_id)}</div></div>
+          )}
+          <div><label style={lbl}>{isAr ? 'من تاريخ' : 'From'}</label><input type="date" style={{ ...sel, colorScheme: 'dark' }} value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} /></div>
+          <div><label style={lbl}>{isAr ? 'إلى تاريخ' : 'To'}</label><input type="date" style={{ ...sel, colorScheme: 'dark' }} value={to} min={from || undefined} onChange={e => setTo(e.target.value)} /></div>
+          <div><label style={lbl}>{isAr ? 'نوع الهدر' : 'Waste type'}</label>
+            <select style={sel} value={type} onChange={e => setType(e.target.value)}>
+              <option value="all">{isAr ? 'الكل' : 'All'}</option>
+              {WASTE_TYPES.map(t => <option key={t.key} value={t.key}>{isAr ? t.labelAr : t.labelEn}</option>)}
+            </select></div>
+          <div><label style={lbl}>{isAr ? 'القسم' : 'Department'}</label>
+            <select style={sel} value={dept} onChange={e => setDept(e.target.value)}>
+              <option value="all">{isAr ? 'الكل' : 'All'}</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select></div>
+          <div><label style={lbl}>{isAr ? 'الحالة' : 'Status'}</label>
+            <select style={sel} value={status} onChange={e => setStatus(e.target.value)}>
+              <option value="all">{isAr ? 'الكل' : 'All'}</option>
+              <option value="approved">{isAr ? 'معتمد' : 'Approved'}</option>
+              <option value="pending">{isAr ? 'بانتظار الاعتماد' : 'Pending'}</option>
+            </select></div>
+          <button onClick={run} disabled={loading} style={{ padding: '10px 22px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold, color: S.navy, cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 800, fontFamily: 'Tajawal, sans-serif' }}>
+            {loading ? (isAr ? 'جاري التحميل...' : 'Loading...') : (isAr ? 'عرض التقرير' : 'Show report')}
+          </button>
+        </div>
+        {err && <div style={{ background: S.redB, color: S.red, borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 700, marginBottom: 14 }}>{err}</div>}
+
+        {rows === null ? (
+          <div style={{ textAlign: 'center', padding: 60, color: S.muted, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}` }}>
+            {isAr ? 'اختر الفرع والفترة ثم اضغط «عرض التقرير».' : 'Pick the branch and period, then press “Show report”.'}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+              {[
+                { l: isAr ? 'عدد السجلات' : 'Records', v: String(list.length), c: S.amber },
+                { l: isAr ? 'إجمالي التكلفة' : 'Total cost', v: `MYR ${fmtMoney(totalCost)}`, c: S.red },
+                { l: isAr ? 'التقدير المعتمد' : 'Approved estimate', v: `MYR ${fmtMoney(totalEst)}`, c: S.purple },
+                { l: isAr ? 'المعتمد من السجلات' : 'Approved records', v: `${approvedCount} / ${list.length}`, c: S.green },
+              ].map((x, i) => (
+                <div key={i} style={{ background: S.navy2, border: `1px solid ${x.c}40`, borderRadius: 12, padding: '10px 16px', minWidth: 150 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: x.c }}>{x.v}</div>
+                  <div style={{ fontSize: 11, color: S.muted }}>{x.l}</div>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginInlineStart: 'auto' }}>
+                <button onClick={printReport} disabled={list.length === 0} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🖨️ {isAr ? 'طباعة' : 'Print'}</button>
+                <button onClick={downloadCsv} disabled={list.length === 0} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.white, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>⬇️ {isAr ? 'تنزيل Excel (CSV)' : 'Download Excel (CSV)'}</button>
+              </div>
+            </div>
+
+            {list.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 50, color: S.muted, background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}` }}>{isAr ? 'لا يوجد هدر مسجل في هذه الفترة بهذه المرشحات.' : 'No waste recorded for this period and filters.'}</div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {miniTable(isAr ? 'حسب نوع الهدر' : 'By waste type', byType)}
+                  {miniTable(isAr ? 'حسب القسم' : 'By department', byDept)}
+                  {isAdmin && !branchId && miniTable(isAr ? 'حسب الفرع' : 'By branch', byBranch)}
+                  {miniTable(isAr ? 'حسب من سجّله' : 'By recorder', byPerson)}
+                </div>
+                <div style={{ background: S.navy2, border: `1px solid ${S.border}`, borderRadius: 14, overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 14px', fontSize: 13, fontWeight: 800, borderBottom: `1px solid ${S.border}` }}>{isAr ? 'التفاصيل الكاملة' : 'Full details'} ({list.length})</div>
+                  <div style={{ overflow: 'auto', maxHeight: '60vh' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
+                      <thead><tr>{COLS.map(c => <th key={c} style={th}>{c}</th>)}</tr></thead>
+                      <tbody>
+                        {list.map((r, i) => {
+                          const t = WASTE_TYPES.find(x => x.key === r.waste_type)
+                          const cells = rowCells(r, i)
+                          return (
+                            <tr key={r.id}>
+                              <td style={{ ...td, color: S.muted }}>{cells[0]}</td>
+                              <td style={{ ...td, whiteSpace: 'nowrap' }}>{cells[1]}</td>
+                              <td style={td}>{cells[2]}</td>
+                              <td style={td}><span style={{ background: t?.bg, color: t?.color, borderRadius: 8, padding: '2px 8px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{cells[3]}</span></td>
+                              <td style={{ ...td, fontWeight: 700 }}>{cells[4]}</td>
+                              <td style={{ ...td, whiteSpace: 'nowrap' }}>{cells[5]}</td>
+                              <td style={{ ...td, color: r.cost > 0 ? S.red : S.muted, fontWeight: 700 }}>{cells[6]}</td>
+                              <td style={{ ...td, color: S.purple }}>{cells[7] || '—'}</td>
+                              <td style={td}>{cells[8] || '—'}</td>
+                              <td style={td}>{cells[9] || '—'}</td>
+                              <td style={{ ...td, maxWidth: 220 }}>{cells[10] || '—'}</td>
+                              <td style={{ ...td, whiteSpace: 'nowrap' }}>{cells[11]}</td>
+                              <td style={{ ...td, color: S.muted }}>{cells[12] || '—'}</td>
+                              <td style={{ ...td, whiteSpace: 'nowrap', color: S.muted }}>{cells[13]}</td>
+                              <td style={{ ...td, color: r.approved_by ? S.green : S.amber, whiteSpace: 'nowrap' }}>{cells[14]}</td>
+                              <td style={{ ...td, whiteSpace: 'nowrap' }}>{cells[15] || '—'}</td>
+                              <td style={{ ...td, whiteSpace: 'nowrap', color: S.muted }}>{cells[16]}</td>
+                              <td style={td}>{r.image_url ? <a href={r.image_url} target="_blank" rel="noreferrer" style={{ color: S.blue }}>{isAr ? 'عرض' : 'View'}</a> : '—'}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function WastePage() {
   const sb = useRef(createClient()).current
   const { employee } = useAuth()
@@ -94,6 +361,7 @@ export default function WastePage() {
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
   const [activeTab, setActiveTab] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
   const [showReport, setShowReport] = useState(false)
+  const [showDetail, setShowDetail] = useState(false)
   const [comparisonReport, setComparisonReport] = useState<{ id: string; name: string; count: number; total: number }[]>([])
   const [loadingReport, setLoadingReport] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -235,6 +503,11 @@ export default function WastePage() {
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'تتبع وتحليل الهدر في المطعم' : 'Track and analyze restaurant waste'}</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          {isAdmin && (
+            <button onClick={() => setShowDetail(true)} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
+              📑 {isAr ? 'تقرير مفصّل' : 'Detailed Report'}
+            </button>
+          )}
           {isAdmin && (
             <button onClick={() => { setShowReport(true); loadComparisonReport() }} style={{ padding: '10px 18px', borderRadius: 12, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
               📊 {isAr ? 'تقرير مقارن' : 'Comparison Report'}
@@ -533,6 +806,11 @@ export default function WastePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* تقرير الهدر المفصّل — لمدير النظام فقط */}
+      {showDetail && isAdmin && (
+        <WasteDetailReport employee={employee} role={role} isAdmin={isAdmin} isAr={isAr} branches={branches} onClose={() => setShowDetail(false)} />
       )}
 
       {/* Comparison Report Modal */}

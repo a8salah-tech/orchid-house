@@ -5,6 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../lib/roles'
+import { fetchAllRows } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -168,10 +169,11 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
         // من Promise.all (غالبًا المستودع الرئيسي) بدل نسخة مستودع الفرع الصحيحة، فكان الـ product_id
         // المحفوظ يشاور على مستودع مختلف تمامًا عن مستودع الطالب، فيفشل الخصم بهدوء عند الموافقة.
         return Promise.all(['المطبخ', 'البار', 'الصالة'].map(dept =>
-          sb.from('department_products')
+          // ✅ جدول department_products فيه أكثر من 1000 صف (المطبخ وحده 1568) — الطلب الواحد يقطع عند 1000 فتضيع أصناف فروع كاملة، فنجلب على دفعات
+          fetchAllRows<{ product_id: string }>((from, to) => sb.from('department_products')
             .select('product_id, warehouse_products(id,name,name_en,product_code,current_stock,unit_id,warehouse_id,units(symbol),is_active)')
-            .eq('department', dept)
-            .then(({ data }) => ({ dept, data: data || [] }))
+            .eq('department', dept).order('id').range(from, to))
+            .then(data => ({ dept, data }))
         ))
       }).then(results => {
       if (!results) return
@@ -203,7 +205,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
 
     sb.from('units').select('*').order('name').then(({ data }) => setUnits(data || []))
     // ✅ جديد: جلب كل معاملات التحويل عشان نستخدمها في قفل الوحدة المسموحة لكل صنف
-    sb.from('unit_conversions').select('product_id, from_unit_id, to_unit_id, factor').then(({ data }) => setUnitConversions(data || []))
+    fetchAllRows<{ product_id: string; from_unit_id: string; to_unit_id: string; factor: number }>((from, to) => sb.from('unit_conversions').select('product_id, from_unit_id, to_unit_id, factor').order('id').range(from, to)).then(data => setUnitConversions(data))
 
     // ✅ Fix: الاستهلاك الشهري كان بيحسب آخر 30 يوم بالرجوع للخلف من تاريخ اليوم، فكانت الأرقام
     // بتشمل حركات قديمة (بعضها كان متأثر بأخطاء التحويل القديمة قبل الإصلاحات). المطلوب:
@@ -211,8 +213,9 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
     // في الأيام القادمة (تاريخ ثابت مقصود، وليس new Date() متحرّك، عشان العداد يتراكم فعليًا
     // بدل ما يفضل يعرض "اليوم بس" كل مرة يعاد تحميل الصفحة)
     const since = '2026-08-04'
-    sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since)
-      .then(({ data }) => {
+    // ✅ حركات الصرف منذ التاريخ أكثر من 1000 صف (10 آلاف+) — الطلب الواحد كان يحسب الاستهلاك من أول 1000 فقط
+    fetchAllRows<{ product_id: string; quantity: number }>((from, to) => sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since).order('id').range(from, to))
+      .then(data => {
         const totals: Record<string, number> = {}
         for (const m of (data || [])) {
           totals[m.product_id] = (totals[m.product_id] || 0) + (m.quantity || 0)

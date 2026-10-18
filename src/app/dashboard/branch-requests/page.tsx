@@ -5,6 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../lib/roles'
+import { fetchAllRows } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -106,14 +107,15 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
   const [form, setForm] = useState({ branch_id: currentEmployee?.branch_id || '', department: autoDept, requested_by: fullName || currentEmployee?.name || '', notes: '' })
 
   useEffect(() => {
-    sb.from('department_products').select('product_id').eq('department', activeDeptTab)
-      .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
+    // ✅ department_products فيه أكثر من 1000 صف — نجلب على دفعات حتى لا تضيع أصناف القسم
+    fetchAllRows<{ product_id: string }>((from, to) => sb.from('department_products').select('product_id').eq('department', activeDeptTab).order('id').range(from, to))
+      .then(data => setDeptProducts(data.map(d => d.product_id)))
   }, [activeDeptTab])
 
   useEffect(() => {
     // load initial dept products on mount
-    sb.from('department_products').select('product_id').eq('department', 'المطبخ')
-      .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
+    fetchAllRows<{ product_id: string }>((from, to) => sb.from('department_products').select('product_id').eq('department', 'المطبخ').order('id').range(from, to))
+      .then(data => setDeptProducts(data.map(d => d.product_id)))
     sb.from('warehouse_products').select('id,name,name_en,product_code,current_stock,units(symbol)').eq('is_active', true)
       .eq('warehouse_id', 'adcb9ca3-56a7-4c9e-94b8-55fec4fcc0a8') // المستودع الرئيسي فقط — منع تكرار الصنف من مستودعات متعددة
       .order('name')
@@ -185,8 +187,8 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
             {['المطبخ','البار','الصالة'].map(dept => (
               <button key={dept} onClick={() => {
                 setActiveDeptTab(dept)
-                sb.from('department_products').select('product_id').eq('department', dept)
-                  .then(({ data }) => setDeptProducts((data||[]).map((d:any) => d.product_id)))
+                fetchAllRows<{ product_id: string }>((from, to) => sb.from('department_products').select('product_id').eq('department', dept).order('id').range(from, to))
+                  .then(data => setDeptProducts(data.map(d => d.product_id)))
               }}
                 style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${activeDeptTab===dept ? S.gold : S.border}`, background: activeDeptTab===dept ? S.gold3 : 'transparent', color: activeDeptTab===dept ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: activeDeptTab===dept ? 700 : 400 }}>
                 {dept==='المطبخ'?'🍳':dept==='البار'?'🍹':'🪑'} {dept}

@@ -68,6 +68,58 @@ function formatTime(iso?: string) {
   return new Date(iso).toLocaleTimeString('en-GB', { timeZone: KL_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+// ✅ تعديلات الشيفت (db/shift_change_history.sql → app_shift_changes): الشيفت قبل وبعد، ومن عدّله ومتى
+type ShiftChangeRow = {
+  employee_id: string; date: string
+  old_start: string | null; old_end: string | null; old_leave: boolean
+  new_start: string | null; new_end: string | null; new_leave: boolean; new_removed: boolean
+  changed_at: string; changed_by_name: string | null
+}
+function shiftLabel(st: string | null, en: string | null, leave: boolean, isAr: boolean): string {
+  if (leave) return isAr ? 'إجازة' : 'Leave'
+  if (!st || !en) return '—'
+  return `${st.slice(0, 5)}–${en.slice(0, 5)}`
+}
+function ShiftChangeNote({ changes, checkIn, isAr }: { changes?: ShiftChangeRow[]; checkIn?: string | null; isAr: boolean }) {
+  if (!changes || changes.length === 0) return null
+  return (
+    <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontWeight: 400 }}>
+      {changes.map((c, i) => {
+        const diffMin = checkIn ? Math.round((new Date(c.changed_at).getTime() - new Date(checkIn).getTime()) / 60000) : null
+        const after = diffMin != null && diffMin > 0
+        const color = after ? S.red : S.amber
+        const bg = after ? S.redB : S.amberB
+        const when = new Date(c.changed_at).toLocaleString('en-GB', { timeZone: KL_TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+        const timing = diffMin == null ? '' : after
+          ? (isAr ? ` · بعد الدخول بـ ${diffMin} د` : ` · ${diffMin} min after check-in`)
+          : (isAr ? ` · قبل الدخول بـ ${-diffMin} د` : ` · ${-diffMin} min before check-in`)
+        return (
+          <div key={i} style={{ background: bg, border: `1px solid ${color}40`, borderRadius: 8, padding: '4px 8px', color, lineHeight: 1.6 }}>
+            <div style={{ fontWeight: 700 }}>
+              {c.new_removed ? (isAr ? 'أُلغي الشيفت' : 'Shift removed') : (isAr ? 'عُدّل الشيفت' : 'Shift edited')}
+              {' '}
+              <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>
+                {shiftLabel(c.old_start, c.old_end, c.old_leave, isAr)}{c.new_removed ? '' : ` → ${shiftLabel(c.new_start, c.new_end, c.new_leave, isAr)}`}
+              </span>
+            </div>
+            <div style={{ opacity: 0.9 }}>
+              {c.changed_by_name || (isAr ? 'النظام' : 'System')} · <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>{when}</span>{timing}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+function groupShiftChanges(rows: ShiftChangeRow[] | null | undefined): Record<string, ShiftChangeRow[]> {
+  const out: Record<string, ShiftChangeRow[]> = {}
+  for (const r of rows || []) {
+    const k = `${r.employee_id}|${String(r.date).slice(0, 10)}`
+    ;(out[k] ||= []).push(r)
+  }
+  return out
+}
+
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { timeZone: KL_TZ, weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
 }
@@ -844,6 +896,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
 
   const [date,         setDate]         = useState(getMalaysiaDateString())
   const [records,      setRecords]      = useState<any[]>([])
+  // تعديلات الشيفت لليوم المعروض / للتقرير الشهري (مفتاحها `${employee_id}|${date}`)
+  const [dayShiftChanges,    setDayShiftChanges]    = useState<Record<string, ShiftChangeRow[]>>({})
+  const [reportShiftChanges, setReportShiftChanges] = useState<Record<string, ShiftChangeRow[]>>({})
   const [employees,    setEmployees]    = useState<Employee[]>([])
   const [branches,     setBranches]     = useState<Branch[]>([])
   const [loading,      setLoading]      = useState(true)
@@ -946,6 +1001,11 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       sb.from('shift_schedules').select('employee_id,shift_id,custom_start').eq('date', date).eq('status', 'confirmed'),
     ])
     setRecords(att.data || [])
+    // ✅ تعديلات الشيفت لهذا اليوم (للمديرين والمشرفين فقط؛ الدالة ترجع فارغاً لغيرهم أو قبل تشغيل SQL)
+    {
+      const { data: sc } = await sb.rpc('app_shift_changes', { p_from: date, p_to: date })
+      setDayShiftChanges(groupShiftChanges(sc as ShiftChangeRow[] | null))
+    }
     // ✅ الراتب اتنقل لجدول employee_compensation المقفول — مدير النظام فقط يقدر يقراه.
     // نجيبه ونضمّه لقائمة الموظفين عشان صندوق "التكلفة اليومية" في التقرير يشتغل للأدمن؛
     // غير الأدمن يرجع صفر صفوف فالتكلفة تظهر صفر.
@@ -1033,6 +1093,10 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     }
 
     setReportData(merged)
+    {
+      const { data: sc } = await sb.rpc('app_shift_changes', { p_from: startDate, p_to: endStr, p_emp: requestedEmp })
+      if (reportEmpRef.current === requestedEmp) setReportShiftChanges(groupShiftChanges(sc as ShiftChangeRow[] | null))
+    }
     setLoadingReport(false)
   }
 
@@ -1689,7 +1753,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                                 <button onClick={() => saveEditedTime(r.employees?.name || emp?.name || '—')} style={{ padding: '3px 6px', borderRadius: 6, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 10 }}>✔️</button>
                                 <button onClick={() => setEditingCell(null)} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 10 }}>✕</button>
                               </div>
-                            ) : formatTime(r.check_in_time)}
+                            ) : (
+                              <>
+                                {formatTime(r.check_in_time)}
+                                <ShiftChangeNote changes={dayShiftChanges[`${r.employee_id}|${String(r.date).slice(0, 10)}`]} checkIn={r.check_in_time} isAr={isAr} />
+                              </>
+                            )}
                           </td>
                           <td style={{ padding: '12px 14px', fontSize: 12, color: S.muted }}>
                             {r.check_in_distance != null ? `${r.check_in_distance}m` : '—'}
@@ -1939,7 +2008,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                                 <button onClick={() => saveEditedTime(reportEmployee?.name || '—')} style={{ padding: '3px 6px', borderRadius: 6, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 10 }}>✔️</button>
                                 <button onClick={() => setEditingCell(null)} style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 10 }}>✕</button>
                               </div>
-                            ) : formatTime(r.check_in_time)}
+                            ) : (
+                              <>
+                                {formatTime(r.check_in_time)}
+                                <ShiftChangeNote changes={reportShiftChanges[`${reportEmp}|${String(r.date).slice(0, 10)}`]} checkIn={r.check_in_time} isAr={isAr} />
+                              </>
+                            )}
                           </td>
                           <td style={{ padding: '10px 14px', fontSize: 12, color: S.muted }}>
                             {r.check_in_distance != null ? `${r.check_in_distance}m` : '—'}

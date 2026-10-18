@@ -58,11 +58,11 @@ const REQUEST_TYPES: Record<string, { label: string; label_en: string; icon: Ico
   resignation:     { label: 'طلب استقالة', label_en: 'Resignation',     icon: LogOut, color: S.red,   bg: S.redB },
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: IconC }> = {
-  pending:  { label: 'قيد الانتظار', color: S.amber,  bg: S.amberB,  icon: Hourglass },
-  approved: { label: 'موافق عليه',   color: S.green,  bg: S.greenB,  icon: CircleCheck },
-  rejected: { label: 'مرفوض',        color: S.red,    bg: S.redB,    icon: CircleX },
-  completed:{ label: 'مكتمل',        color: S.teal,   bg: S.tealB,   icon: Flag },
+const STATUS_CONFIG: Record<string, { label: string; label_en: string; color: string; bg: string; icon: IconC }> = {
+  pending:  { label: 'قيد الانتظار', label_en: 'Pending', color: S.amber,  bg: S.amberB,  icon: Hourglass },
+  approved: { label: 'موافق عليه', label_en: 'Approved', color: S.green,  bg: S.greenB,  icon: CircleCheck },
+  rejected: { label: 'مرفوض', label_en: 'Rejected', color: S.red,    bg: S.redB,    icon: CircleX },
+  completed:{ label: 'مكتمل', label_en: 'Completed', color: S.teal,   bg: S.tealB,   icon: Flag },
 }
 
 // أزرار موحّدة (نفس ترتيب أزرار BIDLX: أساسي / ثانوي / خطر / نجاح) داخل الغلاف الداكن
@@ -515,17 +515,22 @@ function daysUntilYmd(fromYmd: string, toYmd: string): number {
 }
 
 // الشروط الثلاثة + عدم إمكانية السحب — تظهر بوضوح في نموذج التقديم
-function ResignationTerms({ noticeDays, deptLabel }: { noticeDays: number; deptLabel?: string }) {
-  const items = [
+function ResignationTerms({ noticeDays, deptLabel, isAr }: { noticeDays: number; deptLabel?: string; isAr: boolean }) {
+  const items = isAr ? [
     'لا تُعدّ الاستقالة مقبولة إلا بعد الموافقة المبدئية من الإدارة. وقبل ذلك يبقى الطلب «قيد الانتظار» ولا يُعدّ قبولاً بأي حال.',
     'بعد القبول تبدأ مدة الإشعار ويلتزم الموظف بالعمل خلالها: 15 يوماً لقسم الصالة، و30 يوماً لقسم المطبخ (ويشمل البار والحلويات)، و30 يوماً لباقي الأقسام.',
     'من لا يلتزم بمدة الإشعار لا يستحق راتباً ولا أي مستحقات أخرى.',
     'لا يمكن سحب الطلب أو تعديله بعد إرساله.',
+  ] : [
+    'A resignation is not accepted until management gives its initial approval. Until then the request stays "Pending" and is never considered accepted.',
+    'After acceptance the notice period starts and the employee must keep working through it: 15 days for the Hall department, 30 days for the Kitchen (including Bar and Desserts), and 30 days for all other departments.',
+    'An employee who does not complete the notice period is not entitled to any salary or other dues.',
+    'The request cannot be withdrawn or edited after it is sent.',
   ]
   return (
     <div style={{ border: `1px solid ${S.red}55`, background: 'rgba(239,68,68,0.06)', borderRadius: 14, padding: '14px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: S.red, fontWeight: 800, fontSize: 13.5, marginBottom: 10 }}>
-        <Info size={16} /> شروط الاستقالة — يرجى القراءة بعناية
+        <Info size={16} /> {isAr ? 'شروط الاستقالة — يرجى القراءة بعناية' : 'Resignation terms — please read carefully'}
       </div>
       <ol style={{ margin: 0, paddingInlineStart: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items.map((t, i) => (
@@ -533,8 +538,8 @@ function ResignationTerms({ noticeDays, deptLabel }: { noticeDays: number; deptL
         ))}
       </ol>
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${S.border}`, fontSize: 12.5, color: S.muted }}>
-        {deptLabel ? <>قسمك: <strong style={{ color: S.white }}>{deptLabel}</strong> — </> : null}
-        مدة الإشعار المطبّقة عليك بعد القبول: <strong style={{ color: S.gold }}>{noticeDays} يوماً</strong>
+        {deptLabel ? <>{isAr ? 'قسمك' : 'Your department'}: <strong style={{ color: S.white }}>{deptLabel}</strong> — </> : null}
+        {isAr ? 'مدة الإشعار المطبّقة عليك بعد القبول' : 'Notice period that applies to you after acceptance'}: <strong style={{ color: S.gold }}>{isAr ? `${noticeDays} يوماً` : `${noticeDays} days`}</strong>
       </div>
     </div>
   )
@@ -545,6 +550,7 @@ function ResignationModal({ employee, onClose, onSaved, submittedByName }: {
   employee: Employee; onClose: () => void; onSaved: () => void; submittedByName?: string
 }) {
   const supabase = createClient()
+  const { isAr } = useLang()
   const [reason, setReason] = useState('')
   const [agree, setAgree] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -553,8 +559,8 @@ function ResignationModal({ employee, onClose, onSaved, submittedByName }: {
 
   async function submit() {
     setErr('')
-    if (reason.trim().length < 10) { setErr('اكتب سبب الاستقالة (10 أحرف على الأقل).'); return }
-    if (!agree) { setErr('يجب الإقرار بقراءة الشروط قبل إرسال الطلب.'); return }
+    if (reason.trim().length < 10) { setErr(isAr ? 'اكتب سبب الاستقالة (10 أحرف على الأقل).' : 'Write the reason for resigning (at least 10 characters).'); return }
+    if (!agree) { setErr(isAr ? 'يجب الإقرار بقراءة الشروط قبل إرسال الطلب.' : 'You must confirm you have read the terms before sending.'); return }
     setSaving(true)
     const { error } = await supabase.from('employee_requests').insert([{
       employee_id: employee.id,
@@ -566,9 +572,9 @@ function ResignationModal({ employee, onClose, onSaved, submittedByName }: {
     }])
     setSaving(false)
     if (error) {
-      if (error.code === '23505') setErr('لديك طلب استقالة مفتوح بالفعل.')
-      else if (/request_type|check constraint|violates/i.test(error.message)) setErr('النظام لم يُجهَّز بعد لطلبات الاستقالة — تواصل مع مدير النظام.')
-      else setErr('تعذّر إرسال الطلب: ' + error.message)
+      if (error.code === '23505') setErr(isAr ? 'لديك طلب استقالة مفتوح بالفعل.' : 'You already have an open resignation request.')
+      else if (/request_type|check constraint|violates/i.test(error.message)) setErr(isAr ? 'النظام لم يُجهَّز بعد لطلبات الاستقالة — تواصل مع مدير النظام.' : 'The system is not set up for resignation requests yet — contact the system admin.')
+      else setErr((isAr ? 'تعذّر إرسال الطلب: ' : 'Could not send the request: ') + error.message)
       return
     }
     onSaved()
@@ -581,24 +587,24 @@ function ResignationModal({ employee, onClose, onSaved, submittedByName }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: S.redB, color: S.red, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LogOut size={20} /></div>
             <div>
-              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, margin: 0 }}>طلب استقالة</h2>
-              <p style={{ fontSize: 12, color: S.muted, margin: '3px 0 0' }}>طلب سرّي — لا يراه إلا أنت ومدير النظام</p>
+              <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, margin: 0 }}>{isAr ? 'طلب استقالة' : 'Resignation Request'}</h2>
+              <p style={{ fontSize: 12, color: S.muted, margin: '3px 0 0' }}>{isAr ? 'طلب سرّي — لا يراه إلا أنت ومدير النظام' : 'Confidential — only you and the system admin can see it'}</p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="إغلاق" style={{ ...btnSecondary, padding: 0, width: 36, height: 36 }}><X size={16} /></button>
+          <button onClick={onClose} aria-label={isAr ? 'إغلاق' : 'Close'} style={{ ...btnSecondary, padding: 0, width: 36, height: 36 }}><X size={16} /></button>
         </div>
 
-        <ResignationTerms noticeDays={noticeDays} deptLabel={employee.department || undefined} />
+        <ResignationTerms noticeDays={noticeDays} deptLabel={employee.department || undefined} isAr={isAr} />
 
         <div style={{ marginTop: 16 }}>
-          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>سبب الاستقالة *</label>
+          <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 6 }}>{isAr ? 'سبب الاستقالة *' : 'Reason for resigning *'}</label>
           <textarea style={{ ...inp, minHeight: 100, resize: 'vertical' } as React.CSSProperties}
-            value={reason} onChange={e => setReason(e.target.value)} placeholder="اكتب سبب الاستقالة..." />
+            value={reason} onChange={e => setReason(e.target.value)} placeholder={isAr ? 'اكتب سبب الاستقالة...' : 'Write the reason for resigning...'} />
         </div>
 
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14, cursor: 'pointer', fontSize: 12.5, color: S.white, lineHeight: 1.8 }}>
           <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 5, accentColor: S.red, width: 16, height: 16 }} />
-          <span>قرأتُ الشروط أعلاه وأوافق عليها، وأُقرّ بأنني لا أستطيع سحب الطلب بعد إرساله.</span>
+          <span>{isAr ? 'قرأتُ الشروط أعلاه وأوافق عليها، وأُقرّ بأنني لا أستطيع سحب الطلب بعد إرساله.' : 'I have read and agree to the terms above, and I understand I cannot withdraw the request after sending it.'}</span>
         </label>
 
         {err && (
@@ -606,9 +612,9 @@ function ResignationModal({ employee, onClose, onSaved, submittedByName }: {
         )}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnSecondary}>إلغاء</button>
+          <button onClick={onClose} style={btnSecondary}>{isAr ? 'إلغاء' : 'Cancel'}</button>
           <button onClick={submit} disabled={saving} style={{ ...btnBase, background: S.red, color: '#fff', border: `1px solid ${S.red}`, opacity: saving ? 0.7 : 1 }}>
-            <Send size={15} /> {saving ? 'جاري الإرسال...' : 'إرسال طلب الاستقالة'}
+            <Send size={15} /> {saving ? (isAr ? 'جاري الإرسال...' : 'Sending...') : (isAr ? 'إرسال طلب الاستقالة' : 'Send resignation request')}
           </button>
         </div>
       </div>
@@ -1082,7 +1088,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       resignation_last_day: addDaysYmd(ymdMalaysia(), resNoticeDays),
     }).eq('id', request.id)
     setUpdating(false)
-    if (error) { setResError('تعذّر القبول: ' + error.message + (/resignation_/.test(error.message) ? ' — شغّل ملف db/resignation_requests.sql أولًا' : '')); return }
+    if (error) { setResError((isAr ? 'تعذّر القبول: ' : 'Could not approve: ') + error.message + (/resignation_/.test(error.message) ? (isAr ? ' — شغّل ملف db/resignation_requests.sql أولًا' : ' — run db/resignation_requests.sql first') : '')); return }
     onUpdate()
   }
   async function finishResignation(outcome: 'complied' | 'violated') {
@@ -1092,10 +1098,10 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     // آخر يوم فعلي في الخدمة: عند الالتزام = آخر يوم عمل إن كان قد مضى، وإلا اليوم. عند عدم الالتزام = اليوم
     const endDate = outcome === 'complied' && request.resignation_last_day && request.resignation_last_day < today ? request.resignation_last_day : today
     const { error } = await supabase.from('employee_requests').update({ status: 'completed', resignation_outcome: outcome }).eq('id', request.id)
-    if (error) { setUpdating(false); setResError('تعذّر تسجيل القرار: ' + error.message); return }
+    if (error) { setUpdating(false); setResError((isAr ? 'تعذّر تسجيل القرار: ' : 'Could not record the decision: ') + error.message); return }
     const { error: empErr } = await supabase.from('employees').update({ is_active: false, deactivated_at: endDate }).eq('id', request.employee_id)
     setUpdating(false)
-    if (empErr) alert('سُجّل القرار، لكن تعذّر إيقاف الموظف تلقائياً: ' + empErr.message + '\nأوقفه يدوياً من صفحة الموظفين.')
+    if (empErr) alert(isAr ? 'سُجّل القرار، لكن تعذّر إيقاف الموظف تلقائياً: ' + empErr.message + '\nأوقفه يدوياً من صفحة الموظفين.' : 'Decision saved, but the employee could not be deactivated automatically: ' + empErr.message + '\nDeactivate them manually from the Employees page.')
     onUpdate()
   }
 
@@ -1411,7 +1417,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                 <div style={{ fontSize: 13, color: reqType.color, fontWeight: 600 }}>{reqType.label}</div>
               </div>
               <span style={{ background: status.bg, color: status.color, borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <status.icon size={13} /> {status.label}
+                <status.icon size={13} /> {isAr ? status.label : status.label_en}
               </span>
             </div>
             <div style={{ fontSize: 12, color: S.muted }}>
@@ -1438,8 +1444,8 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             request.start_date ? { label: 'من تاريخ', value: request.start_date } : null,
             request.end_date ? { label: 'إلى تاريخ', value: request.end_date } : null,
             request.days_count ? { label: 'عدد الأيام', value: `${request.days_count} يوم` } : null,
-            isResignation && request.resignation_notice_days ? { label: 'مدة الإشعار', value: `${request.resignation_notice_days} يوماً` } : null,
-            isResignation && request.resignation_last_day ? { label: 'آخر يوم عمل', value: request.resignation_last_day } : null,
+            isResignation && request.resignation_notice_days ? { label: isAr ? 'مدة الإشعار' : 'Notice period', value: isAr ? `${request.resignation_notice_days} يوماً` : `${request.resignation_notice_days} days` } : null,
+            isResignation && request.resignation_last_day ? { label: isAr ? 'آخر يوم عمل' : 'Last working day', value: request.resignation_last_day } : null,
             request.approved_by ? { label: 'تمت الموافقة بواسطة', value: request.approved_by } : null,
           ].filter(Boolean).map((row: any, i) => (
             <div key={i} style={{ background: S.card, borderRadius: 10, padding: '10px 14px' }}>
@@ -1525,25 +1531,25 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
               {request.status === 'pending' && (
                 <div style={{ background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.amber, lineHeight: 1.8, display: 'flex', gap: 8 }}>
                   <Hourglass size={16} style={{ flexShrink: 0, marginTop: 4 }} />
-                  <span>الطلب بانتظار الموافقة المبدئية من الإدارة. لا تُعدّ الاستقالة مقبولة قبل ذلك، ولا يمكن سحب الطلب أو تعديله بعد إرساله.</span>
+                  <span>{isAr ? 'الطلب بانتظار الموافقة المبدئية من الإدارة. لا تُعدّ الاستقالة مقبولة قبل ذلك، ولا يمكن سحب الطلب أو تعديله بعد إرساله.' : 'The request is awaiting initial approval from management. The resignation is not accepted before that, and the request cannot be withdrawn or edited after sending.'}</span>
                 </div>
               )}
               {request.status === 'approved' && (
                 <div style={{ background: S.blueB, border: `1px solid ${S.blue}40`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.white, lineHeight: 1.9 }}>
-                  <div style={{ color: S.blue, fontWeight: 800, marginBottom: 4 }}>الاستقالة مقبولة مبدئياً — مدة الإشعار جارية</div>
-                  مدة الإشعار: <strong>{request.resignation_notice_days ?? resNoticeDays} يوماً</strong> · آخر يوم عمل: <strong>{request.resignation_last_day || '—'}</strong>
-                  {left != null && <> · {left > 0 ? <>المتبقي: <strong style={{ color: S.gold }}>{left} يوماً</strong></> : <strong style={{ color: S.green }}>انتهت مدة الإشعار</strong>}</>}
-                  <div style={{ marginTop: 6, color: S.red, fontSize: 12 }}>من لا يلتزم بمدة الإشعار لا يستحق راتباً ولا أي مستحقات أخرى.</div>
+                  <div style={{ color: S.blue, fontWeight: 800, marginBottom: 4 }}>{isAr ? 'الاستقالة مقبولة مبدئياً — مدة الإشعار جارية' : 'Resignation initially accepted — notice period running'}</div>
+                  {isAr ? 'مدة الإشعار' : 'Notice period'}: <strong>{isAr ? `${request.resignation_notice_days ?? resNoticeDays} يوماً` : `${request.resignation_notice_days ?? resNoticeDays} days`}</strong> · {isAr ? 'آخر يوم عمل' : 'Last working day'}: <strong>{request.resignation_last_day || '—'}</strong>
+                  {left != null && <> · {left > 0 ? <>{isAr ? 'المتبقي' : 'Remaining'}: <strong style={{ color: S.gold }}>{isAr ? `${left} يوماً` : `${left} days`}</strong></> : <strong style={{ color: S.green }}>{isAr ? 'انتهت مدة الإشعار' : 'Notice period ended'}</strong>}</>}
+                  <div style={{ marginTop: 6, color: S.red, fontSize: 12 }}>{isAr ? 'من لا يلتزم بمدة الإشعار لا يستحق راتباً ولا أي مستحقات أخرى.' : 'An employee who does not complete the notice period is not entitled to any salary or other dues.'}</div>
                 </div>
               )}
               {request.status === 'completed' && request.resignation_outcome === 'complied' && (
                 <div style={{ background: S.greenB, border: `1px solid ${S.green}40`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.green, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CircleCheck size={16} /> أتمّ الموظف مدة الإشعار — أُنهيت خدمته ويُصرف راتبه المستحق حتى آخر يوم.
+                  <CircleCheck size={16} /> {isAr ? 'أتمّ الموظف مدة الإشعار — أُنهيت خدمته ويُصرف راتبه المستحق حتى آخر يوم.' : 'The employee completed the notice period — service ended; earned salary is paid up to the last day.'}
                 </div>
               )}
               {request.status === 'completed' && request.resignation_outcome === 'violated' && (
                 <div style={{ background: S.redB, border: `1px solid ${S.red}55`, borderRadius: 12, padding: '12px 14px', fontSize: 12.5, color: S.red, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CircleX size={16} /> لم يلتزم الموظف بمدة الإشعار — لا راتب له ولا أي مستحقات عن الشهر الأخير وما بعده.
+                  <CircleX size={16} /> {isAr ? 'لم يلتزم الموظف بمدة الإشعار — لا راتب له ولا أي مستحقات عن الشهر الأخير وما بعده.' : 'The employee did not complete the notice period — no salary or dues for the final month onward.'}
                 </div>
               )}
             </div>
@@ -1581,12 +1587,12 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                     // طلب الاستقالة: موافقة مبدئية (تبدأ مدة الإشعار) أو رفض — لمدير النظام فقط
                     <>
                       <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.8, marginBottom: 12 }}>
-                        عند الموافقة المبدئية تبدأ مدة الإشعار ({resNoticeDays} يوماً) ويصبح آخر يوم عمل للموظف <strong style={{ color: S.white }}>{addDaysYmd(ymdMalaysia(), resNoticeDays)}</strong>.
+                        {isAr ? <>عند الموافقة المبدئية تبدأ مدة الإشعار ({resNoticeDays} يوماً) ويصبح آخر يوم عمل للموظف <strong style={{ color: S.white }}>{addDaysYmd(ymdMalaysia(), resNoticeDays)}</strong>.</> : <>On initial approval the notice period starts ({resNoticeDays} days) and the employee&apos;s last working day becomes <strong style={{ color: S.white }}>{addDaysYmd(ymdMalaysia(), resNoticeDays)}</strong>.</>}
                       </div>
                       {resError && <div style={{ background: S.redB, color: S.red, borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 700, marginBottom: 10 }}>{resError}</div>}
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={approveResignation} disabled={updating} style={{ ...btnSuccess, flex: 1 }}>
-                          <CircleCheck size={15} /> موافقة مبدئية وبدء مدة الإشعار
+                          <CircleCheck size={15} /> {isAr ? 'موافقة مبدئية وبدء مدة الإشعار' : 'Initial approval & start notice period'}
                         </button>
                         <button onClick={() => setShowReject(true)} style={{ ...btnDanger, flex: 1 }}>
                           <CircleX size={15} /> رفض
@@ -1694,31 +1700,31 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         {/* طلب الاستقالة المقبول مبدئياً: قرار مدير النظام اليدوي — التزم بمدة الإشعار أم لا */}
         {isResignation && request.status === 'approved' && isAdmin && (
           <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: S.white, marginBottom: 4 }}>قرار نهاية مدة الإشعار</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: S.white, marginBottom: 4 }}>{isAr ? 'قرار نهاية مدة الإشعار' : 'End-of-notice decision'}</div>
             <div style={{ fontSize: 12, color: S.muted, lineHeight: 1.8, marginBottom: 12 }}>
-              تحدّد أنت يدوياً هل التزم الموظف بالمدة. عند التسجيل يُوقَف الموظف ويُغلق الطلب.
+              {isAr ? 'تحدّد أنت يدوياً هل التزم الموظف بالمدة. عند التسجيل يُوقَف الموظف ويُغلق الطلب.' : 'You decide manually whether the employee completed the period. On saving, the employee is deactivated and the request is closed.'}
             </div>
             {resError && <div style={{ background: S.redB, color: S.red, borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 700, marginBottom: 10 }}>{resError}</div>}
             {outcomeConfirm === null ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button onClick={() => setOutcomeConfirm('complied')} style={{ ...btnSuccess, flex: 1 }}><CircleCheck size={15} /> التزم بمدة الإشعار</button>
-                <button onClick={() => setOutcomeConfirm('violated')} style={{ ...btnDanger, flex: 1 }}><CircleX size={15} /> لم يلتزم بالمدة</button>
+                <button onClick={() => setOutcomeConfirm('complied')} style={{ ...btnSuccess, flex: 1 }}><CircleCheck size={15} /> {isAr ? 'التزم بمدة الإشعار' : 'Completed the notice period'}</button>
+                <button onClick={() => setOutcomeConfirm('violated')} style={{ ...btnDanger, flex: 1 }}><CircleX size={15} /> {isAr ? 'لم يلتزم بالمدة' : 'Did not complete it'}</button>
               </div>
             ) : (
               <div style={{ border: `1px solid ${outcomeConfirm === 'violated' ? S.red : S.green}55`, background: outcomeConfirm === 'violated' ? 'rgba(239,68,68,0.06)' : 'rgba(34,197,94,0.06)', borderRadius: 10, padding: 12 }}>
                 <div style={{ fontSize: 12.5, color: S.white, lineHeight: 1.9, marginBottom: 10 }}>
                   {outcomeConfirm === 'violated'
-                    ? 'تأكيد: الموظف لم يلتزم بمدة الإشعار. سيُوقَف الآن، ويصبح صافي راتبه صفراً عن الشهر الأخير وأي شهر لاحق غير مدفوع (الأشهر المدفوعة سابقاً لا تتأثر). وتبقى أي سلفة عليه ظاهرة كدَين.'
-                    : 'تأكيد: الموظف أتمّ مدة الإشعار. سيُوقَف عن العمل ويُصرف راتبه المستحق بالتناسب حتى آخر يوم عمل.'}
+                    ? (isAr ? 'تأكيد: الموظف لم يلتزم بمدة الإشعار. سيُوقَف الآن، ويصبح صافي راتبه صفراً عن الشهر الأخير وأي شهر لاحق غير مدفوع (الأشهر المدفوعة سابقاً لا تتأثر). وتبقى أي سلفة عليه ظاهرة كدَين.' : 'Confirm: the employee did not complete the notice period. They will be deactivated now, and net salary becomes zero for the final month and any later unpaid month (previously paid months are unaffected). Any advance stays visible as a debt.')
+                    : (isAr ? 'تأكيد: الموظف أتمّ مدة الإشعار. سيُوقَف عن العمل ويُصرف راتبه المستحق بالتناسب حتى آخر يوم عمل.' : 'Confirm: the employee completed the notice period. They will be deactivated and paid pro-rata up to the last working day.')}
                   {outcomeConfirm === 'complied' && request.resignation_last_day && request.resignation_last_day > ymdMalaysia() && (
-                    <div style={{ color: S.amber, marginTop: 4 }}>تنبيه: لم تنتهِ مدة الإشعار بعد (آخر يوم عمل {request.resignation_last_day}).</div>
+                    <div style={{ color: S.amber, marginTop: 4 }}>{isAr ? `تنبيه: لم تنتهِ مدة الإشعار بعد (آخر يوم عمل ${request.resignation_last_day}).` : `Note: the notice period has not ended yet (last working day ${request.resignation_last_day}).`}</div>
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setOutcomeConfirm(null)} disabled={updating} style={{ ...btnSecondary, flex: 1 }}>رجوع</button>
+                  <button onClick={() => setOutcomeConfirm(null)} disabled={updating} style={{ ...btnSecondary, flex: 1 }}>{isAr ? 'رجوع' : 'Back'}</button>
                   <button onClick={() => finishResignation(outcomeConfirm)} disabled={updating}
                     style={{ ...(outcomeConfirm === 'violated' ? btnDanger : btnSuccess), flex: 1, opacity: updating ? 0.7 : 1 }}>
-                    {updating ? 'جاري الحفظ...' : 'تأكيد القرار'}
+                    {updating ? (isAr ? 'جاري الحفظ...' : 'Saving...') : (isAr ? 'تأكيد القرار' : 'Confirm decision')}
                   </button>
                 </div>
               </div>
@@ -2165,7 +2171,7 @@ export default function EmployeeRequestsPage() {
             style={{ background: filterStatus === key ? cfg.bg : S.card2, borderRadius: 14, border: `1px solid ${filterStatus === key ? cfg.color + '50' : S.border}`, padding: '16px 18px', cursor: 'pointer', transition: 'all .2s' }}>
             <div style={{ marginBottom: 8, color: cfg.color }}><cfg.icon size={20} strokeWidth={1.8} /></div>
             <div style={{ fontSize: 22, fontWeight: 800, color: cfg.color, marginBottom: 2 }}>{statusCounts[key] || 0}</div>
-            <div style={{ fontSize: 12, color: S.muted }}>{cfg.label}</div>
+            <div style={{ fontSize: 12, color: S.muted }}>{isAr ? cfg.label : cfg.label_en}</div>
           </div>
         ))}
       </div>
@@ -2275,7 +2281,7 @@ export default function EmployeeRequestsPage() {
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{ background: st.bg, color: st.color, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                          <st.icon size={13} /> {st.label}
+                          <st.icon size={13} /> {isAr ? st.label : st.label_en}
                         </span>
                       </td>
                       <td style={{ padding: '14px 16px', fontSize: 12, color: S.muted }}>

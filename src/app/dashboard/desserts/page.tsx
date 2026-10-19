@@ -54,7 +54,7 @@ type CakeTableLog = {
   id: string
   table_id: string | null
   quantity: number
-  source: 'menu_order' | 'manual' | 'expired'
+  source: 'menu_order' | 'manual' | 'expired' | 'free'
   logged_by_name: string | null
   notes: string | null
   created_at: string
@@ -79,6 +79,8 @@ const isReturnedLog = (l: LogEmbeds) => {
   if (!(cancelledAt >= RETURN_FROM_MS)) return false
   return !charged && (itemCancelled || l.orders?.status === 'cancelled')
 }
+// ✅ تحويل كيك بين الفروع (db/cake_transfers_and_free.sql): ينقص رصيد المحوِّل ويزيد رصيد المستلِم
+type CakeTransfer = { id: string; created_at: string; from_branch_id: string; to_branch_id: string; quantity: number; transferred_by_name: string | null; notes: string | null }
 type TableRow = { id: string; number: number; name: string; branch_id: string | null }
 type Branch = { id: string; name: string }
 
@@ -158,6 +160,19 @@ export default function DessertsPage() {
   const [cakeProductions, setCakeProductions] = useState<CakeProduction[]>([])
   const [cakeTableLogs, setCakeTableLogs] = useState<CakeTableLog[]>([])
   const [cakeLoading, setCakeLoading] = useState(false)
+  // تحويلات الكيك بين الفروع: تحويلات اليوم المعروض + التراكمي حتى نهايته
+  const [cakeTransfers, setCakeTransfers] = useState<CakeTransfer[]>([])
+  const [cumTransfers, setCumTransfers] = useState<{ from_branch_id: string; to_branch_id: string; quantity: number }[]>([])
+  const [trFrom, setTrFrom] = useState('')
+  const [trTo, setTrTo] = useState('')
+  const [trQty, setTrQty] = useState('1')
+  const [trNotes, setTrNotes] = useState('')
+  const [trSaving, setTrSaving] = useState(false)
+  // ✅ كيكة مجانية (مدير النظام فقط) — السبب إلزامي
+  const [freeBranchId, setFreeBranchId] = useState('')
+  const [freeQty, setFreeQty] = useState('1')
+  const [freeReason, setFreeReason] = useState('')
+  const [freeSaving, setFreeSaving] = useState(false)
 
   // ✅ Date being viewed/searched - defaults to today, but can browse any past day
   const todayStr = new Date().toISOString().slice(0, 10)
@@ -196,7 +211,7 @@ export default function DessertsPage() {
 
   const fetchCakeData = useCallback(async () => {
     setCakeLoading(true)
-    const [br, tbl, prod, logs, cumProd, cumLogs] = await Promise.all([
+    const [br, tbl, prod, logs, cumProd, cumLogs, trDay, trCum] = await Promise.all([
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
       sb.from('tables').select('id,number,name,branch_id').order('number'),
       sb.from('cake_production_log').select('*').eq('production_date', viewDate).order('created_at', { ascending: false }),
@@ -205,6 +220,9 @@ export default function DessertsPage() {
       fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lte('production_date', viewDate).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
       // ✅ everything ever distributed (بما فيه منتهي الصلاحية) up to and including viewDate
       fetchAllRows<{ quantity: number; source: string; branch_id: string | null; tables: { branch_id: string | null } | null; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason, cancelled_at), orders(status), created_at').lt('created_at', `${viewDate}T23:59:59.999`).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
+      // ✅ تحويلات الكيك بين الفروع (اليوم + التراكمي) — لو الجدول لم يُنشأ بعد (db/cake_transfers_and_free.sql) ترجع فارغة ولا تكسر الصفحة
+      sb.from('cake_transfers').select('*').gte('created_at', `${viewDate}T00:00:00`).lt('created_at', `${viewDate}T23:59:59.999`).order('created_at', { ascending: false }),
+      fetchAllRows<{ from_branch_id: string; to_branch_id: string; quantity: number }>((a, b) => sb.from('cake_transfers').select('from_branch_id, to_branch_id, quantity').lt('created_at', `${viewDate}T23:59:59.999`).order('id').range(a, b)).then(data => ({ data })).catch(() => ({ data: null })),
     ])
     setBranches(br.data || [])
     setTables(tbl.data || [])
@@ -212,6 +230,8 @@ export default function DessertsPage() {
     setCakeTableLogs(logs.data || [])
     setCumProductions((cumProd.data as any) || [])
     setCumTableLogs((cumLogs.data as any) || [])
+    setCakeTransfers((trDay.data as CakeTransfer[] | null) || [])
+    setCumTransfers((trCum.data as { from_branch_id: string; to_branch_id: string; quantity: number }[] | null) || [])
     setCakeLoading(false)
   }, [sb, viewDate])
 
@@ -223,6 +243,7 @@ export default function DessertsPage() {
   const [monthDistributed, setMonthDistributed] = useState(0)
   // ✅ جديد: إجمالي الأصناف منتهية الصلاحية هذا الشهر - للأدمن فقط
   const [monthExpired, setMonthExpired] = useState(0)
+  const [monthFree, setMonthFree] = useState(0)
   const [monthStatsLoading, setMonthStatsLoading] = useState(false)
 
   // ✅ جديد: تقرير الكيك للطباعة (مدير النظام فقط) — من تاريخ إلى تاريخ، لفرع محدد أو كل الفروع:
@@ -249,7 +270,8 @@ export default function DessertsPage() {
     const prodFiltered = branchFilter ? prodData.filter(p => p.branch_id === branchFilter) : prodData
     const distFiltered = branchFilter ? distData.filter(l => (l.tables?.branch_id || l.branch_id) === branchFilter) : distData
     setMonthProduced(prodFiltered.reduce((s, p) => s + p.quantity, 0))
-    setMonthDistributed(distFiltered.filter(l => l.source !== 'expired' && !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0))
+    setMonthDistributed(distFiltered.filter(l => l.source !== 'expired' && l.source !== 'free' && !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0))
+    setMonthFree(distFiltered.filter(l => l.source === 'free').reduce((s, l) => s + l.quantity, 0))
     setMonthExpired(distFiltered.filter(l => l.source === 'expired').reduce((s, l) => s + l.quantity, 0))
     setMonthStatsLoading(false)
   }, [sb, statsMonth, isAdmin, branchFilter])
@@ -331,6 +353,65 @@ export default function DessertsPage() {
     fetchCakeData()
   }
 
+  // ✅ رصيد كيك فرع معيّن = المُنتَج − الخارج (غير الملغي) + المحوَّل إليه − المحوَّل منه (حتى نهاية اليوم المعروض)
+  function branchRemaining(branchId: string): number {
+    const produced = cumProductions.filter(p => p.branch_id === branchId).reduce((n, p) => n + p.quantity, 0)
+    const out = cumTableLogs.filter(l => (l.tables?.branch_id || l.branch_id) === branchId && !isReturnedLog(l)).reduce((n, l) => n + l.quantity, 0)
+    const net = cumTransfers.reduce((n, t) => n + (t.to_branch_id === branchId ? t.quantity : 0) - (t.from_branch_id === branchId ? t.quantity : 0), 0)
+    return produced - out + net
+  }
+
+  // ✅ تحويل كيك من فرع إلى آخر: صف واحد في cake_transfers (ذرّي) — ينقص المحوِّل ويزيد المستلِم بنفس الكمية
+  async function submitCakeTransfer() {
+    if (viewDate !== todayStr) { alert('Transfers can only be recorded for today — switch the view date back to today'); return }
+    if (!trFrom || !trTo) { alert('Please select both branches'); return }
+    if (trFrom === trTo) { alert('The source and destination branches must be different'); return }
+    const qty = parseInt(trQty)
+    if (!qty || qty <= 0) { alert('Please enter a valid number of cakes'); return }
+    const fromName = branches.find(b => b.id === trFrom)?.name || 'source', toName = branches.find(b => b.id === trTo)?.name || 'destination'
+    const avail = branchRemaining(trFrom)
+    if (qty > avail) { alert(`Only ${avail} cake(s) available at ${fromName} — cannot transfer ${qty}`); return }
+    if (!confirm(`Transfer ${qty} cake(s) from ${fromName} to ${toName}?`)) return
+    setTrSaving(true)
+    const { error } = await sb.from('cake_transfers').insert([{
+      from_branch_id: trFrom, to_branch_id: trTo, quantity: qty,
+      transferred_by_name: currentUserName, notes: trNotes.trim() || null,
+    }])
+    setTrSaving(false)
+    if (error) { alert('Error: ' + error.message + (/cake_transfers/.test(error.message) ? ' — run db/cake_transfers_and_free.sql first' : '')); return }
+    setTrQty('1'); setTrNotes('')
+    fetchCakeData()
+  }
+
+  // ✅ كيكة مجانية: مدير النظام فقط، والسبب إلزامي. تنقص من رصيد الفرع (مصدر free) ولا تُحسب توزيعاً على طاولة
+  async function submitCakeFree() {
+    if (!isAdmin) { alert('Free cakes can only be logged by the system admin'); return }
+    if (!freeBranchId) { alert('Please select a branch'); return }
+    const qty = parseInt(freeQty)
+    if (!qty || qty <= 0) { alert('Please enter a valid number of cakes'); return }
+    const reason = freeReason.trim()
+    if (reason.length < 3) { alert('A reason is required for a free cake'); return }
+    const avail = branchRemaining(freeBranchId)
+    if (qty > avail) { alert(`Only ${avail} cake(s) available at ${branches.find(b => b.id === freeBranchId)?.name || 'this branch'}`); return }
+    if (!confirm(`Log ${qty} FREE cake(s)?\nReason: ${reason}`)) return
+    setFreeSaving(true)
+    const { error } = await sb.from('cake_table_log').insert([{
+      table_id: null, branch_id: freeBranchId, quantity: qty, source: 'free',
+      logged_by_name: currentUserName, notes: reason,
+    }])
+    setFreeSaving(false)
+    if (error) { alert('Error: ' + error.message + (/source|check/i.test(error.message) ? ' — run db/cake_transfers_and_free.sql first' : '')); return }
+    setFreeQty('1'); setFreeReason('')
+    fetchCakeData()
+  }
+
+  async function deleteCakeTransfer(id: string) {
+    if (!confirm('Delete this transfer? Both branch balances will revert. This cannot be undone.')) return
+    const { error } = await sb.from('cake_transfers').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    fetchCakeData()
+  }
+
   // ✅ Delete a production log entry (e.g. test/mistaken entries)
   async function deleteCakeProduction(id: string) {
     if (!confirm('Delete this production entry? This cannot be undone.')) return
@@ -356,11 +437,12 @@ export default function DessertsPage() {
 
   const totalProducedForDate = visibleProductions.reduce((s, p) => s + p.quantity, 0)
   // ✅ Fix: "Distributed" بيحسب بس الأصناف اللي اتوزعت فعليًا على طاولة، مش المنتهية الصلاحية
-  const totalDistributedForDate = visibleTableLogs.filter(l => l.source !== 'expired' && !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0)
+  const totalDistributedForDate = visibleTableLogs.filter(l => l.source !== 'expired' && l.source !== 'free' && !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0)
   // ✅ كيك طلبات اتلغت ورجعت للرصيد في اليوم المختار
   const totalReturnedForDate = visibleTableLogs.filter(l => isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0)
   // ✅ جديد: إجمالي الأصناف منتهية الصلاحية في اليوم المختار
   const totalExpiredForDate = visibleTableLogs.filter(l => l.source === 'expired').reduce((s, l) => s + l.quantity, 0)
+  const totalFreeForDate = visibleTableLogs.filter(l => l.source === 'free').reduce((s, l) => s + l.quantity, 0)
 
   // ✅ Running/cumulative remaining = everything ever produced minus everything ever distributed, up to viewDate
   // (a leftover cake from a previous day carries over instead of resetting to 0 each day)
@@ -369,7 +451,12 @@ export default function DessertsPage() {
   const cumDistributedFiltered = branchFilter ? cumTableLogs.filter(l => (l.tables?.branch_id || l.branch_id) === branchFilter) : cumTableLogs
   const cumulativeProduced = cumProducedFiltered.reduce((s, p) => s + p.quantity, 0)
   const cumulativeDistributed = cumDistributedFiltered.filter(l => !isReturnedLog(l)).reduce((s, l) => s + l.quantity, 0)
-  const remainingForDate = cumulativeProduced - cumulativeDistributed
+  // ✅ التحويلات بين الفروع: تُحسب لفرع محدد فقط (عند عرض كل الفروع صافيها صفر)
+  const cumTransferNet = branchFilter ? cumTransfers.reduce((n, t) => n + (t.to_branch_id === branchFilter ? t.quantity : 0) - (t.from_branch_id === branchFilter ? t.quantity : 0), 0) : 0
+  const remainingForDate = cumulativeProduced - cumulativeDistributed + cumTransferNet
+  const visibleTransfers = branchFilter ? cakeTransfers.filter(t => t.from_branch_id === branchFilter || t.to_branch_id === branchFilter) : cakeTransfers
+  const transferInForDate = branchFilter ? cakeTransfers.filter(t => t.to_branch_id === branchFilter).reduce((n, t) => n + t.quantity, 0) : 0
+  const transferOutForDate = branchFilter ? cakeTransfers.filter(t => t.from_branch_id === branchFilter).reduce((n, t) => n + t.quantity, 0) : 0
 
   async function printCakeReport() {
     if (!isAdmin) return
@@ -378,19 +465,23 @@ export default function DessertsPage() {
     setRepLoading(true)
     type ProdRow = { production_date: string; quantity: number; produced_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; photo_urls: string[] | null }
     type LogRow = { order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null; quantity: number; source: string; logged_by_name: string | null; notes: string | null; created_at: string; branch_id: string | null; tables: { number: number; name: string; branch_id: string | null } | null }
+    type TrRow = { from_branch_id: string; to_branch_id: string; quantity: number; created_at: string; transferred_by_name?: string | null; notes?: string | null }
     type SumRow = { quantity: number; source?: string; branch_id: string | null; tables: { branch_id: string | null } | null; order_items?: { status?: string | null; cancel_reason?: string | null } | null; orders?: { status?: string | null } | null }
     // ✅ "يوم العمل" للكيك = من 08:00 صباحًا بتوقيت ماليزيا إلى 08:00 صباح اليوم التالي (= حدود يوم UTC، نفس عرض اليوم في الصفحة).
     // يعني مبيعات ما بعد منتصف الليل (مثلًا 00:30 و02:00) تُحسب على يوم الخدمة اللي بدأ قبلها، مش على التاريخ التقويمي الجديد
     const startTs = `${repFrom}T00:00:00Z`
     const endTs = new Date(new Date(`${repTo}T00:00:00Z`).getTime() + 86400000).toISOString()
     const dayOf = (iso: string) => iso.slice(0, 10)
-    let prods: ProdRow[] = [], logs: LogRow[] = [], prevProds: { quantity: number; branch_id: string | null }[] = [], prevLogs: SumRow[] = []
+    let prods: ProdRow[] = [], logs: LogRow[] = [], prevProds: { quantity: number; branch_id: string | null }[] = [], prevLogs: SumRow[] = [], trs: TrRow[] = [], prevTrs: TrRow[] = []
     try {
-      ;[prods, logs, prevProds, prevLogs] = await Promise.all([
+      ;[prods, logs, prevProds, prevLogs, trs, prevTrs] = await Promise.all([
         fetchAllRows<ProdRow>((a, b) => sb.from('cake_production_log').select('*').gte('production_date', repFrom).lte('production_date', repTo).order('created_at').range(a, b)),
         fetchAllRows<LogRow>((a, b) => sb.from('cake_table_log').select(`*, tables(number,name,branch_id), ${CAKE_EMBEDS}`).gte('created_at', startTs).lt('created_at', endTs).order('created_at').range(a, b)),
         fetchAllRows<{ quantity: number; branch_id: string | null }>((a, b) => sb.from('cake_production_log').select('quantity, branch_id').lt('production_date', repFrom).order('id').range(a, b)),
         fetchAllRows<SumRow>((a, b) => sb.from('cake_table_log').select('quantity, source, branch_id, tables(branch_id), order_items(status, cancel_reason, cancelled_at), orders(status), created_at').lt('created_at', startTs).order('id').range(a, b)),
+        // تحويلات الكيك بين الفروع (داخل الفترة / قبلها) — لو الجدول غير موجود بعد تُعامل كفارغة
+        fetchAllRows<TrRow>((a, b) => sb.from('cake_transfers').select('*').gte('created_at', startTs).lt('created_at', endTs).order('created_at').range(a, b)).catch(() => [] as TrRow[]),
+        fetchAllRows<TrRow>((a, b) => sb.from('cake_transfers').select('*').lt('created_at', startTs).order('id').range(a, b)).catch(() => [] as TrRow[]),
       ])
     } catch {
       setRepLoading(false); alert('Failed to load report data — please try again'); return
@@ -399,22 +490,25 @@ export default function DessertsPage() {
 
     const esc = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
     const fmtTime = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' })
-    const methodLabel: Record<string, string> = { menu_order: 'Menu order', manual: 'Manual to table', expired: 'Expired' }
+    const methodLabel: Record<string, string> = { menu_order: 'Menu order', manual: 'Manual to table', expired: 'Expired', free: 'Free (admin)' }
     const logBranch = (l: { branch_id: string | null; tables: { branch_id: string | null } | null }) => l.tables?.branch_id || l.branch_id || null
     const list = repBranch ? branches.filter(b => b.id === repBranch) : branches
 
-    type Tot = { opening: number; produced: number; menu: number; manual: number; expired: number; closing: number }
+    type Tot = { opening: number; produced: number; menu: number; manual: number; expired: number; free: number; tin: number; tout: number; closing: number }
     const sections = list.map(b => {
       const p = prods.filter(x => x.branch_id === b.id)
       const l = logs.filter(x => logBranch(x) === b.id)
+      const trIn = trs.filter(x => x.to_branch_id === b.id), trOut = trs.filter(x => x.from_branch_id === b.id)
       const opening = prevProds.filter(x => x.branch_id === b.id).reduce((n, x) => n + x.quantity, 0) - prevLogs.filter(x => logBranch(x) === b.id && !isReturnedLog(x)).reduce((n, x) => n + x.quantity, 0)
+        + prevTrs.filter(x => x.to_branch_id === b.id).reduce((n, x) => n + x.quantity, 0) - prevTrs.filter(x => x.from_branch_id === b.id).reduce((n, x) => n + x.quantity, 0)
       // ✅ الكيك الملغي (رجع للرصيد) لا يُحسب خارجًا
       const sum = (src: string) => l.filter(x => x.source === src && !isReturnedLog(x)).reduce((n, x) => n + x.quantity, 0)
       const produced = p.reduce((n, x) => n + x.quantity, 0)
-      const menu = sum('menu_order'), manual = sum('manual'), expired = sum('expired')
-      const t: Tot = { opening, produced, menu, manual, expired, closing: opening + produced - menu - manual - expired }
+      const menu = sum('menu_order'), manual = sum('manual'), expired = sum('expired'), free = sum('free')
+      const tin = trIn.reduce((n, x) => n + x.quantity, 0), tout = trOut.reduce((n, x) => n + x.quantity, 0)
+      const t: Tot = { opening, produced, menu, manual, expired, free, tin, tout, closing: opening + produced - menu - manual - expired - free + tin - tout }
       // جدول يومي: الأيام اللي فيها حركة فقط، مع الرصيد الجاري
-      const days = [...new Set([...p.map(x => x.production_date), ...l.map(x => dayOf(x.created_at))])].sort()
+      const days = [...new Set([...p.map(x => x.production_date), ...l.map(x => dayOf(x.created_at)), ...trIn.map(x => dayOf(x.created_at)), ...trOut.map(x => dayOf(x.created_at))])].sort()
       let run = opening
       const dayRows = days.map(d => {
         const dp = p.filter(x => x.production_date === d).reduce((n, x) => n + x.quantity, 0)
@@ -422,32 +516,42 @@ export default function DessertsPage() {
         const dm = dl.filter(x => x.source === 'menu_order').reduce((n, x) => n + x.quantity, 0)
         const dh = dl.filter(x => x.source === 'manual').reduce((n, x) => n + x.quantity, 0)
         const de = dl.filter(x => x.source === 'expired').reduce((n, x) => n + x.quantity, 0)
-        run += dp - dm - dh - de
-        return { d, dp, dm, dh, de, run }
+        const df = dl.filter(x => x.source === 'free' && !isReturnedLog(x)).reduce((n, x) => n + x.quantity, 0)
+        const di = trIn.filter(x => dayOf(x.created_at) === d).reduce((n, x) => n + x.quantity, 0)
+        const dout = trOut.filter(x => dayOf(x.created_at) === d).reduce((n, x) => n + x.quantity, 0)
+        run += dp - dm - dh - de - df + di - dout
+        return { d, dp, dm, dh, de, df, di, dout, run }
       })
-      return { b, p, l, t, dayRows }
+      return { b, p, l, t, dayRows, trIn, trOut }
     })
-    const total = sections.reduce<Tot>((a, x) => ({ opening: a.opening + x.t.opening, produced: a.produced + x.t.produced, menu: a.menu + x.t.menu, manual: a.manual + x.t.manual, expired: a.expired + x.t.expired, closing: a.closing + x.t.closing }), { opening: 0, produced: 0, menu: 0, manual: 0, expired: 0, closing: 0 })
+    const total = sections.reduce<Tot>((a, x) => ({ opening: a.opening + x.t.opening, produced: a.produced + x.t.produced, menu: a.menu + x.t.menu, manual: a.manual + x.t.manual, expired: a.expired + x.t.expired, free: a.free + x.t.free, tin: a.tin + x.t.tin, tout: a.tout + x.t.tout, closing: a.closing + x.t.closing }), { opening: 0, produced: 0, menu: 0, manual: 0, expired: 0, free: 0, tin: 0, tout: 0, closing: 0 })
     const boxes = (t: Tot) => `<div class="sum">
       <div class="box"><div class="v">${t.opening}</div><div>Opening balance</div></div>
       <div class="box in"><div class="v">+${t.produced}</div><div>IN — Produced</div></div>
       <div class="box out"><div class="v">-${t.menu}</div><div>OUT — Menu orders</div></div>
       <div class="box out"><div class="v">-${t.manual}</div><div>OUT — Manual to tables</div></div>
       <div class="box exp"><div class="v">-${t.expired}</div><div>OUT — Expired</div></div>
+      <div class="box tr"><div class="v">-${t.free}</div><div>OUT — Free (admin)</div></div>
+      <div class="box in"><div class="v">+${t.tin}</div><div>IN — Transferred from branches</div></div>
+      <div class="box tr"><div class="v">-${t.tout}</div><div>OUT — Transferred to branches</div></div>
       <div class="box"><div class="v">${t.closing}</div><div>Closing balance</div></div>
-    </div><div class="outtot">Total OUT: <b>${t.menu + t.manual + t.expired}</b> (Menu orders ${t.menu} + Manual to tables ${t.manual} + Expired ${t.expired})</div>`
+    </div><div class="outtot">Total OUT: <b>${t.menu + t.manual + t.expired + t.free}</b> (Menu orders ${t.menu} + Manual to tables ${t.manual} + Expired ${t.expired} + Free ${t.free}) · Transfers: +${t.tin} in / -${t.tout} out</div>`
     const body = sections.map((x, i) => `
       <div ${i > 0 ? 'style="page-break-before:always"' : ''}>
         <h2>🏢 ${esc(x.b.name)}</h2>
         ${boxes(x.t)}
         <h3>Daily movement</h3>
-        <table><thead><tr><th>Date</th><th>IN</th><th>OUT menu</th><th>OUT manual</th><th>OUT expired</th><th>Balance</th></tr></thead><tbody>
-          ${x.dayRows.length ? x.dayRows.map(r => `<tr><td>${r.d}</td><td>${r.dp || ''}</td><td>${r.dm || ''}</td><td>${r.dh || ''}</td><td>${r.de || ''}</td><td><b>${r.run}</b></td></tr>`).join('') : '<tr><td colspan="6" class="none">No movement in this period</td></tr>'}
+        <table><thead><tr><th>Date</th><th>IN</th><th>OUT menu</th><th>OUT manual</th><th>OUT expired</th><th>OUT free</th><th>Transfer IN</th><th>Transfer OUT</th><th>Balance</th></tr></thead><tbody>
+          ${x.dayRows.length ? x.dayRows.map(r => `<tr><td>${r.d}</td><td>${r.dp || ''}</td><td>${r.dm || ''}</td><td>${r.dh || ''}</td><td>${r.de || ''}</td><td>${r.df || ''}</td><td>${r.di || ''}</td><td>${r.dout || ''}</td><td><b>${r.run}</b></td></tr>`).join('') : '<tr><td colspan="9" class="none">No movement in this period</td></tr>'}
         </tbody></table>
         ${repDetails ? `
         <h3>Production entries (${x.p.length})</h3>
         <table><thead><tr><th>Date / time</th><th>Cakes</th><th>Produced by</th><th>Notes</th></tr></thead><tbody>
           ${x.p.length ? x.p.map(r => `<tr><td>${fmtTime(r.created_at)}</td><td><b>${r.quantity}</b></td><td>${esc(r.produced_by_name || '—')}</td><td>${esc(r.notes || '')}</td></tr>`).join('') : '<tr><td colspan="4" class="none">—</td></tr>'}
+        </tbody></table>
+        <h3>Branch transfers (${x.trIn.length + x.trOut.length})</h3>
+        <table><thead><tr><th>Date / time</th><th>Direction</th><th>From → To</th><th>Qty</th><th>By</th><th>Notes</th></tr></thead><tbody>
+          ${(x.trIn.length + x.trOut.length) ? [...x.trIn.map(r => ({ r, dir: 'IN' })), ...x.trOut.map(r => ({ r, dir: 'OUT' }))].sort((a, c) => a.r.created_at.localeCompare(c.r.created_at)).map(({ r, dir }) => `<tr><td>${fmtTime(r.created_at)}</td><td><b>${dir}</b></td><td>${esc(branches.find(bb => bb.id === r.from_branch_id)?.name || '—')} → ${esc(branches.find(bb => bb.id === r.to_branch_id)?.name || '—')}</td><td><b>${r.quantity}</b></td><td>${esc(r.transferred_by_name || '—')}</td><td>${esc(r.notes || '')}</td></tr>`).join('') : '<tr><td colspan="6" class="none">—</td></tr>'}
         </tbody></table>
         <h3>Out entries (${x.l.length})</h3>
         <table><thead><tr><th>Date / time</th><th>Table</th><th>Qty</th><th>Method</th><th>Logged by</th><th>Notes</th></tr></thead><tbody>
@@ -466,10 +570,10 @@ export default function DessertsPage() {
       .meta { text-align: center; color: #555; font-size: 12px; margin-bottom: 12px; }
       h2 { font-size: 16px; margin: 12px 0 8px; border-bottom: 2px solid #0A1628; padding-bottom: 4px; }
       h3 { font-size: 13px; margin: 14px 0 6px; }
-      .sum { display: flex; gap: 6px; margin-bottom: 6px; }
+      .sum { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
       .box { flex: 1; border: 1px solid #ccc; border-radius: 6px; padding: 7px 4px; text-align: center; font-size: 10.5px; color: #555; }
       .box .v { font-size: 21px; font-weight: bold; color: #0A1628; }
-      .box.in .v { color: #16A34A; } .box.out .v { color: #2563EB; } .box.exp .v { color: #DC2626; }
+      .box.in .v { color: #16A34A; } .box.out .v { color: #2563EB; } .box.exp .v { color: #DC2626; } .box.tr .v { color: #7C3AED; }
       .outtot { font-size: 12px; margin: 4px 0 8px; }
       table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
       th, td { border: 1px solid #ccc; padding: 4px 7px; text-align: left; }
@@ -644,7 +748,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
             {monthStatsLoading ? (
               <div style={{ color: S.muted, fontSize: 13 }}>⏳ Loading...</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr 1fr', gap: 12 }}>
                 <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
                   <div style={{ fontSize: 24, fontWeight: 900, color: S.gold }}>{monthProduced}</div>
                   <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>🎂 Cakes produced this month</div>
@@ -657,6 +761,10 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                 <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
                   <div style={{ fontSize: 24, fontWeight: 900, color: S.red }}>{monthExpired}</div>
                   <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>⏰ Cakes expired this month</div>
+                </div>
+                <div style={{ background: S.navy, borderRadius: 12, padding: 14, textAlign: 'center' }}>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: S.purple }}>{monthFree}</div>
+                  <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>🎁 Free cakes this month</div>
                 </div>
               </div>
             )}
@@ -710,7 +818,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
         </div>
 
         {/* ── Summary tabs for the selected date ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isMobile ? 8 : 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${isMobile ? 70 : 130}px, 1fr))`, gap: isMobile ? 8 : 12, marginBottom: 20 }}>
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.gold}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
             <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.gold }}>{totalProducedForDate}</div>
             <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>🎂 Produced{!isMobile && ' (this day)'}</div>
@@ -724,11 +832,23 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
             <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.red }}>{totalExpiredForDate}</div>
             <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>⏰ Expired{!isMobile && ' (this day)'}</div>
           </div>
+          {(totalFreeForDate > 0 || isAdmin) && (
+            <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.purple}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
+              <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: S.purple }}>{totalFreeForDate}</div>
+              <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>🎁 Free{!isMobile && ' (this day)'}</div>
+            </div>
+          )}
           <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${remainingForDate < 0 ? S.red : S.green}40`, padding: isMobile ? '10px 6px' : 16, textAlign: 'center' }}>
             <div style={{ fontSize: isMobile ? 20 : 28, fontWeight: 900, color: remainingForDate < 0 ? S.red : S.green }}>{remainingForDate}</div>
             <div style={{ fontSize: isMobile ? 10 : 12, color: S.muted, marginTop: 2 }}>📦 Remaining{!isMobile && ' (running total)'}</div>
           </div>
         </div>
+
+        {branchFilter && (transferInForDate > 0 || transferOutForDate > 0) && (
+          <div style={{ marginBottom: 14, background: S.navy2, borderRadius: 12, border: `1px solid ${S.purple}40`, padding: '8px 14px', fontSize: 12.5, color: S.muted }}>
+            🔁 Branch transfers this day: <span style={{ color: S.green, fontWeight: 800 }}>+{transferInForDate} in</span> · <span style={{ color: S.red, fontWeight: 800 }}>-{transferOutForDate} out</span> <span style={{ color: S.muted }}>(included in Remaining)</span>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '360px 1fr', gap: isMobile ? 16 : 20, alignItems: 'start' }}>
 
@@ -778,6 +898,52 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
               <button onClick={submitCakeExpired} disabled={expSaving}
                 style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.red, color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: expSaving ? 0.6 : 1 }}>
                 {expSaving ? '⏳ Saving...' : '✅ Log Expired'}
+              </button>
+            </div>
+            )}
+            {/* ✅ جديد: تحويل كيك بين الفروع — ينقص المحوِّل ويزيد المستلِم (المطبخ والأدمن فقط، مثل الإنتاج والمنتهي) */}
+            {!isHallRole && (
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.purple}40`, padding: 16 }}>
+              <div style={{ color: S.purple, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>🔁 Transfer Cakes Between Branches</div>
+              <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Logging as: <span style={{ color: S.white, fontWeight: 700 }}>{currentUserName}</span> · Decreases the source branch and increases the destination</div>
+              <select value={trFrom} onChange={e => { setTrFrom(e.target.value); if (e.target.value === trTo) setTrTo('') }}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }}>
+                <option value="">-- From branch --</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name} (available: {branchRemaining(b.id)})</option>)}
+              </select>
+              <select value={trTo} onChange={e => setTrTo(e.target.value)} disabled={!trFrom}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8, opacity: trFrom ? 1 : 0.5 }}>
+                <option value="">{trFrom ? '-- To branch --' : '-- Select the source first --'}</option>
+                {branches.filter(b => b.id !== trFrom).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <input type="number" min={1} value={trQty} onChange={e => setTrQty(e.target.value)} placeholder="Number of cakes"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }} />
+              <input value={trNotes} onChange={e => setTrNotes(e.target.value)} placeholder="Notes (optional)"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 10 }} />
+              {viewDate !== todayStr && <div style={{ color: S.amber, fontSize: 11.5, marginBottom: 8 }}>Transfers can only be recorded for today — switch the view date back to today.</div>}
+              <button onClick={submitCakeTransfer} disabled={trSaving || viewDate !== todayStr}
+                style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.purple, color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: (trSaving || viewDate !== todayStr) ? 0.6 : 1 }}>
+                {trSaving ? '⏳ Saving...' : '🔁 Transfer'}
+              </button>
+            </div>
+            )}
+            {/* ✅ جديد: كيكة مجانية — مدير النظام فقط، والسبب إلزامي */}
+            {isAdmin && (
+            <div style={{ background: S.navy2, borderRadius: 16, border: `1px solid ${S.purple}40`, padding: 16 }}>
+              <div style={{ color: S.purple, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>🎁 Log a Free Cake (Admin)</div>
+              <div style={{ color: S.muted, fontSize: 11, marginBottom: 12 }}>Deducted from the branch balance · a reason is required</div>
+              <select value={freeBranchId} onChange={e => setFreeBranchId(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }}>
+                <option value="">-- Select Branch --</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name} (available: {branchRemaining(b.id)})</option>)}
+              </select>
+              <input type="number" min={1} value={freeQty} onChange={e => setFreeQty(e.target.value)} placeholder="Number of cakes"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 14, marginBottom: 8 }} />
+              <textarea value={freeReason} onChange={e => setFreeReason(e.target.value)} placeholder="Reason for the free cake (required) *" rows={2}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${freeReason.trim().length >= 3 ? S.border : S.red}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 10, resize: 'vertical' }} />
+              <button onClick={submitCakeFree} disabled={freeSaving || freeReason.trim().length < 3}
+                style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: S.purple, color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer', opacity: (freeSaving || freeReason.trim().length < 3) ? 0.5 : 1 }}>
+                {freeSaving ? '⏳ Saving...' : '🎁 Log Free Cake'}
               </button>
             </div>
             )}
@@ -862,7 +1028,7 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                     <div key={l.id} style={{ opacity: isReturnedLog(l) ? 0.6 : 1, background: l.source === 'expired' ? S.redB : S.navy2, borderRadius: 10, border: `1px solid ${l.source === 'expired' ? S.red + '40' : S.border}`, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <span style={{ color: S.white, fontWeight: 700, fontSize: 13 }}>
-                          {l.source === 'expired' ? (branches.find(b => b.id === l.branch_id)?.name || 'Expired Stock') : (l.tables?.name || `Table ${l.tables?.number ?? '—'}`)}
+                          {l.source === 'expired' ? (branches.find(b => b.id === l.branch_id)?.name || 'Expired Stock') : l.source === 'free' ? (branches.find(b => b.id === l.branch_id)?.name || 'Free cake') : (l.tables?.name || `Table ${l.tables?.number ?? '—'}`)}
                         </span>
                         <span style={{ color: S.gold, fontWeight: 800, marginLeft: 8, textDecoration: isReturnedLog(l) ? 'line-through' : 'none' }}>×{l.quantity}</span>
                         {l.source === 'menu_order' ? (
@@ -879,6 +1045,11 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                               <span style={{ background: S.amberB, color: S.amber, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 6, fontWeight: 700 }}>⏳ Unpaid</span>
                             )}
                           </>
+                        ) : l.source === 'free' ? (
+                          <>
+                            <span style={{ background: S.purpleB, color: S.purple, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8, fontWeight: 700 }}>🎁 Free — {l.logged_by_name || '—'}</span>
+                            <div style={{ color: S.white, fontSize: 11.5, marginTop: 4 }}>📝 Reason: {l.notes || '—'}</div>
+                          </>
                         ) : l.source === 'expired' ? (
                           <span style={{ background: S.redB, color: S.red, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>⏰ Expired — {l.logged_by_name || '—'}</span>
                         ) : (
@@ -889,6 +1060,34 @@ const allReady = (allItems || []).every((i: any) => i.status === 'ready' || i.id
                         <span style={{ color: S.muted, fontSize: 11 }}>{new Date(l.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
                         {isAdmin && (
                           <button onClick={() => deleteCakeTableLog(l.id)} title="Delete"
+                            style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', fontSize: 11, padding: '3px 7px' }}>🗑️</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ✅ جديد: تحويلات الكيك بين الفروع لهذا اليوم */}
+            <div>
+              <div style={{ color: S.white, fontWeight: 800, fontSize: 15, marginBottom: 10 }}>🔁 Branch Transfers ({visibleTransfers.length})</div>
+              {visibleTransfers.length === 0 ? (
+                <div style={{ color: S.muted, fontSize: 13, background: S.navy2, borderRadius: 12, padding: 16, textAlign: 'center' }}>No transfers on this date</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {visibleTransfers.map(t => (
+                    <div key={t.id} style={{ background: S.navy2, borderRadius: 10, border: `1px solid ${S.purple}30`, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div>
+                        <span style={{ color: S.white, fontWeight: 700, fontSize: 13 }}>{branches.find(b => b.id === t.from_branch_id)?.name || '—'} → {branches.find(b => b.id === t.to_branch_id)?.name || '—'}</span>
+                        <span style={{ color: S.gold, fontWeight: 800, marginLeft: 8 }}>×{t.quantity}</span>
+                        <span style={{ background: S.purpleB, color: S.purple, fontSize: 10, padding: '2px 7px', borderRadius: 6, marginLeft: 8 }}>🔁 {t.transferred_by_name || '—'}</span>
+                        {t.notes && <span style={{ color: S.muted, fontSize: 11, marginLeft: 8 }}>· {t.notes}</span>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ color: S.muted, fontSize: 11 }}>{new Date(t.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {isAdmin && (
+                          <button onClick={() => deleteCakeTransfer(t.id)} title="Delete"
                             style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 8, color: S.red, cursor: 'pointer', fontSize: 11, padding: '3px 7px' }}>🗑️</button>
                         )}
                       </div>

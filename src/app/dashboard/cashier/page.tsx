@@ -2637,6 +2637,8 @@ export default function CashierPage() {
   const { employee, permissions } = useAuth()
   // ✅ المشرف العام: عرض كامل في صفحة الكاشير زي الأدمن (كل الفروع + تقرير الشيفت + الدفع)
   const isAdmin = permissions?.all === true || employee?.role === 'general_supervisor'
+  // ✅ اعتماد/رفض الإلغاء في طاولة "Cancellation": مدير النظام والمشرف العام ومدير الفرع (لطاولات فرعه فقط، فالصفحة تقصره على فرعه)
+  const canApproveCancel = isAdmin || employee?.role === 'branch_manager'
   // ✅ Fix: مساعد الكاشير بقى نفس مستوى موظف/مشرف الصالة بالظبط - مش صلاحيات كاشير كاملة
   const isCashierRole = isAdmin || employee?.role === 'cashier'
   // ✅ جديد: حساب مشترك محدود لمشرفي/موظفي الصالة + مساعد الكاشير - يقدروا يشوفوا الطاولات ويضيفوا طلبات
@@ -4562,7 +4564,7 @@ export default function CashierPage() {
                             {hubPending.length > 0 && <div style={{ color: S.amber, fontWeight: 700, fontSize: 11 }}>⏳ MYR {hubFmt(hubPendingTotal)} pending</div>}
                           </div>
                         </div>
-                        {isAdmin && hubPending.length > 0 && (
+                        {canApproveCancel && hubPending.length > 0 && (
                           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${S.border}` }}>
                             <button onClick={() => approveAllCancelHub(hubPending)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
                               ✅ Cancel all pending ({hubPending.length}) · MYR {hubFmt(hubPendingTotal)}
@@ -4607,7 +4609,7 @@ export default function CashierPage() {
                                 <button onClick={() => openChargeWholeOrderToEmployee(o, true)} title="Charge this order to an employee"
                                   style={{ marginTop: 8, width: '100%', padding: '7px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>👤 Charge to employee</button>
                               )}
-                              {isPending && isAdmin && (
+                              {isPending && canApproveCancel && (
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                   <button onClick={() => approveCancelHub(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
                                   <button onClick={() => rejectCancelHub(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ Reject</button>
@@ -4616,7 +4618,7 @@ export default function CashierPage() {
                               {!isPending && !isCancelled && ['confirmed', 'preparing', 'ready'].includes(o.status) && (
                                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                                   <button onClick={() => setPayOrder(o)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>💰 Pay</button>
-                                  {isAdmin && ['confirmed', 'preparing'].includes(o.status) && (
+                                  {canApproveCancel && ['confirmed', 'preparing'].includes(o.status) && (
                                     <button onClick={() => approveCancelHub(o)} title="Cancel this order (no reason needed)" style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>❌</button>
                                   )}
                                 </div>
@@ -4660,9 +4662,9 @@ export default function CashierPage() {
                       {/* ✅ طلب إلغاء معلّق (نُقل لطاولة "Cancellation") — يظهر لمدير النظام/المشرف العام بزرَّي اعتماد/رفض */}
                       {order.cancel_requested_by_name && !order.cancel_rejected_at && order.status !== 'cancelled' && (
                         <div style={{ background: S.amberB, borderBottom: `1px solid ${S.amber}40`, padding: '10px 16px' }}>
-                          <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 2 }}>⏳ Pending system admin approval — moved from {order.cancel_from_table_name || '—'}</div>
-                          <div style={{ fontSize: 11, color: S.muted, marginBottom: isAdmin ? 8 : 0 }}>Reason: {order.cancel_reason || '—'} · By: {order.cancel_requested_by_name}</div>
-                          {isAdmin && (
+                          <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 2 }}>⏳ Pending admin / branch manager approval — moved from {order.cancel_from_table_name || '—'}</div>
+                          <div style={{ fontSize: 11, color: S.muted, marginBottom: canApproveCancel ? 8 : 0 }}>Reason: {order.cancel_reason || '—'} · By: {order.cancel_requested_by_name}</div>
+                          {canApproveCancel && (
                             <div style={{ display: 'flex', gap: 8 }}>
                               <button onClick={() => approveCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
                               <button onClick={() => rejectCancelHub(order)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ Reject</button>
@@ -4895,7 +4897,7 @@ export default function CashierPage() {
                     <span style={{ color: S.red, fontWeight: 700 }}>❌ Cancelled ({canc.length})</span>
                     <span style={{ color: S.red, fontWeight: 800 }}>MYR {fmt(cancTotal)}</span>
                   </div>
-                  {isAdmin && pend.length > 0 && (
+                  {canApproveCancel && pend.length > 0 && (
                     <button onClick={() => approveAllCancelHub(pend)} style={{ marginTop: 4, padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 800 }}>
                       ✅ Cancel all pending ({pend.length}) · MYR {fmt(pendTotal)}
                     </button>
@@ -4946,7 +4948,7 @@ export default function CashierPage() {
                         <button onClick={() => openChargeWholeOrderToEmployee(o, true)} title="Charge this order to an employee"
                           style={{ marginTop: 8, width: '100%', padding: '7px', borderRadius: 8, border: `1px solid ${S.amber}`, background: S.amberB, color: S.amber, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>👤 Charge to employee</button>
                       )}
-                      {isPending && isAdmin && (
+                      {isPending && canApproveCancel && (
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                           <button onClick={async () => { await approveCancelHub(o); openCancelHub(cancelHubTable) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ Approve Cancellation</button>
                           <button onClick={async () => { await rejectCancelHub(o); openCancelHub(cancelHubTable) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>↩️ Reject</button>

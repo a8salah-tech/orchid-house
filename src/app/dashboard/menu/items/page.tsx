@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { useLang } from '../../../components/LanguageContext'
 import { useAuth } from '../../../components/AuthProvider'
+import { Pencil, Plus, Trash2, Save, X, CircleCheck, CircleX, TriangleAlert, Ruler, FileClock, ClipboardList, ImagePlus, Lightbulb, FlaskConical, Factory, Banknote, TrendingUp, FolderPlus, BookOpen, Store, Pause, Play, Search, Clock, UtensilsCrossed, Flame, Folder, ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, Soup, Salad, Sandwich, Beef, Wheat, Coffee, CupSoda, CakeSlice, Croissant, CookingPot, Cookie, Package, Check } from 'lucide-react'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +24,32 @@ const S = {
   card: 'rgba(255,255,255,0.04)', card2: 'rgba(255,255,255,0.08)',
   purple: '#8B5CF6', purpleB: 'rgba(139,92,246,0.12)',
   teal: '#14B8A6', tealB: 'rgba(20,184,166,0.12)',
+}
+
+// أيقونات خطية (lucide) بدل الإيموجي — نفس لغة تصميم صفحة طلبات الموظفين
+type IconC = React.ComponentType<{ size?: number; strokeWidth?: number }>
+const ICONS = {
+  add: Plus, edit: Pencil, del: Trash2, save: Save, ok: CircleCheck, no: CircleX, warn: TriangleAlert, ruler: Ruler, history: FileClock,
+  list: ClipboardList, img: ImagePlus, tip: Lightbulb, lab: FlaskConical, cost: Factory, price: Banknote, trend: TrendingUp, folderAdd: FolderPlus,
+  book: BookOpen, store: Store, pause: Pause, play: Play, search: Search, clock: Clock, food: UtensilsCrossed, fire: Flame, folder: Folder,
+  prev: ChevronRight, next: ChevronLeft, grid: LayoutGrid, rows: ListIcon, close: X, check: Check,
+} satisfies Record<string, IconC>
+function Ico({ k, size = 15, bare = false }: { k: keyof typeof ICONS; size?: number; bare?: boolean }) {
+  const I = ICONS[k]
+  return <span style={{ display: 'inline-flex', verticalAlign: '-0.2em', marginInlineEnd: bare ? 0 : 5 }}><I size={size} strokeWidth={1.9} /></span>
+}
+// أيقونة القسم: تُخزَّن في قاعدة البيانات كإيموجي (وتستعملها شاشة الزبون)، وهنا نعرضها كأيقونة خطية مقابلة
+const CATEGORY_EMOJI_ICONS: Record<string, IconC> = {
+  '\u{1F372}': Soup, '\u{1F957}': Salad, '\u{1FAD9}': Package, '\u{1F525}': Flame, '\u{1F959}': Sandwich, '\u{1F35B}': UtensilsCrossed,
+  '\u{1F969}': Beef, '\u{1F35A}': Wheat, '\u2615': Coffee, '\u{1F9C3}': CupSoda, '\u{1F36E}': CakeSlice, '\u{1FAD3}': Croissant,
+  '\u{1F958}': CookingPot, '\u{1F35C}': Soup, '\u{1FAD5}': CookingPot, '\u{1F96A}': Sandwich, '\u{1F371}': Package, '\u{1F9C6}': Cookie,
+}
+const CATEGORY_PICKER = Object.keys(CATEGORY_EMOJI_ICONS)
+const DEFAULT_CATEGORY_EMOJI = '\u{1F37D}\uFE0F'
+function CatIcon({ emoji, size = 20 }: { emoji?: string | null; size?: number }) {
+  const key = (emoji || '').replace(/\uFE0F/g, '')
+  const I = CATEGORY_EMOJI_ICONS[key] || UtensilsCrossed
+  return <span style={{ display: 'inline-flex' }}><I size={size} strokeWidth={1.7} /></span>
 }
 
 const inp: React.CSSProperties = {
@@ -66,8 +93,8 @@ function Pagination({ page, total, totalPages, onChange, pageSize, onPageSizeCha
       <div style={{ fontSize: 12, color: S.muted }}>{isAr ? `عرض ${from}–${to} من ${total} صنف` : `Showing ${from}–${to} of ${total} items`}</div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <button onClick={() => onChange(page - 1)} disabled={page === 1}
-          style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === 1 ? S.border : S.gold}`, background: page === 1 ? 'transparent' : S.gold3, color: page === 1 ? S.muted : S.gold, cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-          {isAr ? '← السابق' : '← Prev'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === 1 ? S.border : S.gold}`, background: page === 1 ? 'transparent' : S.gold3, color: page === 1 ? S.muted : S.gold, cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          <Ico k="prev" size={14} bare />{isAr ? 'السابق' : 'Prev'}
         </button>
         {getPages().map((p, i) => (
           p === '...' ? <span key={`e${i}`} style={{ color: S.muted }}>...</span>
@@ -77,8 +104,8 @@ function Pagination({ page, total, totalPages, onChange, pageSize, onPageSizeCha
             </button>
         ))}
         <button onClick={() => onChange(page + 1)} disabled={page === totalPages}
-          style={{ padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === totalPages ? S.border : S.gold}`, background: page === totalPages ? 'transparent' : S.gold3, color: page === totalPages ? S.muted : S.gold, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
-          {isAr ? 'التالي →' : 'Next →'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 14px', borderRadius: 10, border: `1px solid ${page === totalPages ? S.border : S.gold}`, background: page === totalPages ? 'transparent' : S.gold3, color: page === totalPages ? S.muted : S.gold, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>
+          {isAr ? 'التالي' : 'Next'}<Ico k="next" size={14} bare />
         </button>
       </div>
     </div>
@@ -89,6 +116,9 @@ function Pagination({ page, total, totalPages, onChange, pageSize, onPageSizeCha
 interface Category {
   id: string; name: string; name_en: string; name_ms?: string | null; icon: string
   sort_order: number; is_active: boolean; item_count?: number
+  // وقت ظهور القسم (توقيت ماليزيا): بلا قيد = طوال الوقت
+  available_days?: number[] | null; available_from?: string | null; available_to?: string | null
+  time_badge_ar?: string | null; time_badge_en?: string | null
 }
 
 interface MenuItem {
@@ -123,12 +153,12 @@ const FIELD_LABELS: Record<string, [string, string]> = {
 const AUDIT_SKIP = new Set(['id', 'created_at', 'updated_at', 'menu_item_id', 'branch_id'])
 function auditVal(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—'
-  if (typeof v === 'boolean') return v ? '✅' : '⛔'
+  if (typeof v === 'boolean') return v ? 'نعم · Yes' : 'لا · No'
   const t = String(v)
   return t.length > 90 ? t.slice(0, 90) + '…' : t
 }
 function AuditHistory({ rows, isAr }: { rows: AuditRow[] | null; isAr: boolean }) {
-  if (rows === null) return <div style={{ textAlign: 'center', padding: 30, color: S.muted, fontSize: 13 }}>{isAr ? '⏳ جاري التحميل...' : '⏳ Loading...'}</div>
+  if (rows === null) return <div style={{ textAlign: 'center', padding: 30, color: S.muted, fontSize: 13 }}>{isAr ? 'جاري التحميل...' : 'Loading...'}</div>
   return (
     <div>
       {rows.length === 0 ? (
@@ -141,13 +171,13 @@ function AuditHistory({ rows, isAr }: { rows: AuditRow[] | null; isAr: boolean }
             const sizeName = isSize ? String(src.name_en || src.name || '') : ''
             const when = new Date(r.changed_at).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
             const title = isSize
-              ? (r.action === 'INSERT' ? (isAr ? '➕ إضافة حجم' : '➕ Size added') : r.action === 'DELETE' ? (isAr ? '🗑️ حذف حجم' : '🗑️ Size removed') : (isAr ? '✏️ تعديل حجم' : '✏️ Size edited')) + ': ' + sizeName
-              : (r.action === 'INSERT' ? (isAr ? '🆕 إنشاء الصنف' : '🆕 Item created') : r.action === 'DELETE' ? (isAr ? '🗑️ حذف الصنف' : '🗑️ Item deleted') : (isAr ? '✏️ تعديل الصنف' : '✏️ Item edited'))
+              ? (r.action === 'INSERT' ? (isAr ? 'إضافة حجم' : 'Size added') : r.action === 'DELETE' ? (isAr ? 'حذف حجم' : 'Size removed') : (isAr ? 'تعديل حجم' : 'Size edited')) + ': ' + sizeName
+              : (r.action === 'INSERT' ? (isAr ? 'إنشاء الصنف' : 'Item created') : r.action === 'DELETE' ? (isAr ? 'حذف الصنف' : 'Item deleted') : (isAr ? 'تعديل الصنف' : 'Item edited'))
             const fields = r.action === 'UPDATE' ? (r.changed_fields || []).filter(f => !AUDIT_SKIP.has(f)) : []
             return (
               <div key={r.id} style={{ background: S.card, borderRadius: 10, padding: '10px 12px', border: `1px solid ${S.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: fields.length || isSize ? 6 : 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>{title}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}><Ico k={r.action === 'INSERT' ? 'add' : r.action === 'DELETE' ? 'del' : 'edit'} />{title}</div>
                   <div style={{ fontSize: 11, color: S.muted }}>{when} · <span style={{ color: S.gold, fontWeight: 700 }}>{r.actor_name || '—'}</span>{r.actor_role ? ` (${r.actor_role})` : ''}</div>
                 </div>
                 {isSize && r.action !== 'UPDATE' && (
@@ -156,7 +186,7 @@ function AuditHistory({ rows, isAr }: { rows: AuditRow[] | null; isAr: boolean }
                 {fields.map(f => (
                   <div key={f} style={{ fontSize: 12, color: S.muted, marginTop: 3, lineHeight: 1.6 }}>
                     <span style={{ color: S.amber, fontWeight: 600 }}>{(FIELD_LABELS[f] || [f, f])[isAr ? 0 : 1]}:</span>{' '}
-                    <span style={{ textDecoration: 'line-through', opacity: 0.7 }}>{auditVal(r.old_row?.[f])}</span>{' ← '}
+                    <span style={{ textDecoration: 'line-through', opacity: 0.7 }}>{auditVal(r.old_row?.[f])}</span>{' '}<Ico k="next" size={12} bare />{' '}
                     <span style={{ color: S.green }}>{auditVal(r.new_row?.[f])}</span>
                   </div>
                 ))}
@@ -242,8 +272,8 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
       const { data: dup } = await dupQuery.maybeSingle()
       if (dup) {
         alert(isAr
-          ? `⚠️ الكود "${trimmedCode}" مستخدم بالفعل للصنف "${dup.name}". اختر كود تاني.`
-          : `⚠️ Code "${trimmedCode}" is already used by "${dup.name}". Choose another.`)
+          ? `الكود "${trimmedCode}" مستخدم بالفعل للصنف "${dup.name}". اختر كود تاني.`
+          : `Code "${trimmedCode}" is already used by "${dup.name}". Choose another.`)
         setSaving(false)
         return
       }
@@ -341,16 +371,16 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <h2 style={{ color: S.white, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>
-              {item ? (isAr ? '✏️ تعديل الصنف' : '✏️ Edit Item') : (isAr ? '➕ إضافة صنف جديد' : '➕ Add New Item')}
+              <Ico k={item ? 'edit' : 'add'} size={17} />{item ? (isAr ? 'تعديل الصنف' : 'Edit Item') : (isAr ? 'إضافة صنف جديد' : 'Add New Item')}
             </h2>
             <p style={{ fontSize: 12, color: S.muted }}>{isAr ? 'أدخل تفاصيل الصنف والسعر والصورة' : 'Enter item details, price and image'}</p>
           </div>
-          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          <button onClick={onClose} style={{ background: S.card2, border: `1px solid ${S.border}`, borderRadius: 10, color: S.muted, fontSize: 18, cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ico k="close" size={16} bare /></button>
         </div>
         <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 4, marginBottom: 20 }}>
           {(item?.id ? ['info','sizes','history'] as const : ['info','sizes'] as const).map(t => (
             <button key={t} onClick={() => setModalTab(t)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: modalTab === t ? 700 : 400, background: modalTab === t ? S.gold3 : 'transparent', color: modalTab === t ? S.gold : S.muted }}>
-              {t === 'info' ? (isAr ? '📋 بيانات الصنف' : '📋 Item Info') : t === 'sizes' ? (isAr ? '📏 الأحجام' : '📏 Sizes') : (isAr ? '📜 سجل التعديلات' : '📜 History')}
+              <Ico k={t === 'info' ? 'list' : t === 'sizes' ? 'ruler' : 'history'} />{t === 'info' ? (isAr ? 'بيانات الصنف' : 'Item Info') : t === 'sizes' ? (isAr ? 'الأحجام' : 'Sizes') : (isAr ? 'سجل التعديلات' : 'History')}
             </button>
           ))}
         </div>
@@ -359,7 +389,7 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
 
           {/* LEFT: الصورة */}
           <div>
-            <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 12 }}>{isAr ? '📸 صورة الصنف' : '📸 Item Image'}</div>
+            <div style={{ fontSize: 13, color: S.gold, fontWeight: 700, marginBottom: 12 }}><Ico k="img" />{isAr ? 'صورة الصنف' : 'Item Image'}</div>
             <div
               onClick={() => fileRef.current?.click()}
               style={{
@@ -374,7 +404,7 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
                 <img src={imagePreview} alt="صورة الصنف" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 <div style={{ textAlign: 'center', padding: 20 }}>
-                  <div style={{ fontSize: 40, marginBottom: 8 }}>🍽️</div>
+                  <div style={{ marginBottom: 8, color: S.muted, display: 'flex', justifyContent: 'center' }}><Ico k="food" size={40} bare /></div>
                   <div style={{ fontSize: 12, color: S.muted }}>اضغط لرفع صورة</div>
                 </div>
               )}
@@ -382,7 +412,7 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
             <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImage} />
             {imagePreview && (
               <button onClick={() => setImagePreview('')} style={{ width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
-                {isAr ? '🗑️ حذف الصورة' : '🗑️ Remove Image'}
+                <Ico k="del" />{isAr ? 'حذف الصورة' : 'Remove Image'}
               </button>
             )}
 
@@ -494,11 +524,11 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
         {modalTab === 'sizes' && (
           <div>
             <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: S.muted }}>
-              {isAr ? '💡 أضف أحجام للصنف (كاملة، نص، ربع) بأسعار مختلفة. إذا لم تضف — يستخدم السعر الأساسي.' : '💡 Add sizes (Full, Half, Quarter) with different prices. If not added — base price is used.'}
+              <Ico k="tip" />{isAr ? 'أضف أحجام للصنف (كاملة، نص، ربع) بأسعار مختلفة. إذا لم تضف — يستخدم السعر الأساسي.' : 'Add sizes (Full, Half, Quarter) with different prices. If not added — base price is used.'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}>📏 الأحجام</div>
-              <button onClick={() => setSizes(p => [...p, { name: '', name_en: '', price: '', is_active: true }])} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>➕ إضافة حجم</button>
+              <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}><Ico k="ruler" />الأحجام</div>
+              <button onClick={() => setSizes(p => [...p, { name: '', name_en: '', price: '', is_active: true }])} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}><Ico k="add" />إضافة حجم</button>
             </div>
             {sizes.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 24, color: S.muted, fontSize: 12, background: S.card, borderRadius: 10 }}>لا توجد أحجام</div>
@@ -510,7 +540,7 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
                     <input style={{ ...inp, padding: '7px 10px', direction: 'ltr' as const }} placeholder="English name" value={size.name_en} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name_en: e.target.value } : s))} />
                     <input style={{ ...inp, padding: '7px 10px', direction: 'ltr' as const }} placeholder="Nama Melayu" value={size.name_ms || ''} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, name_ms: e.target.value } : s))} />
                     <input style={{ ...inp, padding: '7px 10px', direction: isAr ? 'rtl' : 'ltr' }} type="number" step="0.01" placeholder={isAr ? 'السعر' : 'Price'} value={size.price} onChange={e => setSizes(p => p.map((s, si) => si === i ? { ...s, price: e.target.value } : s))} />
-                    <button onClick={() => setSizes(p => p.filter((_, si) => si !== i))} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13 }}>🗑️</button>
+                    <button onClick={() => setSizes(p => p.filter((_, si) => si !== i))} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13 }}><Ico k="del" size={14} bare /></button>
                   </div>
                 ))}
               </div>
@@ -523,7 +553,7 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '11px 22px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
           <button onClick={save} disabled={saving} style={{ padding: '11px 28px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? (isAr ? '⏳ جاري الحفظ...' : '⏳ Saving...') : item ? (isAr ? '💾 حفظ التعديلات' : '💾 Save Changes') : (isAr ? '✅ إضافة الصنف' : '✅ Add Item')}
+            {saving ? (isAr ? 'جاري الحفظ...' : 'Saving...') : <><Ico k={item ? 'save' : 'ok'} />{item ? (isAr ? 'حفظ التعديلات' : 'Save Changes') : (isAr ? 'إضافة الصنف' : 'Add Item')}</>}
           </button>
         </div>
       </div>
@@ -531,71 +561,161 @@ function ItemModal({ item, categories, branchId, onClose, onSaved }: {
   )
 }
 
-// ══ Add Category Modal ══
-function AddCategoryModal({ branchId, onClose, onSaved }: { branchId: string; onClose: () => void; onSaved: () => void }) {
+// ══ Category Modal (إضافة / تعديل) — يشمل وقت ظهور القسم بتوقيت ماليزيا (مثل الفطور 05:00–10:00) ══
+const WEEK_DAYS: { d: number; ar: string; en: string }[] = [
+  { d: 0, ar: 'الأحد', en: 'Sun' }, { d: 1, ar: 'الإثنين', en: 'Mon' }, { d: 2, ar: 'الثلاثاء', en: 'Tue' }, { d: 3, ar: 'الأربعاء', en: 'Wed' },
+  { d: 4, ar: 'الخميس', en: 'Thu' }, { d: 5, ar: 'الجمعة', en: 'Fri' }, { d: 6, ar: 'السبت', en: 'Sat' },
+]
+function CategoryModal({ branchId, category, onClose, onSaved }: { branchId: string; category?: Category | null; onClose: () => void; onSaved: () => void }) {
   const supabase = createClient()
   const { isAr } = useLang()
+  const editing = !!category
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name: '', name_en: '', name_ms: '', icon: '🍽️' })
-  const icons = ['🍲', '🥗', '🫙', '🔥', '🥙', '🍛', '🥩', '🍚', '☕', '🧃', '🍮', '🫓', '🥘', '🍜', '🫕', '🥪', '🍱', '🧆']
+  const [err, setErr] = useState('')
+  const [form, setForm] = useState({ name: category?.name || '', name_en: category?.name_en || '', name_ms: category?.name_ms || '', icon: category?.icon || DEFAULT_CATEGORY_EMOJI })
+  const hasWindow = !!(category?.available_from || category?.available_to || (category?.available_days && category.available_days.length > 0))
+  const [timed, setTimed] = useState(hasWindow)
+  const [from, setFrom] = useState((category?.available_from || '').slice(0, 5))
+  const [to, setTo] = useState((category?.available_to || '').slice(0, 5))
+  const [days, setDays] = useState<number[]>(category?.available_days && category.available_days.length > 0 ? category.available_days : [0, 1, 2, 3, 4, 5, 6])
+  const [badgeAr, setBadgeAr] = useState(category?.time_badge_ar || '')
+  const [badgeEn, setBadgeEn] = useState(category?.time_badge_en || '')
 
   async function save() {
-    if (!form.name) { alert('يرجى إدخال اسم القسم'); return }
+    setErr('')
+    if (!form.name.trim()) { setErr(isAr ? 'يرجى إدخال اسم القسم' : 'Please enter the category name'); return }
+    if (timed) {
+      if (!from || !to) { setErr(isAr ? 'حدّد ساعة البداية وساعة النهاية' : 'Set both the start and end time'); return }
+      if (from === to) { setErr(isAr ? 'ساعة البداية والنهاية متطابقتان' : 'Start and end time are the same'); return }
+      if (days.length === 0) { setErr(isAr ? 'اختر يوماً واحداً على الأقل' : 'Select at least one day'); return }
+    }
+    // بلا قيد = كل الحقول null (القسم يظهر طوال الوقت). كل الأيام السبعة = null أيضاً
+    const timePayload = timed
+      ? { available_days: days.length === 7 ? null : [...days].sort((a, b) => a - b), available_from: `${from}:00`, available_to: `${to}:00`, time_badge_ar: badgeAr.trim() || null, time_badge_en: badgeEn.trim() || null }
+      : { available_days: null, available_from: null, available_to: null, time_badge_ar: null, time_badge_en: null }
     setSaving(true)
-    // ✅ القسم الجديد ياخد آخر ترتيب (max sort_order + 1) بدل ما يتحط تلقائي في الأول
-    const { data: maxRow } = await supabase
-      .from('menu_categories')
-      .select('sort_order')
-      .eq('is_active', true)
-      .eq('branch_id', branchId)
-      .order('sort_order', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
-    const { error } = await supabase.from('menu_categories').insert([{ ...form, name_en: form.name_en || null, name_ms: form.name_ms || null, is_active: true, sort_order: nextSortOrder, branch_id: branchId }])
+    let error
+    if (editing && category) {
+      ({ error } = await supabase.from('menu_categories').update({ name: form.name.trim(), name_en: form.name_en || null, name_ms: form.name_ms || null, icon: form.icon, ...timePayload }).eq('id', category.id))
+    } else {
+      // ✅ القسم الجديد ياخد آخر ترتيب (max sort_order + 1) بدل ما يتحط تلقائي في الأول
+      const { data: maxRow } = await supabase
+        .from('menu_categories')
+        .select('sort_order')
+        .eq('is_active', true)
+        .eq('branch_id', branchId)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
+      ({ error } = await supabase.from('menu_categories').insert([{ ...form, name: form.name.trim(), name_en: form.name_en || null, name_ms: form.name_ms || null, is_active: true, sort_order: nextSortOrder, branch_id: branchId, ...timePayload }]))
+    }
     setSaving(false)
-    if (error) { alert('خطأ: ' + error.message); return }
+    if (error) { setErr((isAr ? 'خطأ: ' : 'Error: ') + error.message); return }
     onSaved()
   }
 
+  const lbl: React.CSSProperties = { fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 460, padding: 28 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 500, padding: 28, margin: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-          <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>{isAr ? '➕ إضافة قسم جديد' : '➕ Add New Category'}</h3>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>
+            <Ico k={editing ? 'edit' : 'add'} size={16} />{editing ? (isAr ? 'تعديل القسم' : 'Edit Category') : (isAr ? 'إضافة قسم جديد' : 'Add New Category')}
+          </h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer', display: 'inline-flex' }}><Ico k="close" size={18} bare /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>اسم القسم (عربي) *</label>
+              <label style={lbl}>اسم القسم (عربي) *</label>
               <input style={inp} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="مثال: المقبلات" autoFocus />
             </div>
             <div>
-              <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Category Name (English)</label>
+              <label style={lbl}>Category Name (English)</label>
               <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_en} onChange={e => setForm(p => ({ ...p, name_en: e.target.value }))} placeholder="e.g. Appetizers" />
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>Category Name (Bahasa Malaysia)</label>
+            <label style={lbl}>Category Name (Bahasa Malaysia)</label>
             <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={form.name_ms} onChange={e => setForm(p => ({ ...p, name_ms: e.target.value }))} placeholder="cth. Pembuka Selera" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 8 }}>الأيقونة</label>
+            <label style={{ ...lbl, marginBottom: 8 }}>{isAr ? 'الأيقونة' : 'Icon'}</label>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {icons.map(icon => (
-                <button key={icon} onClick={() => setForm(p => ({ ...p, icon }))}
-                  style={{ width: 38, height: 38, borderRadius: 8, border: `1px solid ${form.icon === icon ? S.gold : S.border}`, background: form.icon === icon ? S.gold3 : S.card, cursor: 'pointer', fontSize: 20 }}>
-                  {icon}
-                </button>
-              ))}
+              {CATEGORY_PICKER.map(icon => {
+                const selected = form.icon.replace(/\uFE0F/g, '') === icon
+                return (
+                  <button key={icon} onClick={() => setForm(p => ({ ...p, icon }))}
+                    style={{ width: 38, height: 38, borderRadius: 8, border: `1px solid ${selected ? S.gold : S.border}`, background: selected ? S.gold3 : S.card, color: selected ? S.gold : S.white, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <CatIcon emoji={icon} size={20} />
+                  </button>
+                )
+              })}
             </div>
           </div>
+
+          {/* ⏰ وقت ظهور القسم */}
+          <div style={{ border: `1px solid ${timed ? S.amber + '55' : S.border}`, background: timed ? 'rgba(245,158,11,0.05)' : S.card, borderRadius: 12, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: timed ? 12 : 0 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: S.white }}><Ico k="clock" />{isAr ? 'وقت ظهور القسم' : 'Category availability time'}</div>
+                <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>{isAr ? 'بتوقيت ماليزيا — يطبَّق على زبائن المنيو (QR). الكاشير يطلب في أي وقت.' : 'Malaysia time — applies to QR-menu customers. The cashier can order any time.'}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 3, flexShrink: 0 }}>
+                {([false, true] as const).map(v => (
+                  <button key={String(v)} onClick={() => setTimed(v)}
+                    style={{ padding: '6px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: timed === v ? 700 : 400, background: timed === v ? S.gold3 : 'transparent', color: timed === v ? S.gold : S.muted }}>
+                    {v ? (isAr ? 'أوقات محددة' : 'Limited hours') : (isAr ? 'طوال اليوم' : 'All day')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {timed && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={lbl}>{isAr ? 'من ساعة' : 'From'}</label>
+                    <input type="time" style={{ ...inp, direction: 'ltr', colorScheme: 'dark' }} value={from} onChange={e => setFrom(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={lbl}>{isAr ? 'إلى ساعة' : 'To'}</label>
+                    <input type="time" style={{ ...inp, direction: 'ltr', colorScheme: 'dark' }} value={to} onChange={e => setTo(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <label style={lbl}>{isAr ? 'الأيام' : 'Days'}</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {WEEK_DAYS.map(w => {
+                      const on = days.includes(w.d)
+                      return (
+                        <button key={w.d} onClick={() => setDays(p => on ? p.filter(x => x !== w.d) : [...p, w.d])}
+                          style={{ padding: '6px 10px', borderRadius: 20, border: `1px solid ${on ? S.gold : S.border}`, background: on ? S.gold3 : 'transparent', color: on ? S.gold : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: on ? 700 : 400 }}>
+                          {isAr ? w.ar : w.en}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={lbl}>{isAr ? 'شارة بجانب اسم القسم (عربي)' : 'Badge text (Arabic)'}</label>
+                    <input style={inp} value={badgeAr} onChange={e => setBadgeAr(e.target.value)} placeholder="وقت الفطور" />
+                  </div>
+                  <div>
+                    <label style={lbl}>{isAr ? 'الشارة (English)' : 'Badge text (English)'}</label>
+                    <input style={{ ...inp, direction: 'ltr', textAlign: 'left' }} value={badgeEn} onChange={e => setBadgeEn(e.target.value)} placeholder="Breakfast Time" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+        {err && <div style={{ marginTop: 14, background: S.redB, border: `1px solid ${S.red}55`, color: S.red, borderRadius: 10, padding: '9px 12px', fontSize: 12.5, fontWeight: 700 }}>{err}</div>}
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>{isAr ? 'إلغاء' : 'Cancel'}</button>
           <button onClick={save} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {saving ? '⏳...' : (isAr ? '💾 حفظ القسم' : '💾 Save Category')}
+            {saving ? (isAr ? 'جاري الحفظ...' : 'Saving...') : <><Ico k="save" />{isAr ? 'حفظ القسم' : 'Save Category'}</>}
           </button>
         </div>
       </div>
@@ -752,23 +872,23 @@ function IngredientsModal({ item, branchId, onClose }: { item: MenuItem; branchI
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 4 }}>{isAr ? '🧪 مكونات الوصفة' : '🧪 Recipe Ingredients'}</h2>
+            <h2 style={{ color: S.white, fontSize: 17, fontWeight: 800, marginBottom: 4 }}><Ico k="lab" size={17} />{isAr ? 'مكونات الوصفة' : 'Recipe Ingredients'}</h2>
             <p style={{ fontSize: 13, color: S.muted }}>{item.name} — {item.name_en}</p>
           </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}><Ico k="close" size={16} bare /></button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
           <div style={{ background: S.redB, border: `1px solid ${S.red}30`, borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🏭 تكلفة المكونات</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}><Ico k="cost" size={13} />تكلفة المكونات</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: S.red }}>MYR {totalCost.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
           <div style={{ background: S.gold3, border: `1px solid ${S.gold}30`, borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>💰 سعر البيع</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}><Ico k="price" size={13} />سعر البيع</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: S.gold }}>MYR {(item.price || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           </div>
           <div style={{ background: margin && parseFloat(margin) > 0 ? S.greenB : S.redB, border: `1px solid ${margin && parseFloat(margin) > 0 ? S.green : S.red}30`, borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📈 هامش الربح</div>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}><Ico k="trend" size={13} />هامش الربح</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: margin && parseFloat(margin) > 0 ? S.green : S.red }}>
               {margin ? margin + '%' : '—'}
             </div>
@@ -778,23 +898,23 @@ function IngredientsModal({ item, branchId, onClose }: { item: MenuItem; branchI
         {margin && (
           <div style={{ marginBottom: 16, background: parseFloat(margin) > 0 ? S.greenB : S.redB, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: parseFloat(margin) > 0 ? S.green : S.red, fontWeight: 700 }}>
             {parseFloat(margin) > 0
-              ? `✅ ربح MYR ${(item.price - totalCost).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} لكل وجبة`
-              : `❌ خسارة MYR ${(totalCost - item.price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} لكل وجبة — يجب مراجعة السعر أو التكاليف`}
+              ? `ربح MYR ${(item.price - totalCost).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} لكل وجبة`
+              : `خسارة MYR ${(totalCost - item.price).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} لكل وجبة — يجب مراجعة السعر أو التكاليف`}
           </div>
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: S.white }}>{ingredients.length} مكون</div>
           <button onClick={addIngredient} style={{ padding: '8px 16px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {isAr ? '➕ إضافة مكون' : '➕ Add Ingredient'}
+            <Ico k="add" />{isAr ? 'إضافة مكون' : 'Add Ingredient'}
           </button>
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>{isAr ? '⏳ جاري التحميل...' : '⏳ Loading...'}</div>
+          <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>{isAr ? 'جاري التحميل...' : 'Loading...'}</div>
         ) : ingredients.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, background: S.card, borderRadius: 14, color: S.muted }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>🧪</div>
+            <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}><Ico k="lab" size={36} bare /></div>
             <div style={{ fontSize: 14, color: S.white, marginBottom: 6 }}>لا توجد مكونات بعد</div>
             <div style={{ fontSize: 12 }}>{isAr ? 'اضغط "إضافة مكون" لتحديد مكونات هذا الصنف من المستودع' : 'Click "Add Ingredient" to link ingredients from warehouse'}</div>
           </div>
@@ -829,7 +949,7 @@ function IngredientsModal({ item, branchId, onClose }: { item: MenuItem; branchI
                         <input
                           autoFocus
                           style={{ ...inpS, direction: 'rtl' }}
-                          placeholder={isAr ? "🔍 ابحث عن مكون..." : "🔍 Search ingredient..."}
+                          placeholder={isAr ? "ابحث عن مكون..." : "Search ingredient..."}
                           value={search[ing.id] || ''}
                           onChange={e => setSearch(p => ({ ...p, [ing.id]: e.target.value }))}
                         />
@@ -911,9 +1031,7 @@ function IngredientsModal({ item, branchId, onClose }: { item: MenuItem; branchI
 
                   {/* حذف */}
                   <button onClick={() => deleteIng(ing.id)}
-                    style={{ padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, marginTop: 18, alignSelf: 'start' }}>
-                    🗑️
-                  </button>
+                    style={{ padding: '8px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, marginTop: 18, alignSelf: 'start' }}><Ico k="del" size={14} bare /></button>
 
                 </div>
               )
@@ -922,7 +1040,7 @@ function IngredientsModal({ item, branchId, onClose }: { item: MenuItem; branchI
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>✅ تم</button>
+          <button onClick={onClose} style={{ padding: '10px 24px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}><Ico k="ok" />تم</button>
         </div>
       </div>
     </div>
@@ -959,6 +1077,7 @@ export default function MenuItemsPage() {
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [showAddItem, setShowAddItem] = useState(false)
   const [showAddCat, setShowAddCat] = useState(false)
+  const [editCat, setEditCat] = useState<Category | null>(null)
   const [editItem, setEditItem] = useState<MenuItem | null>(null)
   const [ingredientsItem, setIngredientsItem] = useState<MenuItem | null>(null)
   const [filterAvailable, setFilterAvailable] = useState<'all' | 'available' | 'unavailable'>('all')
@@ -973,7 +1092,7 @@ export default function MenuItemsPage() {
     const [cats, itms, top] = await Promise.all([
       supabase.from('menu_categories').select('*').eq('is_active', true).eq('branch_id', branchId).order('sort_order'),
       supabase.from('menu_items').select('id, category_id, name, name_en, name_ms, or_code, description, description_en, description_ms, price, cost_price, discount_percent, is_active, is_available, sort_order, image_url, menu_categories(name,name_en,icon)').eq('is_active', true).eq('branch_id', branchId).order('sort_order').order('name'),
-      supabase.rpc('app_menu_top_items', { p_limit: 10, p_days: 90 }),
+      supabase.rpc('app_menu_top_items', { p_limit: 10, p_days: 90, p_branch: branchId }),
     ])
     const catsWithCount = (cats.data || []).map(c => ({
       ...c,
@@ -1007,8 +1126,8 @@ export default function MenuItemsPage() {
     const duplicate = items.find(i => i.id !== item.id && (i.or_code || '') === trimmed)
     if (duplicate) {
       alert(isAr
-        ? `⚠️ الكود "${trimmed}" مستخدم بالفعل للصنف "${duplicate.name}". اختر كود تاني.`
-        : `⚠️ Code "${trimmed}" is already used by "${duplicate.name}". Choose another.`)
+        ? `الكود "${trimmed}" مستخدم بالفعل للصنف "${duplicate.name}". اختر كود تاني.`
+        : `Code "${trimmed}" is already used by "${duplicate.name}". Choose another.`)
       fetchAll()
       return
     }
@@ -1025,8 +1144,8 @@ export default function MenuItemsPage() {
     const duplicate = categories.find(c => c.id !== cat.id && (c.sort_order ?? 0) === newValue)
     if (duplicate) {
       alert(isAr
-        ? `⚠️ الرقم ${newValue} مستخدم بالفعل للقسم "${duplicate.name}". اختر رقم تاني.`
-        : `⚠️ Number ${newValue} is already used by category "${duplicate.name}". Choose another number.`)
+        ? `الرقم ${newValue} مستخدم بالفعل للقسم "${duplicate.name}". اختر رقم تاني.`
+        : `Number ${newValue} is already used by category "${duplicate.name}". Choose another number.`)
       fetchAll()
       return
     }
@@ -1073,21 +1192,21 @@ export default function MenuItemsPage() {
       {/* ══ Header ══ */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}>📖 قائمة الطعام</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: S.white, marginBottom: 4 }}><Ico k="book" size={22} />قائمة الطعام</h1>
           <p style={{ fontSize: 13, color: S.muted }}>{isAr ? 'إدارة أصناف المنيو والأسعار والصور' : 'Manage menu items, prices and images'}</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           {isSuperAdmin && branchList.length > 0 && (
             <select value={adminBranch} onChange={e => { setAdminBranch(e.target.value); setSelectedCat('all'); try { localStorage.setItem('menu-admin-branch', e.target.value) } catch { /* ignore */ } }}
               style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-              {branchList.map(b => <option key={b.id} value={b.id}>🏪 {b.name}</option>)}
+              {branchList.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
           <button onClick={() => setShowAddCat(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.purple}`, background: S.purpleB, color: S.purple, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            📁 قسم جديد
+            <Ico k="folderAdd" />قسم جديد
           </button>
           <button onClick={() => setShowAddItem(true)} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
-            {isAr ? '➕ صنف جديد' : '➕ New Item'}
+            <Ico k="add" />{isAr ? 'صنف جديد' : 'New Item'}
           </button>
         </div>
       </div>
@@ -1095,14 +1214,14 @@ export default function MenuItemsPage() {
       {/* ══ Stats ══ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 24 }}>
         {[
-          { label: isAr ? 'إجمالي الأصناف' : 'Total Items', value: totalItems, icon: '🍽️', color: S.blue, bg: S.blueB },
-          { label: isAr ? 'متاح الآن' : 'Available', value: availableItems, icon: '✅', color: S.green, bg: S.greenB },
-          { label: isAr ? 'غير متاح' : 'Unavailable', value: totalItems - availableItems, icon: '⏸', color: S.red, bg: S.redB },
-          { label: 'الأقسام', value: categories.length, icon: '📁', color: S.purple, bg: S.purpleB },
-          { label: isAr ? 'متوسط السعر' : 'Avg Price', value: formatMYR(avgPrice), icon: '💰', color: S.gold, bg: S.gold3 },
+          { label: isAr ? 'إجمالي الأصناف' : 'Total Items', value: totalItems, icon: <Ico k="food" size={20} bare />, color: S.blue, bg: S.blueB },
+          { label: isAr ? 'متاح الآن' : 'Available', value: availableItems, icon: <Ico k="ok" size={20} bare />, color: S.green, bg: S.greenB },
+          { label: isAr ? 'غير متاح' : 'Unavailable', value: totalItems - availableItems, icon: <Ico k="pause" size={20} bare />, color: S.red, bg: S.redB },
+          { label: 'الأقسام', value: categories.length, icon: <Ico k="folder" size={20} bare />, color: S.purple, bg: S.purpleB },
+          { label: isAr ? 'متوسط السعر' : 'Avg Price', value: formatMYR(avgPrice), icon: <Ico k="price" size={20} bare />, color: S.gold, bg: S.gold3 },
         ].map((s, i) => (
           <div key={i} style={{ background: S.card2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '16px 18px' }}>
-            <div style={{ fontSize: 20, marginBottom: 8 }}>{s.icon}</div>
+            <div style={{ marginBottom: 8, color: s.color }}>{s.icon}</div>
             <div style={{ fontSize: 18, fontWeight: 800, color: s.color, marginBottom: 4 }}>{s.value}</div>
             <div style={{ fontSize: 12, color: S.muted }}>{s.label}</div>
           </div>
@@ -1113,7 +1232,7 @@ export default function MenuItemsPage() {
       {topList.length > 0 && selectedCat === 'all' && !search && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <span style={{ fontSize: 18 }}>🔥</span>
+            <span style={{ color: S.amber, display: 'inline-flex' }}><Ico k="fire" size={18} bare /></span>
             <span style={{ fontSize: 15, fontWeight: 800, color: S.white }}>{isAr ? 'الأكثر طلباً' : 'Most Ordered'}</span>
             <span style={{ fontSize: 12, color: S.muted, background: S.card2, borderRadius: 20, padding: '2px 10px' }}>{isAr ? `أعلى ${topList.length} أصناف` : `Top ${topList.length}`}</span>
             <span style={{ fontSize: 11, color: S.muted }}>{isAr ? '· الطلبات المدفوعة آخر 90 يوم' : '· paid orders, last 90 days'}</span>
@@ -1125,7 +1244,7 @@ export default function MenuItemsPage() {
                 <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 2, background: 'rgba(10,22,40,0.85)', borderRadius: 8, padding: '3px 8px', fontSize: 11, color: S.gold, fontWeight: 800 }}>×{units} {isAr ? 'مرة' : ''}</div>
                 <div style={{ aspectRatio: '4/3', background: S.navy3, overflow: 'hidden' }}>
                   {item.image_url ? <img src={item.image_url} loading="lazy" alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>{item.menu_categories?.icon || '🍽️'}</div>}
+                    : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: S.muted }}><CatIcon emoji={item.menu_categories?.icon} size={36} /></div>}
                 </div>
                 <div style={{ padding: '10px 12px' }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: S.white, marginBottom: 4 }}>{lang === 'en' ? (item.name_en || item.name) : item.name}</div>
@@ -1154,7 +1273,7 @@ export default function MenuItemsPage() {
               textAlign: 'right', transition: 'all .2s',
             }}
           >
-            <div style={{ fontSize: 24, marginBottom: 6 }}>🍽️</div>
+            <div style={{ marginBottom: 6, color: selectedCat === 'all' ? S.gold : S.white }}><Ico k="food" size={24} bare /></div>
             <div style={{ fontSize: 13, fontWeight: 700, color: selectedCat === 'all' ? S.gold : S.white, marginBottom: 2 }}>الكل</div>
             <div style={{ fontSize: 11, color: S.muted }}>All Items</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: selectedCat === 'all' ? S.gold : S.blue, marginTop: 6 }}>{totalItems}</div>
@@ -1171,11 +1290,20 @@ export default function MenuItemsPage() {
                   textAlign: 'right', transition: 'all .2s',
                 }}
               >
-                <div style={{ fontSize: 24, marginBottom: 6 }}>{cat.icon}</div>
+                <div style={{ marginBottom: 6, color: selectedCat === cat.id ? S.gold : S.white }}><CatIcon emoji={cat.icon} size={24} /></div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: selectedCat === cat.id ? S.gold : S.white, marginBottom: 2, lineHeight: 1.3 }}>{cat.name}</div>
                 <div style={{ fontSize: 10, color: S.muted }}>{cat.name_en}</div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: selectedCat === cat.id ? S.gold : S.blue, marginTop: 6 }}>{cat.item_count || 0}</div>
+                {(cat.available_from || cat.available_to) && (
+                  <div style={{ fontSize: 10, color: S.amber, marginTop: 4, direction: 'ltr' }}><Ico k="clock" size={11} />{(cat.available_from || '').slice(0, 5)}–{(cat.available_to || '').slice(0, 5)}</div>
+                )}
               </button>
+              <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 3 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => setEditCat(cat)} title={isAr ? 'تعديل القسم ووقت ظهوره' : 'Edit category & availability time'}
+                  style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${S.border}`, background: 'rgba(10,22,40,0.9)', color: S.gold, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ico k="edit" size={13} bare />
+                </button>
+              </div>
               <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 3 }} onClick={(e) => e.stopPropagation()}>
                 <input
                   key={`cat-sort-${cat.id}-${cat.sort_order}`}
@@ -1195,7 +1323,7 @@ export default function MenuItemsPage() {
             onMouseEnter={e => { e.currentTarget.style.borderColor = S.gold; e.currentTarget.style.background = S.gold3 }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = S.border; e.currentTarget.style.background = 'transparent' }}
           >
-            <div style={{ fontSize: 24, color: S.muted }}>➕</div>
+            <div style={{ color: S.muted }}><Ico k="add" size={24} bare /></div>
             <div style={{ fontSize: 11, color: S.muted }}>قسم جديد</div>
           </button>
         </div>
@@ -1207,7 +1335,7 @@ export default function MenuItemsPage() {
           style={{ ...inp, flex: 1, minWidth: 200 }}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder={isAr ? "🔍 بحث بالاسم أو الكود أو الإنجليزي..." : "🔍 Search by name, code or English..."}
+          placeholder={isAr ? "بحث بالاسم أو الكود أو الإنجليزي..." : "Search by name, code or English..."}
         />
         <select style={{ ...inp, width: 'auto', minWidth: 140 }} value={filterAvailable} onChange={e => setFilterAvailable(e.target.value as 'all' | 'available' | 'unavailable')}>
           <option value="all">{isAr ? "كل الأصناف" : "All Items"}</option>
@@ -1215,18 +1343,18 @@ export default function MenuItemsPage() {
           <option value="unavailable">{isAr ? "غير متاح" : "Unavailable"}</option>
         </select>
         <div style={{ display: 'flex', background: S.navy3, borderRadius: 10, padding: 4, gap: 4 }}>
-          <button onClick={() => setView('grid')} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: view === 'grid' ? S.gold3 : 'transparent', color: view === 'grid' ? S.gold : S.muted, cursor: 'pointer', fontSize: 16 }}>⊞</button>
-          <button onClick={() => setView('list')} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: view === 'list' ? S.gold3 : 'transparent', color: view === 'list' ? S.gold : S.muted, cursor: 'pointer', fontSize: 16 }}>☰</button>
+          <button onClick={() => setView('grid')} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: view === 'grid' ? S.gold3 : 'transparent', color: view === 'grid' ? S.gold : S.muted, cursor: 'pointer', fontSize: 16, display: 'inline-flex' }}><Ico k="grid" size={16} bare /></button>
+          <button onClick={() => setView('list')} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: view === 'list' ? S.gold3 : 'transparent', color: view === 'list' ? S.gold : S.muted, cursor: 'pointer', fontSize: 16, display: 'inline-flex' }}><Ico k="rows" size={16} bare /></button>
         </div>
         <div style={{ fontSize: 12, color: S.muted }}>{filtered.length} صنف{totalPages > 1 && ` • ص${page}/${totalPages}`}</div>
       </div>
 
       {/* ══ Items ══ */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>{isAr ? '⏳ جاري التحميل...' : '⏳ Loading...'}</div>
+        <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>{isAr ? 'جاري التحميل...' : 'Loading...'}</div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: S.muted }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🍽️</div>
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Ico k="food" size={48} bare /></div>
           <div style={{ fontSize: 15, fontWeight: 600, color: S.white, marginBottom: 6 }}>لا توجد أصناف</div>
           <div style={{ fontSize: 13 }}>{isAr ? 'اضغط "صنف جديد" لإضافة أول صنف' : 'Click "New Item" to add your first item'}</div>
         </div>
@@ -1245,13 +1373,13 @@ export default function MenuItemsPage() {
                 {item.image_url ? (
                   <img src={item.image_url} alt={item.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }} />
                 ) : (
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>
-                    {item.menu_categories?.icon || '🍽️'}
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: S.muted }}>
+                    <CatIcon emoji={item.menu_categories?.icon} size={48} />
                   </div>
                 )}
                 {/* Availability Badge */}
                 <div style={{ position: 'absolute', top: 8, right: 8, background: item.is_available ? S.greenB : S.redB, border: `1px solid ${item.is_available ? S.green : S.red}`, borderRadius: 20, padding: '3px 10px', fontSize: 10, fontWeight: 700, color: item.is_available ? S.green : S.red, backdropFilter: 'blur(8px)' }}>
-                  {item.is_available ? (isAr ? '✅ متاح' : '✅ Available') : (isAr ? '⏸ غير متاح' : '⏸ Unavailable')}
+                  <Ico k={item.is_available ? 'ok' : 'pause'} size={12} />{item.is_available ? (isAr ? 'متاح' : 'Available') : (isAr ? 'غير متاح' : 'Unavailable')}
                 </div>
                 {/* OR Code */}
                 {item.or_code && (
@@ -1279,7 +1407,7 @@ export default function MenuItemsPage() {
                     ) : (
                       <div style={{ fontSize: 16, fontWeight: 800, color: S.gold }}>{formatMYR(item.price)}</div>
                     )}
-                    {item.sizes && item.sizes.length > 0 && <div style={{ fontSize: 10, color: S.blue, marginTop: 2 }}>📏 {item.sizes.length} {lang === 'en' ? 'sizes' : 'أحجام'}</div>}
+                    {item.sizes && item.sizes.length > 0 && <div style={{ fontSize: 10, color: S.blue, marginTop: 2 }}><Ico k="ruler" size={12} />{item.sizes.length} {lang === 'en' ? 'sizes' : 'أحجام'}</div>}
                   </div>
                   {item.cost_price > 0 && <div style={{ fontSize: 10, color: S.muted }}>{lang === 'en' ? 'Cost:' : 'تكلفة:'} {formatMYR(item.cost_price)}</div>}
                 </div>
@@ -1292,12 +1420,12 @@ export default function MenuItemsPage() {
                 <div style={{ flex: 1 }} />
                 {/* Actions */}
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8 }}>
-                  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 34 }}>{isAr ? '✏️ تعديل' : '✏️ Edit'}</button>
-                  <button onClick={() => setIngredientsItem(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🧪</button>
+                  <button onClick={() => setEditItem(item)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 34 }}><Ico k="edit" size={14} />{isAr ? 'تعديل' : 'Edit'}</button>
+                  <button onClick={() => setIngredientsItem(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.teal}`, background: S.tealB, color: S.teal, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ico k="lab" size={14} bare /></button>
                   <button onClick={() => toggleAvailable(item)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${item.is_available ? S.amber : S.green}`, background: item.is_available ? S.amberB : S.greenB, color: item.is_available ? S.amber : S.green, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {item.is_available ? '⏸' : '▶'}
+                    {item.is_available ? <Ico k="pause" size={14} bare /> : <Ico k="play" size={14} bare />}
                   </button>
-                  <button onClick={() => deleteItem(item.id)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>🗑️</button>
+                  <button onClick={() => deleteItem(item.id)} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ico k="del" size={14} bare /></button>
 </div>
                 {(() => {
                   return (
@@ -1341,8 +1469,8 @@ export default function MenuItemsPage() {
                           {item.image_url ? (
                             <img src={item.image_url} alt={item.name} loading="lazy" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover' }} />
                           ) : (
-                            <div style={{ width: 40, height: 40, borderRadius: 8, background: S.navy3, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                              {item.menu_categories?.icon || '🍽️'}
+                            <div style={{ width: 40, height: 40, borderRadius: 8, background: S.navy3, display: 'flex', alignItems: 'center', justifyContent: 'center', color: S.muted }}>
+                              <CatIcon emoji={item.menu_categories?.icon} size={20} />
                             </div>
                           )}
                           <div>
@@ -1376,16 +1504,16 @@ export default function MenuItemsPage() {
                       </td>
                       <td style={{ padding: '12px 16px' }}>
                         <span style={{ background: item.is_available ? S.greenB : S.redB, color: item.is_available ? S.green : S.red, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700 }}>
-                          {item.is_available ? (isAr ? '✅ متاح' : '✅ Available') : (isAr ? '⏸ غير متاح' : '⏸ Unavailable')}
+                          <Ico k={item.is_available ? 'ok' : 'pause'} size={12} />{item.is_available ? (isAr ? 'متاح' : 'Available') : (isAr ? 'غير متاح' : 'Unavailable')}
                         </span>
                       </td>
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <button onClick={() => setEditItem(item)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12 }}>✏️</button>
+                          <button onClick={() => setEditItem(item)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12 }}><Ico k="edit" size={14} bare /></button>
                           <button onClick={() => toggleAvailable(item)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${item.is_available ? S.amber : S.green}`, background: item.is_available ? S.amberB : S.greenB, color: item.is_available ? S.amber : S.green, cursor: 'pointer', fontSize: 12 }}>
-                            {item.is_available ? '⏸' : '▶'}
+                            {item.is_available ? <Ico k="pause" size={14} bare /> : <Ico k="play" size={14} bare />}
                           </button>
-                          <button onClick={() => deleteItem(item.id)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                          <button onClick={() => deleteItem(item.id)} style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12 }}><Ico k="del" size={14} bare /></button>
                         </div>
                       </td>
                     </tr>
@@ -1413,11 +1541,12 @@ export default function MenuItemsPage() {
       {ingredientsItem && (
         <IngredientsModal item={ingredientsItem} branchId={branchId} onClose={() => setIngredientsItem(null)} />
       )}
-      {showAddCat && (
-        <AddCategoryModal
+      {(showAddCat || editCat) && (
+        <CategoryModal
           branchId={branchId}
-          onClose={() => setShowAddCat(false)}
-          onSaved={() => { setShowAddCat(false); fetchAll() }}
+          category={editCat}
+          onClose={() => { setShowAddCat(false); setEditCat(null) }}
+          onSaved={() => { setShowAddCat(false); setEditCat(null); fetchAll() }}
         />
       )}
     </div>

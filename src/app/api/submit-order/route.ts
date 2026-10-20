@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { orderCode } from '../../../lib/orderCode'
+import { isCategoryAvailableNow } from '../../../lib/categoryAvailability'
 import { createClient } from '@supabase/supabase-js'
 
 // ✅ عميل service-role — صفحة المنيو عامة (زائر مجهول). كل الكتابة على الطلبات تمرّ من هنا
@@ -111,8 +112,13 @@ export async function POST(req: NextRequest) {
 
     const catIds = [...new Set((menuItems || []).map((m) => m.category_id).filter(Boolean))]
     const { data: cats } = await sb
-      .from('menu_categories').select('id, destination').in('id', catIds)
+      .from('menu_categories').select('id, destination, name, name_en, available_days, available_from, available_to').in('id', catIds)
     const catMap = new Map((cats || []).map((c) => [c.id, c.destination]))
+    // ✅ قسم مقيَّد بوقت (مثل الفطور): لا يُقبل طلب صنف منه خارج وقته (بتوقيت ماليزيا) حتى لو بقيت صفحة الزبون مفتوحة
+    const closedCat = (cats || []).find((c) => !isCategoryAvailableNow(c))
+    if (closedCat) {
+      return NextResponse.json({ error: `القسم "${closedCat.name_en || closedCat.name}" غير متاح في هذا الوقت`, code: 'CATEGORY_UNAVAILABLE', category: closedCat.name_en || closedCat.name }, { status: 409 })
+    }
 
     // ── حساب سعر كل سطر في السيرفر ──
     let serverTotal = 0

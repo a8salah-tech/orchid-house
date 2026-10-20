@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { orderCode } from '../../../lib/orderCode'
+import { isCategoryAvailableNow as categoryOpenNow } from '../../../lib/categoryAvailability'
 import { createBrowserClient } from '@supabase/ssr'
 import { useParams } from 'next/navigation'
 
@@ -105,6 +106,7 @@ const TR: Record<Lang, Record<string, string>> = {
     err_order_send: '⚠️ Something went wrong sending your order. Please try again or call the waiter.',
     err_blocked: '⚠️ Your order cannot be sent right now. Please ask the waiter to help you.',
     ok_btn: 'OK',
+    err_category_closed: '⚠️ Some items in your order are not available at this time. Please remove them and try again.',
     err_qty_limit: '⚠️ Maximum 30 per item. For larger orders please ask the waiter.',
     featured_title: '✨ Don\'t miss these',
     featured_confirm: 'Add this to your order?',
@@ -177,6 +179,7 @@ const TR: Record<Lang, Record<string, string>> = {
     err_order_send: '⚠️ Sesuatu tidak kena semasa menghantar pesanan anda. Sila cuba lagi atau panggil pelayan.',
     err_blocked: '⚠️ Pesanan anda tidak dapat dihantar sekarang. Sila minta pelayan membantu anda.',
     ok_btn: 'OK',
+    err_category_closed: '⚠️ Sesetengah item dalam pesanan anda tidak tersedia pada masa ini. Sila buang item tersebut dan cuba lagi.',
     err_qty_limit: '⚠️ Maksimum 30 bagi setiap item. Untuk pesanan lebih besar, sila minta pelayan.',
     featured_title: '✨ Jangan lepaskan ini',
     featured_confirm: 'Tambah ini ke pesanan anda?',
@@ -254,6 +257,7 @@ const TR: Record<Lang, Record<string, string>> = {
     featured_yes: '✅ نعم، أضِفه',
     featured_no: 'ليس الآن',
     featured_added: '✅ تمت الإضافة إلى طلبك',
+    err_category_closed: '⚠️ بعض الأصناف في طلبك غير متاحة في هذا الوقت. يرجى حذفها ثم إعادة المحاولة.',
     err_qty_limit: '⚠️ الحد الأقصى 30 للصنف الواحد. للطلبات الأكبر يرجى طلب المساعدة من النادل.',
     err_order_too_big: '⚠️ هذا الطلب كبير جداً لإرساله من المنيو. يرجى طلب المساعدة من النادل.',
     game_teaser_t: 'في انتظار طلبك… مَن سيدفع الفاتورة؟', game_teaser_s: 'أدر العجلة ودَع الحظ يقرر! 🎉',
@@ -326,6 +330,7 @@ const TR: Record<Lang, Record<string, string>> = {
     featured_yes: '✅ 是，加入',
     featured_no: '暂不',
     featured_added: '✅ 已加入订单',
+    err_category_closed: '⚠️ 您订单中的部分菜品当前时段不供应，请删除后重试。',
     err_qty_limit: '⚠️ 每种菜品最多 30 份。大额订单请联系服务员。',
     err_order_too_big: '⚠️ 此订单过大，无法通过菜单发送，请联系服务员协助。',
     game_teaser_t: '等待期间…谁来买单？', game_teaser_s: '转动转盘，让命运来决定！🎉',
@@ -398,6 +403,7 @@ const TR: Record<Lang, Record<string, string>> = {
     featured_yes: '✅ Да, добавить',
     featured_no: 'Не сейчас',
     featured_added: '✅ Добавлено в заказ',
+    err_category_closed: '⚠️ Некоторые блюда в вашем заказе сейчас недоступны. Удалите их и повторите попытку.',
     err_qty_limit: '⚠️ Максимум 30 порций одного блюда. Для больших заказов обратитесь к официанту.',
     err_order_too_big: '⚠️ Этот заказ слишком большой для отправки через меню. Пожалуйста, обратитесь к официанту.',
     game_teaser_t: 'Пока вы ждёте… Кто оплатит счёт?', game_teaser_s: 'Крутите колесо и пусть решит судьба! 🎉',
@@ -415,24 +421,10 @@ const TR: Record<Lang, Record<string, string>> = {
 // ✅ New: dish review — star rating (1-5) with an optional written comment and optional reviewer name
 type Review    = { id: string; menu_item_id: string; stars: number; review_text: string | null; reviewer_name: string | null; created_at: string }
 
-// ✅ Is this category currently available based on its configured day/time (no restrictions = always available)
+// ✅ Is this category currently available based on its configured day/time (no restrictions = always available).
+// الوقت دائمًا بتوقيت ماليزيا (UTC+8) وليس بساعة جهاز الزبون
 function isCategoryAvailableNow(cat: Category): boolean {
-  if (!cat.available_days && !cat.available_from && !cat.available_to) return true
-  const now = new Date()
-  const day = now.getDay() // 0=Sunday ... 6=Saturday
-  if (cat.available_days && cat.available_days.length > 0 && !cat.available_days.includes(day)) return false
-  if (cat.available_from || cat.available_to) {
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
-    if (cat.available_from) {
-      const [h, m] = cat.available_from.split(':').map(Number)
-      if (nowMinutes < h * 60 + m) return false
-    }
-    if (cat.available_to) {
-      const [h, m] = cat.available_to.split(':').map(Number)
-      if (nowMinutes >= h * 60 + m) return false
-    }
-  }
-  return true
+  return categoryOpenNow(cat)
 }
 
 const GOOGLE_REVIEW_URL = 'https://search.google.com/local/writereview?placeid=ChIJlZREt0M3zDERG_6CtesaFGk'
@@ -1246,6 +1238,12 @@ const filteredItems = items
         isSubmittingRef.current = false
         setSubmitting(false)
         setLimitNotice(t(data.code === 'QTY_LIMIT' ? 'err_qty_limit' : 'err_order_too_big'))
+        return
+      }
+      if (res.status === 409 && data?.code === 'CATEGORY_UNAVAILABLE') {
+        isSubmittingRef.current = false
+        setSubmitting(false)
+        setLimitNotice(t('err_category_closed'))
         return
       }
       if (res.status === 403 && data?.code === 'TABLE_LOCKED') {

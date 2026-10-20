@@ -1,7 +1,7 @@
 'use client'
 
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { orderCode } from '../../../lib/orderCode'
 import SourceTag from '../../components/SourceTag'
 import { createBrowserClient } from '@supabase/ssr'
@@ -401,12 +401,19 @@ function ShiftReportModal({ orders, waste, shiftStart, onClose }: {
 export default function KitchenPage() {
   const sbRef = useRef(createClient())
   const sb = sbRef.current
-  // ✅ جديد: كل فرع يشوف طلباته بس، والأدمن يشوف كل الفروع
-  const { employee } = useAuth()
-  const isAdmin = employee?.role === 'admin'
+  // ✅ كل فرع منفصل تماماً عن الآخر: مدير الفرع ومدير القسم والمشرف وشاشة المطبخ يرون فرعهم فقط،
+  // ومدير النظام يرى الفرعين لكن في تبويب لكل فرع (لا اختلاط بينهما). من بلا فرع (وليس مدير نظام) لا يرى شيئاً.
+  const { employee, permissions } = useAuth()
+  const isAdmin = permissions?.all === true
   const myBranchId = employee?.branch_id || ''
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [adminBranchId, setAdminBranchId] = useState('')
+  const [tableBranch, setTableBranch] = useState<Record<string, string>>({})
+  const scopeBranchId = isAdmin ? adminBranchId : myBranchId
 
-  const [orders, setOrders] = useState<KitchenOrder[]>([])
+  // الطلبات النشطة لكل الفروع (للعدّادات في تبويبات مدير النظام) — والمعروض منها هو فرع النطاق فقط
+  const [ordersAll, setOrdersAll] = useState<KitchenOrder[]>([])
+  const orders = useMemo(() => ordersAll.filter(o => !!scopeBranchId && o.tables?.branch_id === scopeBranchId), [ordersAll, scopeBranchId])
   const [allShiftOrders, setAllShiftOrders] = useState<KitchenOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [tick, setTick] = useState(0)
@@ -448,12 +455,10 @@ export default function KitchenPage() {
       order_items: o.order_items.filter((i: any) => isKitchenItem(i)),
     })).filter((o: any) => o.order_items.length > 0)
 
-    if (!isAdmin && myBranchId) {
-      dayOrders = dayOrders.filter((o: any) => o.tables?.branch_id === myBranchId)
-    }
+    dayOrders = dayOrders.filter((o: any) => !!scopeBranchId && o.tables?.branch_id === scopeBranchId)
     setArchiveOrders(dayOrders)
     setArchiveLoading(false)
-  }, [sb, isAdmin, myBranchId])
+  }, [sb, scopeBranchId])
 
   useEffect(() => { if (viewMode === 'archive') fetchArchive(archiveDate) }, [viewMode, archiveDate, fetchArchive])
   useEffect(() => { setArchivePage(0) }, [archiveDate])
@@ -494,19 +499,15 @@ export default function KitchenPage() {
       return bLatest - aLatest
     })
 
-    // ✅ جديد: كل فرع يشوف طلبات فرعه بس - الأدمن يشوف كل الفروع من غير أي فلترة
-    if (!isAdmin && myBranchId) {
-      filtered = filtered.filter((o: KitchenOrder) => o.tables?.branch_id === myBranchId)
-    }
-
-    setOrders(filtered)
+    // الفلترة بالفرع تتم عند العرض (orders أعلاه) كي تعمل عدّادات تبويبات الفروع لمدير النظام
+    setOrdersAll(filtered)
     setAllShiftOrders(prev => {
       const existing = new Set(prev.map(o => o.id))
       const newOrders = filtered.filter((o: KitchenOrder) => !existing.has(o.id))
       return [...prev, ...newOrders]
     })
     setLoading(false)
-  }, [sb, isAdmin, myBranchId])
+  }, [sb])
 
   // ✅ Fix جذري: قائمة الهدر كانت بتتحسب من ذاكرة المتصفح بس (بتختفي لأي حد تاني، وبينهم الأدمن، يفتح الصفحة من جلسة تانية).
   // دلوقتي بنجيبها فعليًا من قاعدة البيانات - وبقت شاملة الإلغاء كمان (مش بس الإرجاع والاستبدال)، ومفلترة بيوم
@@ -523,9 +524,7 @@ export default function KitchenPage() {
       // ✅ الفلترة على وقت الإلغاء نفسه (مش وقت إنشاء الصنف الأصلي) - عشان "اليوم" يعني "اتلغى اليوم" فعليًا
       .gte('cancelled_at', dayStart).lte('cancelled_at', dayEnd).order('cancelled_at', { ascending: false })
     let items = ((data as any) || [])
-    if (!isAdmin && myBranchId) {
-      items = items.filter((i: any) => i.orders?.tables?.branch_id === myBranchId)
-    }
+    items = items.filter((i: any) => !!scopeBranchId && i.orders?.tables?.branch_id === scopeBranchId)
     setWaste(items.map((i: any) => {
       const t = i.cancelled_at || i.created_at
       return {
@@ -539,17 +538,38 @@ export default function KitchenPage() {
         tableLabel: i.orders?.tables?.name || (i.orders?.tables?.number ? `Table ${i.orders.tables.number}` : '—'),
       }
     }))
-  }, [sb, isAdmin, myBranchId])
+  }, [sb, scopeBranchId])
+
+  // الفروع وخريطة (طاولة ← فرع) — للتبويبات ولتنبيه الصوت لطلبات الفرع المعروض فقط
+  useEffect(() => {
+    const client = createClient() // نفس العميل المشترك (singleton) — بلا اعتماد على ref في المصفوفة
+    client.from('branches').select('id,name').eq('is_active', true).order('name').then(({ data }) => {
+      const list = data || []
+      setBranches(list)
+      if (isAdmin) {
+        let saved = ''
+        try { saved = localStorage.getItem('kitchen_branch') || '' } catch { /* ignore */ }
+        setAdminBranchId(list.find(b => b.id === saved)?.id || list[0]?.id || '')
+      }
+    })
+    client.from('tables').select('id,branch_id').then(({ data }) => setTableBranch(Object.fromEntries((data || []).map((t: { id: string; branch_id: string }) => [t.id, t.branch_id]))))
+  }, [isAdmin])
 
   useEffect(() => { fetchOrders(); fetchWaste(wasteDate) }, [fetchOrders, fetchWaste, wasteDate])
 
   useEffect(() => {
     const ch = sb.channel('kitchen-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrders(); setNotif(true); playNewOrderBeep(); setTimeout(() => setNotif(false), 2000) })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload: { new?: { table_id?: string }; old?: { table_id?: string } }) => {
+        fetchOrders()
+        // ✅ التنبيه (وميض + صوت) لطلبات الفرع المعروض فقط — طلب فرع آخر لا يُزعج هذه الشاشة
+        const tid = payload?.new?.table_id || payload?.old?.table_id
+        const b = tid ? tableBranch[tid] : undefined
+        if (!b || b === scopeBranchId) { setNotif(true); playNewOrderBeep(); setTimeout(() => setNotif(false), 2000) }
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => { fetchOrders(); fetchWaste(wasteDate) })
       .subscribe()
     return () => { sb.removeChannel(ch) }
-  }, [sb, fetchOrders, fetchWaste])
+  }, [sb, fetchOrders, fetchWaste, tableBranch, scopeBranchId])
 
   useEffect(() => {
     const t = setInterval(() => setTick(p => p + 1), 1000)
@@ -602,23 +622,8 @@ export default function KitchenPage() {
 
       {/* Header */}
       <div style={{ background: S.navy2, borderBottom: `1px solid ${S.border}`, padding: '0 20px', display: 'flex', alignItems: 'center', minHeight: 60, gap: 12, flexWrap: 'wrap', paddingTop: 10, paddingBottom: 10 }}>
-        <h1 style={{ color: S.amber, fontSize: 18, fontWeight: 900 }}>🍳 Kitchen</h1>
+        <h1 style={{ color: S.amber, fontSize: 18, fontWeight: 900 }}>🍳 Kitchen{branches.find(b => b.id === scopeBranchId) ? ` — ${branches.find(b => b.id === scopeBranchId)!.name}` : ''}</h1>
         <div style={{ color: S.muted, fontSize: 13 }}>{orders.length} active orders</div>
-        {/* ✅ جديد (ميزة إضافية 2): توزيع عدد الطلبات النشطة حسب الفرع - يظهر للأدمن بس اللي بيشوف كل الفروع */}
-        {isAdmin && (() => {
-          const byBranch: Record<string, number> = {}
-          for (const o of orders) {
-            const bname = o.tables?.branches?.name || 'Unknown'
-            byBranch[bname] = (byBranch[bname] || 0) + 1
-          }
-          return Object.keys(byBranch).length > 1 ? (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {Object.entries(byBranch).map(([bname, count]) => (
-                <span key={bname} style={{ fontSize: 11, color: S.purple, background: S.purpleB, borderRadius: 20, padding: '2px 10px', fontWeight: 700 }}>🏪 {bname}: {count}</span>
-              ))}
-            </div>
-          ) : null
-        })()}
 
         {/* Shift */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
@@ -643,6 +648,23 @@ export default function KitchenPage() {
           <button onClick={() => setViewMode('archive')} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${viewMode === 'archive' ? S.blue : S.border}`, background: viewMode === 'archive' ? S.blueB : 'transparent', color: viewMode === 'archive' ? S.blue : S.muted, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>🗄️ Archive</button>
         </div>
       </div>
+
+      {/* ✅ مدير النظام: تبويب لكل فرع — كل فرع منفصل تماماً عن الآخر (الطلبات، الأرشيف، الهدر، تقرير الشيفت) */}
+      {isAdmin && branches.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '12px 16px 0' }}>
+          {branches.map(b => {
+            const count = ordersAll.filter(o => o.tables?.branch_id === b.id).length
+            const active = adminBranchId === b.id
+            return (
+              <button key={b.id} onClick={() => { setAdminBranchId(b.id); try { localStorage.setItem('kitchen_branch', b.id) } catch { /* ignore */ } }}
+                style={{ padding: '9px 18px', borderRadius: 12, border: `1px solid ${active ? S.amber : S.border}`, background: active ? 'rgba(245,158,11,0.15)' : 'transparent', color: active ? S.amber : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: active ? 800 : 500 }}>
+                🏪 {b.name}
+                <span style={{ marginLeft: 8, background: count > 0 ? S.amber : S.card, color: count > 0 ? S.navy : S.muted, borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 800 }}>{count}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       <div style={{ padding: 16 }}>
         {viewMode === 'archive' ? (
@@ -691,7 +713,7 @@ export default function KitchenPage() {
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                           <thead>
                             <tr style={{ background: S.navy3 }}>
-                              {['Table', 'Order #', ...(isAdmin ? ['Branch'] : []), 'Items', 'Status', 'Time'].map(h => (
+                              {['Table', 'Order #', 'Items', 'Status', 'Time'].map(h => (
                                 <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                               ))}
                             </tr>
@@ -707,7 +729,6 @@ export default function KitchenPage() {
                                 <tr key={o.id} style={{ borderBottom: `1px solid ${S.border}` }}>
                                   <td style={{ padding: '10px 12px', color: S.white, fontSize: 13 }}>{o.tables?.name || `Table ${o.tables?.number}`}</td>
                                   <td style={{ padding: '10px 12px', color: S.gold, fontSize: 12 }}>#{orderCode(o.id)}</td>
-                                  {isAdmin && <td style={{ padding: '10px 12px', color: S.purple, fontSize: 12 }}>{o.tables?.branches?.name || '—'}</td>}
                                   <td style={{ padding: '10px 12px', color: S.muted, fontSize: 12 }}>
                                     {activeItemsList.length > 0 && <div>{activeItemsList.map((i: any) => `${i.menu_items?.name_en || i.menu_items?.name} ×${i.quantity}`).join(', ')}</div>}
                                     {/* ✅ جديد: سطر منفصل واضح للأصناف الملغاة بس */}
@@ -790,12 +811,6 @@ export default function KitchenPage() {
                         )}
                         <div style={{ color: S.white, fontWeight: 800, fontSize: 17 }}>{order.tables?.name || `Table ${order.tables?.number}`}</div>
                         <div style={{ fontSize: 11, color: S.muted }}>#{orderCode(order.id)}</div>
-                      {/* ✅ جديد: شارة اسم الفرع - تظهر للأدمن بس (اللي بيشوف كل الفروع مع بعض) */}
-                      {isAdmin && order.tables?.branches?.name && (
-                        <div style={{ fontSize: 10, color: S.purple, background: S.purpleB, borderRadius: 20, padding: '1px 8px', display: 'inline-block', marginTop: 4, fontWeight: 700 }}>
-                          🏪 {order.tables.branches.name}
-                        </div>
-                      )}
                       {/* ✅ جديد: تسجيل دخول وخروج الطلب بالكامل (Check-in / Check-out) */}
                       {(() => {
                         const activeItems = order.order_items.filter(i => !['cancelled', 'returned', 'replaced'].includes(i.status))
@@ -894,7 +909,7 @@ export default function KitchenPage() {
 
       {showReport && (
         <ShiftReportModal
-          orders={allShiftOrders} waste={waste}
+          orders={allShiftOrders.filter(o => !!scopeBranchId && o.tables?.branch_id === scopeBranchId)} waste={waste}
           shiftStart={shiftStart}
           onClose={closeReport}
         />

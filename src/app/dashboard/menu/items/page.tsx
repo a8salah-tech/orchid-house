@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../../lib/fetchAllRows'
 import { useLang } from '../../../components/LanguageContext'
 import { useAuth } from '../../../components/AuthProvider'
 import { Pencil, Plus, Trash2, Save, X, CircleCheck, CircleX, TriangleAlert, Ruler, FileClock, ClipboardList, ImagePlus, Lightbulb, FlaskConical, Factory, Banknote, TrendingUp, FolderPlus, BookOpen, Store, Pause, Play, Search, Clock, UtensilsCrossed, Flame, Folder, ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, Soup, Salad, Sandwich, Beef, Wheat, Coffee, CupSoda, CakeSlice, Croissant, CookingPot, Cookie, Package, Check } from 'lucide-react'
@@ -800,9 +801,9 @@ function IngredientsModal({ item, branchId, onClose }: { item: MenuItem; branchI
       sb.from('menu_item_ingredients')
         .select('*, warehouse_products(id, name, category, last_purchase_price, units(symbol))')
         .eq('menu_item_id', item.id),
-      sb.from('warehouse_products')
+      selectAll((a, b) => sb.from('warehouse_products')
         .select('id, name, category, last_purchase_price, warehouse_id, units(symbol)')
-        .eq('is_active', true).order('category').order('name'),
+        .eq('is_active', true).order('category').order('name').order('id').range(a, b)),
       // ✅ منتجات مستودعات فرع الصنف فقط (+ المستودعات العامة بلا فرع)
       sb.from('warehouses').select('id, branch_id'),
     ]).then(([ing, prods, whs]) => {

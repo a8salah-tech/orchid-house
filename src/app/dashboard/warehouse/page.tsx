@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLang } from '../../components/LanguageContext'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -115,12 +116,14 @@ function AddWarehouseModal({ onClose, onSaved }: { onClose: () => void; onSaved:
 
 // ══ دالة طباعة تقرير المخزون ══
 async function printInventoryReport(supabase: any) {
-  const { data: products } = await supabase
+  const { data: products } = await selectAll((a, b) => supabase
     .from('warehouse_products')
     .select('name, name_en, category, current_stock, min_stock, last_purchase_price, units(symbol)')
     .eq('is_active', true)
     .order('category')
     .order('name')
+    .order('id')
+    .range(a, b))
 
   if (!products || products.length === 0) { alert('No products found'); return }
 

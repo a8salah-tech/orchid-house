@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../lib/fetchAllRows'
 import { useAuth } from '../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
@@ -312,7 +313,7 @@ function AddProductModal({ initialName, onClose, onSaved, units: allUnits, wareh
 
   useEffect(() => {
     // جيب الكاتيجوريز الموجودة
-    supabase.from('warehouse_products').select('category').eq('is_active', true).then(({ data }) => {
+    selectAll((a, b) => supabase.from('warehouse_products').select('category').eq('is_active', true).order('id').range(a, b)).then(({ data }) => {
       const cats = Array.from(new Set<string>((data || []).map((p: any) => p.category).filter(Boolean))).sort()
       setCategories(cats)
     })
@@ -509,10 +510,10 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
   // ✅ جديد: كل أصناف المستودعات التانية (مرة واحدة بس عند فتح المودال) - عشان نقدر نلاقي نفس الصنف لو موجود في مستودع تاني
   const [allWarehouseProducts, setAllWarehouseProducts] = useState<(Product & { warehouse_name?: string })[]>([])
   useEffect(() => {
-    supabase
+    selectAll((a, b) => supabase
       .from('warehouse_products')
       .select('*, units(symbol)')
-      .eq('is_active', true)
+      .eq('is_active', true).order('id').range(a, b))
       .then(({ data, error }) => {
         if (!error && data) {
           const withWhName = (data as Product[]).map(p => ({

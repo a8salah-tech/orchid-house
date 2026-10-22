@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../../lib/fetchAllRows'
 import { useAuth } from '../../../components/AuthProvider'
 
 const createClient = () => createBrowserClient(
@@ -112,11 +113,12 @@ export default function FixMissingUnitsPage() {
     setLoadingSuspicious(true)
     // ✅ بنجيب كل الأصناف اللي ليها وحدة أساسية ونفلتر في الكود، عشان شرط "الوحدة = غرام" مش بيتفلتر بسهولة
     // على مستوى قاعدة البيانات لما يكون جوه علاقة مرتبطة (units) في نفس الاستعلام
-    const { data } = await sb.from('warehouse_products')
+    const { data } = await selectAll((a, b) => sb.from('warehouse_products')
       .select('id,name,name_en,category,current_stock,warehouse_id,units(symbol)')
       .eq('is_active', true)
       .not('unit_id', 'is', null)
-      .order('current_stock', { ascending: true })
+      .order('current_stock', { ascending: true }).order('id')
+      .range(a, b))
     const filtered = (data || []).filter((p: any) => {
       const symbol = p.units?.symbol || ''
       const isGram = symbol === 'غرام' || symbol.toLowerCase() === 'g' || symbol.toLowerCase() === 'gram'
@@ -153,7 +155,7 @@ export default function FixMissingUnitsPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const [prodRes, whRes, unitsRes, convRes] = await Promise.all([
-      sb.from('warehouse_products').select('id,name,name_en,category,current_stock,warehouse_id').eq('is_active', true).is('unit_id', null).order('name'),
+      selectAll((a, b) => sb.from('warehouse_products').select('id,name,name_en,category,current_stock,warehouse_id').eq('is_active', true).is('unit_id', null).order('name').order('id').range(a, b)),
       sb.from('warehouses').select('id,name'),
       sb.from('units').select('id,name,symbol').order('name'),
       sb.from('unit_conversions').select('product_id, from_unit_id, to_unit_id, factor, from_unit:units!unit_conversions_from_unit_id_fkey(symbol), to_unit:units!unit_conversions_to_unit_id_fkey(symbol)'),

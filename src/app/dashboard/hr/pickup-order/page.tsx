@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../../lib/fetchAllRows'
 import { useLang } from '../../../components/LanguageContext'
 
 const createClient = () => createBrowserClient(
@@ -105,9 +106,10 @@ export default function PickupOrderPage() {
         // ✅ Fix حرج: absence_days/late_hours بيرجعوا صفر لموظف مفيش له شيفت مجدول ولا بصمة خالص هذا الشهر
         // (مش بس اللي حضر بانضباط تام) - فكان بيطلع بدرجة حضور 100% كاملة رغم إنه ما بصمش يوم واحد.
         // هنا نتحقق من وجود بصمة حقيقية على الأقل، ولو معندوش خالص نصفّر درجة حضوره بدل ما نفترض الأفضل
-        sb.from('attendance').select('employee_id, check_in_time')
+        // على دفعات: بصمات الشهر لكل موظفي الفرع آلاف الصفوف، والاستعلام الواحد يقطع عند 1000 فيُحسب موظفون كأن لا بصمة لهم
+        selectAll((a, b) => sb.from('attendance').select('employee_id, check_in_time')
           .in('employee_id', empIds).not('check_in_time', 'is', null)
-          .gte('date', monthStart).lte('date', monthEnd),
+          .gte('date', monthStart).lte('date', monthEnd).order('id').range(a, b)),
       ])
       if (cancelled) return
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -362,7 +363,7 @@ function OrderTab({ suppliers }: { suppliers: Supplier[] }) {
 
   useEffect(() => {
     Promise.all([
-      sb.from('warehouse_products').select('id,name,name_en,category,last_purchase_price,current_stock').eq('is_active',true).order('name'),
+      selectAll((a, b) => sb.from('warehouse_products').select('id,name,name_en,category,last_purchase_price,current_stock').eq('is_active',true).order('name').order('id').range(a, b)),
       sb.from('product_suppliers').select('product_id'),
     ]).then(([{ data: prods }, { data: links }]) => {
       setProducts(prods || [])

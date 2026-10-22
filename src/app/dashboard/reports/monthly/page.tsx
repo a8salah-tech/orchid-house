@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../../lib/fetchAllRows'
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -70,8 +71,8 @@ export default function MonthlyReportPage() {
       supabase.from('purchase_invoices').select('*,purchase_invoice_items(*)').gte('invoice_date', monthStart).lte('invoice_date', monthEnd),
       supabase.from('branch_requests').select('*,branches(name),branch_request_items(*)').gte('created_at', monthStart+'T00:00:00').lte('created_at', monthEndTime),
       supabase.from('menu_items').select('id,name,category_id,is_available,price,menu_categories(name)').eq('is_active', true),
-      supabase.from('warehouse_products').select('id,name,category,current_stock,min_stock,last_purchase_price,units(symbol)').eq('is_active', true),
-      supabase.from('shift_schedules').select('employee_id,date,shifts(name,color)').gte('date', monthStart).lte('date', monthEnd),
+      selectAll((a, b) => supabase.from('warehouse_products').select('id,name,category,current_stock,min_stock,last_purchase_price,units(symbol)').eq('is_active', true).order('id').range(a, b)),
+      selectAll((a, b) => supabase.from('shift_schedules').select('employee_id,date,shifts(name,color)').gte('date', monthStart).lte('date', monthEnd).order('id').range(a, b)),
       supabase.from('shift_requests').select('*,employees(name,department),shifts(name)').gte('created_at', monthStart+'T00:00:00').lte('created_at', monthEndTime),
       supabase.from('employee_requests').select('*,employees(name,department)').gte('created_at', monthStart+'T00:00:00').lte('created_at', monthEndTime),
     ])

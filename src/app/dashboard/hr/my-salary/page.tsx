@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
+import { selectAll } from '../../../../lib/fetchAllRows'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
 import { sumByKind } from '../../../../lib/violationKind'
@@ -190,9 +191,10 @@ export default function MySalaryPage() {
           .eq('month', selectedMonth.month),
         // ✅ Fix حرج: موظف مفيش له شيفت مجدول ولا بصمة خالص هذا الشهر بيرجّع late_hours/absence_days = صفر،
         // فكان بيطلع بدرجة حضور 100% كاملة رغم إنه ما بصمش يوم واحد. نتحقق من وجود بصمة حقيقية على الأقل
-        sb.from('attendance').select('employee_id, check_in_time')
+        // على دفعات: بصمات الشهر لكل موظفي الفرع آلاف الصفوف، والاستعلام الواحد يقطع عند 1000 فيُحسب موظفون كأن لا بصمة لهم
+        selectAll((a, b) => sb.from('attendance').select('employee_id, check_in_time')
           .in('employee_id', empIds).not('check_in_time', 'is', null)
-          .gte('date', monthStart).lte('date', monthEnd),
+          .gte('date', monthStart).lte('date', monthEnd).order('id').range(a, b)),
       ])
       if (cancelled) return
       // ✅ لو الدالة لسه مش منشورة أو رجعت خطأ — نخفي الترتيب بدل كسر الصفحة

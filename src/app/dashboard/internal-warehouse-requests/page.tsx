@@ -5,7 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../lib/roles'
-import { fetchAllRows } from '../../../lib/fetchAllRows'
+import { fetchAllRows, selectAll } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -912,9 +912,11 @@ export default function InternalWarehouseRequestsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const { data } = await sb.from('internal_warehouse_requests')
+    // على دفعات: طلبات المستودع الداخلي أكثر من 3000، والاستعلام الواحد يقطع عند 1000
+    const { data } = await selectAll((a, b) => sb.from('internal_warehouse_requests')
       .select('*, branches(name), internal_warehouse_request_items(id,product_id,quantity_requested,quantity_approved,unit_id,notes,is_cancelled,warehouse_products(name,name_en),units(symbol))')
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }).order('id')
+      .range(a, b))
     setRequests(data || [])
     setLoading(false)
   }, [])

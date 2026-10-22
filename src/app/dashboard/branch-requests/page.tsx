@@ -5,7 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../lib/roles'
-import { fetchAllRows } from '../../../lib/fetchAllRows'
+import { fetchAllRows, selectAll } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -124,7 +124,7 @@ function NewRequestModal({ onClose, onSaved, currentEmployee }: { onClose: () =>
     sb.from('branches').select('*').order('name').then(({ data }) => setBranches(data || []))
     // متوسط الاستهلاك الشهري لكل صنف من حركات الصرف (out) خلال آخر 30 يوم
     const since = new Date(); since.setDate(since.getDate() - 30)
-    sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since.toISOString().slice(0,10))
+    selectAll((a, b) => sb.from('stock_movements').select('product_id, quantity').eq('movement_type', 'out').gte('movement_date', since.toISOString().slice(0,10)).order('id').range(a, b))
       .then(({ data }) => {
         const totals: Record<string, number> = {}
         for (const m of (data || [])) {

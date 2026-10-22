@@ -6,6 +6,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../components/AuthProvider'
 import { useLang } from '../../components/LanguageContext'
+import { fetchAllRows } from '../../../lib/fetchAllRows'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,6 +46,12 @@ type Stats = {
   highest_order_week: { table_name: string; branch_name: string; amount: number } | null
   highest_order_month: { table_name: string; branch_name: string; amount: number } | null
 }
+
+// صفوف الاستعلامات (لوحة كل فرع)
+type MonthOrder = { id: string; table_id: string; total_amount: number | null; paid_at: string; tables: { name: string; number: number; section: string | null; branches: { name: string } | null } | null }
+type WeekItem = { id: string; menu_items: { name: string; name_en: string | null } | null }
+type RecentOrderRow = { id: string; status: string; total_amount: number | null; created_at: string; tables: { name: string; number: number; branches: { name: string } | null } | null }
+type StockRow = { name: string; name_en: string | null; current_stock: number; min_stock: number; units: { symbol: string } | null }
 
 function AnimatedNumber({ value, prefix = '', suffix = '', decimals = 0 }: { value: number; prefix?: string; suffix?: string; decimals?: number }) {
   const [display, setDisplay] = useState(0)
@@ -98,6 +105,19 @@ function AdminDashboard() {
 
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
+  // ✅ الفرعان منفصلان تماماً: تبويب لكل فرع، وكل أرقام اللوحة تخص الفرع المختار فقط
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [branchId, setBranchId] = useState('')
+  useEffect(() => {
+    const client = createClient()
+    client.from('branches').select('id,name').eq('is_active', true).order('name').then(({ data }) => {
+      const list = data || []
+      setBranches(list)
+      let saved = ''
+      try { saved = localStorage.getItem('admin_stats_branch') || '' } catch { /* ignore */ }
+      setBranchId(list.find(b => b.id === saved)?.id || list[0]?.id || '')
+    })
+  }, [])
   const [tick, setTick] = useState(0)
   const [now, setNow] = useState(new Date())
   // ✅ جديد: بحث بتاريخ محدد لتفاصيل طلبات الطاولة الأكثر طلبًا في يوم بعينه
@@ -123,71 +143,78 @@ function AdminDashboard() {
     const calWeekStartDateStr = calWeekStartDateStrRaw < calMonthStartStr ? calMonthStartStr : calWeekStartDateStrRaw
     const calWeekStart = new Date(`${calWeekStartDateStr}T00:00:00+08:00`).toISOString()
 
-    const [mainRes, topItemsRes, recentRes, waiterRes, bookingsRes, stockRes] = await Promise.all([
-      Promise.resolve(null),
-      sb.from('order_items')
-        .select('menu_items(name,name_en)', { count: 'exact' })
-        .gte('created_at', calWeekStart)
-        .limit(100),
+    const bid = branchId
+    if (!bid) return
+    const branchName = branches.find(b => b.id === bid)?.name || '—'
+    const todayMs = new Date(today).getTime()
+    const weekMs = new Date(calWeekStart).getTime()
+
+    // ✅ كل رقم في هذه اللوحة يخص الفرع المختار فقط (الفرعان منفصلان تماماً)
+    // الطاولات الحقيقية لهذا الفرع (بلا طاولات التيك أواي الوهمية في الإشغال)
+    const { data: tblRows } = await sb.from('tables').select('id, status, section').eq('branch_id', bid)
+    const branchTables = (tblRows || []) as { id: string; status: string; section: string | null }[]
+    const seatTables = branchTables.filter(t => t.section !== 'takeaway')
+    const tableIds = branchTables.map(t => t.id)
+    // مستودعات هذا الفرع (للمشتريات)
+    const { data: whRows } = await sb.from('warehouses').select('id').eq('branch_id', bid)
+    const whIds = ((whRows || []) as { id: string }[]).map(w => w.id)
+
+    const [
+      monthOrders, weekItems, recentRes, waiterCount, bookingsRes, stockRes,
+      ordersToday, activeOrders, cancelledToday, totalEmployees, totalCustomers, purchaseRows,
+    ] = await Promise.all([
+      // ✅ كل الطلبات المدفوعة لهذا الفرع منذ بداية الشهر — على دفعات: الاستعلام الواحد يقطع عند 1000 صف (الطلبات المدفوعة في الشهر آلاف)
+      // فكانت الإيرادات والطاولة الأكثر طلباً تُحسب من جزء فقط. ومنها نشتق اليوم والأسبوع والشهر.
+      fetchAllRows<MonthOrder>((a, b) => sb.from('orders')
+        .select('id, table_id, total_amount, paid_at, tables!inner(name,number,section,branch_id,branches(name))')
+        .eq('tables.branch_id', bid).eq('status', 'paid').gte('paid_at', calMonthStart).order('id').range(a, b) as unknown as PromiseLike<{ data: MonthOrder[] | null; error: unknown }>),
+      // ✅ أصناف الأسبوع لهذا الفرع (للأصناف الأكثر طلباً) على دفعات — كان يُؤخذ أول 100 صف فقط من كل الفروع
+      fetchAllRows<WeekItem>((a, b) => sb.from('order_items')
+        .select('id, menu_items(name,name_en), orders!inner(table_id, tables!inner(branch_id))')
+        .eq('orders.tables.branch_id', bid).neq('status', 'cancelled').gte('created_at', calWeekStart).order('id').range(a, b) as unknown as PromiseLike<{ data: WeekItem[] | null; error: unknown }>),
       sb.from('orders')
-        .select('id,table_id,status,total_amount,created_at,tables(name,number,branches(name))')
+        .select('id,table_id,status,total_amount,created_at,tables!inner(name,number,branch_id,branches(name))')
+        .eq('tables.branch_id', bid)
         .in('status', ['confirmed','preparing','ready'])
         .order('created_at', { ascending: false })
         .limit(8),
-      sb.from('waiter_calls')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', new Date(Date.now() - 3600000).toISOString()),
-      sb.from('bookings')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending'),
-      // ✅ Fix حرج: الاستعلام القديم كان بيستخدم عمود اسمه "quantity" غير موجود خالص في الجدول (الأعمدة
-      // الحقيقية current_stock وmin_stock) - فكان بيرجع نتيجة فاضية دايمًا من غير أي خطأ ظاهر. دلوقتي
-      // بنجيب الأصناف فعليًا ونقارن الرصيد الحالي بالحد الأدنى الصحيح بعد الجلب
-      sb.from('warehouse_products').select('name,name_en,current_stock,min_stock,units(symbol),warehouses(branch_id)').eq('is_active', true).not('min_stock', 'is', null).gt('min_stock', 0).limit(2000),
-    ])
-
-    const [
-      ordersToday, revenueToday, activeOrders, occupiedTables,
-      totalTables, totalEmployees, totalCustomers, paidToday, cancelledToday,
-      revenueWeek, revenueMonth,
-      purchasesTodayRes, purchasesWeekRes, purchasesMonthRes, monthOrdersForTopTableRes,
-      tablesWithBranchRes,
-    ] = await Promise.all([
-      sb.from('orders').select('id', { count: 'exact', head: true }).gte('created_at', today).then(r => r.count || 0),
-      sb.from('orders').select('total_amount').eq('status', 'paid').gte('paid_at', today).then(r => (r.data || []).reduce((s: number, o: any) => s + (o.total_amount || 0), 0)),
-      sb.from('orders').select('id', { count: 'exact', head: true }).in('status', ['confirmed','preparing','ready']).then(r => r.count || 0),
-      sb.from('tables').select('id', { count: 'exact', head: true }).eq('status', 'occupied').then(r => r.count || 0),
-      sb.from('tables').select('id', { count: 'exact', head: true }).then(r => r.count || 0),
-      sb.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true).then(r => r.count || 0),
+      tableIds.length > 0
+        ? sb.from('waiter_calls').select('id', { count: 'exact', head: true }).in('table_id', tableIds).gte('created_at', new Date(Date.now() - 3600000).toISOString()).then(r => r.count || 0)
+        : Promise.resolve(0),
+      sb.from('bookings').select('id', { count: 'exact', head: true }).eq('status', 'pending').eq('branch_id', bid),
+      // الأصناف المنخفضة في مستودع هذا الفرع (الرصيد الحالي مقابل الحد الأدنى)
+      sb.from('warehouse_products').select('name,name_en,current_stock,min_stock,units(symbol),warehouses!inner(branch_id)')
+        .eq('warehouses.branch_id', bid).eq('is_active', true).not('min_stock', 'is', null).gt('min_stock', 0).limit(2000),
+      sb.from('orders').select('id, tables!inner(branch_id)', { count: 'exact', head: true }).eq('tables.branch_id', bid).gte('created_at', today).then(r => r.count || 0),
+      sb.from('orders').select('id, tables!inner(branch_id)', { count: 'exact', head: true }).eq('tables.branch_id', bid).in('status', ['confirmed','preparing','ready']).then(r => r.count || 0),
+      sb.from('orders').select('id, tables!inner(branch_id)', { count: 'exact', head: true }).eq('tables.branch_id', bid).eq('status', 'cancelled').gte('created_at', today).then(r => r.count || 0),
+      sb.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true).eq('branch_id', bid).then(r => r.count || 0),
+      // العملاء مشتركون بين الفرعين (لا يوجد عمود فرع في جدول العملاء)
       sb.from('customers').select('id', { count: 'exact', head: true }).then(r => r.count || 0),
-      sb.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'paid').gte('paid_at', today).then(r => r.count || 0),
-      sb.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'cancelled').gte('created_at', today).then(r => r.count || 0),
-      sb.from('orders').select('total_amount').eq('status', 'paid').gte('paid_at', calWeekStart).then(r => (r.data || []).reduce((s: number, o: any) => s + (o.total_amount || 0), 0)),
-      sb.from('orders').select('total_amount').eq('status', 'paid').gte('paid_at', calMonthStart).then(r => (r.data || []).reduce((s: number, o: any) => s + (o.total_amount || 0), 0)),
-      // ✅ جديد: المشتريات (يوم/أسبوع/شهر) - من فواتير المشتريات الفعلية
-      sb.from('purchase_invoices').select('total_amount').gte('created_at', today).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
-      sb.from('purchase_invoices').select('total_amount').gte('created_at', calWeekStart).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
-      sb.from('purchase_invoices').select('total_amount').gte('created_at', calMonthStart).then(r => (r.data || []).reduce((s: number, i: any) => s + (i.total_amount || 0), 0)),
-      // ✅ جديد: كل الطلبات المدفوعة لآخر شهر - نستخدمها لتحديد أكتر طاولة طلبت، ومبلغها في كل فترة
-      sb.from('orders').select('table_id, total_amount, paid_at, tables(name,number,section,branches(name))').eq('status', 'paid').gte('paid_at', calMonthStart),
-      // ✅ جديد: كل الطاولات مع فرعها وحالتها - لحساب الإشغال منفصل لكل فرع بدل رقم مجمّع
-      // ✅ Fix: استبعاد طاولات التيك أواي الوهمية من هنا كمان - عشان نسبة الإشغال تعكس الطاولات الحقيقية بس
-      sb.from('tables').select('status, section, branches(name)').neq('section', 'takeaway'),
+      // المشتريات: فواتير مستودع هذا الفرع منذ بداية الشهر
+      whIds.length > 0
+        ? fetchAllRows<{ total_amount: number | null; created_at: string }>((a, b) => sb.from('purchase_invoices').select('total_amount, created_at').in('warehouse_id', whIds).gte('created_at', calMonthStart).order('id').range(a, b))
+        : Promise.resolve([] as { total_amount: number | null; created_at: string }[]),
     ])
 
-    // ✅ جديد: تجميع إشغال الطاولات حسب الفرع - كل فرع رقمه لوحده مش مجمّع مع التاني
-    const branchOccupancyMap: Record<string, { branch_name: string; occupied: number; total: number }> = {}
-    for (const t of (tablesWithBranchRes.data || []) as any[]) {
-      const bname = t.branches?.name || '—'
-      if (!branchOccupancyMap[bname]) branchOccupancyMap[bname] = { branch_name: bname, occupied: 0, total: 0 }
-      branchOccupancyMap[bname].total++
-      if (t.status === 'occupied') branchOccupancyMap[bname].occupied++
-    }
-    const branchOccupancy = Object.values(branchOccupancyMap)
+    const sumAmt = (rows: { total_amount: number | null }[]) => rows.reduce((s, o) => s + (o.total_amount || 0), 0)
+    const paidTodayRows = monthOrders.filter(o => new Date(o.paid_at).getTime() >= todayMs)
+    const paidWeekRows = monthOrders.filter(o => new Date(o.paid_at).getTime() >= weekMs)
+    const revenueToday = sumAmt(paidTodayRows)
+    const revenueWeek = sumAmt(paidWeekRows)
+    const revenueMonth = sumAmt(monthOrders)
+    const paidToday = paidTodayRows.length
+    const purchasesTodayRes = sumAmt(purchaseRows.filter(i => new Date(i.created_at).getTime() >= todayMs))
+    const purchasesWeekRes = sumAmt(purchaseRows.filter(i => new Date(i.created_at).getTime() >= weekMs))
+    const purchasesMonthRes = sumAmt(purchaseRows)
+
+    const occupiedTables = seatTables.filter(t => t.status === 'occupied').length
+    const totalTables = seatTables.length
+    const branchOccupancy = [{ branch_name: branchName, occupied: occupiedTables, total: totalTables }]
 
     // Top items
     const itemCounts: Record<string, { name: string; name_en: string; count: number }> = {}
-    ;(topItemsRes.data || []).forEach((row: any) => {
+    weekItems.forEach(row => {
       const mi = row.menu_items
       if (mi?.name) {
         if (!itemCounts[mi.name]) itemCounts[mi.name] = { name: mi.name, name_en: mi.name_en || mi.name, count: 0 }
@@ -197,51 +224,44 @@ function AdminDashboard() {
     const topItems = Object.values(itemCounts).sort((a, b) => b.count - a.count).slice(0, 5)
 
     // Recent orders
-    const recentOrders = (recentRes.data || []).map((o: any) => ({
+    const recentOrders = ((recentRes.data || []) as unknown as RecentOrderRow[]).map(o => ({
       id: o.id, status: o.status, total: o.total_amount || 0,
       table_name: o.tables?.name || `Table ${o.tables?.number || '?'}`,
-      branch_name: o.tables?.branches?.name || '—',
+      branch_name: o.tables?.branches?.name || branchName,
       time: new Date(o.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
     }))
 
-    // ✅ Fix حرج: التجميع كان بيتم بالاسم (name) مش بمعرف الطاولة الفريد (table_id) - فلو طاولة برقم
-    // متشابه موجودة في فرعين مختلفين (زي Table 5 في أوركيد هاوس وTable 5 في KLCC)، كان بيتم جمعهم
-    // مع بعض غلط وكأنهم نفس الطاولة! دلوقتي التجميع بمعرف الطاولة الفريد + عرض اسم الفرع للتوضيح
-    const monthOrders = (monthOrdersForTopTableRes.data || []) as any[]
+    // ✅ التجميع بمعرف الطاولة الفريد (لا بالاسم)، وبلا طاولات التيك أواي الوهمية في ترتيب "أعلى الطاولات"
     const tableAgg: Record<string, { name: string; branchName: string; tableId: string; count: number; amountToday: number; amountWeek: number; amountMonth: number }> = {}
     for (const o of monthOrders) {
-      // ✅ جديد: استبعاد طاولات التيك أواي الوهمية (Foodpanda/Grab/Customer/Other) من ترتيب "أعلى الطاولات" -
-      // دي حسابات مش طاولات جلوس حقيقية، وظهورها هنا كان بيلخبط لأنه مفيهاش أي توضيح إنها تيك أواي
       if (o.tables?.section === 'takeaway') continue
       const tname = o.tables?.name || `Table ${o.tables?.number || '?'}`
-      const bname = o.tables?.branches?.name || '—'
-      const key = o.table_id // ✅ مفتاح فريد حقيقي، مش الاسم
-      if (!tableAgg[key]) tableAgg[key] = { name: tname, branchName: bname, tableId: o.table_id, count: 0, amountToday: 0, amountWeek: 0, amountMonth: 0 }
+      const key = o.table_id
+      if (!tableAgg[key]) tableAgg[key] = { name: tname, branchName, tableId: o.table_id, count: 0, amountToday: 0, amountWeek: 0, amountMonth: 0 }
       tableAgg[key].count++
       tableAgg[key].amountMonth += o.total_amount || 0
-      if (o.paid_at >= calWeekStart) tableAgg[key].amountWeek += o.total_amount || 0
-      if (o.paid_at >= today) tableAgg[key].amountToday += o.total_amount || 0
+      const pm = new Date(o.paid_at).getTime()
+      if (pm >= weekMs) tableAgg[key].amountWeek += o.total_amount || 0
+      if (pm >= todayMs) tableAgg[key].amountToday += o.total_amount || 0
     }
-    // ✅ جديد: أعلى 3 طاولات بدل واحدة بس
     const topTables = Object.values(tableAgg).sort((a, b) => b.count - a.count).slice(0, 3).map(t => ({
       name: t.name, branch_name: t.branchName, table_id: t.tableId, orders_count: t.count,
       amount_today: t.amountToday, amount_week: t.amountWeek, amount_month: t.amountMonth,
     }))
 
-    // ✅ جديد: أعلى طلب فردي (مش إجمالي طاولة) واسم طاولته لكل فترة على حدة
+    // أعلى طلب فردي (مش إجمالي طاولة) واسم طاولته لكل فترة
     const nonTakeawayMonthOrders = monthOrders.filter(o => o.tables?.section !== 'takeaway')
-    function findHighestOrder(orders: any[]) {
+    function findHighestOrder(orders: MonthOrder[]) {
       if (orders.length === 0) return null
       const top = orders.reduce((max, o) => (o.total_amount || 0) > (max.total_amount || 0) ? o : max)
-      return { table_name: top.tables?.name || '—', branch_name: top.tables?.branches?.name || '—', amount: top.total_amount || 0 }
+      return { table_name: top.tables?.name || '—', branch_name: branchName, amount: top.total_amount || 0 }
     }
-    const highestOrderToday = findHighestOrder(nonTakeawayMonthOrders.filter(o => o.paid_at >= today))
-    const highestOrderWeek = findHighestOrder(nonTakeawayMonthOrders.filter(o => o.paid_at >= calWeekStart))
+    const highestOrderToday = findHighestOrder(nonTakeawayMonthOrders.filter(o => new Date(o.paid_at).getTime() >= todayMs))
+    const highestOrderWeek = findHighestOrder(nonTakeawayMonthOrders.filter(o => new Date(o.paid_at).getTime() >= weekMs))
     const highestOrderMonth = findHighestOrder(nonTakeawayMonthOrders)
 
-
-    // ✅ جديد: أقل 10 أصناف في المخزون فعليًا - مقارنة الرصيد الحالي بالحد الأدنى (كل الفروع، الصفحة أدمن بس)
-    const lowStockItems = ((stockRes.data || []) as any[]).filter(i => i.current_stock <= i.min_stock)
+    // أقل 10 أصناف في مخزون هذا الفرع فعليًا
+    const lowStockItems = ((stockRes.data || []) as unknown as StockRow[]).filter(i => i.current_stock <= i.min_stock)
     const lowStockList = lowStockItems
       .sort((a, b) => (a.current_stock - a.min_stock) - (b.current_stock - b.min_stock))
       .slice(0, 10)
@@ -255,7 +275,7 @@ function AdminDashboard() {
       total_customers: totalCustomers, bookings_today: 0,
       revenue_week: revenueWeek, revenue_month: revenueMonth,
       top_items: topItems, recent_orders: recentOrders,
-      waiter_calls: waiterRes.count || 0,
+      waiter_calls: waiterCount,
       pending_bookings: bookingsRes.count || 0,
       low_stock: lowStockList.length,
       low_stock_items: lowStockList,
@@ -265,7 +285,7 @@ function AdminDashboard() {
       highest_order_today: highestOrderToday, highest_order_week: highestOrderWeek, highest_order_month: highestOrderMonth,
     })
     setLoading(false)
-  }, [sb])
+  }, [sb, branchId, branches])
 
   // ✅ جديد: طاولة مختارة للبحث بالتاريخ - افتراضيًا الأولى في الترتيب، وتقدر تختار أي من التلاتة
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
@@ -281,7 +301,8 @@ function AdminDashboard() {
     // ✅ حدود اليوم بتوقيت ماليزيا (UTC+8) بالظبط - 24 ساعة حقيقية من نص الليل بتوقيت ماليزيا
     const dayStart = `${dateStr}T00:00:00+08:00`
     const dayEnd = `${dateStr}T23:59:59.999+08:00`
-    const { data } = await sb.from('orders').select('status, total_amount, paid_at, created_at, tables(name,number,branches(name))')
+    const { data } = await sb.from('orders').select('status, total_amount, paid_at, created_at, tables!inner(name,number,branch_id,branches(name))')
+      .eq('tables.branch_id', branchId)
       .gte('created_at', dayStart).lte('created_at', dayEnd)
       .order('created_at', { ascending: false })
     const orders = (data || []).map((o: any) => ({
@@ -297,7 +318,7 @@ function AdminDashboard() {
       orders,
     })
     setAllOrdersLoading(false)
-  }, [sb])
+  }, [sb, branchId])
 
   useEffect(() => { if (stats?.top_tables?.[0] && !selectedTableId) setSelectedTableId(stats.top_tables[0].table_id) }, [stats?.top_tables])
 
@@ -367,6 +388,21 @@ function AdminDashboard() {
     <div style={{ fontFamily: 'Tajawal, sans-serif', color: S.white, direction: isAr ? 'rtl' : 'ltr' }}>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}} @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
+      {/* ✅ تبويب لكل فرع — لا يوجد "الكل": كل فرع لوحده */}
+      {branches.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
+          {branches.map(b => {
+            const active = branchId === b.id
+            return (
+              <button key={b.id} onClick={() => { if (active) return; setLoading(true); setSelectedTableId(null); setDateSearchResult(null); setAllOrdersResult(null); setBranchId(b.id); try { localStorage.setItem('admin_stats_branch', b.id) } catch { /* ignore */ } }}
+                style={{ padding: '10px 22px', borderRadius: 12, border: `1px solid ${active ? S.gold : S.border}`, background: active ? S.gold3 : 'transparent', color: active ? S.gold : S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: active ? 800 : 500 }}>
+                🏪 {b.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
         <div>
@@ -413,7 +449,7 @@ function AdminDashboard() {
           { icon: '📋', label: isAr ? 'طلبات نشطة' : 'Active Orders', value: stats!.active_orders, color: S.amber, bg: S.amberB, sub: `${stats!.orders_today} ${isAr ? 'طلب اليوم' : "today's orders"}`, path: '/dashboard/cashier' },
           { icon: '🪑', label: isAr ? 'الطاولات المشغولة' : 'Occupied Tables', value: occupancyPct, suffix: '%', color: occupancyPct > 70 ? S.red : S.green, bg: occupancyPct > 70 ? S.redB : S.greenB, sub: `${stats!.occupied_tables} ${isAr ? 'من' : 'of'} ${stats!.total_tables} ${isAr ? 'طاولة' : 'tables'}`, path: '/dashboard/tables' },
           { icon: '📅', label: isAr ? 'حجوزات اليوم' : "Today's Bookings", value: stats!.bookings_today, color: S.purple, bg: S.purpleB, sub: `${stats!.pending_bookings} ${isAr ? 'معلق' : 'pending'}`, path: '/dashboard/bookings' },
-          { icon: '👥', label: isAr ? 'إجمالي العملاء' : 'Total Customers', value: stats!.total_customers, color: S.blue, bg: S.blueB, sub: `${stats!.total_employees} ${isAr ? 'موظف نشط' : 'active staff'}`, path: '/dashboard/customers' },
+          { icon: '👥', label: isAr ? 'إجمالي العملاء (كل الفروع)' : 'Total Customers (all branches)', value: stats!.total_customers, color: S.blue, bg: S.blueB, sub: `${stats!.total_employees} ${isAr ? 'موظف نشط' : 'active staff'}`, path: '/dashboard/customers' },
           { icon: '📈', label: isAr ? 'إيرادات الأسبوع' : 'Weekly Revenue', value: stats!.revenue_week, prefix: 'MYR ', decimals: 0, color: S.teal, bg: S.tealB, sub: `${isAr ? 'الشهر' : 'Month'}: MYR ${stats!.revenue_month.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, path: '/dashboard/reports/monthly' },
         ].map((kpi, i) => (
           <div key={i} onClick={() => router.push(kpi.path)}

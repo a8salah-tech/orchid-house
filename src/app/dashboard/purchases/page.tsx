@@ -464,12 +464,57 @@ function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 // ══════════════════════════════════════════
 // ImageViewerModal
 // ══════════════════════════════════════════
-function ImageViewerModal({ imageUrl, onClose }: { imageUrl: string; onClose: () => void }) {
+// وقت إنشاء الفاتورة دائمًا بتوقيت ماليزيا (UTC+8) بغض النظر عن توقيت جهاز المستخدم
+function fmtKL(iso?: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+// كل صور الفاتورة (الجدول purchase_invoice_images) — ولو لا صور فيه (فواتير قديمة) نرجع الصورة الوحيدة المخزّنة في الفاتورة نفسها
+async function loadInvoiceImages(sb: ReturnType<typeof createClient>, invoiceId: string): Promise<string[]> {
+  const { data: imgs } = await sb.from('purchase_invoice_images').select('image_url, sort_order').eq('invoice_id', invoiceId).order('sort_order')
+  const urls = ((imgs || []) as { image_url: string | null }[]).map(i => i.image_url).filter((u): u is string => !!u)
+  if (urls.length > 0) return urls
+  const { data } = await sb.from('purchase_invoices').select('image_url').eq('id', invoiceId).maybeSingle()
+  return data?.image_url ? [data.image_url] : []
+}
+
+function ImageViewerModal({ images, startIndex = 0, onClose }: { images: string[]; startIndex?: number; onClose: () => void }) {
+  const [idx, setIdx] = useState(Math.min(Math.max(startIndex, 0), Math.max(images.length - 1, 0)))
+  const go = (d: number) => setIdx(i => Math.min(Math.max(i + d, 0), images.length - 1))
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowLeft') setIdx(i => Math.min(i + 1, images.length - 1))
+      else if (e.key === 'ArrowRight') setIdx(i => Math.max(i - 1, 0))
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [images.length, onClose])
+  const navBtn: React.CSSProperties = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.18)', color: S.white, fontSize: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
-      <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} style={{ position: 'absolute', top: -16, left: -16, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: S.white, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, fontWeight: 700 }}>✕</button>
-        <img src={imageUrl} alt="فاتورة" style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain', display: 'block' }} />
+      <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} style={{ position: 'absolute', top: -16, left: -16, zIndex: 2, width: 36, height: 36, borderRadius: '50%', background: S.red, border: 'none', color: S.white, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        <div style={{ position: 'relative' }}>
+          <img src={images[idx]} alt={`فاتورة ${idx + 1}`} style={{ maxWidth: '90vw', maxHeight: '78vh', borderRadius: 12, objectFit: 'contain', display: 'block', margin: '0 auto' }} />
+          {images.length > 1 && (
+            <>
+              <button onClick={() => go(-1)} disabled={idx === 0} style={{ ...navBtn, right: 8, opacity: idx === 0 ? 0.3 : 1 }}>›</button>
+              <button onClick={() => go(1)} disabled={idx === images.length - 1} style={{ ...navBtn, left: 8, opacity: idx === images.length - 1 ? 0.3 : 1 }}>‹</button>
+            </>
+          )}
+        </div>
+        {images.length > 1 && (
+          <>
+            <div style={{ textAlign: 'center', marginTop: 10, fontSize: 13, color: S.white, fontWeight: 700 }}>{idx + 1} / {images.length}</div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+              {images.map((u, i) => (
+                <img key={u} src={u} alt="" onClick={() => setIdx(i)} style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', border: `2px solid ${i === idx ? S.gold : 'transparent'}`, opacity: i === idx ? 1 : 0.6 }} />
+              ))}
+            </div>
+          </>
+        )}
         <div style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: S.muted }}>اضغط خارج الصورة للإغلاق</div>
       </div>
     </div>
@@ -1271,10 +1316,10 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
 // ══════════════════════════════════════════
 // InvoiceDetailModal
 // ══════════════════════════════════════════
-function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, unitConversions, currentEmployeeId, currentEmployeeName, onClose, onViewImage, onDeleted, onSaved }: {
+function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, unitConversions, currentEmployeeId, currentEmployeeName, onClose, onViewImages, onDeleted, onSaved }: {
   invoice: any; products: any[]; suppliers: any[]; units: any[]; warehouses: any[]; unitConversions?: any[]
   currentEmployeeId?: string; currentEmployeeName?: string
-  onClose: () => void; onViewImage: (url: string) => void; onDeleted: () => void; onSaved: () => void
+  onClose: () => void; onViewImages: (urls: string[], index: number) => void; onDeleted: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
   const [items, setItems] = useState<any[]>([])
@@ -1324,11 +1369,9 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
   const [editReason, setEditReason] = useState('')
 
   // ✅ الصورة بقت بتتجاب هنا بس (لما الفاتورة تتفتح)، مش مع قايمة الفواتير كلها - أهم إصلاح لمشكلة الـ timeout
-  const [invoiceImageUrl, setInvoiceImageUrl] = useState<string | null>(invoice.image_url || null)
+  const [invoiceImages, setInvoiceImages] = useState<string[]>(invoice.image_url ? [invoice.image_url] : [])
   useEffect(() => {
-    supabase.from('purchase_invoices').select('image_url').eq('id', invoice.id).maybeSingle().then(({ data }) => {
-      setInvoiceImageUrl(data?.image_url || null)
-    })
+    loadInvoiceImages(supabase, invoice.id).then(setInvoiceImages)
   }, [invoice.id])
 
   // جلب أصناف المستودع المختار مباشرة من قاعدة البيانات
@@ -1571,6 +1614,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                 { label: 'المورد', value: invoice.warehouse_suppliers?.name || '—', icon: '🤝' },
                 { label: 'المستودع', value: invoice.warehouses?.name || '—', icon: '🏭' },
                 { label: 'التاريخ', value: invoice.invoice_date, icon: '📅' },
+                { label: 'وقت الإنشاء (توقيت ماليزيا)', value: fmtKL(invoice.created_at), icon: '🕐' },
                 { label: 'الصافي قبل الضريبة', value: formatMYR((invoice.total_amount || 0) - ((invoice as any).sst_amount || 0) + ((invoice as any).discount_amount || 0)), icon: '💵' },
                 ...((invoice as any).discount_amount ? [{ label: `خصم الفاتورة${(invoice as any).discount_type === 'percent' ? ` (${(invoice as any).discount_value}%)` : ''}`, value: '− ' + formatMYR((invoice as any).discount_amount || 0), icon: '🏷️', amber: true }] : []),
                 ...((invoice as any).sst_amount ? [{ label: `SST`, value: formatMYR((invoice as any).sst_amount || 0), icon: '🧾', amber: true }] : []),
@@ -1647,7 +1691,7 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                         <span style={{ fontSize: 11, color: n.note_type === 'edit' ? S2.amber : S2.blue, fontWeight: 700 }}>
                           {n.note_type === 'edit' ? '✏️ تعديل' : '💬 ملاحظة'} — {n.employees?.name || 'مجهول'}
                         </span>
-                        <span style={{ fontSize: 10, color: S2.muted }}>{new Date(n.created_at).toLocaleString('ar-SA')}</span>
+                        <span style={{ fontSize: 10, color: S2.muted }}>{fmtKL(n.created_at)}</span>
                       </div>
                       {n.reason && <div style={{ fontSize: 12, color: S2.white, marginBottom: 2 }}>السبب: {n.reason}</div>}
                       {n.note && <div style={{ fontSize: 12, color: S2.muted }}>{n.note}</div>}
@@ -1659,11 +1703,16 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
               )}
             </div>
 
-            {invoiceImageUrl && (
+            {invoiceImages.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, color: S2.gold, fontWeight: 700, marginBottom: 8 }}>📸 صورة الفاتورة</div>
-                <img src={invoiceImageUrl} alt="فاتورة" style={{ width: '100%', maxHeight: 180, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S2.border}`, objectFit: 'contain', background: S2.navy3 }} onClick={() => onViewImage(invoiceImageUrl)} />
-                <button onClick={() => onViewImage(invoiceImageUrl)} style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S2.blue}`, background: S2.blueB, color: S2.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔍 عرض بالحجم الكامل</button>
+                <div style={{ fontSize: 12, color: S2.gold, fontWeight: 700, marginBottom: 8 }}>📸 صور الفاتورة ({invoiceImages.length})</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
+                  {invoiceImages.map((u, i) => (
+                    <img key={u} src={u} alt={`فاتورة ${i + 1}`} onClick={() => onViewImages(invoiceImages, i)}
+                      style={{ width: '100%', height: 110, borderRadius: 10, cursor: 'pointer', border: `1px solid ${S2.border}`, objectFit: 'cover', background: S2.navy3 }} />
+                  ))}
+                </div>
+                <button onClick={() => onViewImages(invoiceImages, 0)} style={{ marginTop: 8, width: '100%', padding: '8px', borderRadius: 8, border: `1px solid ${S2.blue}`, background: S2.blueB, color: S2.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>🔍 عرض بالحجم الكامل{invoiceImages.length > 1 ? ` (${invoiceImages.length} صور)` : ''}</button>
               </div>
             )}
 
@@ -1931,7 +1980,7 @@ export default function PurchasesPage() {
   // ✅ جديد: فلتر مشتريات يوم واحد بعينه - مستقل عن فلتر الشهر، لعرض وطباعة مشتريات يوم محدد فقط
   const [filterDate, setFilterDate] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
-  const [viewerImage, setViewerImage] = useState<string | null>(null)
+  const [viewer, setViewer] = useState<{ urls: string[]; index: number } | null>(null)
   const [activeTab, setActiveTab] = useState<string>('') // '' = الإجمالي (admin فقط)، أو branch_id محدد
   const [showReport, setShowReport] = useState(false)
 
@@ -2219,14 +2268,14 @@ export default function PurchasesPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
               <thead>
                 <tr style={{ background: S.navy3 }}>
-                  {['# النظام', 'رقم المورد', 'المورد', 'التاريخ', 'الإجمالي', 'بواسطة', 'صورة', ''].map(h => (
+                  {['# النظام', 'رقم المورد', 'المورد', 'التاريخ', 'وقت الإنشاء (ماليزيا)', 'الإجمالي', 'بواسطة', 'صورة', ''].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: S.muted, fontWeight: 700, borderBottom: `1px solid ${S.border}` }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: 60, color: S.muted }}>
+                  <tr><td colSpan={9} style={{ textAlign: 'center', padding: 60, color: S.muted }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>🧾</div>
                     {fetchError ? (
                       <>
@@ -2246,14 +2295,15 @@ export default function PurchasesPage() {
                     <td style={{ padding: '14px 16px', color: S.gold, fontWeight: 700, fontSize: 13 }}>{inv.invoice_number || <span style={{ color: S.muted, fontStyle: 'italic', fontSize: 11 }}>—</span>}</td>
                     <td style={{ padding: '14px 16px', color: S.white, fontSize: 13, fontWeight: 600 }}>{inv.warehouse_suppliers?.name || <span style={{ color: S.muted }}>—</span>}</td>
                     <td style={{ padding: '14px 16px', fontSize: 12, color: S.muted }}>{inv.invoice_date}</td>
+                    <td style={{ padding: '14px 16px', fontSize: 12, color: S.muted, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>{fmtKL(inv.created_at)}</td>
                     <td style={{ padding: '14px 16px', fontWeight: 700, color: S.green, fontSize: 13 }}>{formatMYR(inv.total_amount)}</td>
                     <td style={{ padding: '14px 16px', fontSize: 12, color: S.blue }}>{(inv as any).employees?.name || <span style={{ color: S.muted }}>—</span>}</td>
                     <td style={{ padding: '14px 16px' }}>
                       <button
                         onClick={async (e) => {
                           e.stopPropagation()
-                          const { data } = await supabase.from('purchase_invoices').select('image_url').eq('id', inv.id).maybeSingle()
-                          if (data?.image_url) setViewerImage(data.image_url)
+                          const urls = await loadInvoiceImages(supabase, inv.id)
+                          if (urls.length > 0) setViewer({ urls, index: 0 })
                           else alert('لا توجد صورة لهذه الفاتورة')
                         }}
                         style={{ background: 'transparent', border: `1px solid ${S.border}`, borderRadius: 8, color: S.blue, cursor: 'pointer', fontSize: 16, padding: '4px 8px' }}
@@ -2297,13 +2347,13 @@ export default function PurchasesPage() {
           unitConversions={unitConversions}
           currentEmployeeId={employee?.id} currentEmployeeName={employee?.name}
           onClose={() => setSelectedInvoice(null)}
-          onViewImage={(url) => setViewerImage(url)}
+          onViewImages={(urls, index) => setViewer({ urls, index })}
           onDeleted={() => { setSelectedInvoice(null); fetchAll() }}
           onSaved={() => { setSelectedInvoice(null); fetchAll() }}
         />
       )}
 
-      {viewerImage && <ImageViewerModal imageUrl={viewerImage} onClose={() => setViewerImage(null)} />}
+      {viewer && <ImageViewerModal images={viewer.urls} startIndex={viewer.index} onClose={() => setViewer(null)} />}
 
       {showNew && (
         <NewInvoiceModal

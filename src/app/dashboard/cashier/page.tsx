@@ -411,6 +411,13 @@ function ShiftItemSummaryModal({ data, onClose }: {
   )
 }
 
+// ✅ السعر الفعلي للصنف في الكاشير: خصم الصنف (discount_percent) يُطبَّق كما في منيو الزبون (QR) حتى لا يختلف سعر الصنف بحسب من أضافه
+function itemUnitPrice(item: { price: number; discount_percent?: number | null }, size?: { price: number } | null): number {
+  if (size) return size.price
+  const d = item.discount_percent || 0
+  return d > 0 ? Math.round(item.price * (1 - d / 100) * 100) / 100 : item.price
+}
+
 type TableRow = { id: string; number: number; name: string; status: string; is_active: boolean; branch_id?: string; occupied_since?: string | null; current_order_id?: string | null; section?: string | null; service_charge_percent?: number | null; sst_percent?: number | null; discount_percent?: number | null; opened_at?: string | null }
 
 // ✅ قفل الطاولات الفارغة: طاولة صالة (مش تيك أواي/موظفين/كنسلة) عمود opened_at موجود فيها → لازم الكاشير يفتحها قبل ما العميل يطلب من المنيو.
@@ -435,7 +442,7 @@ type Order = {
   tables: { number: number; name: string; section?: string | null; service_charge_percent?: number | null; sst_percent?: number | null; discount_percent?: number | null }
   order_items: OrderItem[]
 }
-type MenuItem = { id: string; name: string; name_en: string; price: number; category_id: string; or_code?: string; menu_categories?: { name: string } | { name: string }[]
+type MenuItem = { id: string; name: string; name_en: string; price: number; discount_percent?: number | null; category_id: string; or_code?: string; menu_categories?: { name: string } | { name: string }[]
   // ✅ جديد: هل الصنف لسه مفعّل في المنيو (مش محذوف)؟ - nullable لأن صفوف قديمة ممكن ماتبقاش مسجّلة له قيمة أصلًا
   is_active?: boolean | null
   // ✅ جديد: أنواع/أحجام الصنف (زي أنواع الشيشة المختلفة) - كانت مفقودة تمامًا من واجهة الكاشير
@@ -1730,7 +1737,7 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
       sb.from('menu_categories').select('id,name,name_en').eq('is_active', true).eq('branch_id', branchId || '').order('sort_order'),
       // ✅ Fix حرج: الاستعلام القديم كان بيفلتر بـ is_available بس، وده مكنش كافي - أصناف اتحذفت من المنيو (is_active: false)
       // كانت لسه بتظهر في شاشة "Add Order" بتاعة الكاشير طالما is_available فضلت true، فكان ممكن الكاشير يضيف صنف محذوف بالغلط
-      sb.from('menu_items').select('id,name,name_en,price,category_id,or_code,is_active,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).eq('branch_id', branchId || '').order('name'),
+      sb.from('menu_items').select('id,name,name_en,price,discount_percent,category_id,or_code,is_active,menu_categories(name),sizes:menu_item_sizes(id,name,name_en,price,is_active)').eq('is_available', true).eq('branch_id', branchId || '').order('name'),
     ]).then(([cats, itms]) => {
       setCategories(cats.data || [])
       // ✅ نستبعد بس الأصناف اللي اتحدد لها is_active = false صراحةً (يعني اتحذفت فعلًا)
@@ -1819,7 +1826,7 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
   }
 
   // ✅ Fix: نستخدم سعر النوع/الحجم المختار لو موجود، وإلا السعر الأساسي للصنف
-  const total = cart.reduce((s, c) => s + (c.selectedSize?.price ?? c.item.price) * c.qty, 0)
+  const total = cart.reduce((s, c) => s + itemUnitPrice(c.item, c.selectedSize) * c.qty, 0)
 
   async function placeOrder() {
     if (cart.length === 0) return
@@ -1851,7 +1858,7 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
     const itemSource = (permissions?.all === true || srcRole === 'cashier' || srcRole === 'general_supervisor') ? 'cashier' : srcRole === 'assistant_cashier' ? 'assistant_cashier' : 'staff'
     const itemRows = cart.map(c => ({
       order_id: orderId, menu_item_id: c.item.id,
-      quantity: c.qty, unit_price: c.selectedSize?.price ?? c.item.price,
+      quantity: c.qty, unit_price: itemUnitPrice(c.item, c.selectedSize),
       // ✅ جديد: نسجل اسم النوع/الحجم المختار (زي نوع الشيشة) عشان يظهر بوضوح للمطبخ والفاتورة
       size_name: c.selectedSize ? (c.selectedSize.name_en || c.selectedSize.name) : null,
       // ✅ طاولة الموظفين: اسم الموظف بيتسجل في بداية ملاحظة كل صنف (staffWho بتقراه في ملخص الشيفت)
@@ -1919,7 +1926,9 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: S.gold, fontWeight: 700 }}>
                     {/* ✅ جديد: لو له أنواع، نعرض "من" أرخص سعر بدل السعر الأساسي المفرد فقط */}
-                    {hasSizes ? `From MYR ${Math.min(...activeSizes.map(s => s.price)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `MYR ${item.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    {hasSizes ? `From MYR ${Math.min(...activeSizes.map(s => s.price)).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : (item.discount_percent || 0) > 0
+                    ? <>MYR {itemUnitPrice(item).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span style={{ color: S.muted, fontSize: 10, textDecoration: 'line-through', fontWeight: 400 }}>{item.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> <span style={{ color: S.red, fontSize: 10 }}>-{item.discount_percent}%</span></>
+                    : `MYR ${item.price.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                   {/* ✅ Fix: زر الإنقاص السريع + حقل الكمية بقى قابل للكتابة المباشرة (بدل الضغط المتكرر) - يظهر بس للأصناف اللي مالهاش أنواع */}
                   {qty > 0 && !hasSizes && (
@@ -1961,7 +1970,7 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
                       style={{ width: 40, textAlign: 'center', background: S.navy2, border: `1px solid ${S.gold}`, borderRadius: 6, color: S.gold, fontWeight: 800, fontSize: 12, padding: '2px 0', fontFamily: 'Tajawal, sans-serif' }} />
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ color: S.gold }}>MYR {((c.selectedSize?.price ?? c.item.price) * c.qty).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span style={{ color: S.gold }}>MYR {(itemUnitPrice(c.item, c.selectedSize) * c.qty).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     <button onClick={() => setCart(p => p.filter((_, i) => i !== idx))} style={{ background: 'transparent', border: 'none', color: S.red, cursor: 'pointer', fontSize: 14 }}>✕</button>
                   </div>
                 </div>

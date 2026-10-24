@@ -67,7 +67,34 @@ interface BuffetOrder {
   shift: string | null; payment_method: string; buffet_type: string
   total_amount: number; paid_amount: number; status: string; notes: string | null
   created_by: string | null; created_at: string; branches?: { name: string }
+  // رابط إيصال الدفع (صورة أو PDF) — db/buffet_receipt.sql
+  receipt_url?: string | null
 }
+// ✅ إيصال الدفع: صورة أو ملف PDF (حتى 10MB)
+const RECEIPT_MAX_BYTES = 10 * 1024 * 1024
+function receiptFileError(file: File): string {
+  const ok = file.type.startsWith('image/') || file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+  if (!ok) return 'الملف يجب أن يكون صورة أو PDF'
+  if (file.size > RECEIPT_MAX_BYTES) return 'حجم الملف أكبر من 10MB'
+  return ''
+}
+async function uploadReceipt(sb: ReturnType<typeof createClient>, file: File): Promise<string | null> {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+  const ext = (file.name.split('.').pop() || (isPdf ? 'pdf' : 'jpg')).toLowerCase()
+  const path = `buffet-receipts/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+  const { data, error } = await sb.storage.from('employees').upload(path, file, { upsert: true, contentType: isPdf ? 'application/pdf' : file.type })
+  if (error || !data) return null
+  return sb.storage.from('employees').getPublicUrl(data.path).data.publicUrl
+}
+const isPdfUrl = (u: string) => /\.pdf(\?|$)/i.test(u)
+function ReceiptView({ url }: { url: string }) {
+  return isPdfUrl(url) ? (
+    <a href={url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>📄 فتح ملف الإيصال (PDF)</a>
+  ) : (
+    <a href={url} target="_blank" rel="noreferrer"><img src={url} alt="إيصال الدفع" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 10, border: `1px solid ${S.border}`, objectFit: 'contain', background: S.navy3 }} /></a>
+  )
+}
+
 // ✅ جديد: بند من بنود قائمة تجهيز البوفية
 interface PrepItem { id: string; buffet_order_id: string; category: string; item_name: string; quantity_needed: number; is_prepared: boolean; sort_order: number }
 
@@ -141,6 +168,7 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
   const [paidAmount, setPaidAmount] = useState('0')
   const [totalAmount, setTotalAmount] = useState('0')
   const [notes, setNotes] = useState('')
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [items, setItems] = useState<BuffetItem[]>([])
   const [menuSearch, setMenuSearch] = useState('')
   const [manualName, setManualName] = useState('')
@@ -182,7 +210,15 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
     if (!branchId) { setError('يرجى اختيار الفرع'); return }
     if (!date || !time) { setError('يرجى إدخال التاريخ والوقت'); return }
     if (items.length === 0) { setError('يرجى إضافة صنف واحد على الأقل'); return }
+    if (receiptFile) { const fe = receiptFileError(receiptFile); if (fe) { setError(fe); return } }
     setSaving(true)
+
+    // رفع إيصال الدفع (إن وُجد) قبل حفظ الطلب
+    let receiptUrl: string | null = null
+    if (receiptFile) {
+      receiptUrl = await uploadReceipt(supabase, receiptFile)
+      if (!receiptUrl) { setError('تعذّر رفع ملف الإيصال، حاول مرة أخرى — لم يُحفظ الطلب'); setSaving(false); return }
+    }
 
     const { data: order, error: orderErr } = await supabase.from('buffet_orders').insert([{
       branch_id: branchId,
@@ -195,10 +231,11 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
       paid_amount: paidNum,
       notes: notes.trim() || null,
       created_by: currentUser?.id || null,
+      ...(receiptUrl ? { receipt_url: receiptUrl } : {}),
     }]).select('id').single()
 
     if (orderErr || !order) {
-      setError('حدث خطأ أثناء حفظ طلب البوفية: ' + (orderErr?.message || ''))
+      setError('حدث خطأ أثناء حفظ طلب البوفية: ' + (orderErr?.message || '') + (/receipt_url/.test(orderErr?.message || '') ? ' — شغّل ملف db/buffet_receipt.sql أولًا' : ''))
       setSaving(false)
       return
     }
@@ -325,6 +362,12 @@ function NewBuffetModal({ currentUser, isAdmin, branches, menuItems, onClose, on
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>الإجمالي (MYR) — قابل للتعديل</label>
             <input style={inp} type="number" value={totalAmount} onChange={e => setTotalAmount(e.target.value)} />
           </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>إيصال الدفع (صورة أو PDF) — اختياري</label>
+            <input type="file" accept="image/*,application/pdf" onChange={e => { const f = e.target.files?.[0] || null; if (f) { const fe = receiptFileError(f); if (fe) { setError(fe); e.target.value = ''; return } } setError(''); setReceiptFile(f) }}
+              style={{ ...inp, padding: '8px 10px' }} />
+            {receiptFile && <div style={{ fontSize: 11, color: S.muted, marginTop: 5 }}>{receiptFile.type === 'application/pdf' ? '📄' : '🖼️'} {receiptFile.name} · {(receiptFile.size / 1024).toFixed(0)} KB</div>}
+          </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>المبلغ المتبقي (محسوب تلقائيًا)</label>
             <div style={{ ...inp, background: S.card, color: remaining > 0 ? S.red : S.green, fontWeight: 700 }}>MYR {remaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
@@ -364,6 +407,20 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
 
   const [assignEmpId, setAssignEmpId] = useState('')
   const [assignShift, setAssignShift] = useState('morning')
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(order.receipt_url || null)
+  const [receiptBusy, setReceiptBusy] = useState(false)
+  const canEditReceipt = isAdmin || order.created_by === currentUser?.id
+  async function replaceReceipt(file: File) {
+    const fe = receiptFileError(file)
+    if (fe) { setError(fe); return }
+    setError(''); setReceiptBusy(true)
+    const url = await uploadReceipt(supabase, file)
+    if (!url) { setError('تعذّر رفع ملف الإيصال'); setReceiptBusy(false); return }
+    const { error: upErr } = await supabase.from('buffet_orders').update({ receipt_url: url }).eq('id', order.id)
+    setReceiptBusy(false)
+    if (upErr) { setError('تعذّر حفظ الإيصال: ' + upErr.message + (/receipt_url/.test(upErr.message) ? ' — شغّل ملف db/buffet_receipt.sql أولًا' : '')); return }
+    setReceiptUrl(url); onChanged()
+  }
 
   const [ratingStars, setRatingStars] = useState(0)
   const [ratingNotes, setRatingNotes] = useState('')
@@ -508,7 +565,19 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
                 <div style={{ fontSize: 14, fontWeight: 800, color: remaining > 0 ? S.red : S.green }}>MYR {remaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: S.muted, marginBottom: 18 }}>طريقة الدفع: {PAYMENT_LABEL[order.payment_method] || order.payment_method}</div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 12 }}>طريقة الدفع: {PAYMENT_LABEL[order.payment_method] || order.payment_method}</div>
+            {(receiptUrl || canEditReceipt) && (
+              <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18 }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>إيصال الدفع</div>
+                {receiptUrl ? <ReceiptView url={receiptUrl} /> : <div style={{ fontSize: 12, color: S.muted }}>لم يُرفع إيصال بعد</div>}
+                {canEditReceipt && (
+                  <label style={{ display: 'inline-block', marginTop: 8, padding: '7px 14px', borderRadius: 8, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: receiptBusy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    {receiptBusy ? '⏳ جاري الرفع...' : receiptUrl ? '🔄 استبدال الإيصال (صورة أو PDF)' : '📎 رفع إيصال (صورة أو PDF)'}
+                    <input type="file" accept="image/*,application/pdf" disabled={receiptBusy} style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) replaceReceipt(f); e.target.value = '' }} />
+                  </label>
+                )}
+              </div>
+            )}
             {order.notes && <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', marginBottom: 18, fontSize: 13, color: S.muted }}>📝 {order.notes}</div>}
 
             {/* ── تثبيت المسؤولية ── */}
@@ -551,7 +620,7 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
                 <div style={{ display: 'flex', gap: 8 }}>
                   <select style={{ ...inp, flex: 2 }} value={assignEmpId} onChange={e => setAssignEmpId(e.target.value)}>
                     <option value="">اختر الموظف المسؤول</option>
-                    {branchEmployees.filter(e => e.is_active).map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
+                    {branchEmployees.filter(e => e.is_active).slice().sort((a, b) => fullName(a).localeCompare(fullName(b), ['en', 'ar'], { sensitivity: 'base' })).map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
                   </select>
                   <select style={{ ...inp, flex: 1 }} value={assignShift} onChange={e => setAssignShift(e.target.value)}>
                     <option value="morning">☀️ صباحي</option>

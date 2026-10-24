@@ -60,6 +60,12 @@ interface BuffetConfirmation {
   hall_manager_id: string | null; hall_confirmed_at: string | null
   responsible_employee_id: string | null; assigned_by: string | null; assigned_at: string | null
 }
+// أكثر من مسؤول عن التنفيذ (db/buffet_multi_responsible.sql): صف لكل موظف مع شيفته
+interface BuffetResponsible { id?: string; buffet_order_id: string; employee_id: string; shift: string | null; assigned_by?: string | null; assigned_at?: string | null }
+// ملاحظات إضافية بعد التأكيد: من كتب ومتى
+interface BuffetNote { id: string; buffet_order_id: string; note: string; created_by: string | null; created_by_name: string | null; created_at: string }
+// الوقت بتوقيت ماليزيا (UTC+8) بغض النظر عن جهاز المستخدم
+const fmtKL = (iso?: string | null) => iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'
 interface BuffetRating { id?: string; buffet_order_id: string; rated_by: string | null; stars: number; issues_notes: string | null; created_at?: string }
 interface BuffetOrder {
   id: string; branch_id: string; buffet_date: string; buffet_time: string
@@ -143,12 +149,15 @@ const PREP_CATEGORIES: { category: string; items: string[] }[] = [
 
 // ══ جلب الصنف المسؤول والتقييم لطلب بوفية محدد ══
 async function fetchOrderExtras(supabase: ReturnType<typeof createClient>, orderId: string) {
-  const [conf, items, rating] = await Promise.all([
+  const [conf, items, rating, resp, notes] = await Promise.all([
     supabase.from('buffet_confirmations').select('*').eq('buffet_order_id', orderId).maybeSingle(),
     supabase.from('buffet_order_items').select('*').eq('buffet_order_id', orderId).order('created_at'),
     supabase.from('buffet_ratings').select('*').eq('buffet_order_id', orderId).maybeSingle(),
+    supabase.from('buffet_responsibles').select('*').eq('buffet_order_id', orderId).order('assigned_at'),
+    supabase.from('buffet_notes').select('*').eq('buffet_order_id', orderId).order('created_at'),
   ])
-  return { confirmation: conf.data as BuffetConfirmation | null, items: (items.data || []) as BuffetItem[], rating: rating.data as BuffetRating | null }
+  // لو الجدولان الجديدان غير موجودين بعد (قبل تشغيل db/buffet_multi_responsible.sql) نعتبرهما فارغين ولا نكسر النافذة
+  return { confirmation: conf.data as BuffetConfirmation | null, items: (items.data || []) as BuffetItem[], rating: rating.data as BuffetRating | null, responsibles: (resp.error ? [] : (resp.data || [])) as BuffetResponsible[], notes: (notes.error ? [] : (notes.data || [])) as BuffetNote[] }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -407,6 +416,10 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
 
   const [assignEmpId, setAssignEmpId] = useState('')
   const [assignShift, setAssignShift] = useState('morning')
+  const [responsibles, setResponsibles] = useState<BuffetResponsible[]>([])
+  const [notesLog, setNotesLog] = useState<BuffetNote[]>([])
+  const [noteText, setNoteText] = useState('')
+  const [noteBusy, setNoteBusy] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(order.receipt_url || null)
   const [receiptBusy, setReceiptBusy] = useState(false)
   const canEditReceipt = isAdmin || order.created_by === currentUser?.id
@@ -431,9 +444,12 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
     setItems(extras.items)
     setConfirmation(extras.confirmation)
     setRating(extras.rating)
-    if (extras.confirmation?.responsible_employee_id) setAssignEmpId(extras.confirmation.responsible_employee_id)
+    // المسؤولون: الجدول الجديد، وإلا المسؤول القديم الوحيد (قبل تشغيل ملف SQL)
+    const legacy = extras.confirmation?.responsible_employee_id
+    setResponsibles(extras.responsibles.length > 0 ? extras.responsibles : legacy ? [{ buffet_order_id: order.id, employee_id: legacy, shift: order.shift }] : [])
+    setNotesLog(extras.notes)
     setLoading(false)
-  }, [order.id])
+  }, [order.id, order.shift])
 
   useEffect(() => { load() }, [load])
 
@@ -441,8 +457,8 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
   const remaining = Math.max(0, order.total_amount - order.paid_amount)
 
   // ✅ بعد أي تحديث للتثبيت أو التعيين، نتحقق: إذا اكتمل تثبيت المطبخ + الصالة + تعيين الموظف المسؤول، ينتقل الطلب تلقائيًا لحالة "مؤكَّد"
-  async function maybePromoteToConfirmed(conf: BuffetConfirmation) {
-    if (conf.kitchen_confirmed_at && conf.hall_confirmed_at && conf.responsible_employee_id && order.status === 'pending_confirmation') {
+  async function maybePromoteToConfirmed(conf: BuffetConfirmation, respCount = responsibles.length) {
+    if (conf.kitchen_confirmed_at && conf.hall_confirmed_at && respCount > 0 && order.status === 'pending_confirmation') {
       await supabase.from('buffet_orders').update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', order.id)
     }
   }
@@ -456,7 +472,8 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
       .select('*').single()
     if (err) { setError('حدث خطأ: ' + err.message); setBusy(false); return }
     setConfirmation(data)
-    await maybePromoteToConfirmed(data)
+    // عدد المسؤولين بعد هذا التحديث (تعيين ← 1 على الأقل، إزالة الأخير ← 0، وإلا الحالي)
+    await maybePromoteToConfirmed(data, patch.responsible_employee_id ? 1 : patch.responsible_employee_id === null ? 0 : responsibles.length)
     setBusy(false)
     onChanged()
   }
@@ -467,10 +484,45 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
   async function confirmHall() {
     await upsertConfirmation({ hall_manager_id: currentUser?.id, hall_confirmed_at: new Date().toISOString() })
   }
+  // ✅ إضافة مسؤول (يمكن تعيين أكثر من موظف، ولكل واحد شيفته)
   async function assignResponsible() {
     if (!assignEmpId) { setError('يرجى اختيار الموظف المسؤول'); return }
-    await upsertConfirmation({ responsible_employee_id: assignEmpId, assigned_by: currentUser?.id, assigned_at: new Date().toISOString() })
+    setBusy(true); setError('')
+    const now = new Date().toISOString()
+    const { error: rErr } = await supabase.from('buffet_responsibles').upsert([{ buffet_order_id: order.id, employee_id: assignEmpId, shift: assignShift, assigned_by: currentUser?.id || null, assigned_at: now }], { onConflict: 'buffet_order_id,employee_id' })
+    if (rErr) { setError('تعذّر تعيين المسؤول: ' + rErr.message + (/buffet_responsibles/.test(rErr.message) ? ' — شغّل ملف db/buffet_multi_responsible.sql أولًا' : '')); setBusy(false); return }
+    const next = [...responsibles.filter(r => r.employee_id !== assignEmpId), { buffet_order_id: order.id, employee_id: assignEmpId, shift: assignShift } as BuffetResponsible]
+    setResponsibles(next)
+    // عمود المسؤول القديم يشير لأول مسؤول (للتوافق مع بقية الشاشات)، وشيفت الطلب = آخر شيفت معيَّن
     await supabase.from('buffet_orders').update({ shift: assignShift }).eq('id', order.id)
+    setBusy(false)
+    await upsertConfirmation({ responsible_employee_id: confirmation?.responsible_employee_id || next[0].employee_id, assigned_by: currentUser?.id, assigned_at: now })
+    setAssignEmpId('')
+  }
+  async function removeResponsible(empId: string) {
+    setBusy(true); setError('')
+    const { error: dErr } = await supabase.from('buffet_responsibles').delete().eq('buffet_order_id', order.id).eq('employee_id', empId)
+    if (dErr) { setError('تعذّر إزالة المسؤول: ' + dErr.message); setBusy(false); return }
+    const next = responsibles.filter(r => r.employee_id !== empId)
+    setResponsibles(next)
+    setBusy(false)
+    if (confirmation && confirmation.responsible_employee_id === empId) {
+      await upsertConfirmation({ responsible_employee_id: next[0]?.employee_id || null })
+    } else onChanged()
+  }
+
+  // ✅ ملاحظة إضافية (تُضاف في أي وقت بعد إنشاء الطلب، حتى بعد التأكيد)
+  async function addNote() {
+    const text = noteText.trim()
+    if (!text) return
+    setNoteBusy(true); setError('')
+    const { data, error: nErr } = await supabase.from('buffet_notes').insert([{
+      buffet_order_id: order.id, note: text, created_by: currentUser?.id || null,
+      created_by_name: [currentUser?.name, currentUser?.name_en].filter(Boolean).join(' ') || null,
+    }]).select('*').single()
+    setNoteBusy(false)
+    if (nErr || !data) { setError('تعذّر حفظ الملاحظة: ' + (nErr?.message || '') + (/buffet_notes/.test(nErr?.message || '') ? ' — شغّل ملف db/buffet_multi_responsible.sql أولًا' : '')); return }
+    setNotesLog(p => [...p, data as BuffetNote]); setNoteText('')
   }
 
   async function submitRating() {
@@ -510,7 +562,7 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
   const canConfirmKitchen = isKitchenManager && !confirmation?.kitchen_confirmed_at
   const canConfirmHall = isHallManager && !confirmation?.hall_confirmed_at
   const canAssign = (isKitchenManager || isHallManager || isAdmin) && order.status !== 'completed' && order.status !== 'cancelled'
-  const isResponsible = confirmation?.responsible_employee_id === currentUser?.id
+  const isResponsible = responsibles.some(r => r.employee_id === currentUser?.id)
   const canRate = isResponsible && order.status === 'confirmed'
   const canCancel = (isAdmin || order.created_by === currentUser?.id) && order.status !== 'completed' && order.status !== 'cancelled'
 
@@ -580,6 +632,29 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
             )}
             {order.notes && <div style={{ background: S.card, borderRadius: 10, padding: '10px 14px', marginBottom: 18, fontSize: 13, color: S.muted }}>📝 {order.notes}</div>}
 
+            {/* ── ملاحظات إضافية (تُضاف في أي وقت، حتى بعد التأكيد) ── */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 13, color: S.muted, marginBottom: 8, fontWeight: 700 }}>📝 ملاحظات إضافية ({notesLog.length})</div>
+              {notesLog.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                  {notesLog.map(n => (
+                    <div key={n.id} style={{ background: S.card, borderRadius: 10, padding: '9px 12px' }}>
+                      <div style={{ fontSize: 13, color: S.white, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{n.note}</div>
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 3 }}>{n.created_by_name || '—'} · {fmtKL(n.created_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {order.status !== 'cancelled' && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <textarea style={{ ...inp, flex: 1, minHeight: 56, resize: 'vertical' } as React.CSSProperties} value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="اكتب ملاحظة إضافية..." />
+                  <button onClick={addNote} disabled={noteBusy || !noteText.trim()} style={{ padding: '0 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: noteBusy ? 'wait' : 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, opacity: !noteText.trim() ? 0.5 : 1 }}>
+                    {noteBusy ? '⏳' : '➕ إضافة'}
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* ── تثبيت المسؤولية ── */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: 13, color: S.muted, marginBottom: 8, fontWeight: 700 }}>تثبيت المسؤولية</div>
@@ -610,23 +685,30 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
             {/* ── تعيين الموظف المسؤول والشيفت ── */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: 13, color: S.muted, marginBottom: 8, fontWeight: 700 }}>الموظف المسؤول عن التنفيذ</div>
-              {confirmation?.responsible_employee_id && (
-                <div style={{ background: S.greenB, border: `1px solid ${S.green}`, borderRadius: 10, padding: '10px 14px', marginBottom: canAssign ? 10 : 0, fontSize: 13, color: S.white, display: 'flex', justifyContent: 'space-between' }}>
-                  <span>👤 {fullName(employeesById[confirmation.responsible_employee_id]) || 'موظف'}</span>
-                  <span style={{ color: S.green, fontWeight: 700 }}>{order.shift ? SHIFT_LABEL[order.shift] : ''}</span>
+              {responsibles.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: canAssign ? 10 : 0 }}>
+                  {responsibles.map(r => (
+                    <div key={r.employee_id} style={{ background: S.greenB, border: `1px solid ${S.green}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: S.white, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <span>👤 {fullName(employeesById[r.employee_id]) || 'موظف'}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ color: S.green, fontWeight: 700 }}>{r.shift ? SHIFT_LABEL[r.shift] : ''}</span>
+                        {canAssign && <button onClick={() => removeResponsible(r.employee_id)} disabled={busy} title="إزالة من المسؤولين" style={{ background: 'transparent', border: `1px solid ${S.red}`, borderRadius: 7, color: S.red, cursor: 'pointer', fontSize: 12, padding: '2px 8px' }}>✕</button>}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              )}
+              ) : null}
               {canAssign && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <select style={{ ...inp, flex: 2 }} value={assignEmpId} onChange={e => setAssignEmpId(e.target.value)}>
-                    <option value="">اختر الموظف المسؤول</option>
-                    {branchEmployees.filter(e => e.is_active).slice().sort((a, b) => fullName(a).localeCompare(fullName(b), ['en', 'ar'], { sensitivity: 'base' })).map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
+                    <option value="">{responsibles.length > 0 ? 'إضافة مسؤول آخر' : 'اختر الموظف المسؤول'}</option>
+                    {branchEmployees.filter(e => e.is_active && !responsibles.some(r => r.employee_id === e.id)).slice().sort((a, b) => fullName(a).localeCompare(fullName(b), ['en', 'ar'], { sensitivity: 'base' })).map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
                   </select>
                   <select style={{ ...inp, flex: 1 }} value={assignShift} onChange={e => setAssignShift(e.target.value)}>
                     <option value="morning">☀️ صباحي</option>
                     <option value="evening">🌙 مسائي</option>
                   </select>
-                  <button onClick={assignResponsible} disabled={busy} style={{ padding: '0 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>تعيين</button>
+                  <button onClick={assignResponsible} disabled={busy} style={{ padding: '0 16px', borderRadius: 10, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{responsibles.length > 0 ? '➕ إضافة' : 'تعيين'}</button>
                 </div>
               )}
             </div>
@@ -878,6 +960,7 @@ export default function BuffetPage() {
 
   const [orders, setOrders] = useState<BuffetOrder[]>([])
   const [confirmationsMap, setConfirmationsMap] = useState<Record<string, BuffetConfirmation>>({})
+  const [responsiblesMap, setResponsiblesMap] = useState<Record<string, BuffetResponsible[]>>({})
   const [branches, setBranches] = useState<Branch[]>([])
   const [employees, setEmployees] = useState<EmployeeLite[]>([])
   const [menuItems, setMenuItems] = useState<MenuItemLite[]>([])
@@ -911,7 +994,8 @@ export default function BuffetPage() {
     } else {
       // ✅ الموظف العادي يرى فقط طلبات البوفية التي أنشأها أو التي عُيِّن مسؤولًا عنها
       const { data: myConf } = await supabase.from('buffet_confirmations').select('buffet_order_id').eq('responsible_employee_id', currentUser.id)
-      const responsibleIds = (myConf || []).map(c => c.buffet_order_id)
+      const { data: myResp } = await supabase.from('buffet_responsibles').select('buffet_order_id').eq('employee_id', currentUser.id)
+      const responsibleIds = Array.from(new Set([...(myConf || []).map(c => c.buffet_order_id), ...(myResp || []).map(r => r.buffet_order_id)]))
       let q = supabase.from('buffet_orders').select('*, branches(name)').order('buffet_date').order('buffet_time')
       if (responsibleIds.length > 0) {
         q = q.or(`created_by.eq.${currentUser.id},id.in.(${responsibleIds.join(',')})`)
@@ -928,8 +1012,13 @@ export default function BuffetPage() {
       const map: Record<string, BuffetConfirmation> = {}
       ;(confs || []).forEach(c => { map[c.buffet_order_id] = c })
       setConfirmationsMap(map)
+      const { data: resps } = await supabase.from('buffet_responsibles').select('*').in('buffet_order_id', ordersData.map(o => o.id))
+      const rmap: Record<string, BuffetResponsible[]> = {}
+      ;(resps || []).forEach((r: BuffetResponsible) => { (rmap[r.buffet_order_id] = rmap[r.buffet_order_id] || []).push(r) })
+      setResponsiblesMap(rmap)
     } else {
       setConfirmationsMap({})
+      setResponsiblesMap({})
     }
 
     setLoading(false)
@@ -1019,7 +1108,8 @@ export default function BuffetPage() {
           {visibleOrders.map(o => {
             const st = STATUS[o.status] || STATUS.pending_confirmation
             const conf = confirmationsMap[o.id]
-            const responsible = conf?.responsible_employee_id ? employeesById[conf.responsible_employee_id] : null
+            // المسؤولون: الجدول الجديد، وإلا المسؤول القديم الوحيد
+            const respList: BuffetResponsible[] = responsiblesMap[o.id]?.length ? responsiblesMap[o.id] : (conf?.responsible_employee_id ? [{ buffet_order_id: o.id, employee_id: conf.responsible_employee_id, shift: o.shift }] : [])
             const remaining = Math.max(0, o.total_amount - o.paid_amount)
             return (
               <div key={o.id} onClick={() => tab === 'prep' ? setPrepOrder(o) : setDetailOrder(o)}
@@ -1059,9 +1149,9 @@ export default function BuffetPage() {
                       <span style={{ color: S.muted }}>الإجمالي: <strong style={{ color: S.white }}>MYR {o.total_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
                       <span style={{ color: remaining > 0 ? S.red : S.green }}>المتبقي: MYR {remaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
-                    {responsible ? (
-                      <div style={{ fontSize: 12, color: S.green, background: S.greenB, borderRadius: 8, padding: '6px 10px' }}>
-                        👤 {fullName(responsible)} {o.shift ? `· ${SHIFT_LABEL[o.shift]}` : ''}
+                    {respList.length > 0 ? (
+                      <div style={{ fontSize: 12, color: S.green, background: S.greenB, borderRadius: 8, padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {respList.map(r => <div key={r.employee_id}>👤 {fullName(employeesById[r.employee_id])} {(r.shift || o.shift) ? `· ${SHIFT_LABEL[(r.shift || o.shift) as string]}` : ''}</div>)}
                       </div>
                     ) : (
                       <div style={{ fontSize: 12, color: S.amber, background: S.amberB, borderRadius: 8, padding: '6px 10px' }}>⏳ بانتظار تعيين الموظف المسؤول</div>

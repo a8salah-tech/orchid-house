@@ -29,6 +29,8 @@ const inp: React.CSSProperties = {
   borderRadius: 10, padding: '10px 14px', fontSize: 13,
   color: '#FAFAF8', outline: 'none', fontFamily: 'Tajawal, sans-serif',
   boxSizing: 'border-box', direction: 'rtl',
+  // ✅ يجعل القائمة المنسدلة (select) والتقويم الأصلية داكنة بدل البيضاء
+  colorScheme: 'dark',
 }
 
 const STATUS: Record<string, { label: string; color: string; bg: string }> = {
@@ -47,7 +49,9 @@ const BUFFET_TYPE_LABEL: Record<string, { label: string; icon: string; color: st
 
 // ══ Types ══
 interface Branch { id: string; name: string }
-interface EmployeeLite { id: string; name: string; role: string; branch_id: string; is_active: boolean }
+interface EmployeeLite { id: string; name: string; name_en?: string | null; role: string; branch_id: string; is_active: boolean }
+// الاسم الكامل: الاسم ثم الاسم الإنجليزي (كان يظهر الاسم الأول فقط)
+const fullName = (e?: { name?: string | null; name_en?: string | null } | null) => e ? [e.name, e.name_en].filter(Boolean).map(x => String(x).trim()).join(' ') : ''
 interface MenuItemLite { id: string; name: string; name_en: string; price: number; category_id: string; branch_id?: string }
 interface BuffetItem { id?: string; menu_item_id: string | null; item_name: string; quantity: number; unit_price: number }
 interface BuffetConfirmation {
@@ -514,7 +518,7 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: S.card, borderRadius: 10, padding: '10px 14px' }}>
                   <span style={{ fontSize: 13, color: S.white }}>🍳 مدير المطبخ</span>
                   {confirmation?.kitchen_confirmed_at ? (
-                    <span style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ {employeesById[confirmation.kitchen_manager_id || '']?.name || 'تم التثبيت'}</span>
+                    <span style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ {fullName(employeesById[confirmation.kitchen_manager_id || '']) || 'تم التثبيت'}</span>
                   ) : canConfirmKitchen ? (
                     <button onClick={confirmKitchen} disabled={busy} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>تثبيت مسؤوليتي</button>
                   ) : (
@@ -524,7 +528,7 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: S.card, borderRadius: 10, padding: '10px 14px' }}>
                   <span style={{ fontSize: 13, color: S.white }}>🏛️ مدير الصالة</span>
                   {confirmation?.hall_confirmed_at ? (
-                    <span style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ {employeesById[confirmation.hall_manager_id || '']?.name || 'تم التثبيت'}</span>
+                    <span style={{ fontSize: 12, color: S.green, fontWeight: 700 }}>✅ {fullName(employeesById[confirmation.hall_manager_id || '']) || 'تم التثبيت'}</span>
                   ) : canConfirmHall ? (
                     <button onClick={confirmHall} disabled={busy} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${S.blue}`, background: S.blueB, color: S.blue, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>تثبيت مسؤوليتي</button>
                   ) : (
@@ -539,7 +543,7 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
               <div style={{ fontSize: 13, color: S.muted, marginBottom: 8, fontWeight: 700 }}>الموظف المسؤول عن التنفيذ</div>
               {confirmation?.responsible_employee_id && (
                 <div style={{ background: S.greenB, border: `1px solid ${S.green}`, borderRadius: 10, padding: '10px 14px', marginBottom: canAssign ? 10 : 0, fontSize: 13, color: S.white, display: 'flex', justifyContent: 'space-between' }}>
-                  <span>👤 {employeesById[confirmation.responsible_employee_id]?.name || 'موظف'}</span>
+                  <span>👤 {fullName(employeesById[confirmation.responsible_employee_id]) || 'موظف'}</span>
                   <span style={{ color: S.green, fontWeight: 700 }}>{order.shift ? SHIFT_LABEL[order.shift] : ''}</span>
                 </div>
               )}
@@ -547,7 +551,7 @@ function BuffetDetailModal({ order, currentUser, isAdmin, isKitchenManager, isHa
                 <div style={{ display: 'flex', gap: 8 }}>
                   <select style={{ ...inp, flex: 2 }} value={assignEmpId} onChange={e => setAssignEmpId(e.target.value)}>
                     <option value="">اختر الموظف المسؤول</option>
-                    {branchEmployees.filter(e => e.is_active).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    {branchEmployees.filter(e => e.is_active).map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
                   </select>
                   <select style={{ ...inp, flex: 1 }} value={assignShift} onChange={e => setAssignShift(e.target.value)}>
                     <option value="morning">☀️ صباحي</option>
@@ -822,7 +826,7 @@ export default function BuffetPage() {
 
     const [br, emp, mi] = await Promise.all([
       supabase.from('branches').select('id,name').eq('is_active', true),
-      supabase.from('employees').select('id,name,role,branch_id,is_active'),
+      supabase.from('employees').select('id,name,name_en,role,branch_id,is_active'),
       supabase.from('menu_items').select('id,name,name_en,price,category_id,branch_id').eq('is_active', true).eq('is_available', true),
     ])
     setBranches(br.data || [])
@@ -898,6 +902,7 @@ export default function BuffetPage() {
 
   return (
     <div style={{ padding: 24, fontFamily: 'Tajawal, sans-serif', direction: 'rtl', minHeight: '100vh', background: S.navy }}>
+      <style>{`select option { background: #0F2040; color: #FAFAF8; }`}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: S.white, marginBottom: 4 }}>🍽️ قسم البوفية</h1>
@@ -987,7 +992,7 @@ export default function BuffetPage() {
                     </div>
                     {responsible ? (
                       <div style={{ fontSize: 12, color: S.green, background: S.greenB, borderRadius: 8, padding: '6px 10px' }}>
-                        👤 {responsible.name} {o.shift ? `· ${SHIFT_LABEL[o.shift]}` : ''}
+                        👤 {fullName(responsible)} {o.shift ? `· ${SHIFT_LABEL[o.shift]}` : ''}
                       </div>
                     ) : (
                       <div style={{ fontSize: 12, color: S.amber, background: S.amberB, borderRadius: 8, padding: '6px 10px' }}>⏳ بانتظار تعيين الموظف المسؤول</div>

@@ -681,8 +681,10 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
   // متأخر أبجديًا وبره أول 200 كان مستحيل يتلاقى في البحث مهما كتبت رقم تليفونه صح. دلوقتي البحث بيستعلم
   // من قاعدة البيانات مباشرة مع كل حرف تكتبه (نفس أسلوب البحث في مودال العربون)، فمفيش أي حد ممكن يضيع
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false)
+  // فشل البحث (مثل انتهاء مهلة الاستعلام) يظهر برسالة واضحة بدل «No customer found» المضلِّلة
+  const [customerSearchError, setCustomerSearchError] = useState(false)
   useEffect(() => {
-    if (!customerSearch.trim()) { setCustomers([]); return }
+    if (!customerSearch.trim()) { setCustomers([]); setCustomerSearchError(false); return }
     setCustomerSearchLoading(true)
     const t = setTimeout(() => {
       // ✅ Fix: البحث كان بيفشل بصمت (يرجّع "No customer found") في حالتين: (1) أي فاصلة/قوس في النص بيكسر صيغة .or،
@@ -695,7 +697,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
       sb.from('customers').select('id,name,phone,email,loyalty_points')
         .or(filters.join(','))
         .limit(20)
-        .then(({ data }) => { setCustomers(data || []); setCustomerSearchLoading(false) })
+        .then(({ data, error }) => { setCustomers(data || []); setCustomerSearchError(!!error); setCustomerSearchLoading(false) })
     }, 300) // ✅ debounce بسيط عشان مانستعلمش على كل حرف فورًا
     return () => clearTimeout(t)
   }, [customerSearch])
@@ -1263,7 +1265,10 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
                 onFocus={() => setShowCustomerDrop(true)}
               />
               {customerSearchLoading && <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>⏳ Searching...</div>}
-              {!customerSearchLoading && customerSearch.trim().length > 0 && filteredCustomers.length === 0 && (
+              {!customerSearchLoading && customerSearchError && (
+                <div style={{ fontSize: 11, color: S.red, marginTop: 4 }}>❌ Customer search failed (timeout) — try again, or tell the system admin</div>
+              )}
+              {!customerSearchLoading && !customerSearchError && customerSearch.trim().length > 0 && filteredCustomers.length === 0 && (
                 <div style={{ fontSize: 11, color: S.amber, marginTop: 4 }}>⚠️ No customer found</div>
               )}
               {showCustomerDrop && customerSearch && filteredCustomers.length > 0 && (

@@ -955,8 +955,10 @@ export default function BuffetPage() {
   const role = currentUser?.role || ''
   const isKitchenManager = role === 'kitchen_manager'
   const isHallManager = role === 'hall_manager'
-  // مدراء المطبخ والصالة يرون كل طلبات البوفية في فرعهم (نفس أسلوب مدير الفرع في صفحة الموظفين)
-  const isBranchWideViewer = isAdmin || isKitchenManager || isHallManager
+  // مشرف الصالة يرى كل بوفية الفرع (ما أنشأه وما أنشأه غيره) — للعرض فقط، بلا صلاحيات تثبيت أو تعيين
+  const isHallSupervisor = role === 'hall_supervisor'
+  // مدراء المطبخ والصالة ومشرف الصالة يرون كل طلبات البوفية في فرعهم (نفس أسلوب مدير الفرع في صفحة الموظفين)
+  const isBranchWideViewer = isAdmin || isKitchenManager || isHallManager || isHallSupervisor
 
   const [orders, setOrders] = useState<BuffetOrder[]>([])
   const [confirmationsMap, setConfirmationsMap] = useState<Record<string, BuffetConfirmation>>({})

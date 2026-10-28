@@ -491,7 +491,7 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
   // ✅ المشرف العام: عرض كامل في صفحة الكاشير زي الأدمن (كل الفروع + تقرير الشيفت + الدفع)
   const isCashierRole = permissions?.all === true || employee?.role === 'cashier' || employee?.role === 'general_supervisor'
   // ✅ جديد: الدور المحدود (مشرف/موظف الصالة + مساعد الكاشير) - بياخدوا "+" بس، مش الدفع/الدمج/التحويل
-  const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'assistant_cashier'].includes(employee?.role || '')
+  const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'hall_assistant_manager', 'assistant_cashier'].includes(employee?.role || '')
   const isAdminUser = permissions?.all === true || employee?.role === 'general_supervisor'
   // ✅ جديد: "🎁 Free" حصري لمدير الفرع ومدير النظام والمشرف العام فقط - أي صلاحية تانية ميظهرلهاش الخيار خالص
   const canUseFree = permissions?.all === true || employee?.role === 'branch_manager' || employee?.role === 'general_supervisor'
@@ -2657,7 +2657,7 @@ export default function CashierPage() {
   const isCashierRole = isAdmin || employee?.role === 'cashier'
   // ✅ جديد: حساب مشترك محدود لمشرفي/موظفي الصالة + مساعد الكاشير - يقدروا يشوفوا الطاولات ويضيفوا طلبات
   // بس، من غير الدفع/الدمج/التحويل/التقارير
-  const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'assistant_cashier'].includes(employee?.role || '')
+  const isLimitedTableRole = ['hall_supervisor', 'hall_manager', 'hall_assistant_manager', 'assistant_cashier'].includes(employee?.role || '')
 
   // ✅ كشف الموبايل عشان نظبط تنسيق الهيدر والتابات فوق
   const [isMobile, setIsMobile] = useState(false)

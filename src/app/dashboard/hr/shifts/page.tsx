@@ -127,7 +127,7 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
   )
 }
 
-// ✅ نص حصة الإجازة الأسبوعية (يوم / يومان / N أيام)
+// ✅ نص حصة الإجازة الشهرية (يوم / يومان / N أيام)
 const capLabel = (n: number) => n === 1 ? 'يوم واحد' : n === 2 ? 'يومان' : `${n} أيام`
 
 // ══ Assign Monthly Modal ══
@@ -166,10 +166,6 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstDow = new Date(year, month, 1).getDay()
-  useEffect(() => {
-    if (initialEmpId) loadExistingSchedule(initialEmpId)
-  }, [initialEmpId])
-
   const DAYS_HDR = ['أح', 'إث', 'ثل', 'أر', 'خم', 'جم', 'سب']
 
   const allDays = Array.from({ length: daysInMonth }, (_: unknown, i: number) => {
@@ -248,6 +244,12 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     }
   }
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (initialEmpId) loadExistingSchedule(initialEmpId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEmpId])
+
   // ✅ تاريخ اليوم — أي يوم قبله يُعتبر "ماضياً" ومقفولاً تماماً بلا استثناء (قرار إداري: "اللي راح راح")
   const todayStr = new Date().toISOString().slice(0, 10)
   // ✅ القفل على الأيام الماضية لا ينطبق على الأدمن أو مدير القسم/الفرع — لهم وحدهم صلاحية تصحيح شيفت
@@ -271,41 +273,11 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   // تداخل فعلي بين تحديد اليوم المقصود وأيام تانية كانت متحددة من قبل، ويبان الأمر وكأن الإجازة "دمجت"
   // مع يوم تاني
 
-  // ✅ حصة الإجازة الأسبوعية للموظف (يحدّدها مدير النظام من صفحة الموظفين، الافتراضي يومان) — الأسبوع من الأحد إلى السبت.
-  // الأسبوع يُحسب كاملًا حتى لو دخل جزء منه في الشهر السابق/التالي، لذلك نجلب إجازات الأيام الحدّية من قاعدة البيانات.
-  const weeklyCap: number = employees.find(e => e.id === empId)?.weekly_days_off ?? 2
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  const ymdOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-  const monthPrefix = `${year}-${pad2(month + 1)}-`
-  const weekGrid: string[][] = (() => {
-    const first = new Date(year, month, 1)
-    const last = new Date(year, month + 1, 0)
-    const start = new Date(first); start.setDate(start.getDate() - start.getDay())
-    const out: string[][] = []
-    for (const d = new Date(start); d <= last; d.setDate(d.getDate() + 7)) {
-      out.push(Array.from({ length: 7 }, (_: unknown, i: number) => { const x = new Date(d); x.setDate(x.getDate() + i); return ymdOf(x) }))
-    }
-    return out
-  })()
-  const edgeKey = `${empId}|${year}|${month}`
-  const [edgeLeaves, setEdgeLeaves] = useState<{ key: string; dates: string[] }>({ key: '', dates: [] })
-  useEffect(() => {
-    if (!empId || weekGrid.length === 0) return
-    const from = weekGrid[0][0], to = weekGrid[weekGrid.length - 1][6]
-    supabase.from('shift_schedules').select('date, shift_id, custom_start').eq('employee_id', empId).gte('date', from).lte('date', to)
-      .then(({ data }: { data: { date: string; shift_id: string | null; custom_start: string | null }[] | null }) => {
-        const dates = (data || []).filter(r => !r.shift_id && !r.custom_start).map(r => String(r.date).slice(0, 10)).filter(d => !d.startsWith(monthPrefix))
-        setEdgeLeaves({ key: edgeKey, dates })
-      })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edgeKey])
-  const edgeDates = edgeLeaves.key === edgeKey ? edgeLeaves.dates : []
-  const weekStats = weekGrid.map(w => {
-    const inMonth = w.filter(d => d.startsWith(monthPrefix))
-    const leaves = w.filter(d => d.startsWith(monthPrefix) ? calendarMap[d]?.type === 'leave' : edgeDates.includes(d))
-    const editableLeaves = leaves.filter(d => d.startsWith(monthPrefix) && !isPastDate(d))
-    return { from: inMonth[0], to: inMonth[inMonth.length - 1], count: leaves.length, over: leaves.length > weeklyCap && editableLeaves.length > 0 }
-  })
+  // ✅ حصة الإجازة الشهرية للموظف (يحدّدها مدير النظام من صفحة الموظفين، الافتراضي يومان) — الشهر الميلادي كاملًا.
+  // الإجازات الزائدة عن الحصة تُخصم يومًا بيوم من الراتب (من أكتوبر 2026). العمود weekly_days_off صار يُقرأ كحصة شهرية.
+  const monthlyCap: number = employees.find(e => e.id === empId)?.weekly_days_off ?? 2
+  const monthLeaveDates = Object.entries(calendarMap).filter(([, v]) => v.type === 'leave').map(([d]) => d)
+  const monthLeaveStats = { count: monthLeaveDates.length, over: monthLeaveDates.length > monthlyCap && monthLeaveDates.some(d => !isPastDate(d)) }
 
   const dayClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // ✅ نافذة تنبيه "اليوم مقفول" — في منتصف الشاشة بدل alert() الافتراضية
@@ -402,15 +374,14 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     const shiftDays = Object.entries(calendarMap).filter(([d, v]) => !isPastDate(d) && (v.type === 'shift' || v.type === 'custom'))
     const leaveDays = Object.entries(calendarMap).filter(([d, v]) => !isPastDate(d) && v.type === 'leave')
     if (shiftDays.length === 0 && leaveDays.length === 0) { alert('لم تحدد أي أيام'); return }
-    // ✅ حصة الإجازة الأسبوعية: ممنوع تجاوزها لمدير القسم/الفرع؛ مدير النظام يُنبَّه ويقدر يتجاوز عند الضرورة
-    const overWeeks = weekStats.filter(w => w.over)
-    if (overWeeks.length > 0) {
-      const lines = overWeeks.map(w => `• من ${w.from} إلى ${w.to}: ${w.count} أيام إجازة`).join('\n')
+    // ✅ حصة الإجازة الشهرية: ممنوع تجاوزها لمدير القسم/الفرع؛ مدير النظام يُنبَّه ويقدر يتجاوز عند الضرورة
+    if (monthLeaveStats.over) {
+      const extra = monthLeaveStats.count - monthlyCap
       if (!canEditPastDays) {
-        alert(`لا يمكن الحفظ: عدد أيام الإجازة يتجاوز المسموح لهذا الموظف (${capLabel(weeklyCap)} أسبوعيًا):\n${lines}\n\nقلّل أيام الإجازة في هذه الأسابيع ثم أعد المحاولة، أو اطلب من مدير النظام رفع الحصة من صفحة الموظفين.`)
+        alert(`لا يمكن الحفظ: عدد أيام الإجازة هذا الشهر (${monthLeaveStats.count}) يتجاوز المسموح لهذا الموظف (${capLabel(monthlyCap)} شهريًا).\n\nقلّل أيام الإجازة ثم أعد المحاولة، أو اطلب من مدير النظام رفع الحصة من صفحة الموظفين.`)
         return
       }
-      if (!confirm(`تنبيه: عدد أيام الإجازة يتجاوز المسموح لهذا الموظف (${capLabel(weeklyCap)} أسبوعيًا):\n${lines}\n\nهل تريد الحفظ رغم ذلك؟`)) return
+      if (!confirm(`تنبيه: عدد أيام الإجازة هذا الشهر (${monthLeaveStats.count}) يتجاوز المسموح لهذا الموظف (${capLabel(monthlyCap)} شهريًا).\n\nسيُخصم من راتبه ${capLabel(extra)} (يومًا بيوم) عن الإجازة الزائدة.\n\nهل تريد الحفظ رغم ذلك؟`)) return
     }
     setSaving(true)
     const ms = `${year}-${String(month + 1).padStart(2, '0')}-01`
@@ -507,17 +478,14 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
                 </div>
               </div>
             )}
-            {/* ✅ حصة الإجازة الأسبوعية + عدّاد حي لكل أسبوع (الأحد → السبت) */}
+            {/* ✅ حصة الإجازة الشهرية + عدّاد حي للشهر */}
             {empId && (
               <div style={{ marginTop: 8, background: S.amberB, border: `1px solid ${S.amber}40`, borderRadius: 10, padding: '8px 10px' }}>
-                <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 6 }}>🏖️ المسموح لهذا الموظف: {capLabel(weeklyCap)} أسبوعيًا</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {weekStats.map((w, i) => (
-                    <span key={i} dir="ltr" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 14, border: `1px solid ${w.over ? S.red : S.border}`, background: w.over ? S.redB : 'transparent', color: w.over ? S.red : S.muted, fontWeight: w.over ? 700 : 400 }}>
-                      {w.from.slice(8)}–{w.to.slice(8)}: {w.count}/{weeklyCap}{w.over ? ' ⚠️' : ''}
-                    </span>
-                  ))}
-                </div>
+                <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 6 }}>🏖️ المسموح لهذا الموظف: {capLabel(monthlyCap)} شهريًا</div>
+                <span dir="ltr" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 14, border: `1px solid ${monthLeaveStats.over ? S.red : S.border}`, background: monthLeaveStats.over ? S.redB : 'transparent', color: monthLeaveStats.over ? S.red : S.muted, fontWeight: monthLeaveStats.over ? 700 : 400 }}>
+                  {monthLeaveStats.count}/{monthlyCap}{monthLeaveStats.over ? ' ⚠️' : ''}
+                </span>
+                {monthLeaveStats.count > monthlyCap && <div style={{ fontSize: 11, color: S.red, marginTop: 6 }}>الإجازة الزائدة عن الحصة تُخصم من الراتب يومًا بيوم.</div>}
               </div>
             )}
           </div>
@@ -937,7 +905,7 @@ export default function ShiftsPage() {
         empQuery = empQuery.eq('branch_id', employee?.branch_id||'').in('department', deptMap[employee?.role||''] || ['__none__'])
       }
       const {data: empData0} = await empQuery
-      // ✅ حصة الإجازة الأسبوعية لكل موظف (عمود weekly_days_off) — استعلام منفصل عشان لو ملف SQL لسه ما اتشغّلش نكمّل بالافتراضي (يومان)
+      // ✅ حصة الإجازة الشهرية لكل موظف (عمود weekly_days_off — صار يُقرأ كحصة شهرية) — استعلام منفصل عشان لو ملف SQL لسه ما اتشغّلش نكمّل بالافتراضي (يومان)
       const capIds = (empData0||[]).map((e: { id: string })=>e.id)
       const capMap: Record<string, number> = {}
       if (capIds.length > 0) {
@@ -1298,7 +1266,7 @@ export default function ShiftsPage() {
                                   <div>
                                     <div style={{fontSize:12,fontWeight:700,color:S.white}}>{emp.name}{emp.name_en ? ' '+emp.name_en : ''}</div>
                                     <div style={{fontSize:10,color:S.muted,display:'flex',gap:6,alignItems:'center'}}>
-                                      <span style={{color:S.amber}} title="حصة الإجازة الأسبوعية">🏖️ {capLabel(emp.weekly_days_off ?? 2)}</span>
+                                      <span style={{color:S.amber}} title="حصة الإجازة الشهرية">🏖️ {capLabel(emp.weekly_days_off ?? 2)}</span>
                                       {(() => {
                                         // ابحث عن أول شيفت في الشهر
                                         const firstSch = monthDays.map(d => getShift(emp.id, d.date)).find(s => s)

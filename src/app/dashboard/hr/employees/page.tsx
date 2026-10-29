@@ -69,7 +69,7 @@ interface Employee {
   role: string; department: string; branch_id: string; phone: string
   email: string; email_account?: string  // ① إيميل شخصي + إيميل النظام
   join_date: string; salary?: number; insurance?: number; work_insurance?: number; is_active: boolean
-  weekly_days_off?: number | null  // ✅ أيام الإجازة الأسبوعية المسموحة (يحدّدها مدير النظام، الافتراضي 2) — db/employees_weekly_days_off.sql
+  weekly_days_off?: number | null  // ✅ أيام الإجازة الشهرية المسموحة (يحدّدها مدير النظام، الافتراضي 2) — db/employees_weekly_days_off.sql
   fixed_salary?: boolean  // ✅ راتب ثابت — بدون حضور: يُدفع كامل شهرياً بلا خصم غياب/تأخير
   notes: string; photo_url?: string; national_id_url?: string
   auth_user_id?: string; branches?: { name: string }
@@ -338,11 +338,11 @@ function EmployeeModal({ employee, branches, isAdmin, onClose, onSaved }: { empl
           </div>
           {isAdmin && (
             <div style={{ gridColumn: '1 / -1', padding: 12, background: S.card, borderRadius: 12, border: `1px solid ${S.border}` }}>
-              <label style={{ fontSize: 13, color: S.white, display: 'block', marginBottom: 6 }}>🏖️ أيام الإجازة الأسبوعية المسموحة <span style={{ color: S.muted }}>/ Weekly days off</span></label>
+              <label style={{ fontSize: 13, color: S.white, display: 'block', marginBottom: 6 }}>🏖️ أيام الإجازة الشهرية المسموحة <span style={{ color: S.muted }}>/ Monthly days off</span></label>
               <select style={{ ...inp, maxWidth: 220 }} value={form.weekly_days_off} onChange={e => setForm(p => ({ ...p, weekly_days_off: e.target.value }))}>
                 {[1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n === 1 ? 'يوم واحد' : n === 2 ? 'يومان' : n + ' أيام'}</option>)}
               </select>
-              <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>الافتراضي يومان لكل الموظفين. في إدارة الشيفتات لا يُسمح لمدير القسم/الفرع بإضافة إجازات أكثر من هذا العدد في الأسبوع (الأحد → السبت).</div>
+              <div style={{ fontSize: 11, color: S.muted, marginTop: 6 }}>الافتراضي يومان لكل الموظفين. في إدارة الشيفتات لا يُسمح لمدير القسم/الفرع بإضافة إجازات أكثر من هذا العدد في الشهر، وكل يوم زائد يُخصم من الراتب يومًا بيوم (من أكتوبر 2026).</div>
             </div>
           )}
           <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12, background: S.card, borderRadius: 12, border: `1px solid ${S.border}` }}>

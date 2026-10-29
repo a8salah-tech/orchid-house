@@ -122,6 +122,7 @@ type Employee = {
   work_insurance?: number; branch_id?: string; is_active?: boolean; deactivated_at?: string; join_date?: string; branches?: { name: string } | any
   // ✅ راتب ثابت بدون حضور (سواقين / إدارة / موظفين لا يسجّلون بصمة) — يُدفع كامل كل شهر بلا خصم غياب أو تحذير
   fixed_salary?: boolean
+  weekly_days_off?: number | null // حصة الإجازة الشهرية (الافتراضي 2)
 }
 type PayrollRecord = {
   id?: string; created_at?: string; payroll_month_id: string; employee_id: string
@@ -793,7 +794,7 @@ export default function PayrollPage() {
     const [mo, em, br] = await Promise.all([
       sb.from('payroll_months').select('*').order('year', { ascending: false }).order('month', { ascending: false }),
       (() => {
-        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,fixed_salary,branches(name)').order('name')
+        let q = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,fixed_salary,weekly_days_off,branches(name)').order('name')
         // فلتر حسب الدور
         if (!isSuperAdmin && isBranchManager) q = q.eq('branch_id', currentUser?.branch_id || '')
         else if (!isSuperAdmin && !isBranchManager) q = q.eq('id', myId)
@@ -825,7 +826,7 @@ export default function PayrollPage() {
 
     let emps = employees
     if (emps.length === 0) {
-      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,fixed_salary,branches(name)').order('name')
+      let q2 = sb.from('employees').select('id,name,name_en,employee_number,role,department,branch_id,is_active,deactivated_at,join_date,fixed_salary,weekly_days_off,branches(name)').order('name')
       if (!isSuperAdmin && isBranchManager) q2 = q2.eq('branch_id', currentUser?.branch_id || '')
       else if (!isSuperAdmin && !isBranchManager) q2 = q2.eq('id', myId)
       const { data } = await q2
@@ -1000,15 +1001,30 @@ export default function PayrollPage() {
       if (e.join_date) joinDateMap[e.id] = e.join_date
     }
     const scheduledByEmp: Record<string, Set<string>> = {}
+    // ✅ أيام الإجازة المجدولة لكل موظف هذا الشهر (صف بلا شيفت) — لحساب الإجازة الزائدة عن الحصة الشهرية
+    const leaveDatesByEmp: Record<string, Set<string>> = {}
     for (const s of scheduleRows) {
-      if (!s.shift_id && !s.custom_start) continue // يوم إجازة رسمية — مستبعد من الحساب
       const d = String(s.date).slice(0, 10)
       const deactDate = deactivatedAtMap[s.employee_id]
       const joinDate = joinDateMap[s.employee_id]
       if (deactDate && d > deactDate) continue // يوم بعد تاريخ إيقاف الموظف — مستبعد من الحساب
       if (joinDate && d < joinDate) continue // يوم قبل تاريخ تعيين الموظف — مستبعد من الحساب
+      if (!s.shift_id && !s.custom_start) { // يوم إجازة رسمية — مستبعد من حساب الغياب
+        if (!leaveDatesByEmp[s.employee_id]) leaveDatesByEmp[s.employee_id] = new Set()
+        leaveDatesByEmp[s.employee_id].add(d)
+        continue
+      }
       if (!scheduledByEmp[s.employee_id]) scheduledByEmp[s.employee_id] = new Set()
       scheduledByEmp[s.employee_id].add(d)
+    }
+    // ✅ من أكتوبر 2026: الإجازة الزائدة عن الحصة الشهرية (الافتراضي يومان) تُخصم يومًا بيوم كغياب عادي، بلا عقوبة الـ2 يوم
+    const extraLeaveMap: Record<string, number> = {}
+    if (useAbsencePenalty) {
+      for (const id of Object.keys(leaveDatesByEmp)) {
+        const cap = filteredEmps.find(e => e.id === id)?.weekly_days_off ?? 2
+        const extra = leaveDatesByEmp[id].size - cap
+        if (extra > 0) extraLeaveMap[id] = extra
+      }
     }
     const autoAbsMap: Record<string, number> = {}
     for (const employeeId of Object.keys(scheduledByEmp)) {
@@ -1023,9 +1039,9 @@ export default function PayrollPage() {
     // ✅ من أكتوبر 2026: أيام الغياب التلقائية (شيفت بلا حضور) + عقوبة يومين لكل غياب بدون عذر معتمد (تُضاف ولا تُمتصّ).
     // الأشهر السابقة تبقى بالقاعدة القديمة (الأكبر بين اليدوي والتلقائي) فلا تتغير أرقامها
     const absMap: Record<string, number> = {}
-    for (const id of new Set([...Object.keys(manualAbsMap), ...Object.keys(autoAbsMap)])) {
+    for (const id of new Set([...Object.keys(manualAbsMap), ...Object.keys(autoAbsMap), ...Object.keys(extraLeaveMap)])) {
       absMap[id] = useAbsencePenalty
-        ? (autoAbsMap[id] || 0) + (penaltyDaysMap[id] || 0)
+        ? (autoAbsMap[id] || 0) + (penaltyDaysMap[id] || 0) + (extraLeaveMap[id] || 0)
         : Math.max(manualAbsMap[id] || 0, autoAbsMap[id] || 0)
     }
 
@@ -1096,7 +1112,7 @@ export default function PayrollPage() {
         order_mistake_deduction: parseFloat((mistakeMap[r.employee_id] || 0).toFixed(2)),
         deduction_1_label: violAmount > 0 ? `مخالفات (${violAmount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MYR)` : 'Violations',
         deduction_2: absAmount,
-        deduction_2_label: absDays > 0 ? `غياب بدون عذر (${absDays} يوم${(penaltyDaysMap[r.employee_id] || 0) > 0 ? `، منها ${penaltyDaysMap[r.employee_id]} عقوبة` : ''})` : 'Absences',
+        deduction_2_label: absDays > 0 ? `غياب بدون عذر (${absDays} يوم${(penaltyDaysMap[r.employee_id] || 0) > 0 ? `، منها ${penaltyDaysMap[r.employee_id]} عقوبة` : ''}${(extraLeaveMap[r.employee_id] || 0) > 0 ? `، منها ${extraLeaveMap[r.employee_id]} إجازة زائدة عن الحصة الشهرية` : ''})` : 'Absences',
       }
     })
     setRecords(allRecords)
@@ -2030,7 +2046,12 @@ export default function PayrollPage() {
                             <span key={d} style={{ background: S.tealB, color: S.teal, borderRadius: 8, padding: '4px 10px', fontSize: 11 }}>{d}</span>
                           ))}
                         </div>
-                        <div style={{ fontSize: 10, color: S.muted, marginTop: 6 }}>هذه الأيام مستثناة من الحساب — لا تُعامَل كغياب ولا تُخصَم من الراتب.</div>
+                        <div style={{ fontSize: 10, color: S.muted, marginTop: 6 }}>هذه الأيام مستثناة من الحساب — لا تُعامَل كغياب ولا تُخصَم من الراتب{(() => {
+                          const cap = empMap[payslipRecord.employee_id]?.weekly_days_off ?? 2
+                          const extra = payslipScheduleInfo.leaveDates.length - cap
+                          const applies = selectedMonth && getMonthDateRange(selectedMonth).monthStart >= '2026-10-01' && !empMap[payslipRecord.employee_id]?.fixed_salary
+                          return applies && extra > 0 ? ` — عدا ${extra === 1 ? 'يوم واحد زائد' : extra + ' أيام زائدة'} عن الحصة الشهرية (${cap}) تُخصم يومًا بيوم` : ''
+                        })()}.</div>
                       </div>
                     )}
                     {payslipScheduleInfo.absentDates.length > 0 && (

@@ -6,7 +6,7 @@ import { selectAll } from '../../../../lib/fetchAllRows'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
 import { sumByKind } from '../../../../lib/violationKind'
-import { EVAL_CRITERIA, getEvalGrade } from '../../../../lib/evaluationCriteria'
+import { evalCriteriaFor, getEvalGrade } from '../../../../lib/evaluationCriteria'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -92,7 +92,7 @@ export default function MySalaryPage() {
   // بباقي موظفي نفس الفرع لنفس الشهر. لا يظهر إلا بعد اعتماد الشهر نهائياً (finalized)
   const [pickupInfo, setPickupInfo] = useState<{ rank: number; total: number } | null>(null)
   // ✅ تقييم الموظف المعتمد لهذا الشهر (درجة كل معيار من 10 + الإجمالي من 100) — المعتمد فقط، لا مسودات ولا قيد المراجعة
-  const [myEval, setMyEval] = useState<{ total: number; scores: Record<string, number> } | null>(null)
+  const [myEval, setMyEval] = useState<{ total: number; raw: Record<string, unknown> } | null>(null)
 
   useEffect(() => {
     if (!myId) return
@@ -128,8 +128,8 @@ export default function MySalaryPage() {
       sb.from('employee_evaluations').select('*').eq('employee_id', myId).eq('status', 'approved').eq('year', selectedMonth.year).eq('month', selectedMonth.month).order('approved_at', { ascending: false }).limit(1),
     ]).then(([recRes, attRes, empRes, violRes, evalRes]) => {
       const record = recRes.data
-      const ev = (evalRes.data || [])[0] as Record<string, number> | undefined
-      setMyEval(ev ? { total: Number(ev.total_score) || 0, scores: Object.fromEntries(EVAL_CRITERIA.map(c => [c.key, Number(ev[c.key]) || 0])) } : null)
+      const ev = (evalRes.data || [])[0] as Record<string, unknown> | undefined
+      setMyEval(ev ? { total: Number(ev.total_score) || 0, raw: ev } : null)
       // احسب المخالفات النشطة فقط
       // ✅ المخالفات العادية منفصلة عن خصومات الكاشير (وجبات شخصية / أخطاء طلب)
       const byKind = sumByKind((violRes.data || []) as { amount?: number | null; kind?: string | null }[])
@@ -388,6 +388,8 @@ export default function MySalaryPage() {
               <div style={{ textAlign: 'center', padding: '14px 0', fontSize: 13, color: S.muted }}>{isAr ? 'لم يُعتمد تقييمك لهذا الشهر بعد' : 'Your evaluation for this month has not been approved yet'}</div>
             ) : (() => {
               const grade = getEvalGrade(myEval.total, isAr)
+              // ✅ طقم المعايير حسب قسمك (المطبخ/البار/الحلويات/النظافة لهم معايير بدل «التعامل مع العملاء»)
+              const criteria = evalCriteriaFor(myEmp?.department, myEval.raw)
               return (
                 <>
                   <div style={{ textAlign: 'center', padding: '6px 0 16px' }}>
@@ -395,8 +397,8 @@ export default function MySalaryPage() {
                     <div style={{ fontSize: 14, fontWeight: 800, color: grade.color, marginTop: 6 }}>{myEval.total.toFixed(1)}% · {grade.label}</div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {EVAL_CRITERIA.map(c => {
-                      const score = myEval.scores[c.key] || 0
+                    {criteria.map(c => {
+                      const score = Number(myEval.raw[c.key]) || 0
                       const pct = Math.round(score * 10)
                       const points = (score / 10) * c.weight
                       const col = getEvalGrade(pct, isAr).color

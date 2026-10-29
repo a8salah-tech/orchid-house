@@ -6,7 +6,7 @@ import { useAuth } from '../../../components/AuthProvider'
 import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE, KITCHEN_ASSISTANT_ROLE } from '../../../../lib/roles'
 import { useLang } from '../../../components/LanguageContext'
 import { VIOLATION_KIND_META, normalizeKind, type ViolationKind } from '../../../../lib/violationKind'
-import { EVAL_CRITERIA, calcEvalTotal, getEvalGrade } from '../../../../lib/evaluationCriteria'
+import { EVAL_ALL_KEYS, evalCriteriaFor, calcEvalTotal, getEvalGrade } from '../../../../lib/evaluationCriteria'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,7 +54,6 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'rtl',
 }
 
-const CRITERIA = EVAL_CRITERIA
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
 const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December']
 // ✅ آخر يوم في الشهر يُسمح فيه بالتقييم والاعتماد (بتوقيت ماليزيا UTC+8 الثابت، لا بتوقيت جهاز المستخدم)
@@ -372,7 +371,7 @@ export default function ViolationsPage() {
       const {data:evData}=await sb.from('employee_evaluations').select('*').in('employee_id',ids).eq('month',evalMonth).eq('year',evalYear)
       setEvals(evData||[])
       const sm:Record<string,Record<string,number>>={};const nm:Record<string,string>={}
-      for(const ev of(evData||[])){sm[ev.employee_id]=CRITERIA.reduce((a:any,c)=>({...a,[c.key]:ev[c.key]||0}),{});nm[ev.employee_id]=ev.notes||''}
+      for(const ev of(evData||[])){sm[ev.employee_id]=EVAL_ALL_KEYS.reduce((a:any,k)=>({...a,[k]:ev[k]||0}),{});nm[ev.employee_id]=ev.notes||''}
       setEvalScores(sm);setEvalNotes(nm)
     } else{setEvals([]);setEvalScores({});setEvalNotes({})}
     setEvalLoading(false)
@@ -382,11 +381,14 @@ export default function ViolationsPage() {
   async function saveEval(empId:string, action: 'draft'|'submit'|'approve' = 'draft'){
     if(action==='approve' && malaysiaDayOfMonth()>EVAL_LAST_DAY){alert(isAr?`انتهت فترة الاعتماد (حتى يوم ${EVAL_LAST_DAY})`:`Approval period ended (day ${EVAL_LAST_DAY})`);return}
     setEvalSaving(empId)
-    const sc=evalScores[empId]||{};const total=calcTotal(sc);const ex=evals.find(e=>e.employee_id===empId)
+    const sc=evalScores[empId]||{};const ex=evals.find(e=>e.employee_id===empId)
+    // ✅ طقم المعايير حسب قسم الموظف (المطبخ/البار/الحلويات/النظافة: بدل «التعامل مع العملاء» أربعة معايير)
+    const crit=evalCriteriaFor(evalEmps.find(e=>e.id===empId)?.department, ex);const total=calcTotal(sc,crit)
     const newStatus = action==='approve' ? 'approved' : action==='submit' ? 'submitted' : 'draft'
     const payload={
       employee_id:empId, evaluator_id:employee?.id, month:evalMonth, year:evalYear,
-      ...CRITERIA.reduce((a:any,c)=>({...a,[c.key]:sc[c.key]||0}),{}),
+      // المعايير غير المطبَّقة على هذا الموظف تُحفظ صفرًا (مثل «التعامل مع العملاء» لموظف المطبخ)
+      ...['customer_service',...crit.map(c=>c.key)].reduce((a:any,k)=>({...a,[k]:crit.some(c=>c.key===k)?(sc[k]||0):0}),{}),
       total_score:parseFloat(total.toFixed(2)), notes:evalNotes[empId]||null,
       status:newStatus,
       submitted_at: action==='submit' ? new Date().toISOString() : (ex?.submitted_at||null),
@@ -919,7 +921,8 @@ export default function ViolationsPage() {
           ) : visibleEmps.map((emp: any) => {
             const ex = evals.find(e => e.employee_id === emp.id)
             const sc = evalScores[emp.id] || {}
-            const total = calcTotal(sc)
+            const crit = evalCriteriaFor(emp.department, ex)
+            const total = calcTotal(sc, crit)
             const grade = getGrade(total, isAr)
             const canEdit = ex?.status !== 'approved' && malaysiaDayOfMonth() <= EVAL_LAST_DAY
             // ✅ لو التقييم معتمد وأنا مش مدير قسم أو أدمن، أشوف بس الاسم من غير أي تفاصيل
@@ -949,7 +952,7 @@ export default function ViolationsPage() {
                 ) : (
                 <>
                 <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
-                  {CRITERIA.map(c => (
+                  {crit.map(c => (
                     <div key={c.key}>
                       <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
                         <span style={{fontSize:12,color:S.white}}>{c.icon} {isAr?c.label:c.label_en} <span style={{color:S.muted,fontSize:10}}>({c.weight}%)</span></span>

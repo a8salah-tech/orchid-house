@@ -6,6 +6,7 @@ import { selectAll } from '../../../../lib/fetchAllRows'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
 import { sumByKind } from '../../../../lib/violationKind'
+import { EVAL_CRITERIA, getEvalGrade } from '../../../../lib/evaluationCriteria'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -90,6 +91,8 @@ export default function MySalaryPage() {
   // ✅ دور الموظف في استلام الراتب نقداً — يُحسَب من التزامه بالحضور والانصراف + تقييم أدائه، مقارنة
   // بباقي موظفي نفس الفرع لنفس الشهر. لا يظهر إلا بعد اعتماد الشهر نهائياً (finalized)
   const [pickupInfo, setPickupInfo] = useState<{ rank: number; total: number } | null>(null)
+  // ✅ تقييم الموظف المعتمد لهذا الشهر (درجة كل معيار من 10 + الإجمالي من 100) — المعتمد فقط، لا مسودات ولا قيد المراجعة
+  const [myEval, setMyEval] = useState<{ total: number; scores: Record<string, number> } | null>(null)
 
   useEffect(() => {
     if (!myId) return
@@ -106,7 +109,7 @@ export default function MySalaryPage() {
   }, [myId])
 
   useEffect(() => {
-    if (!selectedMonth || !myId) { setMyRecord(null); return }
+    if (!selectedMonth || !myId) { setMyRecord(null); setMyEval(null); return }
     setLoadingRecord(true)
 
     const monthStart = `${selectedMonth.year}-${String(selectedMonth.month).padStart(2, '0')}-01`
@@ -121,8 +124,12 @@ export default function MySalaryPage() {
       // موظف الراتب الثابت لا يُخصم منه إذن الخروج (نفس قاعدة الرواتب)
       sb.from('employees').select('fixed_salary').eq('id', myId).maybeSingle(),
       sb.from('violations').select('amount,kind').eq('employee_id', myId).eq('status','active').gte('date', monthStart).lte('date', monthEnd),
-    ]).then(([recRes, attRes, empRes, violRes]) => {
+      // ✅ تقييم هذا الشهر المعتمد فقط (آخر اعتماد لو تكرر)
+      sb.from('employee_evaluations').select('*').eq('employee_id', myId).eq('status', 'approved').eq('year', selectedMonth.year).eq('month', selectedMonth.month).order('approved_at', { ascending: false }).limit(1),
+    ]).then(([recRes, attRes, empRes, violRes, evalRes]) => {
       const record = recRes.data
+      const ev = (evalRes.data || [])[0] as Record<string, number> | undefined
+      setMyEval(ev ? { total: Number(ev.total_score) || 0, scores: Object.fromEntries(EVAL_CRITERIA.map(c => [c.key, Number(ev[c.key]) || 0])) } : null)
       // احسب المخالفات النشطة فقط
       // ✅ المخالفات العادية منفصلة عن خصومات الكاشير (وجبات شخصية / أخطاء طلب)
       const byKind = sumByKind((violRes.data || []) as { amount?: number | null; kind?: string | null }[])
@@ -372,6 +379,47 @@ export default function MySalaryPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* ✅ تقييم الأداء الشهري: درجة كل معيار ونسبته ووزنه ونقاطه، والإجمالي من 100 */}
+          <div style={{ background: S.navy2, borderRadius: 14, border: `1px solid ${S.border}`, padding: '14px 16px' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: S.muted, marginBottom: 12 }}>⭐ {isAr ? 'تقييم الأداء' : 'Performance Evaluation'} — {(isAr ? MONTHS_AR : MONTHS_EN)[(selectedMonth.month || 1) - 1]} {selectedMonth.year}</div>
+            {!myEval ? (
+              <div style={{ textAlign: 'center', padding: '14px 0', fontSize: 13, color: S.muted }}>{isAr ? 'لم يُعتمد تقييمك لهذا الشهر بعد' : 'Your evaluation for this month has not been approved yet'}</div>
+            ) : (() => {
+              const grade = getEvalGrade(myEval.total, isAr)
+              return (
+                <>
+                  <div style={{ textAlign: 'center', padding: '6px 0 16px' }}>
+                    <div style={{ fontSize: 40, fontWeight: 900, color: grade.color, lineHeight: 1.1 }}>{myEval.total.toFixed(1)}<span style={{ fontSize: 16, color: S.muted, fontWeight: 700 }}> / 100</span></div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: grade.color, marginTop: 6 }}>{myEval.total.toFixed(1)}% · {grade.label}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {EVAL_CRITERIA.map(c => {
+                      const score = myEval.scores[c.key] || 0
+                      const pct = Math.round(score * 10)
+                      const points = (score / 10) * c.weight
+                      const col = getEvalGrade(pct, isAr).color
+                      return (
+                        <div key={c.key}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 5 }}>
+                            <span style={{ fontSize: 12, color: S.white }}>{c.icon} {isAr ? c.label : c.label_en}</span>
+                            <span style={{ fontSize: 13, fontWeight: 800, color: col, whiteSpace: 'nowrap' }}>{pct}%</span>
+                          </div>
+                          <div style={{ height: 7, borderRadius: 4, background: S.card2, overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: col, borderRadius: 4 }} />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, color: S.muted }}>
+                            <span>{isAr ? 'الدرجة' : 'Score'}: {score}/10</span>
+                            <span>{isAr ? 'الوزن' : 'Weight'}: {c.weight}% · {isAr ? 'النقاط' : 'Points'}: {points.toFixed(1)}/{c.weight}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )
+            })()}
           </div>
 
           {/* Earnings */}

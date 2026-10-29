@@ -6,6 +6,7 @@ import { useAuth } from '../../../components/AuthProvider'
 import { DEPT_MANAGER_ROLES, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE, KITCHEN_ASSISTANT_ROLE } from '../../../../lib/roles'
 import { useLang } from '../../../components/LanguageContext'
 import { VIOLATION_KIND_META, normalizeKind, type ViolationKind } from '../../../../lib/violationKind'
+import { EVAL_CRITERIA, calcEvalTotal, getEvalGrade } from '../../../../lib/evaluationCriteria'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,30 +54,15 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box', direction: 'rtl',
 }
 
-const CRITERIA = [
-  { key: 'attendance',       weight: 15, label: 'الحضور والالتزام',          label_en: 'Attendance & Punctuality',       icon: '⏰' },
-  { key: 'work_quality',     weight: 20, label: 'جودة الأداء والإنتاجية',    label_en: 'Work Quality & Productivity',    icon: '⭐' },
-  { key: 'customer_service', weight: 15, label: 'التعامل مع العملاء',        label_en: 'Customer Service',               icon: '🤝' },
-  { key: 'hygiene',          weight: 10, label: 'النظافة الشخصية والمظهر',   label_en: 'Personal Hygiene & Appearance',  icon: '✨' },
-  { key: 'teamwork',         weight: 10, label: 'العمل الجماعي والتعاون',    label_en: 'Teamwork & Cooperation',         icon: '👥' },
-  { key: 'food_safety',      weight: 15, label: 'السلامة والنظافة الغذائية', label_en: 'Food Safety & Hygiene Standards', icon: '🍽️' },
-  { key: 'initiative',       weight: 10, label: 'المبادرة وحل المشكلات',    label_en: 'Initiative & Problem Solving',   icon: '💡' },
-  { key: 'discipline',       weight: 5,  label: 'الانضباط واحترام القوانين', label_en: 'Discipline & Rule Compliance',   icon: '📋' },
-]
+const CRITERIA = EVAL_CRITERIA
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']
 const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December']
 // ✅ آخر يوم في الشهر يُسمح فيه بالتقييم والاعتماد (بتوقيت ماليزيا UTC+8 الثابت، لا بتوقيت جهاز المستخدم)
 const EVAL_LAST_DAY = 25
 const malaysiaDayOfMonth = () => new Date(Date.now() + 8 * 3600e3).getUTCDate()
 
-function calcTotal(sc: Record<string,number>) { return CRITERIA.reduce((s,c)=>s+((sc[c.key]||0)/10)*c.weight,0) }
-function getGrade(t: number, ar: boolean) {
-  if(t>=90) return {label:ar?'ممتاز':'Excellent',color:'#22C55E'}
-  if(t>=75) return {label:ar?'جيد جداً':'Very Good',color:'#14B8A6'}
-  if(t>=60) return {label:ar?'جيد':'Good',color:'#3B82F6'}
-  if(t>=50) return {label:ar?'مقبول':'Acceptable',color:'#F59E0B'}
-  return {label:ar?'ضعيف':'Poor',color:'#EF4444'}
-}
+const calcTotal = calcEvalTotal
+const getGrade = getEvalGrade
 
 // ✅ قايمة اختيار موظف قابلة للبحث الحي بالاسم (عربي/إنجليزي) أو رقم الموظف — بديل لـ<select> العادية
 // اللي كانت بتخلي البحث ببرمجيات المتصفح الافتراضية بس (بتطابق أول حروف النص الظاهر فقط، مش رقم الموظف)

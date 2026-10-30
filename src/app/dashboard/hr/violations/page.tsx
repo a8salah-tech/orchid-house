@@ -59,6 +59,8 @@ const MONTHS_EN = ['January','February','March','April','May','June','July','Aug
 // ✅ آخر يوم في الشهر يُسمح فيه بالتقييم والاعتماد (بتوقيت ماليزيا UTC+8 الثابت، لا بتوقيت جهاز المستخدم)
 const EVAL_LAST_DAY = 25
 const malaysiaDayOfMonth = () => new Date(Date.now() + 8 * 3600e3).getUTCDate()
+// ✅ الشهر الحالي بتوقيت ماليزيا — مدير النظام يعدّل ويعتمد التقييم طوال الشهر الحالي فقط (حتى بعد يوم الـ25)، والأشهر المنتهية مقفولة
+const malaysiaYearMonth = () => { const d = new Date(Date.now() + 8 * 3600e3); return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 } }
 
 const calcTotal = calcEvalTotal
 const getGrade = getEvalGrade
@@ -379,7 +381,10 @@ export default function ViolationsPage() {
   useEffect(()=>{if(employee?.id&&activeTab==='evaluations')fetchEvaluations()},[employee?.id,activeTab,evalMonth,evalYear,activeBranch])
 
   async function saveEval(empId:string, action: 'draft'|'submit'|'approve' = 'draft'){
-    if(action==='approve' && malaysiaDayOfMonth()>EVAL_LAST_DAY){alert(isAr?`انتهت فترة الاعتماد (حتى يوم ${EVAL_LAST_DAY})`:`Approval period ended (day ${EVAL_LAST_DAY})`);return}
+    const nowKL=malaysiaYearMonth()
+    // مدير النظام: لا تعديل ولا اعتماد على شهر منتهٍ (حتى لا تتغير الأشهر السابقة)، وبلا قيد يوم الـ25 في الشهر الحالي
+    if(isAdmin && (evalMonth!==nowKL.month||evalYear!==nowKL.year)){alert(isAr?'لا يمكن تعديل تقييم شهر منتهٍ':'Evaluations of a past month cannot be edited');return}
+    if(!isAdmin && action==='approve' && malaysiaDayOfMonth()>EVAL_LAST_DAY){alert(isAr?`انتهت فترة الاعتماد (حتى يوم ${EVAL_LAST_DAY})`:`Approval period ended (day ${EVAL_LAST_DAY})`);return}
     setEvalSaving(empId)
     const sc=evalScores[empId]||{};const ex=evals.find(e=>e.employee_id===empId)
     // ✅ طقم المعايير حسب قسم الموظف (المطبخ/البار/الحلويات/النظافة: بدل «التعامل مع العملاء» أربعة معايير)
@@ -924,7 +929,9 @@ export default function ViolationsPage() {
             const crit = evalCriteriaFor(emp.department, ex)
             const total = calcTotal(sc, crit)
             const grade = getGrade(total, isAr)
-            const canEdit = ex?.status !== 'approved' && malaysiaDayOfMonth() <= EVAL_LAST_DAY
+            // مدير النظام: يعدّل ويعتمد (حتى المعتمد) طوال الشهر الحالي بلا قيد يوم الـ25؛ غيره: قبل الاعتماد وحتى يوم الـ25 فقط
+            const isCurrentEvalMonth = evalMonth === malaysiaYearMonth().month && evalYear === malaysiaYearMonth().year
+            const canEdit = isAdmin ? isCurrentEvalMonth : (ex?.status !== 'approved' && malaysiaDayOfMonth() <= EVAL_LAST_DAY)
             // ✅ لو التقييم معتمد وأنا مش مدير قسم أو أدمن، أشوف بس الاسم من غير أي تفاصيل
             const isApprovedAndRestricted = ex?.status === 'approved' && !canViewApprovedEvaluations
             return (
@@ -979,7 +986,7 @@ export default function ViolationsPage() {
                 {canEdit && <textarea style={{width:'100%',background:'rgba(255,255,255,0.04)',border:`1px solid ${S.border}`,borderRadius:10,padding:'8px 12px',fontSize:12,color:S.white,outline:'none',fontFamily:'Tajawal, sans-serif',direction:'rtl',resize:'none',minHeight:60,boxSizing:'border-box',marginBottom:12} as React.CSSProperties} value={evalNotes[emp.id]||''} onChange={e=>setEvalNotes(p=>({...p,[emp.id]:e.target.value}))} placeholder={isAr?'ملاحظات...':'Notes...'}/>}
                 {ex?.status==='approved' && <div style={{background:S.greenB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.green,marginBottom:10}}>✅ {isAr?'تم الاعتماد النهائي':'Final Approved'} · {ex.approved_at?new Date(ex.approved_at).toLocaleDateString():''}</div>}
                 {ex?.status==='draft' && ex?.total_score > 0 && <div style={{background:S.blueB,borderRadius:10,padding:'6px 14px',fontSize:11,color:S.blue,marginBottom:10}}>📝 {isAr?'مسودة محفوظة':'Saved as draft'}</div>}
-                {!canEdit && ex?.status!=='approved' && <div style={{background:S.amberB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.amber,marginBottom:10}}>⚠️ {isAr?`انتهت فترة التقييم (حتى يوم ${EVAL_LAST_DAY})`:`Evaluation period ended (until day ${EVAL_LAST_DAY})`}</div>}
+                {!canEdit && ex?.status!=='approved' && <div style={{background:S.amberB,borderRadius:10,padding:'8px 14px',fontSize:12,color:S.amber,marginBottom:10}}>⚠️ {isAdmin?(isAr?'الشهر منتهٍ — لا يمكن تعديل التقييم':'This month is over — the evaluation can no longer be edited'):(isAr?`انتهت فترة التقييم (حتى يوم ${EVAL_LAST_DAY})`:`Evaluation period ended (until day ${EVAL_LAST_DAY})`)}</div>}
                 {/* Supervisor buttons: Save Draft + Submit to Manager */}
                 {canEdit && isSupervisor && ex?.status !== 'submitted' && (
                   <div style={{display:'flex',gap:10}}>
@@ -1019,6 +1026,15 @@ export default function ViolationsPage() {
                     <button onClick={()=>saveEval(emp.id,'approve')} disabled={evalSaving===emp.id}
                       style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700}}>
                       {evalSaving===emp.id?'⏳':(isAr?'✅ اعتماد':'✅ Approve')}
+                    </button>
+                  </div>
+                )}
+                {/* مدير النظام: تعديل تقييم معتمد في الشهر الحالي — يبقى معتمدًا */}
+                {canEdit && isAdmin && ex?.status === 'approved' && (
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>saveEval(emp.id,'approve')} disabled={evalSaving===emp.id||total===0}
+                      style={{flex:1,padding:'9px',borderRadius:10,border:`1px solid ${S.green}`,background:S.greenB,color:S.green,cursor:total===0?'not-allowed':'pointer',fontSize:13,fontFamily:'Tajawal, sans-serif',fontWeight:700,opacity:total===0?0.5:1}}>
+                      {evalSaving===emp.id?'⏳':(isAr?'💾 حفظ التعديل (يبقى معتمدًا)':'💾 Save changes (stays approved)')}
                     </button>
                   </div>
                 )}

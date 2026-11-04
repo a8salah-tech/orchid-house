@@ -2693,6 +2693,8 @@ export default function CashierPage() {
   // ✅ الجلسة المفتوحة حاليًا للفرع (الكاشير الممسك بالشيفت) + إشعار «الشيفت ممسوك» عند محاولة البدء وهناك جلسة مفتوحة
   const [openShiftSession, setOpenShiftSession] = useState<OpenShiftSession | null>(null)
   const [shiftHeldNotice, setShiftHeldNotice] = useState<OpenShiftSession | null>(null)
+  // ✅ للأدمن/المشرف العام: الكاشير الممسك بالشيفت في كل فرع (يتبع تبويب الفرع المختار في الصفحة)
+  const [branchHolders, setBranchHolders] = useState<(OpenShiftSession & { branch_id: string | null })[]>([])
   // ✅ جديد: تسجيل مصروف نقدي أثناء الشيفت مباشرة من شاشة الكاشير (بدل ما يحتاج يفتح صفحة اليومية)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [expDesc, setExpDesc] = useState('')
@@ -2880,9 +2882,23 @@ export default function CashierPage() {
         setShiftStarted(false); setShiftStart(null)
       }
     }
+    if (isAdmin) {
+      const { data: all, error: allErr } = await sb.from('cashier_shift_sessions').select('id,shift,cashier_name,started_at,branch_id').is('ended_at', null).order('started_at', { ascending: false })
+      if (!allErr) {
+        // جلسة واحدة (الأحدث) لكل فرع، وتُهمَل المنسية
+        const seen = new Set<string>()
+        const list: (OpenShiftSession & { branch_id: string | null })[] = []
+        for (const r of (all || []) as (OpenShiftSession & { branch_id: string | null })[]) {
+          const k = r.branch_id || ''
+          if (seen.has(k) || isStaleShiftSession(r.started_at)) continue
+          seen.add(k); list.push(r)
+        }
+        setBranchHolders(list)
+      }
+    }
     // الكاشير العادي يتبع شيفت الجلسة المفتوحة (الأدمن يتصفح أي شيفت بحرية)
     if (session && !isAdmin) setShift(session.shift)
-  }, [loadOpenShiftSession, isCashierRole, isAdmin])
+  }, [sb, loadOpenShiftSession, isCashierRole, isAdmin])
   useEffect(() => { fetchActiveShiftCashier() }, [fetchActiveShiftCashier])
   // تحديث حي لكل من يفتح الصفحة (بدء/إغلاق الشيفت من أي جهاز) + استعلام دوري احتياطي
   useEffect(() => {
@@ -3845,11 +3861,27 @@ export default function CashierPage() {
             <option value="shift3">Shift 3</option>
           </select>
           {/* ✅ جديد: شارة اسم الكاشير الحالي - تظهر لأي شخص يفتح الصفحة، مش بس اللي بدأ الشيفت من جهازه */}
-          {activeShiftCashierName && (
+          {!isAdmin && activeShiftCashierName && (
             <div style={{ background: S.tealB, border: `1px solid ${S.teal}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, color: S.teal, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
               🧑‍💼 Cashier: {activeShiftCashierName}{openShiftSession ? ` · ${shiftLabel(openShiftSession.shift)} · since ${klTime(openShiftSession.started_at)}` : ''}
             </div>
           )}
+          {/* ✅ الأدمن/المشرف العام: من يمسك الشيفت في كل فرع (أو الفرع المختار فقط) */}
+          {isAdmin && (() => {
+            const shown = branches.filter(b => !adminBranchFilter || b.id === adminBranchFilter)
+            return shown.map(b => {
+              const h = branchHolders.find(x => x.branch_id === b.id)
+              return h ? (
+                <div key={b.id} style={{ background: S.tealB, border: `1px solid ${S.teal}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, color: S.teal, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
+                  🧑‍💼 {b.name}: {h.cashier_name} · {shiftLabel(h.shift)} · since {klTime(h.started_at)}
+                </div>
+              ) : (
+                <div key={b.id} style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, color: S.muted, fontFamily: 'Tajawal, sans-serif' }}>
+                  💤 {b.name}: no cashier on shift
+                </div>
+              )
+            })
+          })()}
           {/* ✅ جديد: تسجيل مصروف نقدي أثناء الشيفت مباشرة - زي "خرجت 100 رينجت لشراء حاجة" */}
           {shiftStarted && (
             <button onClick={() => setShowExpenseModal(true)}

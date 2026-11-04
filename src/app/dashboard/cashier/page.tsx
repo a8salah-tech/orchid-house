@@ -2105,6 +2105,14 @@ function AddOrderModal({ tableId, tableName, branchId, isStaffTable, onClose, on
 
 
 // ══ Shift Report Modal ══
+// ✅ جلسة شيفت الكاشير المفتوحة — جلسة واحدة فقط مفتوحة لكل فرع في أي لحظة (db/cashier_single_open_shift.sql)
+type OpenShiftSession = { id: string; shift: 'shift1' | 'shift2' | 'shift3'; cashier_name: string; started_at: string }
+// جلسة مفتوحة أقدم من هذا الحد تُعتبر منسية (الشيفتات 5–10 ساعات): لا تُظهَر كممسوكة ولا تمنع بدء شيفت جديد
+const STALE_SHIFT_MS = 14 * 60 * 60 * 1000
+const isStaleShiftSession = (startedAt: string) => Date.now() - new Date(startedAt).getTime() > STALE_SHIFT_MS
+const shiftLabel = (v: string) => v === 'shift1' ? 'Shift 1' : v === 'shift2' ? 'Shift 2' : 'Shift 3'
+const klTime = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' })
+
 function ShiftReportModal({ orders, shift, shiftStart, fetchPaid, onClose }: { orders: Order[]; shift: string; shiftStart: Date | null; fetchPaid: () => Promise<Order[]>; onClose: () => void }) {
   const [paidOrders, setPaidOrders] = useState<Order[]>([])
   useEffect(() => { fetchPaid().then(setPaidOrders) }, [])
@@ -2682,6 +2690,9 @@ export default function CashierPage() {
   const [shiftStart, setShiftStart] = useState<Date | null>(null)
   // ✅ جديد: اسم الكاشير اللي ماسك الشيفت المختار حاليًا - بييجي من قاعدة البيانات فيبان لأي حد بيفتح الصفحة
   const [activeShiftCashierName, setActiveShiftCashierName] = useState<string | null>(null)
+  // ✅ الجلسة المفتوحة حاليًا للفرع (الكاشير الممسك بالشيفت) + إشعار «الشيفت ممسوك» عند محاولة البدء وهناك جلسة مفتوحة
+  const [openShiftSession, setOpenShiftSession] = useState<OpenShiftSession | null>(null)
+  const [shiftHeldNotice, setShiftHeldNotice] = useState<OpenShiftSession | null>(null)
   // ✅ جديد: تسجيل مصروف نقدي أثناء الشيفت مباشرة من شاشة الكاشير (بدل ما يحتاج يفتح صفحة اليومية)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [expDesc, setExpDesc] = useState('')
@@ -2842,22 +2853,46 @@ export default function CashierPage() {
     else beep([660, 880, 1100])
   }
 
-  // ✅ جديد: جلب اسم الكاشير اللي ماسك الشيفت الحالي (للفرع والشيفت المختارين) من قاعدة البيانات
-  // بيبان لأي حد بيفتح الصفحة، مش بس اللي بدأ الشيفت من جهازه
-  // ✅ Fix حرج: شلنا شرط session_date = النهاردة بالكامل. المطعم شغال 24 ساعة، فلو شيفت بدأ قبل منتصف الليل
-  // واستمر بعده، "النهاردة" بتتغيّر لكن الجلسة لسه شغالة فعليًا - فكان بيختفي اسم الكاشير فجأة بعد منتصف الليل
-  // ويرجع يوري "Start Shift" وكأن محدش ماسك الشيفت. دلوقتي بندور بس على "أحدث جلسة لسه مفتوحة" (ended_at فاضي)
-  // لنفس الشيفت والفرع، بغض النظر عن تاريخها - وده صحيح منطقيًا لأنه أصلًا مفروض تكون جلسة واحدة بس مفتوحة في كل لحظة
+  // ✅ قاعدة جديدة: كاشير واحد فقط ممسك بالشيفت في كل فرع. نبحث عن الجلسة المفتوحة للفرع بغض النظر عن رقم الشيفت،
+  // وتُهمَل الجلسة المنسية الأقدم من STALE_SHIFT_MS (لا تُعرَض ولا تمنع البدء). خطأ الشبكة ≠ «لا جلسة»: نرجع ok=false.
+  const loadOpenShiftSession = useCallback(async (scopeNull = false): Promise<{ ok: boolean; session: OpenShiftSession | null }> => {
+    let q = sb.from('cashier_shift_sessions').select('id,shift,cashier_name,started_at')
+      .is('ended_at', null).order('started_at', { ascending: false }).limit(1)
+    if (employee?.branch_id) q = q.eq('branch_id', employee.branch_id)
+    else if (scopeNull) q = q.is('branch_id', null) // أدمن بلا فرع: يفحص جلساته هو فقط عند البدء
+    const { data, error } = await q.maybeSingle()
+    if (error) return { ok: false, session: null }
+    const row = (data as OpenShiftSession | null) || null
+    return { ok: true, session: row && !isStaleShiftSession(row.started_at) ? row : null }
+  }, [sb, employee?.branch_id])
+
   const fetchActiveShiftCashier = useCallback(async () => {
     if (!isCashierRole) return
-    let q = sb.from('cashier_shift_sessions').select('cashier_name')
-      .eq('shift', shift).is('ended_at', null)
-      .order('started_at', { ascending: false }).limit(1)
-    if (employee?.branch_id) q = q.eq('branch_id', employee.branch_id)
-    const { data } = await q.maybeSingle()
-    setActiveShiftCashierName(data?.cashier_name || null)
-  }, [sb, shift, employee?.branch_id, isCashierRole])
+    const { ok, session } = await loadOpenShiftSession()
+    if (!ok) return
+    setOpenShiftSession(session)
+    setActiveShiftCashierName(session?.cashier_name || null)
+    const localId = localStorage.getItem('cashier_shift_session_id')
+    if (!session || (localId && localId !== session.id)) {
+      // الجلسة أُغلقت (من جهاز آخر أو من الإدارة) أو حلّت محلها جلسة أخرى: لم يعد هذا الجهاز ممسكًا بالشيفت
+      if (localStorage.getItem('cashier_shift_active') === 'true') {
+        localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start'); localStorage.removeItem('cashier_shift_session_id')
+        setShiftStarted(false); setShiftStart(null)
+      }
+    }
+    // الكاشير العادي يتبع شيفت الجلسة المفتوحة (الأدمن يتصفح أي شيفت بحرية)
+    if (session && !isAdmin) setShift(session.shift)
+  }, [loadOpenShiftSession, isCashierRole, isAdmin])
   useEffect(() => { fetchActiveShiftCashier() }, [fetchActiveShiftCashier])
+  // تحديث حي لكل من يفتح الصفحة (بدء/إغلاق الشيفت من أي جهاز) + استعلام دوري احتياطي
+  useEffect(() => {
+    if (!isCashierRole) return
+    const timer = setInterval(() => { fetchActiveShiftCashier() }, 20000)
+    const channel = sb.channel('cashier-shift-sessions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cashier_shift_sessions' }, () => { fetchActiveShiftCashier() })
+      .subscribe()
+    return () => { clearInterval(timer); sb.removeChannel(channel) }
+  }, [sb, isCashierRole, fetchActiveShiftCashier])
 
   // Restore shift from localStorage
   useEffect(() => {
@@ -2865,6 +2900,7 @@ export default function CashierPage() {
     const start  = localStorage.getItem('cashier_shift_start')
     const sv     = localStorage.getItem('cashier_shift_value')
     if (active === 'true' && start) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShiftStarted(true)
       setShiftStart(new Date(start))
     }
@@ -3803,7 +3839,7 @@ export default function CashierPage() {
         </div>
         {/* Row 2: Shift */}
         {isCashierRole && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <select value={shift} onChange={e => setShift(e.target.value as any)} style={{ background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 10px', color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
+          <select value={shift} disabled={!isAdmin && !!openShiftSession} onChange={e => setShift(e.target.value as any)} style={{ opacity: !isAdmin && openShiftSession ? 0.6 : 1, background: S.navy3, border: `1px solid ${S.border}`, borderRadius: 8, padding: '5px 10px', color: S.white, fontSize: 12, fontFamily: 'Tajawal, sans-serif', cursor: 'pointer' }}>
             <option value="shift1">Shift 1</option>
             <option value="shift2">Shift 2</option>
             <option value="shift3">Shift 3</option>
@@ -3811,7 +3847,7 @@ export default function CashierPage() {
           {/* ✅ جديد: شارة اسم الكاشير الحالي - تظهر لأي شخص يفتح الصفحة، مش بس اللي بدأ الشيفت من جهازه */}
           {activeShiftCashierName && (
             <div style={{ background: S.tealB, border: `1px solid ${S.teal}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, color: S.teal, fontWeight: 700, fontFamily: 'Tajawal, sans-serif' }}>
-              🧑‍💼 Cashier: {activeShiftCashierName}
+              🧑‍💼 Cashier: {activeShiftCashierName}{openShiftSession ? ` · ${shiftLabel(openShiftSession.shift)} · since ${klTime(openShiftSession.started_at)}` : ''}
             </div>
           )}
           {/* ✅ جديد: تسجيل مصروف نقدي أثناء الشيفت مباشرة - زي "خرجت 100 رينجت لشراء حاجة" */}
@@ -3832,6 +3868,10 @@ export default function CashierPage() {
             <button onClick={async () => {
               // ✅ جديد: بدل ما ناخد الاسم تلقائي من الحساب (مهم لو الحساب مشترك بين أكتر من كاشير)، نفتح
               // مودال يطلب اختيار/كتابة الاسم الحقيقي الأول
+              // ✅ كاشير واحد فقط ممسك بالشيفت: لو فيه جلسة مفتوحة للفرع نعرض من يمسكها ولا نفتح نافذة البدء
+              const chk = await loadOpenShiftSession(true)
+              if (!chk.ok) { alert('Could not check the current shift. Please check your connection and try again.'); return }
+              if (chk.session) { setShiftHeldNotice(chk.session); fetchActiveShiftCashier(); return }
               const { data } = await sb.from('employees').select('id,name')
                 .in('role', ['cashier', 'assistant_cashier']).eq('is_active', true)
                 .eq('branch_id', employee?.branch_id || '').order('name')
@@ -5285,22 +5325,35 @@ export default function CashierPage() {
               onClick={async () => {
                 const finalName = (startShiftSelectedName || startShiftCustomName).trim()
                 if (!finalName) { alert('Please select or type a name'); return }
+                // ✅ فحص أخير قبل الإدراج (قد يكون زميل بدأ للتو من جهاز آخر)
+                const chk = await loadOpenShiftSession(true)
+                if (!chk.ok) { alert('Could not check the current shift. Please check your connection and try again.'); return }
+                if (chk.session) { setShowStartShiftModal(false); setShiftHeldNotice(chk.session); fetchActiveShiftCashier(); return }
                 const now = new Date()
-                setShiftStarted(true); setShiftStart(now)
-                localStorage.setItem('cashier_shift_active', 'true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift)
-                // ✅ تسليم/استلام: نقفل أي جلسة مفتوحة *حديثة* لنفس الشيفت+الفرع قبل ما نفتح الجديدة — عشان
-                // ماتفضلش جلسة يتيمة مفتوحة (كاشير نسي End Shift) تلخبط اسم الكاشير الحالي ونسبة المصروفات.
-                // بنحصرها في آخر 36 ساعة بس: جلسة قديمة جدًا اتنسيت مفتوحة أصلًا مخفية من كل التقارير
-                // (بسبب حارس started_at في تقرير اليومية)، وقفلها بوقت "النهاردة" كان بيلغبطها هناك.
+                // جلسة منسية (أقدم من الحد) لا تمنع البدء لكن تُغلق أولًا: الأقدم من 36 ساعة تُغلق عند وقت بدايتها
+                // (فلا تتسرب لتقرير اليومية) والأحدث تُغلق الآن
                 if (employee?.branch_id) {
-                  const recentCutoff = new Date(now.getTime() - 36 * 60 * 60 * 1000).toISOString()
-                  await sb.from('cashier_shift_sessions')
-                    .update({ ended_at: now.toISOString() })
-                    .eq('branch_id', employee.branch_id).eq('shift', shift)
-                    .is('ended_at', null).gte('started_at', recentCutoff)
+                  const { data: stale } = await sb.from('cashier_shift_sessions').select('id,started_at')
+                    .eq('branch_id', employee.branch_id).is('ended_at', null)
+                  for (const st of (stale || []) as { id: string; started_at: string }[]) {
+                    const veryOld = now.getTime() - new Date(st.started_at).getTime() > 36 * 60 * 60 * 1000
+                    await sb.from('cashier_shift_sessions').update({ ended_at: veryOld ? st.started_at : now.toISOString() }).eq('id', st.id).is('ended_at', null)
+                  }
                 }
                 // ✅ الاسم الحقيقي اللي اتحدد يدويًا هو اللي بيتسجل، مش اسم الحساب اللي داخل بيه
-                await sb.from('cashier_shift_sessions').insert([{ branch_id: employee?.branch_id || null, shift, cashier_name: finalName }])
+                const { data: created, error: createErr } = await sb.from('cashier_shift_sessions')
+                  .insert([{ branch_id: employee?.branch_id || null, shift, cashier_name: finalName }])
+                  .select('id,shift,cashier_name,started_at').single()
+                if (createErr || !created) {
+                  // غالبًا بدأ زميل شيفتًا في نفس اللحظة (قيد جلسة واحدة لكل فرع في قاعدة البيانات)
+                  setShowStartShiftModal(false)
+                  fetchActiveShiftCashier()
+                  alert('Could not start the shift — another shift may have just been started. Please check who is holding the shift.')
+                  return
+                }
+                setShiftStarted(true); setShiftStart(now)
+                localStorage.setItem('cashier_shift_active', 'true'); localStorage.setItem('cashier_shift_start', now.toISOString()); localStorage.setItem('cashier_shift_value', shift)
+                localStorage.setItem('cashier_shift_session_id', (created as OpenShiftSession).id)
                 fetchActiveShiftCashier()
                 setShowStartShiftModal(false)
               }}
@@ -5311,20 +5364,47 @@ export default function CashierPage() {
         </div>
       )}
 
+      {/* ✅ الشيفت ممسوك: لا يبدأ كاشير جديد قبل أن يُغلق الحالي شيفته */}
+      {shiftHeldNotice && (
+        <div onClick={() => setShiftHeldNotice(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: S.navy2, borderRadius: 20, border: `1px solid ${S.amber}`, width: '100%', maxWidth: 380, padding: 24, textAlign: 'center' }}>
+            <div style={{ fontSize: 34, marginBottom: 8 }}>🔒</div>
+            <h2 style={{ color: S.amber, fontSize: 16, fontWeight: 800, marginBottom: 10 }}>Shift is currently held</h2>
+            <div style={{ fontSize: 14, color: S.white, fontWeight: 800, marginBottom: 4 }}>🧑‍💼 {shiftHeldNotice.cashier_name}</div>
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>{shiftLabel(shiftHeldNotice.shift)} · since {klTime(shiftHeldNotice.started_at)}</div>
+            <div style={{ fontSize: 12, color: S.white, lineHeight: 1.8, marginBottom: 4 }}>He must press <b>End Shift</b> before the next cashier can start.</div>
+            <div style={{ fontSize: 12, color: S.white, lineHeight: 1.8, marginBottom: 16, direction: 'rtl' }}>يجب على الكاشير الحالي إنهاء شيفته أولًا قبل أن يبدأ الكاشير التالي.</div>
+            {isAdmin && (
+              <button onClick={async () => {
+                if (!confirm('Force-close this shift? Use this only if the cashier forgot to end it.')) return
+                await sb.from('cashier_shift_sessions').update({ ended_at: new Date().toISOString() }).eq('id', shiftHeldNotice.id).is('ended_at', null)
+                setShiftHeldNotice(null)
+                fetchActiveShiftCashier()
+              }} style={{ width: '100%', padding: 10, borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700, marginBottom: 10 }}>
+                ⛔ Force close (forgotten shift) / إغلاق قسري
+              </button>
+            )}
+            <button onClick={() => setShiftHeldNotice(null)}
+              style={{ width: '100%', padding: 10, borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>OK</button>
+          </div>
+        </div>
+      )}
+
       {showShiftReport && <ShiftReportModal orders={orders} shift={shift} shiftStart={shiftStart} fetchPaid={fetchPaidOrders} onClose={async () => {
         setShowShiftReport(false); setShiftStarted(false); setShiftStart(null)
-        localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start')
+        const closingSessionId = localStorage.getItem('cashier_shift_session_id') || openShiftSession?.id || null
+        localStorage.removeItem('cashier_shift_active'); localStorage.removeItem('cashier_shift_start'); localStorage.removeItem('cashier_shift_session_id')
         // ✅ جديد: إغلاق جلسة الشيفت في قاعدة البيانات كمان
         // ✅ Fix حرج جدًا: قبل كده كنا بنقفل *كل* الجلسات المفتوحة لنفس رقم الشيفت بغض النظر عن تاريخها -
         // وده كان بيقفل بالغلط شيفتات قديمة جدًا (من أسابيع فاتت) اتنسيت مفتوحة (ended_at فاضي) من غير قصد،
         // وبيحطلها وقت نهاية = النهاردة، فتقرير اليومية كان بيفتكرها "شيفتات اليوم". دلوقتي بنجيب أحدث جلسة
         // مفتوحة بالتحديد (بالـ id بتاعها) ونقفل هي بس، مش أي جلسة تانية قديمة
-        let selQ = sb.from('cashier_shift_sessions').select('id')
-          .eq('shift', shift).is('ended_at', null).order('started_at', { ascending: false }).limit(1)
-        if (employee?.branch_id) selQ = selQ.eq('branch_id', employee.branch_id)
-        const { data: latestSession } = await selQ.maybeSingle()
-        if (latestSession?.id) {
-          await sb.from('cashier_shift_sessions').update({ ended_at: new Date().toISOString() }).eq('id', latestSession.id)
+        // نقفل جلسة هذا الجهاز بالـ id؛ وإن لم يوجد (شيفت بدأ قبل هذا التحديث) نقفل الجلسة المفتوحة للفرع
+        let sid = closingSessionId
+        if (!sid) { const chk = await loadOpenShiftSession(); sid = chk.session?.id || null }
+        if (sid) {
+          await sb.from('cashier_shift_sessions').update({ ended_at: new Date().toISOString() }).eq('id', sid).is('ended_at', null)
         }
         fetchActiveShiftCashier()
       }} />}

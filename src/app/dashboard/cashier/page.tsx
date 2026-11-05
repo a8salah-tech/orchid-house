@@ -2961,8 +2961,11 @@ export default function CashierPage() {
   const searchArchive = useCallback(async () => {
     setArchiveLoading(true)
     setArchiveSearched(true)
-    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,source,menu_items(name,name_en,or_code))`
+    // ✅ كل فرع بفرعه: الكاشير العادي يرى أرشيف فرعه فقط، والأدمن يتبع تبويب الفرع المختار (وبلا اختيار = كل الفروع)
+    const archiveBranchId = isAdmin ? adminBranchFilter : (employee?.branch_id || '')
+    const SEL_ARCHIVE = `id,table_id,status,total_amount,discount_amount,discount_type,payment_method,card_bank,service_charge,sst_amount,shift,notes,created_at,confirmed_at,paid_at,customer_id,cancel_reason,paid_by_name,cancel_requested_by_name,cancel_requested_at,cancel_from_table_name,cancel_approved_by_name,cancel_approved_at,cancel_rejected_by_name,cancel_rejected_at,moved_by_name,moved_at,moved_from_table_name,tables${archiveBranchId ? '!inner' : ''}(number,name,section,service_charge_percent,sst_percent,discount_percent),order_items(id,quantity,unit_price,notes,size_name,destination,status,created_at,cancel_reason,source,menu_items(name,name_en,or_code))`
     let q = sb.from('orders').select(SEL_ARCHIVE).in('status', ['paid', 'cancelled']).order('created_at', { ascending: false }).limit(200)
+    if (archiveBranchId) q = q.eq('tables.branch_id', archiveBranchId)
     if (archiveDate) {
       // ✅ Fix حرج: نفس مشكلة تاب Closed - لازم +08:00 وإلا الوقت يتفهم كـ UTC بالغلط
       q = q.gte('created_at', `${archiveDate}T00:00:00+08:00`).lt('created_at', `${archiveDate}T23:59:59.999+08:00`)
@@ -3016,6 +3019,12 @@ export default function CashierPage() {
 
     setArchiveLoading(false)
   }, [sb, archiveDate, archiveTableSearch, isAdmin, adminBranchFilter, employee?.branch_id, activeShiftCashierName])
+  // ✅ الأدمن يبدّل تبويب الفرع وهو في الأرشيف: تُعاد نفس البحث تلقائيًا بنتائج الفرع الجديد
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (view === 'archive' && archiveSearched) searchArchive()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminBranchFilter])
 
   const [fetchError, setFetchError] = useState<string | null>(null)
 

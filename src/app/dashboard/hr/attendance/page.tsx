@@ -134,6 +134,9 @@ function workDuration(checkIn?: string, checkOut?: string) {
   return `${h}h ${m}m`
 }
 
+// ✅ إعدادات قياس الموقع: دقة تكفي للتوقف المبكر، وأقصى مدة انتظار لأدق قراءة
+const GOOD_ACCURACY_M = 20
+const LOCATION_WINDOW_MS = 9000
 type Branch = { id: string; name: string; latitude?: number; longitude?: number; radius_meters?: number }
 type AttendanceRecord = {
   id?: string; employee_id: string; date: string
@@ -325,11 +328,38 @@ function MyAttendanceCard() {
   // الفرع المحدد للموظف
   const myBranch = branches.find(b => b.id === employee?.branch_id) || branches[0] || null
 
+  // ✅ أدق قراءة موقع خلال نافذة قصيرة بدل قراءة واحدة: القراءة الأولى من الهاتف كثيرًا ما تكون تقريبية (شبكة/واي-فاي)
+  // فيظهر الموظف خارج النطاق وهو عند الباب. نتابع الموقع حتى ~9 ثوانٍ ونحتفظ بالأدق، ونتوقف مبكرًا عند دقة جيدة.
+  // لا نغيّر حد المسافة ولا نتساهل فيه — نحسّن دقة القياس فقط.
   function getLocation(): Promise<GeolocationPosition> {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) { reject(new Error('Geolocation not supported')); return }
-      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+      let best: GeolocationPosition | null = null
+      let done = false
+      let watchId: number | null = null
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const finish = (pos: GeolocationPosition | null, err?: unknown) => {
+        if (done) return
+        done = true
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId)
+        if (timer) clearTimeout(timer)
+        if (pos) resolve(pos); else reject(err || new Error('Location request timed out'))
+      }
+      watchId = navigator.geolocation.watchPosition(
+        p => {
+          if (!best || p.coords.accuracy < best.coords.accuracy) best = p
+          if (p.coords.accuracy <= GOOD_ACCURACY_M) finish(best)
+        },
+        e => finish(best, e), // خطأ (مثل رفض الإذن) مع وجود قراءة سابقة: نستخدمها، وإلا نرفض
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      )
+      timer = setTimeout(() => finish(best), LOCATION_WINDOW_MS)
     })
+  }
+
+  // ✅ إشارة ضعيفة (دقة القراءة أسوأ من نصف قطر الفرع) ومعها «خارج النطاق»: لا نحكم على الموظف بالبعد، نطلب منه تحسين الإشارة
+  function weakSignalMessage(accuracy: number): string {
+    return `إشارة الموقع ضعيفة حاليًا (الدقة ±${Math.round(accuracy)} م). اقترب من الباب أو من نافذة، وانتظر بضع ثوانٍ ثم أعد المحاولة.\nLocation signal is weak (accuracy ±${Math.round(accuracy)}m). Move closer to the entrance or a window, wait a few seconds, then try again.`
   }
 
   async function updateLocation() {
@@ -341,6 +371,7 @@ function MyAttendanceCard() {
       if (myBranch?.latitude && myBranch?.longitude) {
         const dist = getDistance(lat, lng, myBranch.latitude, myBranch.longitude)
         setDistance(Math.round(dist))
+        if (dist > (myBranch.radius_meters || 150) && pos.coords.accuracy > (myBranch.radius_meters || 150)) setLocError(weakSignalMessage(pos.coords.accuracy))
       }
     } catch {
       setLocError('Could not get location. Please allow location access.')
@@ -359,7 +390,7 @@ function MyAttendanceCard() {
       const radius = myBranch.radius_meters || 150
 
       if (dist > radius) {
-        setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check in.`)
+        setLocError(pos.coords.accuracy > radius ? weakSignalMessage(pos.coords.accuracy) : `You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check in.`)
         setChecking(false); setCheckStep('idle'); return
       }
 
@@ -519,7 +550,7 @@ function MyAttendanceCard() {
 
       const radius = myBranch?.radius_meters || 150
       if (dist > radius) {
-        setLocError(`You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check out.`)
+        setLocError(pos.coords.accuracy > radius ? weakSignalMessage(pos.coords.accuracy) : `You are ${Math.round(dist)}m from the branch. Must be within ${radius}m to check out.`)
         setChecking(false); setCheckStep('idle'); return
       }
 

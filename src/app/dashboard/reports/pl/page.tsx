@@ -49,6 +49,9 @@ type PLData = {
   gross_margin: number
   // Operating Expenses
   payroll: number
+  cashier_expenses: number // مصروفات الكاشير النقدية المدفوعة (daily_cash_expenses)
+  cashier_pending: number // مصروفات كاشير معلّقة لم تُدفع بعد (للعلم فقط، غير محسوبة)
+  maintenance: number // مصاريف الصيانة (طلبات الصيانة المكتملة)
   // Net
   net_profit: number
   net_margin: number
@@ -114,7 +117,7 @@ export default function PLReportPage() {
 
     // ✅ الاستعلام دايمًا بنفس الشكل الثابت (فيه الـ join مع tables/warehouses/employees)
     // عشان نظام الأنواع في Supabase مش بيقدر يحلل جملة select() شرطية (Ternary) صح
-    const [orders, purchases, payrollRes] = await Promise.all([
+    const [orders, purchases, payrollRes, cashierExp, maintenanceRows] = await Promise.all([
       fetchAllRows((from, to) => {
         let q = sb.from('orders')
           .select('total_amount,discount_amount,service_charge,sst_amount,payment_method,status,tables!inner(branch_id)')
@@ -137,6 +140,29 @@ export default function PLReportPage() {
       // ✅ سرّية الرواتب: لا نقرأ payroll_records الفردية هنا. دالة SECURITY DEFINER ترجّع
       // إجمالي تكلفة الرواتب فقط (رقم واحد) — لأصحاب صلاحية التقارير.
       sb.rpc('app_payroll_cost', { p_month: month, p_year: year, p_branch: branchFilter || null }),
+      // ✅ مصروفات الكاشير النقدية (من شاشة الكاشير): كل ما سُجّل بتاريخ الشهر، لكل الأشهر السابقة أيضًا
+      fetchAllRows<{ amount: number | null; status: string }>((from, to) => {
+        let q = sb.from('daily_cash_expenses')
+          .select('amount,status')
+          .gte('expense_date', startDate)
+          .lte('expense_date', endDate)
+          .order('id')
+          .range(from, to)
+        if (branchFilter) q = q.eq('branch_id', branchFilter)
+        return q
+      }),
+      // ✅ مصاريف الصيانة: المبلغ المدفوع في طلبات الصيانة المكتملة، بتاريخ الإكمال (بتوقيت ماليزيا)
+      fetchAllRows<{ paid_amount: number | null }>((from, to) => {
+        let q = sb.from('maintenance_requests')
+          .select('paid_amount')
+          .eq('status', 'completed')
+          .gte('completed_at', `${startDate}T00:00:00+08:00`)
+          .lte('completed_at', `${endDate}T23:59:59.999+08:00`)
+          .order('id')
+          .range(from, to)
+        if (branchFilter) q = q.eq('branch_id', branchFilter)
+        return q
+      }),
     ])
 
     // Revenue calculations
@@ -166,8 +192,13 @@ export default function PLReportPage() {
     // Payroll — إجمالي من الدالة (app_payroll_cost)
     const payroll = Number(payrollRes?.data ?? 0)
 
+    // ✅ مصروفات الكاشير (المدفوعة فقط) + مصاريف الصيانة: تدخل ضمن مصاريف التشغيل
+    const cashier_expenses = cashierExp.filter(e => e.status === 'paid').reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+    const cashier_pending = cashierExp.filter(e => e.status === 'pending').reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+    const maintenance = maintenanceRows.reduce((sum, r) => sum + (Number(r.paid_amount) || 0), 0)
+
     // Net Profit
-    const net_profit = gross_profit - payroll
+    const net_profit = gross_profit - payroll - cashier_expenses - maintenance
     const net_margin = total_revenue > 0 ? (net_profit / total_revenue) * 100 : 0
 
     const orders_count = orders.length
@@ -176,7 +207,7 @@ export default function PLReportPage() {
     setData({
       gross_sales, discount_total, net_sales, service_charge, sst, total_revenue,
       purchases: purchasesTotal, cogs_pct, gross_profit, gross_margin,
-      payroll, net_profit, net_margin,
+      payroll, cashier_expenses, cashier_pending, maintenance, net_profit, net_margin,
       orders_count, avg_order, paid_orders, free_orders,
       cash_sales, visa_sales, online_sales,
     })
@@ -222,6 +253,8 @@ export default function PLReportPage() {
       <tr><td colspan="3"></td></tr>
       <tr class="section"><td colspan="3">OPERATING EXPENSES</td></tr>
       <tr><td>Payroll & Salaries</td><td class="right">(${fmt(data.payroll)})</td><td class="right">${pct(data.payroll, data.total_revenue)}</td></tr>
+      <tr><td>Cashier Cash Expenses</td><td class="right">(${fmt(data.cashier_expenses)})</td><td class="right">${pct(data.cashier_expenses, data.total_revenue)}</td></tr>
+      <tr><td>Maintenance Expenses</td><td class="right">(${fmt(data.maintenance)})</td><td class="right">${pct(data.maintenance, data.total_revenue)}</td></tr>
       <tr class="${data.net_profit >= 0 ? 'profit' : 'loss'}"><td>NET PROFIT / (LOSS)</td><td class="right">${data.net_profit >= 0 ? fmt(data.net_profit) : '(' + fmt(Math.abs(data.net_profit)) + ')'}</td><td class="right">${data.net_margin.toFixed(1)}%</td></tr>
     </table>
     <table>
@@ -374,6 +407,20 @@ export default function PLReportPage() {
                     <div style={{ fontSize: 10, color: S.muted }}>Payroll & Salaries</div>
                   </div>
                   <div style={{ fontSize: 13, color: S.amber }}>({fmt(data.payroll)})</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: `1px solid ${S.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: S.white }}>مصروفات الكاشير النقدية</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>Cashier Cash Expenses{data.cashier_pending > 0 ? ` · + ${fmt(data.cashier_pending)} معلّقة غير مدفوعة (غير محسوبة)` : ''}</div>
+                  </div>
+                  <div style={{ fontSize: 13, color: S.amber }}>({fmt(data.cashier_expenses)})</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: `1px solid ${S.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: S.white }}>مصاريف الصيانة</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>Maintenance Expenses</div>
+                  </div>
+                  <div style={{ fontSize: 13, color: S.amber }}>({fmt(data.maintenance)})</div>
                 </div>
               </div>
 

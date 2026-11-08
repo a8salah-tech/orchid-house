@@ -1691,7 +1691,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             // ✅ صاحب الطلب نفسه، أو طلب سلفة راتب لمستخدم غير admin — لا تظهر أزرار الاعتماد على الإطلاق
             <div style={{ background: S.amberB, border: `1px solid ${S.amber}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, textAlign: 'center' }}>
               <div style={{ fontSize: 13, color: S.amber, fontWeight: 700 }}>
-                {isOwnRequest ? 'طلبك قيد المراجعة من الإدارة' : (isSalaryAdvance ? 'هذا الطلب يحتاج اعتماد مدير النظام أو مدير الفرع' : isSalaryRaise ? 'هذا الطلب يحتاج اعتماد مدير النظام فقط' : 'هذا الطلب يحتاج اعتماد مدير القسم أو مدير النظام')}
+                {isOwnRequest ? 'طلبك قيد المراجعة من الإدارة' : isResignation ? 'طلب الاستقالة للاطلاع فقط — الموافقة عليه لمدير النظام وحده' : (isSalaryAdvance ? 'هذا الطلب يحتاج اعتماد مدير النظام أو مدير الفرع' : isSalaryRaise ? 'هذا الطلب يحتاج اعتماد مدير النظام فقط' : 'هذا الطلب يحتاج اعتماد مدير القسم أو مدير النظام')}
               </div>
             </div>
           )
@@ -1785,6 +1785,9 @@ export default function EmployeeRequestsPage() {
   const isManager = isAdmin
   // ✅ مساعد مدير الصالة: يشوف طلبات موظفي قسم الصالة في فرعه (عرض فقط، بلا اعتماد)، بدون طلبات السلف وزيادة الراتب
   const isHallAssistant = currentUser?.role === HALL_ASSISTANT_ROLE
+  // ✅ طلبات الاستقالة: يراها (للاطلاع فقط) مدير الصالة ومدير المطبخ لموظفي قسمهما في فرعهما، والموافقة لمدير النظام فقط
+  // (db/resignation_visible_to_dept_managers.sql تفرض نفس النطاق في قاعدة البيانات)
+  const seesResignations = currentUser?.role === 'hall_manager' || currentUser?.role === 'kitchen_manager'
   const isEmployee = !isAdmin && !isBranchManager && !isDeptManager && !isSupervisor && !isHallAssistant
   // ✅ الرؤية وتقديم الطلب: تعتمد على صلاحية ديناميكية من صفحة "إدارة الصلاحيات" + admin دائمًا
   // (الاعتماد الفعلي/الموافقة يبقى مقصورًا على admin فقط بدون استثناء — داخل RequestDetailModal)
@@ -2032,7 +2035,7 @@ export default function EmployeeRequestsPage() {
     // ✅ مساعد مدير الصالة: لا يرى سلف ولا زيادة راتب غيره (يرى طلباته الشخصية فقط)
     // ✅ طلبات الاستقالة سرّية: لا يجلبها لغير مدير النظام إلا صاحبها (وقاعدة البيانات تفرض نفس القاعدة)
     if (isHallAssistant) reqQuery = reqQuery.or(`and(request_type.neq.salary_increase,request_type.neq.salary_advance,request_type.neq.resignation),employee_id.eq.${myId}`)
-    else if (!isAdmin) reqQuery = reqQuery.or(`and(request_type.neq.salary_increase,request_type.neq.resignation),employee_id.eq.${myId}`)
+    else if (!isAdmin) reqQuery = reqQuery.or(seesResignations ? `request_type.neq.salary_increase,employee_id.eq.${myId}` : `and(request_type.neq.salary_increase,request_type.neq.resignation),employee_id.eq.${myId}`)
     // ✅ تصحيح الحضور: لمدير النظام فقط — لا يُجلب لأي دور آخر (ولا حتى طلب الموظف نفسه)
     if (!isAdmin) reqQuery = reqQuery.neq('request_type', 'attendance_correction')
 
@@ -2057,14 +2060,14 @@ export default function EmployeeRequestsPage() {
     setEmployees(emp.data || [])
     setBranches(br.data || [])
     setLoading(false)
-  }, [isAdmin, isBranchManager, isDeptManager, isSupervisor, isHallAssistant, currentUser?.id, currentUser?.branch_id, currentUser?.department, currentUser?.role])
+  }, [isAdmin, isBranchManager, isDeptManager, isSupervisor, isHallAssistant, seesResignations, currentUser?.id, currentUser?.branch_id, currentUser?.department, currentUser?.role])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
   // Stats — تُحسب بناءً على الفرع المختار فقط
   const branchScopedRequests = (filterBranch === 'all' ? requests : requests.filter(r => r.employees?.branch_id === filterBranch))
-    // طلبات الاستقالة سرّية: صاحبها ومدير النظام فقط
-    .filter(r => r.request_type !== 'resignation' || isAdmin || r.employee_id === currentUser?.id)
+    // طلبات الاستقالة سرّية: صاحبها ومدير النظام ومدير الصالة/المطبخ (لقسمه) فقط
+    .filter(r => r.request_type !== 'resignation' || isAdmin || seesResignations || r.employee_id === currentUser?.id)
   const thisMonth = new Date().toISOString().slice(0, 7)
   const monthReqs = branchScopedRequests.filter(r => r.created_at?.startsWith(thisMonth))
   const statusCounts = Object.keys(STATUS_CONFIG).reduce((acc, s) => {

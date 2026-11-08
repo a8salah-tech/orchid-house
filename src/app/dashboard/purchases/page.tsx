@@ -464,6 +464,11 @@ function AddSupplierModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 // ══════════════════════════════════════════
 // ImageViewerModal
 // ══════════════════════════════════════════
+// ✅ تنسيق الكميات في معاينة التحويل
+const fmtQty = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 })
+// ✅ تحويل غير منطقي غالبًا (اتجاه معكوس): معامل ≥ 1000 أو إجمالي مخزون ≥ 100,000 وحدة — نحذّر دون أن نمنع
+const isSuspiciousConversion = (qty: number, perUnit: number) => perUnit >= 1000 || qty * perUnit >= 100000
+
 // وقت إنشاء الفاتورة دائمًا بتوقيت ماليزيا (UTC+8) بغض النظر عن توقيت جهاز المستخدم
 function fmtKL(iso?: string | null): string {
   if (!iso) return '—'
@@ -628,8 +633,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
       return
     }
     onConversionAdded?.(created)
+    // الصيغة: 1 [from=وحدة المخزون] = factor [to=وحدة الشراء] ← كل وحدة شراء = 1/factor من وحدة المخزون
     setItems(p => p.map((it, idx) => idx === itemIndex ? {
-      ...it, contents_per_unit: factor, contents_unit_name: (created as any).to_unit?.name,
+      ...it, contents_per_unit: 1 / factor, contents_unit_name: (created as any).from_unit?.name,
     } : it))
     setAddingConvForIndex(null)
     setNewConvFactor('')
@@ -1098,8 +1104,9 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                     </select>
                     {item.contents_per_unit && item.contents_unit_name && (
                       <div style={{ fontSize: 10, color: S.purple, marginTop: 3, fontWeight: 600 }}>
-                        📦 1 وحدة = {item.contents_per_unit} {item.contents_unit_name}
-                        {item.quantity && <span style={{ color: S.gold }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)}</span>}
+                        📦 {item.contents_per_unit < 1 ? `${fmtQty(1 / item.contents_per_unit)} وحدة = 1 ${item.contents_unit_name}` : `1 وحدة = ${fmtQty(item.contents_per_unit)} ${item.contents_unit_name}`}
+                        {item.quantity && <span style={{ color: S.gold }}> ← إجمالي: {fmtQty(parseFloat(item.quantity) * item.contents_per_unit)}</span>}
+                        {item.quantity && isSuspiciousConversion(parseFloat(item.quantity), item.contents_per_unit) && <span style={{ color: S.red }}> ⚠️ الكمية كبيرة جدًا — تأكد من اتجاه التحويل</span>}
                       </div>
                     )}
                     {/* ✅ جديد: تحذير واضح لو الوحدة المختارة مالهاش معامل تحويل متسجل، مع إمكانية إضافته فورًا من هنا */}
@@ -1113,12 +1120,12 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                             ⚠️ لا يوجد معامل تحويل بين "{units.find(u => u.id === item.unit_id)?.symbol}" و"{baseUnitSymbol}" — الكمية ستُسجَّل 1:1 بدون تحويل!
                           </div>
                           {addingConvForIndex === i ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: S.white, whiteSpace: 'nowrap' }}>1 {units.find(u => u.id === item.unit_id)?.symbol} =</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 11, color: S.white, whiteSpace: 'nowrap' }}>1 {baseUnitSymbol} =</span>
                               <input type="number" min="0" step="0.01" value={newConvFactor} onChange={e => setNewConvFactor(e.target.value)}
                                 style={{ ...inp, width: 70, padding: '4px 8px', fontSize: 12 }} placeholder="عدد" />
-                              <span style={{ fontSize: 11, color: S.white, whiteSpace: 'nowrap' }}>{baseUnitSymbol}</span>
-                              <button onClick={() => saveNewConversion(i, item.product_id, item.unit_id, baseUnitId)}
+                              <span style={{ fontSize: 11, color: S.white, whiteSpace: 'nowrap' }}>{units.find(u => u.id === item.unit_id)?.symbol}</span>
+                              <button onClick={() => saveNewConversion(i, item.product_id, baseUnitId, item.unit_id)}
                                 style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: S.green, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
                                 حفظ
                               </button>
@@ -1126,6 +1133,13 @@ function NewInvoiceModal({ products: initialProducts, suppliers, units, warehous
                                 style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 11 }}>
                                 إلغاء
                               </button>
+                              {(() => {
+                                const f = parseFloat(newConvFactor); const q = parseFloat(item.quantity)
+                                if (!f || f <= 0 || !q) return <div style={{ flexBasis: '100%', fontSize: 10, color: S.muted }}>مثال: 1 كرتون = 500 قطعة</div>
+                                const total = q / f
+                                const bad = total >= 100000 || total > q * 1000
+                                return <div style={{ flexBasis: '100%', fontSize: 11, fontWeight: 700, color: bad ? S.red : S.green }}>= {fmtQty(q)} {units.find(u => u.id === item.unit_id)?.symbol} ← {fmtQty(total)} {baseUnitSymbol} في المخزون{bad ? ' ⚠️ الكمية كبيرة جدًا — تأكد من الاتجاه' : ''}</div>
+                              })()}
                             </div>
                           ) : (
                             <button onClick={() => { setAddingConvForIndex(i); setNewConvFactor('') }}
@@ -1353,8 +1367,9 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
       alert('حصل خطأ أثناء حفظ معامل التحويل: ' + (error?.message || ''))
       return
     }
+    // الصيغة: 1 [from=وحدة المخزون] = factor [to=وحدة الشراء] ← كل وحدة شراء = 1/factor من وحدة المخزون
     setEditItems(p => p.map((it, idx) => idx === itemIndex ? {
-      ...it, contents_per_unit: factor, contents_unit_name: (created as any).to_unit?.name,
+      ...it, contents_per_unit: 1 / factor, contents_unit_name: (created as any).from_unit?.name,
     } : it))
     setAddingConvForEditIndex(null)
     setNewEditConvFactor('')
@@ -1813,8 +1828,9 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                     </div>
                     {item.contents_per_unit && item.contents_unit_name && (
                       <div style={{ fontSize: 10, color: S2.blue, marginTop: 6, fontWeight: 600 }}>
-                        📦 1 وحدة = {item.contents_per_unit} {item.contents_unit_name}
-                        {item.quantity && <span style={{ color: S2.gold }}> ← إجمالي: {(parseFloat(item.quantity) * item.contents_per_unit).toFixed(1)}</span>}
+                        📦 {item.contents_per_unit < 1 ? `${fmtQty(1 / item.contents_per_unit)} وحدة = 1 ${item.contents_unit_name}` : `1 وحدة = ${fmtQty(item.contents_per_unit)} ${item.contents_unit_name}`}
+                        {item.quantity && <span style={{ color: S2.gold }}> ← إجمالي: {fmtQty(parseFloat(item.quantity) * item.contents_per_unit)}</span>}
+                        {item.quantity && isSuspiciousConversion(parseFloat(item.quantity), item.contents_per_unit) && <span style={{ color: S2.red }}> ⚠️ الكمية كبيرة جدًا — تأكد من اتجاه التحويل</span>}
                       </div>
                     )}
                     {/* ✅ جديد: تحذير لو الوحدة مالهاش معامل تحويل، مع إمكانية إضافته فورًا */}
@@ -1829,12 +1845,12 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                             ⚠️ لا يوجد معامل تحويل بين "{units.find((u: any) => u.id === item.unit_id)?.symbol}" و"{baseUnitSymbol}" — الكمية ستُسجَّل 1:1 بدون تحويل!
                           </div>
                           {addingConvForEditIndex === i ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: S2.white, whiteSpace: 'nowrap' }}>1 {units.find((u: any) => u.id === item.unit_id)?.symbol} =</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 11, color: S2.white, whiteSpace: 'nowrap' }}>1 {baseUnitSymbol} =</span>
                               <input type="number" min="0" step="0.01" value={newEditConvFactor} onChange={e => setNewEditConvFactor(e.target.value)}
                                 style={{ ...inpD, width: 70, padding: '4px 8px', fontSize: 12 }} placeholder="عدد" />
-                              <span style={{ fontSize: 11, color: S2.white, whiteSpace: 'nowrap' }}>{baseUnitSymbol}</span>
-                              <button onClick={() => saveNewEditConversion(i, item.product_id, item.unit_id, baseUnitId)}
+                              <span style={{ fontSize: 11, color: S2.white, whiteSpace: 'nowrap' }}>{units.find((u: any) => u.id === item.unit_id)?.symbol}</span>
+                              <button onClick={() => saveNewEditConversion(i, item.product_id, baseUnitId, item.unit_id)}
                                 style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: S2.green, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
                                 حفظ
                               </button>
@@ -1842,6 +1858,13 @@ function InvoiceDetailModal({ invoice, products, suppliers, units, warehouses, u
                                 style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${S2.border}`, background: 'transparent', color: S2.muted, cursor: 'pointer', fontSize: 11 }}>
                                 إلغاء
                               </button>
+                              {(() => {
+                                const f = parseFloat(newEditConvFactor); const q = parseFloat(item.quantity)
+                                if (!f || f <= 0 || !q) return <div style={{ flexBasis: '100%', fontSize: 10, color: S2.muted }}>مثال: 1 كرتون = 500 قطعة</div>
+                                const total = q / f
+                                const bad = total >= 100000 || total > q * 1000
+                                return <div style={{ flexBasis: '100%', fontSize: 11, fontWeight: 700, color: bad ? S2.red : S2.green }}>= {fmtQty(q)} {units.find((u: { id: string }) => u.id === item.unit_id)?.symbol} ← {fmtQty(total)} {baseUnitSymbol} في المخزون{bad ? ' ⚠️ الكمية كبيرة جدًا — تأكد من الاتجاه' : ''}</div>
+                              })()}
                             </div>
                           ) : (
                             <button onClick={() => { setAddingConvForEditIndex(i); setNewEditConvFactor('') }}

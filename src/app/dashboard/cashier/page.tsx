@@ -910,7 +910,8 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
       paid_at: new Date().toISOString(),
       customer_id: selectedCustomer?.id || null,
       paid_by: employee?.id || null,
-      paid_by_name: employee?.name || null,
+      // ✅ الحساب مشترك بين الكاشيرية: الهوية الحقيقية لمن أقفل الفاتورة هي اسم من يمسك الشيفت (Start Shift)، لا اسم الحساب
+      paid_by_name: activeShiftCashierName || employee?.name || null,
       // ✅ جديد: سبب الخصم/الفري + ملاحظة تطبيق العربون (لو حصل) بيتضافوا لملاحظات الطلب - عشان يبقى واضح
       // وقت مراجعة Closed/تقرير الشيفت
       notes: [
@@ -1088,7 +1089,8 @@ function PaymentModal({ order, onClose, onPaid, onMoved, onPaymentStart, onTrans
       paid_at: new Date().toISOString(),
       customer_id: selectedCustomer?.id || null,
       paid_by: employee?.id || null,
-      paid_by_name: employee?.name || null,
+      // ✅ الحساب مشترك بين الكاشيرية: الهوية الحقيقية لمن أقفل الفاتورة هي اسم من يمسك الشيفت (Start Shift)، لا اسم الحساب
+      paid_by_name: activeShiftCashierName || employee?.name || null,
       notes: (discountType === 'amount' || discountType === 'percent') && discountReason.trim()
         ? [order.notes, `🏷️ Discount reason: ${discountReason.trim()}`].filter(Boolean).join(' | ')
         : (order.notes || null),
@@ -3298,7 +3300,8 @@ export default function CashierPage() {
     }
     // ✅ جديد: أي كاشير (غير الأدمن) يشوف بس الفواتير اللي هو شخصيًا دفّعها - مش فواتير باقي الكاشيرية في نفس اليوم
     if (!isAdmin) {
-      results = results.filter(o => (o as any).paid_by_name === employee?.name)
+      // paid_by_name صار اسم الكاشير الممسك بالشيفت؛ والفواتير القديمة مسجّلة باسم الحساب المشترك
+      results = results.filter(o => { const n = (o as any).paid_by_name; return n === employee?.name || (!!activeShiftCashierName && n === activeShiftCashierName) })
     }
     setClosedOrders(results)
 
@@ -3323,7 +3326,7 @@ export default function CashierPage() {
     let deposits = (depositsData as any[]) || []
     // ✅ نفس تقييد "كل كاشير يشوف بس بتاعته" - العربونات اللي هو شخصيًا سجّلها بس
     if (!isAdmin) {
-      deposits = deposits.filter(d => d.created_by_name === employee?.name)
+      deposits = deposits.filter(d => d.created_by_name === employee?.name || (!!activeShiftCashierName && d.created_by_name === activeShiftCashierName))
     }
     setClosedDeposits(deposits)
 
@@ -3337,7 +3340,7 @@ export default function CashierPage() {
 
     setClosedFetched(true)
     setClosedLoading(false)
-  }, [sb, tables, isAdmin, adminBranchFilter, employee?.branch_id, closedDate])
+  }, [sb, tables, isAdmin, adminBranchFilter, employee?.branch_id, employee?.name, activeShiftCashierName, closedDate])
 
   // ✅ لما الأدمن يغيّر التاريخ، نسحب البيانات تلقائيًا للتاريخ الجديد (من غير ما يحتاج يدوس تحديث بنفسه)
   useEffect(() => {
@@ -5094,7 +5097,7 @@ export default function CashierPage() {
         const o = orders.find(x => x.table_id === staffChargeTableId && ['confirmed', 'preparing', 'ready'].includes(x.status))
         if (!t || !o) return null
         return <StaffChargeModal order={o} discountPercent={t.discount_percent || 0} branchId={t.branch_id}
-          actorId={employee?.id} actorName={employee?.name || employee?.name_en || 'Unknown'} canPay={isCashierRole}
+          actorId={employee?.id} actorName={activeShiftCashierName || employee?.name || employee?.name_en || 'Unknown'} canPay={isCashierRole}
           onClose={() => setStaffChargeTableId(null)}
           onPay={() => { setStaffChargeTableId(null); setPayOrder(o) }}
           onCharged={() => fetchAll()}

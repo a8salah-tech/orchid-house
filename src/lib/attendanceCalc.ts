@@ -140,3 +140,83 @@ export async function computeEarlyInfo(
   const beforePermit = Math.floor((permitMs - checkOutMs) / 60000)
   return { early_minutes: beforePermit > 10 ? beforePermit : 0, permit_minutes: permitMins }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  إعادة حساب الحضور بعد تعديل مدير النظام لشيفت يومٍ له سجل حضور
+// ══════════════════════════════════════════════════════════════════════════════
+//  سياسة الشركة: تعديل الأيام الماضية لمدير النظام وحده، وتعديله يُطبَّق مباشرة (يُعاد حساب التأخير والخروج المبكر لذلك اليوم
+//  على الشيفت الجديد، وتُحدَّث ساعات كشف الراتب للأشهر غير المعتمدة). المدراء الآخرون لا يستدعون هذه الدالة.
+
+/** يحدّث ساعات التأخير/الخروج المبكر/إذن الخروج في كشف راتب الشهر من مجموع دقائق الحضور المخزَّنة (نفس معادلة صفحة الرواتب) */
+export async function syncAttendanceToPayroll(
+  sb: SB, employeeId: string, year: number, month: number,
+): Promise<'updated' | 'finalized' | 'skipped'> {
+  const { data: pm } = await sb.from('payroll_months').select('id, status').eq('month', month).eq('year', year).maybeSingle()
+  if (!pm) return 'skipped'
+  if (pm.status === 'finalized') return 'finalized'
+  const { data: rec } = await sb.from('payroll_records').select('id').eq('payroll_month_id', pm.id).eq('employee_id', employeeId).maybeSingle()
+  if (!rec) return 'skipped'
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
+  const { data: att } = await sb.from('attendance').select('late_minutes, early_minutes, permit_minutes')
+    .eq('employee_id', employeeId).gte('date', monthStart).lte('date', monthEnd)
+  const rows = (att || []) as { late_minutes?: number | null; early_minutes?: number | null; permit_minutes?: number | null }[]
+  const totalLate = rows.reduce((s, a) => s + (a.late_minutes || 0), 0)
+  const totalEarly = rows.reduce((s, a) => s + (a.early_minutes || 0), 0)
+  const totalPermit = rows.reduce((s, a) => s + (a.permit_minutes || 0), 0)
+  // موظف الراتب الثابت لا يُخصم منه إذن الخروج (نفس قاعدة باقي خصومات الحضور)
+  const { data: emp } = await sb.from('employees').select('fixed_salary').eq('id', employeeId).maybeSingle()
+  await sb.from('payroll_records').update({
+    late_hours: parseFloat((totalLate / 60).toFixed(2)),
+    early_exit_hours: parseFloat((totalEarly / 60).toFixed(2)),
+    exit_permit_hours: emp?.fixed_salary ? 0 : parseFloat((totalPermit / 60).toFixed(2)),
+  }).eq('id', rec.id)
+  return 'updated'
+}
+
+export type RecalcAfterShiftEditResult = {
+  changedRows: { date: string; late: [number, number]; early: [number, number] }[]
+  payroll: Record<string, 'updated' | 'finalized' | 'skipped'> // مفتاحه "YYYY-MM"
+}
+
+/**
+ * يعيد حساب التأخير والخروج المبكر لسجلات حضور الموظف في التواريخ المعطاة (التي عُدّل شيفتها) على الشيفت الجديد،
+ * ويضيف ملاحظة على كل سجل تغيّر، ثم يحدّث كشف الراتب للأشهر المتأثرة (غير المعتمدة).
+ * dryRun=true: يحسب ويُرجع التغييرات دون أي كتابة.
+ */
+export async function recalcAttendanceAfterShiftEdit(
+  sb: SB, employeeId: string, dates: string[], editorName: string, dryRun = false,
+): Promise<RecalcAfterShiftEditResult> {
+  const result: RecalcAfterShiftEditResult = { changedRows: [], payroll: {} }
+  const uniqueDates = [...new Set(dates)].sort()
+  if (uniqueDates.length === 0) return result
+  const { data: rows } = await sb.from('attendance')
+    .select('id, date, status, check_in_time, check_out_time, late_minutes, early_minutes, permit_minutes, notes')
+    .eq('employee_id', employeeId).in('date', uniqueDates).not('check_in_time', 'is', null)
+  const months = new Set<string>()
+  for (const r of (rows || []) as { id: string; date: string; status: string | null; check_in_time: string; check_out_time: string | null; late_minutes: number | null; early_minutes: number | null; permit_minutes: number | null; notes: string | null }[]) {
+    const dateStr = String(r.date).slice(0, 10)
+    const late = await computeLateInfo(sb, employeeId, dateStr, r.check_in_time)
+    const early = r.check_out_time
+      ? await computeEarlyInfo(sb, employeeId, dateStr, r.check_out_time, r.check_in_time)
+      : { early_minutes: r.early_minutes || 0, permit_minutes: r.permit_minutes || 0 }
+    const changed = late.late_minutes !== (r.late_minutes || 0) || early.early_minutes !== (r.early_minutes || 0) || early.permit_minutes !== (r.permit_minutes || 0)
+    if (!changed) continue
+    result.changedRows.push({ date: dateStr, late: [r.late_minutes || 0, late.late_minutes], early: [r.early_minutes || 0, early.early_minutes] })
+    months.add(dateStr.slice(0, 7))
+    if (dryRun) continue
+    const note = `🔄 أُعيد حساب التأخير/الخروج المبكر بعد تعديل الشيفت بواسطة ${editorName} / Recalculated after shift edit`
+    await sb.from('attendance').update({
+      status: late.status, late_minutes: late.late_minutes,
+      early_minutes: early.early_minutes, permit_minutes: early.permit_minutes,
+      notes: r.notes ? `${r.notes} | ${note}` : note,
+    }).eq('id', r.id)
+  }
+  if (!dryRun) {
+    for (const ym of months) {
+      const [y, m] = ym.split('-').map(Number)
+      result.payroll[ym] = await syncAttendanceToPayroll(sb, employeeId, y, m)
+    }
+  }
+  return result
+}

@@ -7,7 +7,7 @@ import { useLang } from '../../../components/LanguageContext'
 import { createBrowserClient } from '@supabase/ssr'
 // ✅ نفس دوال حساب التأخير/الخروج المبكر المستخدمة في صفحة الحضور — عشان اعتماد "تصحيح الحضور"
 // يثبّت في جدول الحضور نفس القيم اللي كانت هتطلع لو الموظف بصم بالأوقات الصحيحة من الأساس
-import { computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
+import { computeLateInfo, computeEarlyInfo, recalcAttendanceAfterShiftEdit } from '../../../../lib/attendanceCalc'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
 import { Stethoscope, Siren, Utensils, TriangleAlert, Lightbulb, ClipboardList, Clock, TrendingUp, Banknote, DoorOpen, CalendarDays, LogOut, CircleCheck, CircleX, Flag, Hourglass, X, Info, Send, Plus, Printer, Trash2, Lock, Check, ChartColumn, ChevronLeft, ChevronRight } from 'lucide-react'
 import { shiftTimesError } from '../../../../lib/shiftTimes'
@@ -1155,6 +1155,16 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       if (oldRows && oldRows.length > 0) await supabase.from('shift_schedules').insert(oldRows.map((r: Record<string, unknown>) => { const c = { ...r }; delete c.id; return c }))
       alert('تعذّر حفظ الشيفت الجديد، وأُعيد الجدول القديم: ' + insErr.message)
       return false
+    }
+    // ✅ سياسة الشركة: تعديل مدير النظام لأيام (اليوم أو ماضية) له حضور فيها يُطبَّق مباشرة على التأخير/الخروج المبكر وكشف الراتب
+    if (isAdmin) {
+      const upTo = editable.filter(d => d <= todayMY)
+      if (upTo.length > 0) {
+        try {
+          const editorName = [currentUser?.name, currentUser?.name_en].filter(Boolean).join(' ') || 'مدير النظام'
+          await recalcAttendanceAfterShiftEdit(supabase, request.employee_id, upTo, editorName)
+        } catch (e) { console.error('recalc after shift request failed', e) }
+      }
     }
     if (editable.length < dates.length) alert(`ملاحظة: تجاوز النظام ${dates.length - editable.length} يوماً ماضياً (لا يُعدَّل إلا بمعرفة مدير النظام).`)
     return true

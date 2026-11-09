@@ -7,6 +7,7 @@ import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
 import { shiftTimesError } from '../../../../lib/shiftTimes'
+import { recalcAttendanceAfterShiftEdit } from '../../../../lib/attendanceCalc'
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,7 +42,8 @@ const SHIFT_COLORS = ['#C9A84C','#22C55E','#3B82F6','#8B5CF6','#EF4444','#F59E0B
 function ld(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
-function todayStr() { return ld(new Date()) }
+// ✅ «اليوم» بتوقيت ماليزيا الثابت (UTC+8) — لا UTC (كان يُبقي أمس «اليوم» حتى 8 صباحًا) ولا توقيت جهاز المستخدم
+function todayStr() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10) }
 
 // ══ Shift Modal ══
 function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => void; onSaved: () => void }) {
@@ -255,7 +257,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   }, [initialEmpId])
 
   // ✅ تاريخ اليوم — أي يوم قبله يُعتبر "ماضياً" ومقفولاً تماماً بلا استثناء (قرار إداري: "اللي راح راح")
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = new Date(new Date().getTime() + 8 * 3600e3).toISOString().slice(0, 10) // ماليزيا UTC+8
   // ✅ القفل على الأيام الماضية لا ينطبق على الأدمن أو مدير القسم/الفرع — لهم وحدهم صلاحية تصحيح شيفت
   // يوم فات فعلاً عند الحاجة، بينما باقي المستخدمين (مثل المشرفين) ممنوعون تماماً من لمس الماضي
   function isPastDate(dateStr: string) { return !canEditPastDays && dateStr < todayStr }
@@ -403,6 +405,16 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     // ✅ حد الحذف يبدأ من اليوم الحالي كحد أدنى (أو بداية الشهر لو الشهر بالكامل مستقبلي) — إلا لو المستخدم
     // مخوَّل (أدمن/مدير)، فوقتها يُسمح بلمس الماضي فعلياً بناءً على طلبه الصريح
     const deleteFrom = (!canEditPastDays && ms < todayStr) ? todayStr : ms
+    // ✅ سياسة الشركة: تعديل مدير النظام لشيفت يوم له حضور يُطبَّق مباشرة (يُعاد حساب التأخير والخروج المبكر ويتحدّث الراتب).
+    // نحفظ الجدول القديم قبل الحذف لنعرف أي الأيام تغيّر شيفتها فعلًا.
+    const sigOf = (r: { shift_id?: string | null; custom_start?: string | null; custom_end?: string | null }) =>
+      r.shift_id ? 's:' + r.shift_id : r.custom_start ? 'c:' + r.custom_start.slice(0, 5) + '-' + (r.custom_end || '').slice(0, 5) : 'L'
+    let oldSig: Record<string, string> = {}
+    if (canEditPastDays) {
+      const { data: oldRows } = await supabase.from('shift_schedules').select('date, shift_id, custom_start, custom_end')
+        .eq('employee_id', empId).gte('date', deleteFrom).lte('date', me)
+      oldSig = Object.fromEntries(((oldRows || []) as { date: string; shift_id: string | null; custom_start: string | null; custom_end: string | null }[]).map(r => [String(r.date).slice(0, 10), sigOf(r)]))
+    }
     setProgress('حذف الجدول القديم...')
     await supabase.from('shift_schedules').delete().eq('employee_id', empId).gte('date', deleteFrom).lte('date', me)
     if (shiftDays.length > 0) {
@@ -440,6 +452,25 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
       for (let i = 0; i < leaveRows.length; i += 50) {
         const { error } = await supabase.from('shift_schedules').insert(leaveRows.slice(i, i + 50))
         if (error) { console.error('Leave insert error:', error); alert('خطأ في حفظ أيام الإجازة: ' + error.message); setSaving(false); return }
+      }
+    }
+    // ✅ إعادة حساب الحضور للأيام (حتى اليوم بتوقيت ماليزيا) التي تغيّر شيفتها — لمدير النظام فقط
+    if (canEditPastDays) {
+      const newSig: Record<string, string> = {}
+      for (const [date, v] of shiftDays) newSig[date] = v.type === 'custom' ? 'c:' + (v.customStart || '').slice(0, 5) + '-' + (v.customEnd || '').slice(0, 5) : 's:' + v.shiftId
+      for (const [date] of leaveDays) newSig[date] = 'L'
+      const changedDates = [...new Set([...Object.keys(oldSig), ...Object.keys(newSig)])].filter(d => d <= todayStr && (oldSig[d] || '-') !== (newSig[d] || '-'))
+      if (changedDates.length > 0) {
+        try {
+          setProgress('إعادة حساب الحضور...')
+          const editorName = [currentUser?.name, currentUser?.name_en].filter(Boolean).join(' ') || 'مدير النظام'
+          const res = await recalcAttendanceAfterShiftEdit(supabase, empId, changedDates, editorName)
+          if (res.changedRows.length > 0) {
+            const lines = res.changedRows.map(r => `• ${r.date}: التأخير ${r.late[0]} ← ${r.late[1]} د، الخروج المبكر ${r.early[0]} ← ${r.early[1]} د`).join('\n')
+            const fin = Object.entries(res.payroll).filter(([, st]) => st === 'finalized').map(([ym]) => ym)
+            alert(`تم تطبيق تعديل الشيفت على الحضور مباشرة:\n${lines}` + (fin.length ? `\n\n⚠️ كشف راتب ${fin.join('، ')} مُعتمَد (Finalized) فلم يتحدّث تلقائيًا — راجعه يدويًا.` : '\n\nوتحدّثت ساعات كشف الراتب للأشهر غير المعتمدة.'))
+          }
+        } catch (e) { console.error('recalc after shift edit failed', e) }
       }
     }
     // إشعار اختياري — لو فشل ليس سيوقف الحفظ
@@ -627,7 +658,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
               const entry = calendarMap[d.date]
               const isSelected = selectedDates.has(d.date)
               const isEditDay = editDay === d.date
-              const isToday = d.date === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
+              const isToday = d.date === todayStr
               const shift = entry?.type === 'shift' ? shifts.find(s => s.id === entry.shiftId) : null
               const isWeekend = d.dow === 5 || d.dow === 6
               const isPast = isPastDate(d.date)

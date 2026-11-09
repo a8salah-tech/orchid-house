@@ -12,7 +12,7 @@
 --     ثم يُحسب التأخير والخروج المبكر لهذين اليومين على الشيفت الصحيح (14:00–02:00) = صفر.
 --  3) تُحدَّث ساعات التأخير/الخروج المبكر/إذن الخروج في كشف راتب الشهر (أكتوبر لعبد الله، نوفمبر لعلي) لو لم يكن معتمدًا (Finalized).
 --     المتوقع: عبد الله أكتوبر تأخير 1.18 ساعة وخروج مبكر 0 (والمستحق نحو 1,447 مع بقاء مخالفتي النظام 15+15)، وعلي نوفمبر تأخير وخروج مبكر 0.
---  كل الأوقات أدناه بتوقيت ماليزيا (UTC+8) محوّلة إلى UTC. المخالفتان التلقائيتان (15 رينغيت × 2 ليوم 21/10) لا تُمسّان.
+--  كل الأوقات أدناه بتوقيت ماليزيا (UTC+8) محوّلة إلى UTC، وبثواني البصمة الأصلية (مأخوذة من الصفين المعكوسين نفسيهما). المخالفتان التلقائيتان (15 رينغيت × 2 ليوم 21/10) لا تُمسّان.
 --  التشغيل: انسخ الملف كله في Supabase SQL Editor → Run. معاملة واحدة وآمن لإعادة التشغيل (يتخطى ما صُحّح).
 --  يتوقف بخطأ ويتراجع كله إن لم تطابق الصفوف ما هو متوقع (حتى لا يحذف أو يعدّل صفًا غير مقصود).
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -37,23 +37,23 @@ begin
   -- ── 2) عبد الله سيف
   -- سجل 21/10: الخروج الفعلي 22/10 01:55 (= 21/10 17:55 UTC)
   update public.attendance
-     set check_out_time = '2026-10-21 17:55:00+00', status = 'present',
+     set check_out_time = '2026-10-21 17:55:38.735336+00', status = 'present',
          late_minutes = 0, early_minutes = 0, permit_minutes = 0, is_manual = true, notes = v_note_abd
    where id = '5314e796-3d34-4854-9d30-9fd791f418e2' and employee_id = c_abd
-     and check_out_time is distinct from '2026-10-21 17:55:00+00';
+     and check_out_time is distinct from '2026-10-21 17:55:38.735336+00';
 
   -- حذف الصفين المعكوسين (بشرط مطابقة وقت دخول كل منهما حتى لا يُحذف صف آخر)
   delete from public.attendance
-   where id = '90bdb077-ff68-4eb3-9a54-d9c3f9d14a97' and employee_id = c_abd and check_in_time = '2026-10-21 17:55:00+00';
+   where id = '90bdb077-ff68-4eb3-9a54-d9c3f9d14a97' and employee_id = c_abd and date_trunc('minute', check_in_time) = '2026-10-21 17:55:00+00';
   delete from public.attendance
-   where id = 'f63af4be-d1da-4af3-806d-15b542897147' and employee_id = c_abd and check_in_time = '2026-10-22 05:39:00+00';
+   where id = 'f63af4be-d1da-4af3-806d-15b542897147' and employee_id = c_abd and date_trunc('minute', check_in_time) = '2026-10-22 05:39:00+00';
 
   -- سجل 22/10: دخول 22/10 13:39 (= 05:39 UTC) وخروج 23/10 01:59 (= 22/10 17:59 UTC)
   update public.attendance
-     set check_in_time = '2026-10-22 05:39:00+00', check_out_time = '2026-10-22 17:59:00+00', status = 'present',
+     set check_in_time = '2026-10-22 05:39:12.252498+00', check_out_time = '2026-10-22 17:59:28.066539+00', status = 'present',
          late_minutes = 0, early_minutes = 0, permit_minutes = 0, is_manual = true, notes = v_note_abd
    where id = 'c1a46d0c-58b0-45ce-8ec7-2b79242b60da' and employee_id = c_abd
-     and (check_in_time is distinct from '2026-10-22 05:39:00+00' or check_out_time is distinct from '2026-10-22 17:59:00+00');
+     and (check_in_time is distinct from '2026-10-22 05:39:12.252498+00' or check_out_time is distinct from '2026-10-22 17:59:28.066539+00');
 
   -- ── 3) كشف الراتب: مجموع الدقائق ÷ 60 (نفس معادلة صفحة الرواتب)، للأشهر غير المعتمدة فقط
   update public.payroll_records pr
@@ -79,8 +79,8 @@ declare bad text := '';
 begin
   if not exists (select 1 from public.attendance where id = '7bf04b58-3b09-4a6e-9666-5989eae8cf82' and late_minutes = 0 and early_minutes = 0) then bad := bad || 'سجل علي؛ '; end if;
   if exists (select 1 from public.attendance where id in ('90bdb077-ff68-4eb3-9a54-d9c3f9d14a97', 'f63af4be-d1da-4af3-806d-15b542897147')) then bad := bad || 'الصفان لم يُحذفا؛ '; end if;
-  if not exists (select 1 from public.attendance where id = '5314e796-3d34-4854-9d30-9fd791f418e2' and check_out_time = '2026-10-21 17:55:00+00' and late_minutes = 0 and early_minutes = 0) then bad := bad || 'سجل 21/10؛ '; end if;
-  if not exists (select 1 from public.attendance where id = 'c1a46d0c-58b0-45ce-8ec7-2b79242b60da' and check_in_time = '2026-10-22 05:39:00+00' and check_out_time = '2026-10-22 17:59:00+00' and late_minutes = 0 and early_minutes = 0) then bad := bad || 'سجل 22/10؛ '; end if;
+  if not exists (select 1 from public.attendance where id = '5314e796-3d34-4854-9d30-9fd791f418e2' and check_out_time = '2026-10-21 17:55:38.735336+00' and late_minutes = 0 and early_minutes = 0) then bad := bad || 'سجل 21/10؛ '; end if;
+  if not exists (select 1 from public.attendance where id = 'c1a46d0c-58b0-45ce-8ec7-2b79242b60da' and check_in_time = '2026-10-22 05:39:12.252498+00' and check_out_time = '2026-10-22 17:59:28.066539+00' and late_minutes = 0 and early_minutes = 0) then bad := bad || 'سجل 22/10؛ '; end if;
   if (select coalesce(sum(early_minutes), 0) from public.attendance where employee_id = '8618338a-54c9-4c1a-862c-cc63daaacca0' and date between '2026-10-01' and '2026-10-31') <> 0 then bad := bad || 'الخروج المبكر لعبد الله؛ '; end if;
   if bad <> '' then raise exception 'FAIL: %', bad; end if;
 end $$;

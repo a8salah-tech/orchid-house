@@ -1156,12 +1156,13 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       alert('تعذّر حفظ الشيفت الجديد، وأُعيد الجدول القديم: ' + insErr.message)
       return false
     }
-    // ✅ سياسة الشركة: تعديل مدير النظام لأيام (اليوم أو ماضية) له حضور فيها يُطبَّق مباشرة على التأخير/الخروج المبكر وكشف الراتب
-    if (isAdmin) {
+    // ✅ سياسة الشركة: تعديل شيفت أيام (اليوم أو ماضية) لها حضور يُطبَّق مباشرة على التأخير/الخروج المبكر وكشف الراتب
+    // (غير مدير النظام لا تصله إلا أيام اليوم وما بعده، فيُعاد حساب اليوم فقط)
+    {
       const upTo = editable.filter(d => d <= todayMY)
       if (upTo.length > 0) {
         try {
-          const editorName = [currentUser?.name, currentUser?.name_en].filter(Boolean).join(' ') || 'مدير النظام'
+          const editorName = [currentUser?.name, currentUser?.name_en].filter(Boolean).join(' ') || 'المدير'
           await recalcAttendanceAfterShiftEdit(supabase, request.employee_id, upTo, editorName)
         } catch (e) { console.error('recalc after shift request failed', e) }
       }

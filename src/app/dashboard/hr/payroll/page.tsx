@@ -251,6 +251,10 @@ function solidOver(rgba: string, baseHex: string = '#0F2040'): string {
 // المفتاح: `${payroll_month_id}|${employee_id}` — يُملأ عند تحميل الشهر (db/resignation_requests.sql → app_resignation_forfeits)
 const RESIGN_FORFEIT = new Set<string>()
 
+// ✅ تقريب الصافي لأقرب قرش قبل الجبر لأعلى — يُطبَّق من أكتوبر 2026 فصاعدًا فقط؛ الأشهر السابقة تبقى بحسابها القديم
+// حتى لا تتغيّر مبالغ قد صُرفت فعلًا. المفتاح: معرّف شهر الرواتب (يُملأ عند تحميل الأشهر في fetchAll)
+const CENT_ROUND_MONTH_IDS = new Set<string>()
+
 function calcRecord(r: PayrollRecord) {
   const dailyRate   = r.basic_salary / (r.working_days || 30)
   // ✅ قاسم متغيّر حسب ساعات دوام الموظف الفعلية (من شيفته) بدل الرقم الثابت 8 لكل الموظفين
@@ -273,7 +277,7 @@ function calcRecord(r: PayrollRecord) {
   // صافي الراتب وباقي الخانات تظل بقيمتها الدقيقة بالقروش
   // ⚠️ نقرّب الصافي لأقرب قرش قبل الجبر: ضرب سعر اليوم (الراتب÷30) في أيام الشهر يُنتج أخطاء كسرية عائمة
   // (مثل 2000.0000000000002) كانت تُجبَر خطأً لرينغيت أعلى (2001 بدل 2000)
-  const amountDue   = netSalary > 0 ? Math.ceil(Math.round(netSalary * 100) / 100) : 0
+  const amountDue   = netSalary > 0 ? Math.ceil(CENT_ROUND_MONTH_IDS.has(r.payroll_month_id) ? Math.round(netSalary * 100) / 100 : netSalary) : 0
   const balance     = amountDue - r.amount_paid
   return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, permitDed, totalDeductions, netSalary, amountDue, balance, forfeit }
 }
@@ -804,6 +808,10 @@ export default function PayrollPage() {
       })(),
       sb.from('branches').select('id,name').eq('is_active', true).order('name'),
     ])
+    CENT_ROUND_MONTH_IDS.clear()
+    for (const m of (mo.data || []) as { id: string; month: number; year: number }[]) {
+      if (m.year * 12 + m.month >= 2026 * 12 + 10) CENT_ROUND_MONTH_IDS.add(m.id)
+    }
     setMonths(mo.data || [])
     setEmployees(await withComp(em.data || []))
     setBranches(br.data || [])

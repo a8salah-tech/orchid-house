@@ -271,7 +271,9 @@ function calcRecord(r: PayrollRecord) {
   const netSalary   = forfeit ? 0 : totalEarnings - totalDeductions + r.carried_forward
   // ✅ جبر الكسور: المبلغ المستحق فقط يُقرَّب لأعلى رينغيت كامل (Math.ceil) لصالح الموظف —
   // صافي الراتب وباقي الخانات تظل بقيمتها الدقيقة بالقروش
-  const amountDue   = netSalary > 0 ? Math.ceil(netSalary) : 0
+  // ⚠️ نقرّب الصافي لأقرب قرش قبل الجبر: ضرب سعر اليوم (الراتب÷30) في أيام الشهر يُنتج أخطاء كسرية عائمة
+  // (مثل 2000.0000000000002) كانت تُجبَر خطأً لرينغيت أعلى (2001 بدل 2000)
+  const amountDue   = netSalary > 0 ? Math.ceil(Math.round(netSalary * 100) / 100) : 0
   const balance     = amountDue - r.amount_paid
   return { dailyRate, hourlyRate, earnedBase, overtimePay, totalAllowances, totalEarnings, absenceDed, lateDed, earlyDed, permitDed, totalDeductions, netSalary, amountDue, balance, forfeit }
 }

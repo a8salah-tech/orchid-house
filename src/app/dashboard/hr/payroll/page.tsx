@@ -251,6 +251,18 @@ function solidOver(rgba: string, baseHex: string = '#0F2040'): string {
 // المفتاح: `${payroll_month_id}|${employee_id}` — يُملأ عند تحميل الشهر (db/resignation_requests.sql → app_resignation_forfeits)
 const RESIGN_FORFEIT = new Set<string>()
 
+// ✅ تاريخ سريان زيادات الراتب (جدول salary_increases): راتب شهر الرواتب = الراتب بعد كل الزيادات التي يسري تاريخها حتى نهاية ذلك الشهر
+// (الزيادة تسري على كامل شهر تاريخ سريانها). أي زيادة تاريخها بعد نهاية الشهر لا تُحتسب فيه: نأخذ salary_before لأقرب زيادة لاحقة.
+// ⚠️ من أكتوبر 2026 فصاعدًا فقط. الأشهر السابقة (غير المعتمدة) تُجمَّد على راتبها المخزَّن في سجلها (إن وُجد)، فلا تتأثر
+// بزيادة تُسجَّل الآن (كان كشف أي شهر غير معتمد يُعاد بالراتب الحالي عند فتحه).
+const SALARY_EFFECTIVE_FROM_YM = '2026-10'
+type SalaryRaise = { employee_id: string; effective_date: string; salary_before: number | null }
+function salaryForPayrollMonth(currentSalary: number, storedBasic: number, ym: string, monthEnd: string, raises: SalaryRaise[]): number {
+  if (ym < SALARY_EFFECTIVE_FROM_YM) return storedBasic > 0 ? storedBasic : currentSalary
+  const later = raises.find(i => String(i.effective_date).slice(0, 10) > monthEnd)
+  return later && Number(later.salary_before) > 0 ? Number(later.salary_before) : currentSalary
+}
+
 // ✅ تقريب الصافي لأقرب قرش قبل الجبر لأعلى — يُطبَّق من أكتوبر 2026 فصاعدًا فقط؛ الأشهر السابقة تبقى بحسابها القديم
 // حتى لا تتغيّر مبالغ قد صُرفت فعلًا. المفتاح: معرّف شهر الرواتب (يُملأ عند تحميل الأشهر في fetchAll)
 const CENT_ROUND_MONTH_IDS = new Set<string>()
@@ -1066,9 +1078,16 @@ export default function PayrollPage() {
     // ✅ مجموعة الموظفين اللي بصموا (سجّلوا حضوراً فعلياً) مرة واحدة على الأقل هذا الشهر
     const employeesWithAnyAttendance = new Set(attendanceRows.filter(a => a.check_in_time).map(a => a.employee_id))
 
+    // ✅ زيادات الراتب مرتّبة بتاريخ السريان (لو فشل الجلب نتصرف كأنه لا زيادات: الراتب الحالي كما كان)
+    const { data: raiseRows } = await sb.from('salary_increases').select('employee_id, effective_date, salary_before').order('effective_date', { ascending: true })
+    const raisesByEmp: Record<string, SalaryRaise[]> = {}
+    for (const rr of ((raiseRows || []) as SalaryRaise[])) (raisesByEmp[rr.employee_id] = raisesByEmp[rr.employee_id] || []).push(rr)
+
     // دمج المخالفات والغياب — دائماً بتحسب من الجداول ليس من DB
     const allRecords = [...existing, ...missing].map((r: any) => {
-      const emp = filteredEmps.find(e => e.id === r.employee_id)
+      const empBase = filteredEmps.find(e => e.id === r.employee_id)
+      // الراتب الأساسي لهذا الشهر بحسب تاريخ سريان الزيادات (أو المجمَّد للأشهر السابقة لأكتوبر 2026)
+      const emp = empBase ? { ...empBase, salary: salaryForPayrollMonth(empBase.salary || 0, Number(r.basic_salary) || 0, monthStart.slice(0, 7), monthEnd, raisesByEmp[empBase.id] || []) } : empBase
       // ✅ تناسب الراتب حسب تاريخ إيقاف الموظف (لو موجود) ومقارنته بشهر الجرد الحالي، وحسب اليوم الحالي
       // لو الشهر ده لسه شغال (asOfDate)
       const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd, asOfDate) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }

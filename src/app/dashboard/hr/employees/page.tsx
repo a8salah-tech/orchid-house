@@ -371,7 +371,7 @@ function SalaryIncreaseModal({ employee, adminId, onClose, onSaved }: {
   employee: Employee; adminId: string | undefined; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createClient()
-  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10))
+  const [effectiveDate, setEffectiveDate] = useState(() => new Date(new Date().getTime() + 8 * 3600e3).toISOString().slice(0, 10))
   const [amount, setAmount] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
@@ -445,6 +445,7 @@ function SalaryIncreaseModal({ employee, adminId, onClose, onSaved }: {
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>تاريخ الزيادة *</label>
             <input style={inp} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} />
+            <div style={{ fontSize: 11, color: S.muted, marginTop: 5, lineHeight: 1.7 }}>تسري الزيادة في كشف الرواتب على <b style={{ color: S.gold }}>كامل شهر هذا التاريخ</b> وما بعده (من أكتوبر 2026). الأشهر السابقة لا تتأثر.</div>
           </div>
           <div>
             <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>مبلغ الزيادة (MYR) *</label>

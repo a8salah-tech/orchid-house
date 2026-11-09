@@ -10,6 +10,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { computeLateInfo, computeEarlyInfo } from '../../../../lib/attendanceCalc'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
 import { Stethoscope, Siren, Utensils, TriangleAlert, Lightbulb, ClipboardList, Clock, TrendingUp, Banknote, DoorOpen, CalendarDays, LogOut, CircleCheck, CircleX, Flag, Hourglass, X, Info, Send, Plus, Printer, Trash2, Lock, Check, ChartColumn, ChevronLeft, ChevronRight } from 'lucide-react'
+import { shiftTimesError } from '../../../../lib/shiftTimes'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -671,6 +672,7 @@ function NewRequestModal({ employees, onClose, onSaved, currentEmployeeId, submi
       if (!form.start_date) { alert('يرجى تحديد تاريخ بداية الشيفت المطلوب'); return }
       if (form.shift_mode === 'shift' && !form.shift_id) { alert('يرجى اختيار الشيفت المطلوب'); return }
       if (form.shift_mode === 'custom' && (!form.custom_start || !form.custom_end)) { alert('يرجى تحديد وقت البداية والنهاية'); return }
+      if (form.shift_mode === 'custom') { const timeErr = shiftTimesError(form.custom_start, form.custom_end); if (timeErr) { alert(timeErr); return } }
     }
     if (form.request_type === 'early_exit_permit' && (!form.start_date || !form.permit_time)) { alert('يرجى تحديد تاريخ الإذن وساعة الخروج المطلوبة'); return }
     // ✅ جديد: إرفاق التقرير الطبي إجباري للإجازة المرضية فقط
@@ -1132,6 +1134,11 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     if (dates.length > 62) { alert('المدة أطول من 62 يوماً — قلّلها'); return false }
     const editable = isAdmin ? dates : dates.filter(d => d >= todayMY)
     if (editable.length === 0) { alert('كل تواريخ هذا الطلب في الماضي — لا يمكن تعديل الجدول'); return false }
+    // ✅ حارس أخير: لا نكتب في الجدول دوامًا مخصصًا غير منطقي (طلبات قديمة أو معدَّلة يدويًا)
+    if (request.requested_custom_start || request.requested_custom_end) {
+      const timeErr = shiftTimesError(request.requested_custom_start || '', request.requested_custom_end || '')
+      if (timeErr) { alert(timeErr); return false }
+    }
     const { data: oldRows, error: oldErr } = await supabase.from('shift_schedules').select('*').eq('employee_id', request.employee_id).in('date', editable)
     if (oldErr) { alert('تعذّر قراءة الجدول الحالي: ' + oldErr.message); return false }
     const { error: delErr } = await supabase.from('shift_schedules').delete().eq('employee_id', request.employee_id).in('date', editable)

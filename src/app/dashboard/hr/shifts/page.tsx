@@ -6,6 +6,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useAuth } from '../../../components/AuthProvider'
 import { useLang } from '../../../components/LanguageContext'
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
+import { shiftTimesError } from '../../../../lib/shiftTimes'
 
 const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,6 +51,9 @@ function ShiftModal({ shift, onClose, onSaved }: { shift?: any; onClose: () => v
 
   async function save() {
     if (!form.name) return
+    // ✅ لا نحفظ شيفتًا غير منطقي (نهاية = بداية، أو أكثر من 16 ساعة)
+    const timeErr = shiftTimesError(form.start_time, form.end_time)
+    if (timeErr) { alert(timeErr); return }
     setSaving(true)
     if (shift) await supabase.from('shifts').update(form).eq('id', shift.id)
     else await supabase.from('shifts').insert([form])
@@ -306,6 +310,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     if (selectedDates.size === 0) { alert('اختر أيام أولاً'); return }
     if (bulkType === 'shift' && !bulkShift) { alert('اختر الشيفت'); return }
     if (bulkType === 'custom' && (!customStart || !customEnd)) { alert('أدخل وقت البداية والنهاية'); return }
+    if (bulkType === 'custom') { const timeErr = shiftTimesError(customStart, customEnd); if (timeErr) { alert(timeErr); return } }
     setCalendarMap(prev => {
       const next = { ...prev }
       selectedDates.forEach(d => {
@@ -334,6 +339,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     }
     if (bulkType === 'shift' && !bulkShift) { alert('اختر الشيفت أولاً'); return }
     if (bulkType === 'custom' && (!customStart || !customEnd)) { alert('أدخل الوقت أولاً'); return }
+    if (bulkType === 'custom') { const timeErr = shiftTimesError(customStart, customEnd); if (timeErr) { alert(timeErr); return } }
     setCalendarMap(prev => {
       // ✅ نبدأ من الأيام الماضية المحفوظة الحالية كما هي (بلا لمسها)، ونضيف عليها فقط أيام اليوم والمستقبل
       const next: Record<string, { type: string; shiftId?: string; customStart?: string; customEnd?: string }> = {}
@@ -356,6 +362,7 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
   function applyEditDay(type: string, shiftId?: string, cs?: string, ce?: string) {
     if (!editDay) return
     if (isPastDate(editDay)) return // ✅ حماية أخيرة — لن يحدث عادةً لأن نافذة التعديل أصلاً لا تُفتح ليوم ماضٍ
+    if (type === 'custom') { const timeErr = shiftTimesError(cs || '', ce || ''); if (timeErr) { alert(timeErr); return } }
     setCalendarMap(prev => {
       const next = { ...prev }
       if (type === 'off') delete next[editDay]
@@ -374,6 +381,12 @@ function AssignModal({ employees, shifts, onClose, onSaved, initialEmpId, initia
     const shiftDays = Object.entries(calendarMap).filter(([d, v]) => !isPastDate(d) && (v.type === 'shift' || v.type === 'custom'))
     const leaveDays = Object.entries(calendarMap).filter(([d, v]) => !isPastDate(d) && v.type === 'leave')
     if (shiftDays.length === 0 && leaveDays.length === 0) { alert('لم تحدد أي أيام'); return }
+    // ✅ حارس أخير قبل الكتابة: أي يوم بدوام مخصص غير منطقي يوقف الحفظ كله (فلا يُحذف الجدول القديم ولا يُدرج شيء)
+    for (const [date, v] of shiftDays) {
+      if (v.type !== 'custom') continue
+      const timeErr = shiftTimesError(v.customStart || '', v.customEnd || '')
+      if (timeErr) { alert(`يوم ${date}: ${timeErr}`); return }
+    }
     // ✅ حصة الإجازة الشهرية: ممنوع تجاوزها لمدير القسم/الفرع؛ مدير النظام يُنبَّه ويقدر يتجاوز عند الضرورة
     if (monthLeaveStats.over) {
       const extra = monthLeaveStats.count - monthlyCap

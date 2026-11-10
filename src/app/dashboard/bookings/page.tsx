@@ -537,11 +537,13 @@ export default function BookingsPage() {
   // ✅ نرجّع لأول صفحة تلقائيًا كل ما اتغيّر أي فلتر
   useEffect(() => { setPage(0) }, [filter, dateFilter, dateTo, search, branchFilter, showArchive])
 
+  // ✅ Fix: إحصائيات الحالات (الكروت فوق) كانت بتعد حجوزات كل الفروع حتى لو اخترت فرعًا — دلوقتي تتبع الفرع المحدد
+  const scoped = branchFilter ? bookings.filter(b => b.branch_id === branchFilter) : bookings
   const counts = {
-    all: bookings.length,
-    pending: bookings.filter(b => b.status === 'pending').length,
-    confirmed: bookings.filter(b => b.status === 'confirmed').length,
-    cancelled: bookings.filter(b => b.status === 'cancelled').length,
+    all: scoped.length,
+    pending: scoped.filter(b => b.status === 'pending').length,
+    confirmed: scoped.filter(b => b.status === 'confirmed').length,
+    cancelled: scoped.filter(b => b.status === 'cancelled').length,
   }
 
   // ✅ جديد: في تاب "النشطة/القادمة" نعرض الحجوزات مقسّمة لمجموعات (اليوم، غدًا، هذا الأسبوع، لاحقًا)

@@ -225,6 +225,9 @@ export default function BookingsPage() {
   // ✅ جديد: مدير النظام فقط يقدر يغلق/يفتح يوم حجز لفرع معيّن
   const { employee, permissions } = useAuth()
   const isAdmin = permissions?.all === true
+  // ✅ جديد: مدير الصالة ومشرف الصالة يشوفون حجوزات الفرعين مع بعض (زي مدير النظام) — بقية الأدوار فرعها فقط.
+  // (إغلاق الأيام/الأقسام والفترة من–إلى يفضلوا على صلاحياتهم القديمة)
+  const seesAllBranches = isAdmin || employee?.role === 'hall_manager' || employee?.role === 'hall_supervisor'
   // ✅ جديد: إغلاق/فتح أيام الحجز أصبح متاحًا لمشرف الصالة كمان، بالإضافة لمدير النظام — لفرعه فقط
   // ✅ مساعد مدير الصالة كمان (لفرعه فقط) — مطابقةً لصلاحية مشرف الصالة
   const canManageClosedDays = isAdmin || employee?.role === 'hall_supervisor' || employee?.role === HALL_ASSISTANT_ROLE
@@ -334,12 +337,12 @@ export default function BookingsPage() {
     if (!employee) return
     // ✅ جديد: كل فرع يشوف حجوزاته فقط — مدير النظام وحده يشوف كل الفروع. (لو موظف بلا فرع محدد: مفيش حجوزات تظهر)
     let q = sb.from('bookings').select('*').order('booking_date', { ascending: false }).order('booking_time', { ascending: false })
-    if (!isAdmin) q = q.eq('branch_id', myBranchId || '00000000-0000-0000-0000-000000000000')
+    if (!seesAllBranches) q = q.eq('branch_id', myBranchId || '00000000-0000-0000-0000-000000000000')
     // ✅ Fix: الترتيب بقى من الأحدث للأقدم (تنازلي) بدل تصاعدي
     const { data } = await q
     setBookings((data as any) || [])
     setLoading(false)
-  }, [employee, isAdmin, myBranchId])
+  }, [employee, seesAllBranches, myBranchId])
 
   // ✅ جديد: جلب الفروع لدعم فلتر اختيار الفرع
   const fetchBranches = useCallback(async () => {
@@ -574,7 +577,7 @@ export default function BookingsPage() {
     }
     const filterDesc = [
       rangeTo ? `Period: ${rangeLo ? fmtD(rangeLo) : 'up to'}${rangeLo ? ' → ' : ' '}${fmtD(rangeHi)}` : dateFilter ? `Date: ${fmtD(dateFilter)}` : (showArchive ? 'Archive' : 'Active / Upcoming'),
-      `Branch: ${branchFilter ? (branches.find(b => b.id === branchFilter)?.name || '—') : (isAdmin ? 'All branches' : (branches.find(b => b.id === employee?.branch_id)?.name || '—'))}`,
+      `Branch: ${branchFilter ? (branches.find(b => b.id === branchFilter)?.name || '—') : (seesAllBranches ? 'All branches' : (branches.find(b => b.id === employee?.branch_id)?.name || '—'))}`,
       filter !== 'all' ? `Status: ${filter}` : '',
     ].filter(Boolean).join(' · ')
     // ✅ الطباعة بتاخد كل النتائج المفلترة (كل الصفحات مع بعض)، مش صفحة واحدة بس
@@ -723,7 +726,7 @@ export default function BookingsPage() {
   const [cardsBranch, setCardsBranch] = useState('')
   const [cardsWithCancelled, setCardsWithCancelled] = useState(false)
   const cardsDateEff = cardsDate || dateFilter || todayStr
-  const cardsList = bookings.filter(b => b.booking_date === cardsDateEff && (cardsWithCancelled || b.status !== 'cancelled') && (!isAdmin ? true : (!cardsBranch || b.branch_id === cardsBranch)))
+  const cardsList = bookings.filter(b => b.booking_date === cardsDateEff && (cardsWithCancelled || b.status !== 'cancelled') && (!seesAllBranches ? true : (!cardsBranch || b.branch_id === cardsBranch)))
 
   const inp: React.CSSProperties = { background: 'rgba(255,255,255,.04)', border: `1px solid ${S.border}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, color: S.white, outline: 'none', fontFamily: 'Tajawal, sans-serif', boxSizing: 'border-box' as const }
 
@@ -761,12 +764,12 @@ export default function BookingsPage() {
       </div>
 
       {/* ✅ جديد: اختيار الفرع بأزرار واضحة — لمدير النظام فقط؛ بقية الأدوار تشوف فرعها بس */}
-      {!isAdmin && employee?.branch_id && (
+      {!seesAllBranches && employee?.branch_id && (
         <div style={{ marginBottom: 16, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 12, border: `1px solid ${S.gold}`, background: S.gold3, color: S.gold, fontSize: 13, fontWeight: 700 }}>
           🏪 {branches.find(b => b.id === employee.branch_id)?.name || 'My branch'} <span style={{ color: S.muted, fontWeight: 400 }}>· your branch bookings only</span>
         </div>
       )}
-      {isAdmin && branches.length > 0 && (
+      {seesAllBranches && branches.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <button onClick={() => setBranchFilter('')}
             style={{ padding: '9px 16px', borderRadius: 12, border: `1px solid ${!branchFilter ? S.gold : S.border}`, background: !branchFilter ? S.gold3 : 'transparent', color: !branchFilter ? S.gold : S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: !branchFilter ? 700 : 400 }}>
@@ -868,7 +871,7 @@ export default function BookingsPage() {
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 14 }}>كل كروت يوم معيّن بالعرض (100×70 ملم) — 8 كروت في صفحة A4</div>
             <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>📅 Day</div>
             <input type="date" style={{ ...inp, width: '100%', marginBottom: 12 }} value={cardsDateEff} onChange={e => setCardsDate(e.target.value)} />
-            {isAdmin && (
+            {seesAllBranches && (
               <>
                 <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>🏪 Branch</div>
                 <select style={{ ...inp, width: '100%', marginBottom: 12 }} value={cardsBranch} onChange={e => setCardsBranch(e.target.value)}>

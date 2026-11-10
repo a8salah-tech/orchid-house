@@ -234,6 +234,8 @@ export default function BookingsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all')
   const [dateFilter, setDateFilter] = useState('')
+  // ✅ جديد: «إلى تاريخ» — لمدير النظام فقط. مع «من تاريخ» (dateFilter) يصبح فلتر فترة؛ بدونه يبقى فلتر اليوم الواحد كما كان
+  const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   // ✅ جديد: فلتر الفرع
   const [branchFilter, setBranchFilter] = useState('')
@@ -508,14 +510,20 @@ export default function BookingsPage() {
   const weekEndStr = addDays(7)
   const sortByWhen = (a: Booking, b: Booking) => a.booking_date === b.booking_date ? a.booking_time.localeCompare(b.booking_time) : a.booking_date.localeCompare(b.booking_date)
 
+  // ✅ جديد: فترة من–إلى (مدير النظام فقط). لو كتب التاريخين معكوسين نرتّبهما تلقائيًا؛ «إلى» وحده = كل ما قبله وبه
+  const rangeTo = isAdmin ? dateTo : ''
+  const swapRange = !!(dateFilter && rangeTo && dateFilter > rangeTo)
+  const rangeLo = swapRange ? rangeTo : dateFilter
+  const rangeHi = swapRange ? dateFilter : rangeTo
+  const dateActive = !!(dateFilter || rangeTo)
   const filtered = bookings.filter(b => {
     const matchStatus = filter === 'all' || b.status === filter
-    const matchDate = !dateFilter || b.booking_date === dateFilter
+    const matchDate = !dateActive ? true : rangeTo ? ((!rangeLo || b.booking_date >= rangeLo) && b.booking_date <= rangeHi) : b.booking_date === dateFilter
     const matchSearch = !search || (b.booking_ref || '').toLowerCase().includes(search.toLowerCase().replace('#', '')) || b.customer_name.toLowerCase().includes(search.toLowerCase()) || b.customer_phone.includes(search) || b.customer_email.toLowerCase().includes(search.toLowerCase())
     const matchBranch = !branchFilter || b.branch_id === branchFilter
     // ✅ Fix: لما يتحدد تاريخ معيّن من التقويم، نعرض حجوزات اليوم ده بالظبط سواء فات أو لسه — كان فلتر "النشطة/القادمة"
     // بيستبعد أي تاريخ سابق فيرجّع نتيجة فاضية رغم إن الحجوزات موجودة. بدون تاريخ محدد: الأرشيف = فات، النشطة = اليوم فما بعد
-    const matchArchive = dateFilter ? true : (showArchive ? b.booking_date < todayStr : b.booking_date >= todayStr)
+    const matchArchive = dateActive ? true : (showArchive ? b.booking_date < todayStr : b.booking_date >= todayStr)
     return matchStatus && matchDate && matchSearch && matchBranch && matchArchive
   })
 
@@ -524,7 +532,7 @@ export default function BookingsPage() {
   const pageSafe = Math.min(page, totalPages - 1)
   const paginated = filtered.slice(pageSafe * PAGE_SIZE, pageSafe * PAGE_SIZE + PAGE_SIZE)
   // ✅ نرجّع لأول صفحة تلقائيًا كل ما اتغيّر أي فلتر
-  useEffect(() => { setPage(0) }, [filter, dateFilter, search, branchFilter, showArchive])
+  useEffect(() => { setPage(0) }, [filter, dateFilter, dateTo, search, branchFilter, showArchive])
 
   const counts = {
     all: bookings.length,
@@ -536,12 +544,14 @@ export default function BookingsPage() {
   // ✅ جديد: في تاب "النشطة/القادمة" نعرض الحجوزات مقسّمة لمجموعات (اليوم، غدًا، هذا الأسبوع، لاحقًا)
   // بدل جدول واحد طويل — كل مجموعة مرتبة بترتيب زمني تصاعدي (الأقرب أولًا)، وتُخفى لو فاضية.
   // الأرشيف يفضل جدول واحد بترقيم صفحات عادي، لأنه أكبر حجمًا وتاريخي بطبيعته
-  const groups = (showArchive || dateFilter) ? null : [
+  const groups = (showArchive || dateActive) ? null : [
     { key: 'today', label: '📌 Today', rows: filtered.filter(b => b.booking_date === todayStr).sort(sortByWhen) },
     { key: 'tomorrow', label: '🔜 Tomorrow', rows: filtered.filter(b => b.booking_date === tomorrowStr).sort(sortByWhen) },
     { key: 'week', label: '📆 This Week', rows: filtered.filter(b => b.booking_date > tomorrowStr && b.booking_date <= weekEndStr).sort(sortByWhen) },
     { key: 'later', label: '📅 Later', rows: filtered.filter(b => b.booking_date > weekEndStr).sort(sortByWhen) },
   ].filter(g => g.rows.length > 0)
+
+  const fmtD = (d: string) => new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
 
   function printReport() {
     const win = window.open('', '_blank')
@@ -563,7 +573,7 @@ export default function BookingsPage() {
       }),
     }
     const filterDesc = [
-      dateFilter ? `Date: ${new Date(dateFilter).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}` : (showArchive ? 'Archive' : 'Active / Upcoming'),
+      rangeTo ? `Period: ${rangeLo ? fmtD(rangeLo) : 'up to'}${rangeLo ? ' → ' : ' '}${fmtD(rangeHi)}` : dateFilter ? `Date: ${fmtD(dateFilter)}` : (showArchive ? 'Archive' : 'Active / Upcoming'),
       `Branch: ${branchFilter ? (branches.find(b => b.id === branchFilter)?.name || '—') : (isAdmin ? 'All branches' : (branches.find(b => b.id === employee?.branch_id)?.name || '—'))}`,
       filter !== 'all' ? `Status: ${filter}` : '',
     ].filter(Boolean).join(' · ')
@@ -784,13 +794,18 @@ export default function BookingsPage() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <input style={{ ...inp, flex: 1, minWidth: 200 }} placeholder="🔍 Search name, phone, email, #ref..." value={search} onChange={e => setSearch(e.target.value)} />
-        <input type="date" style={{ ...inp, width: 'auto' }} value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
-        {dateFilter && <button onClick={() => setDateFilter('')} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ Clear</button>}
+        {isAdmin && <span style={{ alignSelf: 'center', fontSize: 12, color: S.muted }}>From</span>}
+        <input type="date" aria-label={isAdmin ? 'From date' : 'Date'} style={{ ...inp, width: 'auto' }} value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+        {/* ✅ جديد: «إلى تاريخ» — مدير النظام فقط */}
+        {isAdmin && <span style={{ alignSelf: 'center', fontSize: 12, color: S.muted }}>To</span>}
+        {isAdmin && <input type="date" aria-label="To date" style={{ ...inp, width: 'auto' }} value={dateTo} min={dateFilter || undefined} onChange={e => setDateTo(e.target.value)} />}
+        {(dateFilter || rangeTo) && <button onClick={() => { setDateFilter(''); setDateTo('') }} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>✕ Clear</button>}
       </div>
 
       <div style={{ fontSize: 12, color: S.muted, marginBottom: 10 }}>
         {filtered.length} booking{filtered.length !== 1 ? 's' : ''} found
-        {dateFilter && <span style={{ color: S.gold }}> · 📅 all bookings on {new Date(dateFilter).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })} (Active/Archive toggle ignored while a date is selected)</span>}
+        {rangeTo ? <span style={{ color: S.gold }}> · 📅 {rangeLo ? <>from {fmtD(rangeLo)} to {fmtD(rangeHi)}</> : <>up to {fmtD(rangeHi)}</>} (Active/Archive toggle ignored while a period is selected)</span>
+          : dateFilter && <span style={{ color: S.gold }}> · 📅 all bookings on {fmtD(dateFilter)} (Active/Archive toggle ignored while a date is selected)</span>}
       </div>
 
       {/* Table */}

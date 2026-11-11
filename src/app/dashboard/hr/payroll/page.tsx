@@ -176,7 +176,9 @@ function emptyRecord(monthId: string, emp: Employee): PayrollRecord {
 
 // ✅ حساب الراتب بالتناسب حسب تاريخ تعيين الموظف (join_date) وتاريخ إيقافه (deactivated_at)، ومقارنتهما بالشهر الحالي
 // monthStart/monthEnd بصيغة 'YYYY-MM-DD' (مقارنة نصية تعمل صحيح لأن الصيغة موحّدة)
-function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: string, asOfDate: string = monthEnd): { basicSalary: number; daysWorked: number | null; note: string | null } {
+// ✅ فترة توقف سابقة (جدول employment_breaks): من stopped_on حتى اليوم السابق لـ resumed_on (أول يوم عمل بعد العودة)
+type EmpBreak = { employee_id: string; stopped_on: string; resumed_on: string | null; note: string | null }
+function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: string, asOfDate: string = monthEnd, breaks: EmpBreak[] = []): { basicSalary: number; daysWorked: number | null; note: string | null } {
   // موظف موقوف بدون تاريخ إيقاف مسجل (حالة قديمة قبل إضافة هذه الميزة) — أأمن نوقف الراتب من الآن
   if (emp.is_active === false && !emp.deactivated_at) {
     return { basicSalary: 0, daysWorked: 0, note: '⏸ موظف موقوف عن العمل (بدون تاريخ إيقاف مسجل)' }
@@ -213,8 +215,22 @@ function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: strin
   // فالسطر ده مالوش أي تأثير (نفس السلوك القديم تمامًا)
   if (asOfDate < effectiveEnd) effectiveEnd = asOfDate
 
-  // لا تعيين ولا إيقاف ولا "لسه في نص الشهر الحالي" أثّروا على حدود الشهر — موظف نشط طوال الشهر بالكامل، راتب طبيعي
-  if (effectiveStart === monthStart && effectiveEnd === monthEnd) {
+  // ✅ جديد: أيام التوقف السابقة داخل هذا الشهر (موظف أُوقف ثم أُعيد تفعيله) لا تُحتسب أيام عمل ولا يُدفع عنها راتب
+  const dayNum = (d: string) => parseInt(d.split('-')[2], 10)
+  const dayBefore = (d: string) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10) }
+  let breakDays = 0
+  for (const b of breaks) {
+    const from = b.stopped_on > effectiveStart ? b.stopped_on : effectiveStart
+    const lastStopped = b.resumed_on ? dayBefore(b.resumed_on) : effectiveEnd
+    const to = lastStopped < effectiveEnd ? lastStopped : effectiveEnd
+    if (to < from) continue
+    const n = dayNum(to) - dayNum(from) + 1
+    breakDays += n
+    notesParts.push(`كان موقوفاً من ${b.stopped_on}${b.resumed_on ? ` وعاد للعمل بتاريخ ${b.resumed_on}` : ''} (${n} يوم من هذا الشهر بلا راتب)${b.note ? ` — ${b.note}` : ''}`)
+  }
+
+  // لا تعيين ولا إيقاف ولا "لسه في نص الشهر الحالي" ولا توقف سابق أثّروا على حدود الشهر — موظف نشط طوال الشهر بالكامل، راتب طبيعي
+  if (effectiveStart === monthStart && effectiveEnd === monthEnd && breakDays === 0) {
     return { basicSalary: emp.salary || 0, daysWorked: null, note: null }
   }
 
@@ -222,7 +238,7 @@ function getMonthlySalaryInfo(emp: Employee, monthStart: string, monthEnd: strin
   // فطرح رقمَي اليوم من التاريخين كافٍ وصحيح
   const startDay = parseInt(effectiveStart.split('-')[2], 10)
   const endDay = parseInt(effectiveEnd.split('-')[2], 10)
-  const daysCount = Math.max(0, endDay - startDay + 1)
+  const daysCount = Math.max(0, endDay - startDay + 1 - breakDays)
 
   // ✅ لو السبب الوحيد إن effectiveEnd اتقصّر هو إننا لسه في نص الشهر الحالي (مفيش تعيين/إيقاف فعلي)،
   // فده وضع طبيعي متوقَّع مش مشكلة تستاهل تحذير — منسيبش note عشان الواجهة متعرضوش كتحذير أحمر
@@ -1083,6 +1099,11 @@ export default function PayrollPage() {
     const raisesByEmp: Record<string, SalaryRaise[]> = {}
     for (const rr of ((raiseRows || []) as SalaryRaise[])) (raisesByEmp[rr.employee_id] = raisesByEmp[rr.employee_id] || []).push(rr)
 
+    // ✅ فترات التوقف السابقة التي تتقاطع مع هذا الشهر (لو فشل الجلب أو الجدول غير موجود: نتصرف كأنها لا توجد)
+    const { data: breakRows } = await sb.from('employment_breaks').select('employee_id, stopped_on, resumed_on, note').lte('stopped_on', monthEnd).or(`resumed_on.is.null,resumed_on.gt.${monthStart}`)
+    const breaksByEmp: Record<string, EmpBreak[]> = {}
+    for (const bb of ((breakRows || []) as EmpBreak[])) (breaksByEmp[bb.employee_id] = breaksByEmp[bb.employee_id] || []).push(bb)
+
     // دمج المخالفات والغياب — دائماً بتحسب من الجداول ليس من DB
     const allRecords = [...existing, ...missing].map((r: any) => {
       const empBase = filteredEmps.find(e => e.id === r.employee_id)
@@ -1090,7 +1111,7 @@ export default function PayrollPage() {
       const emp = empBase ? { ...empBase, salary: salaryForPayrollMonth(empBase.salary || 0, Number(r.basic_salary) || 0, monthStart.slice(0, 7), monthEnd, raisesByEmp[empBase.id] || []) } : empBase
       // ✅ تناسب الراتب حسب تاريخ إيقاف الموظف (لو موجود) ومقارنته بشهر الجرد الحالي، وحسب اليوم الحالي
       // لو الشهر ده لسه شغال (asOfDate)
-      const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd, asOfDate) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }
+      const salaryInfo = emp ? getMonthlySalaryInfo(emp, monthStart, monthEnd, asOfDate, breaksByEmp[emp.id] || []) : { basicSalary: r.basic_salary || 0, daysWorked: null, note: null }
       // ✅ الحالة القصوى: مفيش شيفت مسجَّل خالص ومفيش بصمة خالص هذا الشهر — لا يوجد أي أساس لدفع أي راتب على الإطلاق،
       // فنحتسب أيام العمل صفراً تلقائياً (بعكس أي حالة فيها غياب جزئي أو بصمة متقطعة، اللي بتفضل تحتاج مراجعة يدوية)
       // ✅ موظف "راتب ثابت" (سواق / إدارة / بدون بصمة): يُدفع راتبه كامل كل شهر، بلا خصم غياب/تأخير،

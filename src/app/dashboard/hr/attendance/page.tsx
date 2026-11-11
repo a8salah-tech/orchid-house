@@ -1071,7 +1071,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
     const todayStr = new Date().toISOString().slice(0, 10)
     const endStr = monthEndStr < todayStr ? monthEndStr : todayStr
 
-    const [{ data }, { data: schedules }] = await Promise.all([
+    const [{ data }, { data: schedules }, { data: breaks }] = await Promise.all([
       sb.from('attendance')
         .select('*')
         .eq('employee_id', requestedEmp)
@@ -1086,6 +1086,12 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         .eq('status', 'confirmed')
         .gte('date', startDate)
         .lt('date', endStr),
+      // ✅ فترات توقف الموظف السابقة (employment_breaks) — الأيام داخلها تظهر «موقوف عن العمل» لا «يوم راحة» (لو الجدول غير موجود: data = null ونتجاهل)
+      sb.from('employment_breaks')
+        .select('stopped_on,resumed_on,note')
+        .eq('employee_id', requestedEmp)
+        .lt('stopped_on', endStr)
+        .or(`resumed_on.is.null,resumed_on.gt.${startDate}`),
     ])
 
     // ✅ لو الأدمن غيّر الموظف المختار وإحنا لسه بننتظر رد الشبكة، نتجاهل الرد ده تمامًا - مش هو المطلوب حاليًا
@@ -1119,7 +1125,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
         merged.push({ date: dateStr, check_in_time: null, check_out_time: null, late_minutes: 0, status: 'absent', _synthetic: true })
       } else {
         // لا يوجد أي شيفت مجدول لهذا اليوم إطلاقاً — يوم راحة أسبوعية، لا يُحتسب غياباً ولا إجازة
-        merged.push({ date: dateStr, check_in_time: null, check_out_time: null, late_minutes: 0, status: 'day_off', _synthetic: true })
+        // ✅ إلا لو اليوم داخل فترة توقف مسجَّلة: نعرضه «موقوف عن العمل» مع ملاحظة التوقف
+        const brk = (breaks || []).find((b: { stopped_on: string; resumed_on: string | null }) => dateStr >= b.stopped_on && (!b.resumed_on || dateStr < b.resumed_on))
+        merged.push({ date: dateStr, check_in_time: null, check_out_time: null, late_minutes: 0, status: 'day_off', _synthetic: true, ...(brk ? { _suspended: true, _breakNote: brk.note || '' } : {}) })
       }
     }
 
@@ -1615,7 +1623,7 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
       <td>${workHours(r)}</td>
       <td style="color:${r.late_minutes > 0 ? 'orange' : '#999'}">${r.late_minutes > 0 ? r.late_minutes + 'm' : '—'}</td>
       <td style="color:${(r.early_minutes || 0) > 0 ? '#DC2626' : '#999'}">${(r.early_minutes || 0) > 0 ? r.early_minutes + 'm' : '—'}</td>
-      <td style="color:${r.status === 'present' ? 'green' : r.status === 'late' ? 'orange' : r.status === 'leave' ? 'teal' : r.status === 'day_off' ? '#999' : 'red'}">${r.status === 'leave' ? 'إجازة' : r.status === 'day_off' ? 'يوم راحة' : r.status === 'absent' ? 'غياب' : (r.status || 'present')}</td>
+      <td style="color:${r.status === 'present' ? 'green' : r.status === 'late' ? 'orange' : r.status === 'leave' ? 'teal' : r.status === 'day_off' ? '#999' : 'red'}">${r.status === 'leave' ? 'إجازة' : r.status === 'day_off' ? (r._suspended ? '⏸ موقوف عن العمل' : 'يوم راحة') : r.status === 'absent' ? 'غياب' : (r.status || 'present')}</td>
     </tr>`).join('')
 
     win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
@@ -2075,8 +2083,9 @@ function AdminAttendanceView({ empInfo }: { empInfo: any }) {
                               color: r.status === 'present' ? S.green : r.status === 'late' ? S.amber : r.status === 'leave' ? S.teal : r.status === 'day_off' ? S.muted : S.red,
                               borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700,
                             }}>
-                              {r.status === 'leave' ? 'إجازة' : r.status === 'day_off' ? 'يوم راحة' : r.status === 'absent' ? 'غياب' : (r.status || 'present')}
+                              {r.status === 'leave' ? 'إجازة' : r.status === 'day_off' ? (r._suspended ? '⏸ موقوف عن العمل' : 'يوم راحة') : r.status === 'absent' ? 'غياب' : (r.status || 'present')}
                             </span>
+                            {r._suspended && r._breakNote && <div style={{ marginTop: 3, fontSize: 10.5, color: S.muted, maxWidth: 220 }}>{r._breakNote}</div>}
                           </td>
                           {/* ✅ جديد: نفس أزرار إدارة الحضور الموجودة في تبويب "Daily View" — لكي يقدر الأدمن
                               يعدّل/يمسح سجل موظف محدد من تقريره الشهري مباشرة، بدل ما يدوّر عليه يوم بيوم.

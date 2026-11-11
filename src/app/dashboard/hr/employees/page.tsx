@@ -65,6 +65,7 @@ const ROLES: Record<string, { label: string; color: string; bg: string; icon: st
 const DEPARTMENTS = ['المطبخ', 'البار', 'الصالة', 'الحلويات', 'الكاشير', 'الإدارة', 'التوصيل', 'النظافة']
 
 interface Employee {
+  deactivated_at?: string | null
   id: string; name: string; name_en: string; employee_number: string
   role: string; department: string; branch_id: string; phone: string
   email: string; email_account?: string  // ① إيميل شخصي + إيميل النظام
@@ -174,6 +175,68 @@ function CreateAccountModal({ employee, onClose, onSaved }: { employee: Employee
         <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
           <button onClick={create} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{saving ? '⏳...' : '✅ إنشاء الحساب'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══ Stop / Resume Employee Modal ══
+// ✅ جديد: إيقاف الموظف أو إعادته للعمل يمرّ بنافذة تسجّل التاريخ والملاحظة في employment_breaks،
+// فيبقى أثر التوقف (يظهر «موقوف عن العمل» في الحضور وتُستثنى أيامه من الراتب) بدل مسح تاريخ الإيقاف بصمت عند الرجوع
+function StopResumeModal({ employee, onClose, onSaved }: { employee: Employee; onClose: () => void; onSaved: () => void }) {
+  const supabase = createClient()
+  const stopping = employee.is_active
+  const [date, setDate] = useState(() => new Date(new Date().getTime() + 8 * 3600e3).toISOString().slice(0, 10))
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save() {
+    if (!date) { setError('اختر التاريخ'); return }
+    if (!stopping && !note.trim()) { setError('اكتب ملاحظة العودة (مثلاً: عاد بعد توقف / سبب التوقف)'); return }
+    setSaving(true); setError('')
+    if (stopping) {
+      const { error: e1 } = await supabase.from('employees').update({ is_active: false, deactivated_at: date }).eq('id', employee.id)
+      if (e1) { setError(e1.message); setSaving(false); return }
+      const { error: e2 } = await supabase.from('employment_breaks').insert({ employee_id: employee.id, stopped_on: date, note: note.trim() || null })
+      if (e2) { alert('تم الإيقاف، لكن فشل تسجيل فترة التوقف: ' + e2.message + ' — تأكد من تشغيل db/employment_breaks.sql') }
+    } else {
+      const { data: open } = await supabase.from('employment_breaks').select('id, stopped_on, note').eq('employee_id', employee.id).is('resumed_on', null).order('stopped_on', { ascending: false }).limit(1)
+      const brk = open && open[0]
+      const stoppedOn = brk?.stopped_on || employee.deactivated_at || date
+      if (date <= stoppedOn) { setError(`تاريخ العودة يجب أن يكون بعد تاريخ الإيقاف (${stoppedOn})`); setSaving(false); return }
+      const { error: e1 } = await supabase.from('employees').update({ is_active: true, deactivated_at: null }).eq('id', employee.id)
+      if (e1) { setError(e1.message); setSaving(false); return }
+      const fullNote = [brk?.note, note.trim()].filter(Boolean).join(' — ')
+      const { error: e2 } = brk
+        ? await supabase.from('employment_breaks').update({ resumed_on: date, note: fullNote }).eq('id', brk.id)
+        : await supabase.from('employment_breaks').insert({ employee_id: employee.id, stopped_on: stoppedOn, resumed_on: date, note: fullNote })
+      if (e2) { alert('تمت إعادة التفعيل، لكن فشل تسجيل فترة التوقف: ' + e2.message + ' — تأكد من تشغيل db/employment_breaks.sql') }
+    }
+    onSaved()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: S.navy2, borderRadius: 18, border: `1px solid ${S.border}`, width: '100%', maxWidth: 420, padding: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div><h3 style={{ color: S.white, fontSize: 16, fontWeight: 700 }}>{stopping ? '⏸ إيقاف موظف' : '▶ إعادة موظف للعمل'}</h3><p style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>{employee.name}</p></div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+        <p style={{ fontSize: 12, color: S.muted, lineHeight: 1.7, marginBottom: 14 }}>
+          {stopping
+            ? 'تُحتسب أيام الموظف في الراتب حتى تاريخ الإيقاف فقط. تُسجَّل فترة التوقف ليظهر أثرها عند عودته.'
+            : 'تاريخ العودة هو أول يوم عمل فعلي له. الأيام من الإيقاف حتى اليوم السابق للعودة تظهر «موقوف عن العمل» في الحضور، ولا يُدفع عنها راتب.'}
+        </p>
+        {error && <div style={{ background: S.redB, border: `1px solid ${S.red}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: S.red }}>❌ {error}</div>}
+        <label style={{ fontSize: 12, color: S.muted, display: 'block', marginBottom: 5 }}>{stopping ? 'تاريخ الإيقاف (أول يوم توقف) *' : 'تاريخ العودة (أول يوم عمل) *'}</label>
+        <input style={inp} type="date" value={date} onChange={e => setDate(e.target.value)} />
+        <label style={{ fontSize: 12, color: S.muted, display: 'block', margin: '14px 0 5px' }}>{stopping ? 'السبب / ملاحظة (اختياري)' : 'ملاحظة العودة *'}</label>
+        <textarea style={{ ...inp, minHeight: 70, resize: 'vertical' }} value={note} onChange={e => setNote(e.target.value)} placeholder={stopping ? 'مثال: إجازة طويلة بدون راتب / سافر' : 'مثال: عاد بعد توقف شهرين'} />
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${S.muted}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>إلغاء</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 18px', borderRadius: 10, border: `1px solid ${stopping ? S.red : S.green}`, background: stopping ? S.redB : S.greenB, color: stopping ? S.red : S.green, cursor: 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>{saving ? '⏳...' : stopping ? '⏸ تأكيد الإيقاف' : '▶ تأكيد العودة'}</button>
         </div>
       </div>
     </div>
@@ -747,6 +810,8 @@ export default function EmployeesPage() {
   const role = currentUser?.role || ''
   const isBranchManager = role === 'branch_manager'
   const isManager = isAdmin || isBranchManager  // فقط admin و branch_manager
+  // ✅ نافذة الإيقاف/العودة — معرَّفة قبل الـearly return أدناه حتى لا تُضيف خطأ hooks جديدًا
+  const [stopResumeEmp, setStopResumeEmp] = useState<Employee | null>(null)
 
   // ── صلاحيات مفصّلة ──
   // ── منع الوصول لغير المصرح لهم — صفحة الموظفين متاحة فقط لمدير النظام ──
@@ -954,17 +1019,8 @@ async function activateRegistration(reg: Registration) {
     fetchAll()
   }
 
-  async function toggleActive(emp: Employee) {
-    const willDeactivate = emp.is_active
-    // ✅ لازم نسجّل تاريخ الإيقاف الفعلي (deactivated_at) عند الإيقاف — صفحة الرواتب تعتمد عليه لحساب
-    // الراتب متناسباً بشكل صحيح (وإلا يُحتسَب الراتب صفراً بالكامل بدل التناسب مع أيام العمل الفعلية).
-    // وعند إعادة التفعيل، لازم نمسحه (null) لكي لا يفضل عالقاً من فترة إيقاف سابقة
-    await supabase.from('employees').update({
-      is_active: !emp.is_active,
-      deactivated_at: willDeactivate ? new Date().toISOString().slice(0, 10) : null,
-    }).eq('id', emp.id)
-    fetchAll()
-  }
+  // ✅ الإيقاف/إعادة التفعيل يمرّ بنافذة تسجّل التاريخ والملاحظة (StopResumeModal) بدل التبديل الصامت
+  function toggleActive(emp: Employee) { setStopResumeEmp(emp) }
 
   async function deleteEmployee(emp: Employee) {
     // ✅ حماية حرجة: أي موظف له سجل راتب واحد على الأقل (اشتغل واتصرفله راتب فعلي) يُمنع حذفه نهائياً،
@@ -1444,6 +1500,7 @@ async function activateRegistration(reg: Registration) {
       {detailEmp && <EmployeeDetailModal employee={detailEmp} isAdmin={isAdmin} onClose={() => setDetailEmp(null)} onEdit={() => { setEditEmp(detailEmp); setDetailEmp(null) }} onCreateAccount={() => { setCreateAccountEmp(detailEmp); setDetailEmp(null) }} onChangePassword={() => { setChangePassEmp(detailEmp); setDetailEmp(null) }} onIncreaseSalary={() => { setIncreaseSalaryEmp(detailEmp); setDetailEmp(null) }} />}
       {createAccountEmp && <CreateAccountModal employee={createAccountEmp} onClose={() => setCreateAccountEmp(null)} onSaved={() => { setCreateAccountEmp(null); fetchAll() }} />}
       {changePassEmp && <ChangePasswordModal employee={changePassEmp} onClose={() => setChangePassEmp(null)} onSaved={() => { setChangePassEmp(null); fetchAll() }} />}
+      {stopResumeEmp && <StopResumeModal employee={stopResumeEmp} onClose={() => setStopResumeEmp(null)} onSaved={() => { setStopResumeEmp(null); fetchAll() }} />}
       {increaseSalaryEmp && <SalaryIncreaseModal employee={increaseSalaryEmp} adminId={currentUser?.id} onClose={() => setIncreaseSalaryEmp(null)} onSaved={() => { setIncreaseSalaryEmp(null); fetchAll() }} />}
 
       {/* Reject Modal */}

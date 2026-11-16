@@ -3532,6 +3532,8 @@ export default function CashierPage() {
   // ✅ chargePercent = نسبة التخفيض عن سعر الصنف (0 = يتحمّل الموظف السعر كامل، 30 = يدفع 70% من السعر)
   const [chargePercent, setChargePercent] = useState(0)
   const [chargeNote, setChargeNote] = useState('')
+  // ✅ مرفق اختياري (صورة) عند تحميل صنف/طاولة على موظف — يُحفظ مع الخصم في violations.attachment_url
+  const [chargeFile, setChargeFile] = useState<File | null>(null)
   // ✅ جديد: توزيع المبلغ على أكتر من موظف — chargeEmployeeId هو الأول، وهنا الباقين (كل واحد ياخد حصة متساوية)
   const [chargePeople, setChargePeople] = useState(1)
   const [chargeExtraIds, setChargeExtraIds] = useState<string[]>([])   // الأشخاص 2..N (فاضي '' لحد ما يتختار)
@@ -3604,7 +3606,7 @@ export default function CashierPage() {
 
   function resetChargeForm() {
     setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false)
-    setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash')
+    setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargeFile(null); setChargePaidNow(''); setChargePaidMethod('cash')
     setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
   }
 
@@ -3634,6 +3636,15 @@ export default function CashierPage() {
   async function doChargeToEmployee() {
     if (!chargeItemTarget || !chargeEmployeeId || !chargeIdsValid || !chargePctOk) return
     setChargeSaving(true)
+    // ✅ المرفق الاختياري يُرفع أولًا قبل أي تغيير في الطلب — لو فشل الرفع نتوقف دون إلغاء الصنف
+    let chargeAttachmentUrl: string | null = null
+    if (chargeFile && chargeRemaining > 0) {
+      const ext = (chargeFile.name.split('.').pop() || 'jpg').toLowerCase()
+      const path = `${employee?.branch_id || 'unknown'}/charge-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: upErr } = await sb.storage.from('expense-receipts').upload(path, chargeFile)
+      if (upErr) { alert('⚠️ Failed to upload attachment: ' + upErr.message); setChargeSaving(false); return }
+      chargeAttachmentUrl = sb.storage.from('expense-receipts').getPublicUrl(path).data.publicUrl
+    }
     // ✅ جديد: وضع "الطاولة كاملة" - itemName نفسه بيوصف عدد الأصناف، فمش محتاجين نضيف "×الكمية" (دايمًا 1)
     const isWholeOrder = chargeItemTarget.itemId === 'WHOLE_ORDER'
     const itemLabel = isWholeOrder ? chargeItemTarget.itemName : `${chargeItemTarget.itemName} ×${chargeQty}`
@@ -3697,13 +3708,14 @@ export default function CashierPage() {
           : fullReason,
         kind: chargeType === 'mistake' ? 'order_mistake' : 'personal_meal',
         date: new Date().toISOString().split('T')[0], created_by: employee?.id, status: 'active',
+        attachment_url: chargeAttachmentUrl,
       })).filter(r => r.amount > 0)
       const { error } = await sb.from('violations').insert(rows)
       if (error) { setChargeSaving(false); alert('❌ ' + error.message); return }
     }
     setChargeSaving(false)
     const wasHubCharge = !!chargeItemTarget.fromCancelHub
-    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
+    setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargeFile(null); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({})
     fetchAll()
     if (wasHubCharge && cancelHubTable) openCancelHub(cancelHubTable)
   }
@@ -5774,6 +5786,15 @@ export default function CashierPage() {
               style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: `1px solid ${S.border}`, background: S.navy3, color: S.white, fontSize: 13, marginBottom: 14, fontFamily: 'Tajawal, sans-serif', resize: 'vertical' }}
             />
 
+            {/* ✅ مرفق اختياري: صورة تثبت الحالة (تُحفظ مع الخصم وتظهر في صفحة المخالفات) */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '9px 12px', borderRadius: 10, border: `1px dashed ${chargeFile ? S.gold : S.border}`, background: chargeFile ? S.gold3 : 'transparent', color: chargeFile ? S.gold : S.muted, fontSize: 12.5, cursor: 'pointer' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📎 {chargeFile ? chargeFile.name : 'Attach a photo (optional)'}</span>
+                {chargeFile && <button type="button" onClick={e => { e.preventDefault(); setChargeFile(null) }} style={{ background: 'transparent', border: 'none', color: S.red, fontSize: 15, cursor: 'pointer', lineHeight: 1 }}>✕</button>}
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) setChargeFile(f); e.target.value = '' }} />
+              </label>
+            </div>
+
             <div style={{ background: S.card, borderRadius: 10, padding: '10px 12px', marginBottom: 18, fontSize: 13 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: S.white, fontWeight: 800 }}>
                 <span>Charged to employee (after discount)</span>
@@ -5805,7 +5826,7 @@ export default function CashierPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({}) }}
+              <button onClick={() => { setChargeItemTarget(null); setChargeQty(1); setChargeEmployeeId(''); setChargeStaffSearch(''); setChargeStaffOpen(false); setChargeType('mistake'); setChargePercent(0); setChargeNote(''); setChargeFile(null); setChargePaidNow(''); setChargePaidMethod('cash'); setChargePeople(1); setChargeExtraIds([]); setChargePcts([100]); setChargeRowSearch({}) }}
                 style={{ flex: 1, padding: '12px', borderRadius: 12, border: `1px solid ${S.border}`, background: 'transparent', color: S.muted, cursor: 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 700 }}>
                 Back
               </button>

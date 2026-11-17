@@ -27,14 +27,14 @@ function PolicyCard({ policy, total, employeeId, onDone }: { policy: Pending; to
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, direction: 'rtl', fontFamily: 'Tajawal, sans-serif' }}>
-      <div style={{ background: '#0F2040', border: '1px solid rgba(201,168,76,.4)', borderRadius: 20, width: '100%', maxWidth: 680, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '18px 22px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, boxSizing: 'border-box', direction: 'rtl', fontFamily: 'Tajawal, sans-serif', overflowY: 'auto' }}>
+      <div style={{ background: '#0F2040', border: '1px solid rgba(201,168,76,.4)', borderRadius: 20, width: '100%', maxWidth: 680, maxHeight: '100%', margin: 'auto', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.08)', flexShrink: 0 }}>
           <div style={{ fontSize: 12, color: '#F59E0B', fontWeight: 700, marginBottom: 6 }}>⚠️ سياسة إلزامية — يجب القراءة والتأكيد للمتابعة ({total} متبقية)</div>
           <div style={{ fontSize: 18, fontWeight: 800, color: '#FAFAF8' }}>📜 {policy.title}</div>
           {policy.title_en && <div style={{ fontSize: 12, color: '#8A9BB5', direction: 'ltr', textAlign: 'right', marginTop: 2 }}>{policy.title_en}</div>}
         </div>
-        <div style={{ padding: '18px 22px', overflowY: 'auto', flex: 1 }}>
+        <div style={{ padding: '14px 18px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0, WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
           <div style={{ fontSize: 14, color: '#FAFAF8', lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{policy.content}</div>
           {policy.content_en && (
             <div style={{ marginTop: 16, background: 'rgba(255,255,255,.04)', borderRadius: 10, padding: '12px 16px', direction: 'ltr' }}>
@@ -42,7 +42,7 @@ function PolicyCard({ policy, total, employeeId, onDone }: { policy: Pending; to
             </div>
           )}
         </div>
-        <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,.08)', flexShrink: 0 }}>
           {error && <div style={{ color: '#EF4444', fontSize: 12, marginBottom: 8 }}>{error}</div>}
           <button onClick={confirm} disabled={saving}
             style={{ width: '100%', padding: 13, borderRadius: 12, border: 'none', background: saving ? 'rgba(255,255,255,.1)' : 'linear-gradient(135deg,#22C55E,#14B8A6)', color: '#FAFAF8', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 800, fontSize: 14, fontFamily: 'Tajawal, sans-serif' }}>

@@ -26,6 +26,23 @@ function Icon({ children, size = 16 }: { children: React.ReactNode; size?: numbe
   return <span style={{ filter: 'brightness(0) invert(1)', fontSize: size, display: 'inline-block', lineHeight: 1, verticalAlign: 'middle' }}>{children}</span>
 }
 
+// تذييل صفحة الحجز: رابط موقع المطعم + «Powered by BidLX» (يظهر في كل مراحل الحجز وشاشة التأكيد)
+function BookingFooter() {
+  return (
+    <div style={{ maxWidth: 560, margin: '0 auto', padding: '8px 16px 28px', textAlign: 'center' }}>
+      <a href="https://restaurantorchid.com" target="_blank" rel="noopener noreferrer"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: C.blue1, textDecoration: 'none', fontSize: 13, fontWeight: 700, padding: '10px 18px', borderRadius: 999, border: `1px solid ${C.border2}`, background: 'rgba(59,159,229,.08)' }}>
+        <Icon size={14}>🌐</Icon> Visit our website · زوروا موقعنا
+        <span style={{ color: C.silver2, fontWeight: 500 }} dir="ltr">restaurantorchid.com</span>
+      </a>
+      <div style={{ marginTop: 18, fontSize: 12, color: C.silver2 }}>
+        Powered by{' '}
+        <a href="https://bidlx.com" target="_blank" rel="noopener noreferrer" style={{ color: C.white, fontWeight: 800, textDecoration: 'none', letterSpacing: 0.3 }}>BidLX</a>
+      </div>
+    </div>
+  )
+}
+
 const SECTIONS = [
   { key: 'outdoor', label: 'Outdoor Hall',  labelAr: 'الصالة الخارجية',         icon: '🌿', color: C.green },
   { key: 'indoor',  label: 'Indoor Hall',   labelAr: 'الصالة الداخلية المكيفة', icon: '❄️', color: C.blue1 },
@@ -253,6 +270,7 @@ export default function BookingPage() {
           </div>
           <p style={{ color: C.silver2, fontSize: 12, marginTop: 20 }}>Confirmation sent to <strong style={{ color: C.white }}>{form.email}</strong></p>
         </div>
+        <div style={{ marginTop: 22 }}><BookingFooter /></div>
       </div>
     </div>
   )
@@ -571,6 +589,7 @@ export default function BookingPage() {
           </div>
         )}
       </div>
+      <BookingFooter />
     </div>
   )
 }

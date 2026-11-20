@@ -150,6 +150,10 @@ export default function LoginPage() {
           <p style={{ textAlign: 'center', fontSize: 11, color: S.muted, marginTop: 20 }}>نظام داخلي خاص بموظفي Orchid Group فقط</p>
         </div>
         <p style={{ textAlign: 'center', fontSize: 11, color: S.muted, marginTop: 20 }}>مشكلة في الدخول؟ تواصل مع مدير النظام</p>
+        <p style={{ textAlign: 'center', fontSize: 12, color: S.muted, marginTop: 18, direction: 'ltr' }}>
+          Powered by{' '}
+          <a href="https://bidlx.com" target="_blank" rel="noopener noreferrer" style={{ color: S.gold, fontWeight: 800, textDecoration: 'none', letterSpacing: 0.3 }}>BidLX</a>
+        </p>
       </div>
     </div>
   )

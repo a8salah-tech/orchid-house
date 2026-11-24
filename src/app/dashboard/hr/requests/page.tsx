@@ -1363,6 +1363,17 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
 function printRequest() {
   const win = window.open('', '_blank')
   if (!win) return
+  // ✅ سلفة الراتب قبل الاعتماد النهائي: المبلغ المعتمد الظاهر في الشاشة (قد يكون أقل من المطلوب) هو الذي يُطبع
+  // ويوقّع عليه الموظف، ثم يُعتمد بالمبلغ نفسه. المطلوب الأصلي يبقى ظاهرًا في سطر مستقل لوضوح الفرق.
+  const advApproved = parseFloat(approvedAmount)
+  const advReduced = request.request_type === 'salary_advance' && request.status !== 'completed' && !!request.amount
+    && advApproved > 0 && advApproved < request.amount - 0.001
+  const money = (n: number) => 'MYR ' + n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const amountRows = !request.amount ? ''
+    : advReduced
+      ? '<tr><td>Amount Requested</td><td>' + money(request.amount) + '</td></tr>'
+        + '<tr><td>Approved Amount (to be deducted)</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">' + money(advApproved) + '</td></tr>'
+      : '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">' + money(request.amount) + '</td></tr>'
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Request #${request.request_number}</title>
 <style>
@@ -1403,7 +1414,7 @@ function printRequest() {
 <table>
   <tr><td>Status</td><td>${request.status.toUpperCase()}</td></tr>
   <tr><td>Date Submitted</td><td>${new Date(request.created_at).toLocaleDateString('en-GB')}</td></tr>
-  ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td></tr>' : ''}
+  ${amountRows}
   ${request.start_date ? '<tr><td>From Date</td><td>' + request.start_date + '</td></tr>' : ''}
   ${request.end_date ? '<tr><td>To Date</td><td>' + request.end_date + '</td></tr>' : ''}
   ${request.days_count ? '<tr><td>Number of Days</td><td>' + request.days_count + '</td></tr>' : ''}

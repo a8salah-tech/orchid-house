@@ -131,6 +131,7 @@ function fmtRaiseDate(v: string | null | undefined): string {
   return new Date(v).toLocaleDateString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 function raiseErrorText(msg: string, isAr: boolean): string {
+  if (msg.includes('OPEN_REQUEST')) return isAr ? 'لديك طلب زيادة راتب مفتوح، ولا يمكن تقديم طلب جديد قبل إغلاقه.' : 'You already have an open salary raise request. You cannot submit a new one until it is closed.'
   if (msg.includes('NOT_ELIGIBLE')) return isAr ? 'لم تعد تستوفي شروط الاستحقاق. أعد فتح الصفحة لتحديث النتيجة.' : 'You no longer meet the eligibility conditions. Reopen the page to refresh the result.'
   if (msg.includes('BAD_PERCENT')) return isAr ? 'النسبة المطلوبة يجب أن تكون بين 5% و10%.' : 'The requested percentage must be between 5% and 10%.'
   if (msg.includes('REASON_REQUIRED')) return isAr ? 'اكتب سبب الطلب (10 أحرف على الأقل).' : 'Write a reason for the request (at least 10 characters).'
@@ -165,8 +166,16 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
   const [showErrors, setShowErrors] = useState(false)
   const [nowMs] = useState(() => Date.now())
 
+  // ✅ طلب زيادة مفتوح (معلّق، أو معتمَد لم تُسجَّل زيادته) — يمنع تقديم طلب جديد. المنع الفعلي تريغر على السيرفر
+  // (db/salary_raise_open_request_guard.sql)، وهذا للعرض فقط؛ لو الملف لم يُشغَّل بعد تفشل الدالة ويبقى السلوك القديم
+  const [openReq, setOpenReq] = useState<{ request_number: number; status: string; created_at: string } | null>(null)
+
   useEffect(() => {
-    supabase.rpc('app_salary_raise_check').then(({ data, error }) => {
+    Promise.all([
+      supabase.rpc('app_salary_raise_check'),
+      supabase.rpc('app_salary_raise_open_request'),
+    ]).then(([{ data, error }, open]) => {
+      if (!open.error && open.data) setOpenReq(open.data)
       if (error || !data) setLoadError(error?.message || 'NO_DATA')
       else setCheck(data as RaiseCheck)
       setLoading(false)
@@ -233,6 +242,11 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
     body = <div style={{ textAlign: 'center', padding: 40, color: S.muted }}>{isAr ? 'جاري فحص الاستحقاق...' : 'Checking eligibility...'}</div>
   } else if (loadError || !check) {
     body = <div style={{ ...card, color: S.red, fontSize: 13 }}>{(isAr ? 'تعذّر فحص الاستحقاق: ' : 'Could not check eligibility: ') + (loadError === 'NO_DATA' ? (isAr ? 'لا توجد بيانات' : 'no data') : loadError)}</div>
+  } else if (openReq) {
+    body = banner(S.amber, S.amberB, Hourglass, isAr ? 'لديك طلب زيادة راتب مفتوح' : 'You already have an open raise request',
+      openReq.status === 'approved'
+        ? (isAr ? `الطلب #${openReq.request_number} (بتاريخ ${fmtRaiseDate(openReq.created_at)}) معتمَد وبانتظار تسجيل الزيادة على الراتب. لا يمكن تقديم طلب جديد قبل إغلاقه.` : `Request #${openReq.request_number} (${fmtRaiseDate(openReq.created_at)}) is approved and waiting for the raise to be recorded. You cannot submit a new one until it is closed.`)
+        : (isAr ? `الطلب #${openReq.request_number} (بتاريخ ${fmtRaiseDate(openReq.created_at)}) قيد المراجعة. لا يمكن تقديم طلب جديد قبل صدور القرار فيه.` : `Request #${openReq.request_number} (${fmtRaiseDate(openReq.created_at)}) is under review. You cannot submit a new one until a decision is made.`))
   } else if (!check.ok.tenure) {
     body = (
       <>
@@ -1175,6 +1189,25 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     if (newStatus === 'approved' && !approvedBy) { alert('يرجى إدخال اسم المعتمد'); return }
     if (newStatus === 'rejected' && !rejectionReason) { alert('يرجى إدخال سبب الرفض'); return }
 
+    // ✅ زيادة الراتب: لا «تأكيد اكتمال» قبل تسجيل الزيادة من ملف الموظف. «مسجَّلة» = سطر في salary_increases لنفس
+    // الموظف أُنشئ بعد تقديم الطلب، أو يسري من أول شهر تقديمه فصاعدًا (نفس قاعدة db/salary_raise_open_request_guard.sql)
+    if (isSalaryRaise && newStatus === 'completed') {
+      const reqMonthStart = new Date(request.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).slice(0, 7) + '-01'
+      const { data: raises, error: raisesErr } = await supabase.from('salary_increases')
+        .select('amount, salary_after, effective_date, created_at')
+        .eq('employee_id', request.employee_id).order('created_at', { ascending: false }).limit(20)
+      if (raisesErr) { alert('تعذّر التحقق من تسجيل الزيادة: ' + raisesErr.message); return }
+      const recorded = (raises || []).find(r => new Date(r.created_at).getTime() >= new Date(request.created_at).getTime()
+        || String(r.effective_date).slice(0, 10) >= reqMonthStart)
+      if (!recorded) {
+        alert('لا يمكن تأكيد الاكتمال: لم تُسجَّل لهذا الموظف أي زيادة تخص هذا الطلب.\n\nسجّلها أولًا من ملف الموظف ← «زيادة راتب»، ثم ارجع واضغط «تأكيد الاكتمال».')
+        return
+      }
+      const fm = (n: number) => 'MYR ' + n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      if (request.amount && Math.abs(Number(recorded.salary_after) - request.amount) > 0.01
+        && !confirm(`تنبيه: الراتب المسجَّل بعد الزيادة (${fm(Number(recorded.salary_after))}) يختلف عن الراتب الجديد المعتمد في الطلب (${fm(request.amount)}).\n\nهل تريد تأكيد الاكتمال رغم ذلك؟`)) return
+    }
+
     // ✅ تعيين شيفت: نطبّق الشيفت على الجدول أولاً (فقط للطلبات المنظَّمة الجديدة، لا لإشعارات الجدول التلقائية القديمة)
     const hasShiftPayload = !!(request.requested_shift_id || request.requested_custom_start || request.requested_day_off)
     if (request.request_type === 'shift_assigned' && hasShiftPayload && request.status === 'pending' && (newStatus === 'approved' || newStatus === 'completed')) {
@@ -1210,7 +1243,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     }
 
     setUpdating(true)
-    await supabase.from('employee_requests').update({
+    const { error: statusErr } = await supabase.from('employee_requests').update({
       status: newStatus,
       approved_by: approvedBy || null,
       approved_at: ['approved', 'completed'].includes(newStatus) ? new Date().toISOString() : null,
@@ -1219,6 +1252,13 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
       ...(finalAdvance != null ? { amount: finalAdvance } : {}),
       ...(updatedDescription != null ? { description: updatedDescription } : {}),
     }).eq('id', request.id)
+    if (statusErr && isSalaryRaise) {
+      setUpdating(false)
+      alert(statusErr.message.includes('RAISE_NOT_RECORDED')
+        ? 'لا يمكن تأكيد الاكتمال: لم تُسجَّل الزيادة بعد. سجّلها من ملف الموظف ← «زيادة راتب» أولًا.'
+        : 'تعذّر حفظ حالة الطلب: ' + statusErr.message)
+      return
+    }
 
     // ✅ تطبيق تصحيح الحضور تلقائياً عند الموافقة — يُثبَّت في جدول الحضور، وتُعاد فيه قيم التأخير/الخروج
     // المبكر بحسابها من الأوقات المصحَّحة مقابل الشيفت المجدول (نفس دوال صفحة الحضور)، ثم يتحدَّث كشف الراتب

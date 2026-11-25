@@ -11,6 +11,7 @@ import { computeLateInfo, computeEarlyInfo, recalcAttendanceAfterShiftEdit } fro
 import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } from '../../../../lib/roles'
 import { Stethoscope, Siren, Utensils, TriangleAlert, Lightbulb, ClipboardList, Clock, TrendingUp, Banknote, DoorOpen, CalendarDays, LogOut, CircleCheck, CircleX, Flag, Hourglass, X, Info, Send, Plus, Printer, Trash2, Lock, Check, ChartColumn, ChevronLeft, ChevronRight } from 'lucide-react'
 import { shiftTimesError } from '../../../../lib/shiftTimes'
+import { recordSalaryRaise, round2 } from '../../../../lib/salaryRaise'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -111,6 +112,22 @@ interface EmployeeRequest {
   employees?: { name: string; name_en?: string; role: string; department: string; employee_number?: string; branch_id?: string; branches?: { name: string } }
 }
 
+const fmtMYR = (n: number) => 'MYR ' + n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// ✅ أرقام طلب الزيادة للعرض والطباعة. انتبه: حقل amount في هذا النوع هو **الراتب الجديد كاملًا** لا مبلغ الزيادة.
+// الراتب القديم والمطلوب من لقطة وقت التقديم (raise_snapshot)، والمعتمَد يُشتق من الراتب الجديد المعتمد ونسبته
+function raiseFigures(r: EmployeeRequest) {
+  const sn = r.raise_snapshot
+  if (r.request_type !== 'salary_increase' || !sn) return null
+  const requested = { percent: sn.requested_percent, base: sn.current_salary, newSalary: sn.new_salary, increase: round2(sn.new_salary - sn.current_salary) }
+  let approved: { percent: number; base: number; newSalary: number; increase: number } | null = null
+  if ((r.status === 'approved' || r.status === 'completed') && r.raise_approved_percent != null && r.amount) {
+    const base = round2(r.amount / (1 + r.raise_approved_percent / 100))
+    approved = { percent: r.raise_approved_percent, base, newSalary: r.amount, increase: round2(r.amount - base) }
+  }
+  return { requested, approved }
+}
+
 // ══ Salary Increase Request Modal — فحص الاستحقاق ثم تقديم إجباري الحقول ══
 // ✅ الفحص والتقديم والتحقق كلها على السيرفر (db/salary_raise_eligibility.sql): الدالتان app_salary_raise_check
 // و app_submit_salary_raise. هذه الواجهة تعرض النتيجة فقط، ولا يمكن إنشاء طلب زيادة بأي طريقة أخرى (تريغر يمنعها).
@@ -203,7 +220,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
     })
     setSaving(false)
     if (error) { alert(raiseErrorText(error.message, isAr)); return }
-    alert(isAr ? 'تم تقديم طلبك، ويصل لمدير النظام فقط. لو اعتُمد، لا يمكنك تقديم طلب آخر قبل مرور 6 أشهر من تاريخه.' : 'Your request has been submitted and goes only to the system admin. If approved, you cannot submit another request until 6 months have passed from that date.')
+    alert(isAr ? 'تم تقديم طلبك، ويصل لمدير النظام فقط. إذا اعتُمدت الزيادة وسُجّلت على راتبك، فلا يمكنك تقديم طلب جديد قبل مرور 6 أشهر من تاريخ سريانها.' : 'Your request has been submitted and goes only to the system admin. If the raise is approved and applied to your salary, you cannot submit a new request until 6 months have passed from its effective date.')
     onSaved()
   }
 
@@ -380,7 +397,7 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
               style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1px solid ${S.green}`, background: S.greenB, color: S.green, cursor: saving ? 'not-allowed' : 'pointer', fontSize: 14, fontFamily: 'Tajawal, sans-serif', fontWeight: 800, opacity: saving ? 0.7 : 1 }}>
               {saving ? (isAr ? 'جاري التقديم...' : 'Submitting...') : (isAr ? 'تقديم الطلب' : 'Submit request')}
             </button>
-            <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>{isAr ? 'كل الحقول إجبارية. يصل الطلب لمدير النظام فقط، ولو اعتُمد لا تقدر تقدّم طلباً آخر قبل مرور 6 أشهر من تاريخه.' : 'All fields are required. The request goes only to the system admin, and if approved you cannot submit another one until 6 months have passed from that date.'}</div>
+            <div style={{ fontSize: 11.5, color: S.muted, textAlign: 'center', marginTop: 8 }}>{isAr ? 'كل الحقول إجبارية. يصل الطلب لمدير النظام فقط، وإذا اعتُمدت الزيادة وسُجّلت على راتبك فلا يمكنك تقديم طلب جديد قبل مرور 6 أشهر من تاريخ سريانها.' : 'All fields are required. The request goes only to the system admin. If the raise is approved and applied, you cannot submit a new one until 6 months have passed from its effective date.'}</div>
           </>
         ) : (
           <div style={{ ...card, fontSize: 12.5, color: S.muted }}>{isAr ? 'لا يظهر نموذج الطلب لأن الشروط لم تتحقق. يُعاد الفحص تلقائياً في كل مرة تفتح فيها هذه الصفحة.' : 'The request form is hidden because the conditions are not met. Eligibility is re-checked automatically every time you open this page.'}</div>
@@ -404,6 +421,15 @@ function SalaryIncreaseModal({ employee, onClose, onSaved }: {
       </div>
     </div>
   )
+}
+
+// ✅ عبارة سداد السلفة (عربي + إنجليزي): تُخصم من راتب شهر السلفة نفسه، ويُصرف يوم 10 من الشهر التالي.
+// ‫…‬ تُبقي السطر العربي من اليمين لليسار داخل نص إنجليزي (الشاشة والطباعة)
+const ADVANCE_REPAYMENT_TEXT = "Repayment: Full amount deducted from this month's salary, paid on the 10th of next month\n"
+  + '‫السداد: يُخصم المبلغ كاملًا من راتب هذا الشهر، المصروف يوم 10 من الشهر التالي‬'
+// الطلبات المقدَّمة قبل التعديل مخزَّنة بالعبارة القديمة — تُستبدل عند العرض والطباعة فقط (دون تعديل البيانات)
+function withCurrentRepaymentText(description: string) {
+  return (description || '').split("Repayment: Full amount deducted from next month's salary").join(ADVANCE_REPAYMENT_TEXT)
 }
 
 // ══ Salary Advance Request Modal ══
@@ -438,7 +464,7 @@ Department: ${employee.department || '—'}
 Date of Request: ${form.date_of_request}
 
 Amount Requested: MYR ${form.amount_requested}
-Repayment: Full amount deducted from next month's salary
+${ADVANCE_REPAYMENT_TEXT}
 
 Reason: ${form.reason}`
 
@@ -491,7 +517,8 @@ Reason: ${form.reason}`
           </div>
 
           <div style={{ background: S.gold3, border: `1px solid rgba(201,168,76,0.3)`, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: S.gold }}>
-            سيتم خصم المبلغ بالكامل من راتب الشهر القادم
+            <div dir="rtl">يُخصم المبلغ كاملًا من راتب هذا الشهر، المصروف يوم 10 من الشهر التالي</div>
+            <div dir="ltr" style={{ marginTop: 4 }}>The full amount is deducted from this month&apos;s salary, paid on the 10th of next month</div>
           </div>
 
           <div>
@@ -1011,27 +1038,45 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     isSalaryAdvance ? (isAdmin || isBranchManager) : isSalaryRaise ? !!isAdmin : (isAdmin || isDeptManager)
   )
 
-  // ✅ دالة مشتركة لعكس أثر سلفة "completed" على الرواتب — تُستخدم عند تغيير الحالة بعيداً عن "completed"،
-  // وكذلك عند حذف الطلب نهائياً (الحالتان لهما نفس الأثر: المبلغ يجب ألا يبقى "عالقاً" في الرواتب)
-  async function reverseAdvanceFromPayroll() {
-    if (request.request_type !== 'salary_advance' || request.status !== 'completed' || !request.amount) return
-    const now = new Date()
-    const targetMonth = now.getMonth() + 1
-    const targetYear = now.getFullYear()
-    const { data: payrollMonth } = await supabase.from('payroll_months')
-      .select('id, status').eq('month', targetMonth).eq('year', targetYear).maybeSingle()
-    if (!payrollMonth) return
-    if (payrollMonth.status === 'finalized') {
-      alert('تنبيه: شهر الرواتب المرتبط بهذا الطلب مُعتمَد (Finalized) بالفعل — لم يُطرح المبلغ تلقائياً. راجع حقل "سلفة" لهذا الموظف يدوياً.')
-      return
+  // ✅ شهر كشف الرواتب لأي لحظة بتوقيت ماليزيا (لا بساعة جهاز المعتمِد) — السلفة تُضاف لكشف شهر اعتمادها
+  // (وهو الراتب الذي يُسلَّم يوم 10 من الشهر التالي)، وتُطرح عند الحذف من الكشف نفسه
+  function payrollPeriodOf(iso: string) {
+    const [year, month] = new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).split('-').map(Number)
+    return { year, month }
+  }
+
+  // ✅ خطة عكس أثر سلفة "completed" على الرواتب: تقرأ فقط ولا تغيّر شيئًا، وترجع رسالة تشرح ما سيحدث.
+  // recordId = null يعني لن يُطرح شيء تلقائيًا (شهر معتمَد/مدفوع، أو لا يوجد سجل). error يعني تعذّر التحقق.
+  async function planAdvanceReversal(): Promise<{ error: string } | { recordId: string | null; before: number; after: number; message: string } | null> {
+    if (request.request_type !== 'salary_advance' || request.status !== 'completed' || !request.amount) return null
+    const money = (n: number) => 'MYR ' + n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const nothing = (message: string) => ({ recordId: null, before: 0, after: 0, message })
+    if (!request.approved_at) return nothing(`⚠️ لا يوجد تاريخ اعتماد لهذه السلفة، فلا يمكن تحديد شهر خصمها. لن يُطرح ${money(request.amount)} تلقائيًا — راجع خانة «سلفة» في الرواتب يدويًا.`)
+    const { year, month } = payrollPeriodOf(request.approved_at)
+    const label = `${month}/${year}`
+    const { data: pm, error: pmErr } = await supabase.from('payroll_months')
+      .select('id, status').eq('month', month).eq('year', year).maybeSingle()
+    if (pmErr) return { error: pmErr.message }
+    if (!pm) return nothing(`⚠️ لا يوجد كشف رواتب لشهر ${label}، فلن يُطرح شيء من الرواتب.`)
+    if (pm.status === 'finalized' || pm.status === 'paid') return nothing(`⚠️ رواتب شهر ${label} معتمَدة، فلن يُطرح ${money(request.amount)} تلقائيًا. إن لزم، عدّل خانة «سلفة» يدويًا.`)
+    const { data: rec, error: recErr } = await supabase.from('payroll_records')
+      .select('id, advance').eq('payroll_month_id', pm.id).eq('employee_id', request.employee_id).maybeSingle()
+    if (recErr) return { error: recErr.message }
+    if (!rec) return nothing(`⚠️ لم يُعثر على سجل راتب الموظف لشهر ${label}، فلن يُطرح شيء تلقائيًا.`)
+    const before = Number(rec.advance) || 0
+    const after = Math.max(0, Math.round((before - request.amount) * 100) / 100)
+    return {
+      recordId: rec.id, before, after,
+      message: `سيُطرح مبلغ السلفة ${money(request.amount)} من راتب شهر ${label} (شهر اعتمادها):\nخانة «سلفة»: من ${money(before)} إلى ${money(after)}.`
+        + (before < request.amount - 0.001 ? '\n⚠️ المبلغ في الخانة أقل من مبلغ السلفة، ربما عُدّلت يدويًا. راجعها قبل المتابعة.' : ''),
     }
-    const { data: existingRecord } = await supabase.from('payroll_records')
-      .select('id, advance').eq('payroll_month_id', payrollMonth.id).eq('employee_id', request.employee_id).maybeSingle()
-    if (existingRecord) {
-      await supabase.from('payroll_records').update({
-        advance: Math.max(0, (existingRecord.advance || 0) - request.amount),
-      }).eq('id', existingRecord.id)
-    }
+  }
+
+  // يكتب قيمة خانة السلفة ويتأكد أن سطرًا تغيّر فعلًا. يرجع نص الخطأ أو null
+  async function writeAdvance(recordId: string, value: number): Promise<string | null> {
+    const { data, error } = await supabase.from('payroll_records').update({ advance: value }).eq('id', recordId).select('id')
+    if (error) return error.message
+    return data && data.length > 0 ? null : 'لم يتغير أي سجل (تحقق من صلاحية الرواتب)'
   }
 
   // ✅ بعد ما اعتماد "تصحيح الحضور" يعدّل صف الحضور — نُحدِّث فورًا ساعات التأخير/الخروج المبكر في كشف
@@ -1124,11 +1169,23 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
   async function deleteRequest() {
     // ✅ الحذف لمدير النظام فقط (لكل أنواع الطلبات)
     if (!isAdmin) { alert('حذف الطلبات لمدير النظام فقط'); return }
-    if (!confirm('Are you sure you want to delete this request? This cannot be undone.')) return
-    // ✅ لو الطلب كان "completed" (أي أن مبلغ السلفة أُضيف بالفعل للرواتب)، لازم نعكس الأثر قبل الحذف النهائي —
-    // وإلا يبقى المبلغ عالقاً في الرواتب للأبد رغم اختفاء الطلب نفسه من السجل
-    await reverseAdvanceFromPayroll()
-    await supabase.from('employee_requests').delete().eq('id', request.id)
+    // ✅ لو الطلب سلفة "completed" (أي أن مبلغها أُضيف بالفعل للرواتب)، لازم نعكس الأثر قبل الحذف النهائي —
+    // وإلا يبقى المبلغ عالقاً في الرواتب. رسالة التأكيد تعرض بالضبط ما سيُطرح ومن أي شهر قبل أي تغيير
+    const plan = await planAdvanceReversal()
+    if (plan && 'error' in plan) { alert('تعذّر التحقق من كشف الرواتب، فلم يُحذف الطلب: ' + plan.error); return }
+    if (!confirm('Are you sure you want to delete this request? This cannot be undone.' + (plan ? '\n\n' + plan.message : ''))) return
+    if (plan?.recordId) {
+      const err = await writeAdvance(plan.recordId, plan.after)
+      if (err) { alert('تعذّر طرح السلفة من الراتب، فلم يُحذف الطلب: ' + err); return }
+    }
+    const { data: deleted, error: delErr } = await supabase.from('employee_requests').delete().eq('id', request.id).select('id')
+    if (delErr || !deleted?.length) {
+      // فشل الحذف بعد الطرح: نعيد المبلغ كما كان حتى لا يختلف الراتب عن الطلب الباقي
+      const restoreErr = plan?.recordId ? await writeAdvance(plan.recordId, plan.before) : null
+      alert('تعذّر حذف الطلب: ' + (delErr?.message || 'لم يُحذف أي سجل')
+        + (restoreErr ? `\n⚠️ وتعذّرت إعادة خانة «سلفة» إلى ${plan && 'before' in plan ? plan.before : ''}: ${restoreErr} — صحّحها يدويًا.` : ''))
+      return
+    }
     await recomputePermitAttendance()
     onDelete()
   }
@@ -1185,27 +1242,81 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     return true
   }
 
-  async function updateStatus(newStatus: string) {
+  // ══ زيادة الراتب: قراءة الراتب الحالي والزيادة المسجَّلة للطلب (كلاهما لمدير النظام فقط حسب RLS) ══
+  type RecordedRaise = { amount: number; salary_after: number; effective_date: string; created_at: string }
+  async function fetchCurrentSalary(): Promise<number | null> {
+    const { data, error } = await supabase.from('employee_compensation').select('salary').eq('employee_id', request.employee_id).maybeSingle()
+    const v = Number((data as { salary?: number } | null)?.salary)
+    if (error || !(v > 0)) { alert('تعذّر قراءة راتب الموظف الحالي' + (error ? ': ' + error.message : ' (لا يوجد راتب مسجَّل)')); return null }
+    return v
+  }
+  // «مسجَّلة للطلب» = أُنشئت بعد تقديمه، أو تسري من أول شهر تقديمه فصاعدًا (نفس قاعدة db/salary_raise_open_request_guard.sql)
+  async function findRecordedRaise(): Promise<{ error: string } | { raise: RecordedRaise | null }> {
+    const reqMonthStart = new Date(request.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).slice(0, 7) + '-01'
+    const { data, error } = await supabase.from('salary_increases')
+      .select('amount, salary_after, effective_date, created_at')
+      .eq('employee_id', request.employee_id).order('created_at', { ascending: false }).limit(20)
+    if (error) return { error: error.message }
+    return { raise: ((data || []) as RecordedRaise[]).find(r => new Date(r.created_at).getTime() >= new Date(request.created_at).getTime()
+      || String(r.effective_date).slice(0, 10) >= reqMonthStart) || null }
+  }
+
+  const [salaryNow, setSalaryNow] = useState<number | null>(null)
+  const [recordedRaise, setRecordedRaise] = useState<RecordedRaise | null | undefined>(undefined) // undefined = لم يُفحص بعد
+  const [raiseAmount, setRaiseAmount] = useState('') // فارغ = المقترح من النسبة المعتمدة
+  const [raiseDate, setRaiseDate] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }))
+  const needsRaiseData = isSalaryRaise && !!isAdmin && (request.status === 'pending' || request.status === 'approved')
+  useEffect(() => {
+    if (!needsRaiseData) return
+    supabase.from('employee_compensation').select('salary').eq('employee_id', request.employee_id).maybeSingle()
+      .then(({ data }: { data: { salary?: number } | null }) => setSalaryNow(Number(data?.salary) > 0 ? Number(data?.salary) : null))
+    findRecordedRaise().then(f => { if ('raise' in f) setRecordedRaise(f.raise) })
+  }, [request.id, needsRaiseData])
+
+  const approvedRaisePercent = request.raise_approved_percent ?? request.raise_percent ?? 0
+  const suggestedRaise = salaryNow != null ? round2(salaryNow * approvedRaisePercent / 100) : 0
+  const raiseAmountValue = raiseAmount === '' ? suggestedRaise : (parseFloat(raiseAmount) || 0)
+
+  // ✅ تطبيق الزيادة من داخل الطلب المعتمَد: تسجّلها على الراتب ثم تُكمل الطلب في خطوة واحدة
+  async function applyRaiseAndComplete() {
+    if (!(raiseAmountValue > 0)) { alert('أدخل مبلغ زيادة صحيحًا'); return }
+    if (!raiseDate) { alert('أدخل تاريخ سريان الزيادة'); return }
+    // فحص جديد لحظة الضغط: يمنع تسجيل الزيادة مرتين، ويمنع التطبيق على أرقام قديمة
+    const found = await findRecordedRaise()
+    if ('error' in found) { alert('تعذّر التحقق من الزيادات المسجَّلة: ' + found.error); return }
+    if (found.raise) { setRecordedRaise(found.raise); alert('توجد زيادة مسجَّلة لهذا الطلب بالفعل، فلن تُسجَّل مرة ثانية. راجعها ثم أكّد الاكتمال.'); return }
+    const base = await fetchCurrentSalary()
+    if (base == null) return
+    if (salaryNow == null || Math.abs(base - salaryNow) > 0.01) { setSalaryNow(base); alert('تغيّر راتب الموظف منذ فتح الطلب. راجع الأرقام ثم اضغط مرة أخرى.'); return }
+    const newSalary = round2(base + raiseAmountValue)
+    if (!confirm(`تأكيد تطبيق الزيادة وإكمال الطلب #${request.request_number}:\n\nالراتب الحالي: ${fmtMYR(base)}\nالزيادة: ${fmtMYR(raiseAmountValue)}\nالراتب الجديد: ${fmtMYR(newSalary)}\nتسري من: ${raiseDate} (على كامل شهر هذا التاريخ)`
+      + (request.amount && Math.abs(newSalary - request.amount) > 0.01 ? `\n\n⚠️ يختلف عن الراتب الجديد المعتمد في الطلب (${fmtMYR(request.amount)}).` : ''))) return
+    setUpdating(true)
+    const result = await recordSalaryRaise(supabase, {
+      employeeId: request.employee_id, currentSalary: base, amount: raiseAmountValue, effectiveDate: raiseDate,
+      createdBy: currentUser?.id || null, notes: `طلب زيادة راتب #${request.request_number} — اعتُمدت بنسبة ${approvedRaisePercent}%`,
+    })
+    if ('error' in result) { setUpdating(false); alert(result.error); return }
+    if (result.warning) alert(result.warning)
+    await updateStatus('completed', { justRecorded: true })
+  }
+
+  async function updateStatus(newStatus: string, opts?: { justRecorded?: boolean }) {
     if (newStatus === 'approved' && !approvedBy) { alert('يرجى إدخال اسم المعتمد'); return }
     if (newStatus === 'rejected' && !rejectionReason) { alert('يرجى إدخال سبب الرفض'); return }
 
     // ✅ زيادة الراتب: لا «تأكيد اكتمال» قبل تسجيل الزيادة من ملف الموظف. «مسجَّلة» = سطر في salary_increases لنفس
     // الموظف أُنشئ بعد تقديم الطلب، أو يسري من أول شهر تقديمه فصاعدًا (نفس قاعدة db/salary_raise_open_request_guard.sql)
-    if (isSalaryRaise && newStatus === 'completed') {
-      const reqMonthStart = new Date(request.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).slice(0, 7) + '-01'
-      const { data: raises, error: raisesErr } = await supabase.from('salary_increases')
-        .select('amount, salary_after, effective_date, created_at')
-        .eq('employee_id', request.employee_id).order('created_at', { ascending: false }).limit(20)
-      if (raisesErr) { alert('تعذّر التحقق من تسجيل الزيادة: ' + raisesErr.message); return }
-      const recorded = (raises || []).find(r => new Date(r.created_at).getTime() >= new Date(request.created_at).getTime()
-        || String(r.effective_date).slice(0, 10) >= reqMonthStart)
+    if (isSalaryRaise && newStatus === 'completed' && !opts?.justRecorded) {
+      const found = await findRecordedRaise()
+      if ('error' in found) { alert('تعذّر التحقق من تسجيل الزيادة: ' + found.error); return }
+      const recorded = found.raise
       if (!recorded) {
-        alert('لا يمكن تأكيد الاكتمال: لم تُسجَّل لهذا الموظف أي زيادة تخص هذا الطلب.\n\nسجّلها أولًا من ملف الموظف ← «زيادة راتب»، ثم ارجع واضغط «تأكيد الاكتمال».')
+        alert('لا يمكن تأكيد الاكتمال: لم تُسجَّل لهذا الموظف أي زيادة تخص هذا الطلب.\n\nاستخدم «تطبيق الزيادة وإكمال الطلب»، أو سجّلها من ملف الموظف ← «زيادة راتب» ثم أكّد الاكتمال.')
         return
       }
-      const fm = (n: number) => 'MYR ' + n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       if (request.amount && Math.abs(Number(recorded.salary_after) - request.amount) > 0.01
-        && !confirm(`تنبيه: الراتب المسجَّل بعد الزيادة (${fm(Number(recorded.salary_after))}) يختلف عن الراتب الجديد المعتمد في الطلب (${fm(request.amount)}).\n\nهل تريد تأكيد الاكتمال رغم ذلك؟`)) return
+        && !confirm(`تنبيه: الراتب المسجَّل بعد الزيادة (${fmtMYR(Number(recorded.salary_after))}) يختلف عن الراتب الجديد المعتمد في الطلب (${fmtMYR(request.amount)}).\n\nهل تريد تأكيد الاكتمال رغم ذلك؟`)) return
     }
 
     // ✅ تعيين شيفت: نطبّق الشيفت على الجدول أولاً (فقط للطلبات المنظَّمة الجديدة، لا لإشعارات الجدول التلقائية القديمة)
@@ -1239,7 +1350,14 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     if (isSalaryRaise && newStatus === 'approved' && request.raise_snapshot) {
       const pct = parseFloat(approvedPercent)
       if (!(pct > 0 && pct <= 20)) { alert('أدخل نسبة معتمدة صحيحة (أكبر من 0 وحتى 20%)'); return }
-      raiseUpdate = { raise_approved_percent: pct, amount: Math.round(request.raise_snapshot.current_salary * (1 + pct / 100) * 100) / 100 }
+      // ✅ النسبة تُحسب على راتب الموظف **الحالي** لحظة الاعتماد؛ ولو تغيّر منذ التقديم ننبّه المعتمِد قبل الحفظ
+      const base = await fetchCurrentSalary()
+      if (base == null) return
+      const submitted = request.raise_snapshot.current_salary
+      const newSalary = round2(base * (1 + pct / 100))
+      if (Math.abs(base - submitted) > 0.01
+        && !confirm(`⚠️ تغيّر راتب الموظف بعد تقديم الطلب:\nكان ${fmtMYR(submitted)} وصار ${fmtMYR(base)}.\n\nستُحسب النسبة ${pct}% على الراتب الحالي: الزيادة ${fmtMYR(round2(newSalary - base))} والراتب الجديد ${fmtMYR(newSalary)}.\n\nهل تريد الاعتماد؟`)) return
+      raiseUpdate = { raise_approved_percent: pct, amount: newSalary }
     }
 
     setUpdating(true)
@@ -1339,9 +1457,7 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     if (newStatus === 'completed' && request.status !== 'completed' && request.request_type === 'salary_advance' && request.amount) {
       // ✅ المبلغ المخصوم = المبلغ المعتمد (لو المعتمِد قلّله)، وإلا المبلغ المطلوب
       const advanceAmt = finalAdvance != null ? finalAdvance : request.amount
-      const now = new Date()
-      const targetMonth = now.getMonth() + 1
-      const targetYear = now.getFullYear()
+      const { month: targetMonth, year: targetYear } = payrollPeriodOf(new Date().toISOString())
 
       // 1) إيجاد شهر الرواتب المطابق، أو إنشاؤه لو لم يكن موجودًا بعد
       let { data: payrollMonth } = await supabase.from('payroll_months')
@@ -1394,7 +1510,15 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     // وتم الآن تغيير حالته لأي حالة أخرى (رفض، إلغاء، تصحيح خطأ إداري)، لازم نطرح المبلغ من الرواتب
     // مرة أخرى — وإلا يبقى المبلغ "عالقاً" في الرواتب رغم أن الطلب لم يعد معتمداً
     if (newStatus !== 'completed') {
-      await reverseAdvanceFromPayroll()
+      const plan = await planAdvanceReversal()
+      if (plan) {
+        if ('error' in plan) alert('تعذّر التحقق من كشف الرواتب، فلم تُطرح السلفة تلقائيًا: ' + plan.error)
+        else if (!plan.recordId) alert(plan.message)
+        else {
+          const err = await writeAdvance(plan.recordId, plan.after)
+          if (err) alert('تعذّر طرح السلفة من الراتب: ' + err + ' — عدّل خانة «سلفة» يدويًا.')
+        }
+      }
     }
 
     setUpdating(false)
@@ -1409,11 +1533,36 @@ function printRequest() {
   const advReduced = request.request_type === 'salary_advance' && request.status !== 'completed' && !!request.amount
     && advApproved > 0 && advApproved < request.amount - 0.001
   const money = (n: number) => 'MYR ' + n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const amountRows = !request.amount ? ''
+  const row = (label: string, value: string, big = false) =>
+    '<tr><td>' + label + '</td><td' + (big ? ' style="font-size:16px;font-weight:900;color:#C9A84C;"' : '') + '>' + value + '</td></tr>'
+  // ✅ زيادة الراتب: الراتب الحالي (القديم) + ما طلبه الموظف، ثم المعتمَد إن وُجد
+  const raiseRows = () => {
+    const f = raiseFigures(request)
+    if (!f) return request.amount ? row('New Salary / الراتب الجديد', money(request.amount), true) : ''
+    let approved = f.approved
+    // قبل الاعتماد: لو غيّر المعتمِد النسبة (أو تغيّر الراتب)، نطبع ما سيُعتمد فعلًا كما يظهر في الشاشة
+    const pct = parseFloat(approvedPercent)
+    if (!approved && request.status === 'pending' && isAdmin && pct > 0 && pct <= 20) {
+      const base = salaryNow ?? f.requested.base
+      if (Math.abs(pct - f.requested.percent) > 0.001 || Math.abs(base - f.requested.base) > 0.01) {
+        const next = round2(base * (1 + pct / 100))
+        approved = { percent: pct, base, newSalary: next, increase: round2(next - base) }
+      }
+    }
+    return row('Current Salary / الراتب الحالي', money(f.requested.base), !approved)
+      + row('Requested Raise / الزيادة المطلوبة', f.requested.percent + '% — ' + money(f.requested.increase), !approved)
+      + row('Requested New Salary / الراتب المطلوب بعد الزيادة', money(f.requested.newSalary), !approved)
+      + (approved
+        ? (Math.abs(approved.base - f.requested.base) > 0.01 ? row('Salary at Approval / الراتب وقت الاعتماد', money(approved.base)) : '')
+          + row('Approved Raise / الزيادة المعتمدة', approved.percent + '% — ' + money(approved.increase), true)
+          + row('New Salary / الراتب الجديد المعتمد', money(approved.newSalary), true)
+        : '')
+  }
+  const amountRows = request.request_type === 'salary_increase' ? raiseRows()
+    : !request.amount ? ''
     : advReduced
-      ? '<tr><td>Amount Requested</td><td>' + money(request.amount) + '</td></tr>'
-        + '<tr><td>Approved Amount (to be deducted)</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">' + money(advApproved) + '</td></tr>'
-      : '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">' + money(request.amount) + '</td></tr>'
+      ? row('Amount Requested', money(request.amount)) + row('Approved Amount (to be deducted)', money(advApproved), true)
+      : row('Amount', money(request.amount), true)
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Request #${request.request_number}</title>
 <style>
@@ -1460,7 +1609,7 @@ function printRequest() {
   ${request.days_count ? '<tr><td>Number of Days</td><td>' + request.days_count + '</td></tr>' : ''}
 </table>
 <p class="section-title">Request Details</p>
-<table><tr><td colspan="2"><div class="description">${request.description}</div></td></tr></table>
+<table><tr><td colspan="2"><div class="description">${withCurrentRepaymentText(request.description)}</div></td></tr></table>
 ${request.approved_by ? '<p class="section-title">Approval</p><table><tr><td>Approved By</td><td>' + request.approved_by + '</td></tr></table>' : ''}
 ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><table><tr><td colspan="2">' + request.rejection_reason + '</td></tr></table>' : ''}
 <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:40px;">
@@ -1509,7 +1658,18 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
             { label: 'الفرع', value: request.employees?.branches?.name || '—' },
             { label: 'القسم', value: request.employees?.department || '—' },
             { label: 'عنوان الطلب', value: request.title || '—' },
-            request.amount ? { label: (isSalaryAdvance && ['approved', 'completed'].includes(request.status)) ? 'المبلغ المعتمد' : 'المبلغ المطلوب', value: `MYR ${request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` } : null,
+            // ✅ زيادة الراتب: القديم والمطلوب والمعتمَد كلٌّ في خانة (amount هنا هو الراتب الجديد كاملًا)
+            ...(() => {
+              const f = raiseFigures(request)
+              if (!f) return [request.amount ? { label: isSalaryRaise ? 'الراتب الجديد' : (isSalaryAdvance && ['approved', 'completed'].includes(request.status)) ? 'المبلغ المعتمد' : 'المبلغ المطلوب', value: fmtMYR(request.amount) } : null]
+              return [
+                { label: 'الراتب الحالي (وقت التقديم)', value: fmtMYR(f.requested.base) },
+                { label: 'الزيادة المطلوبة', value: `${f.requested.percent}% = ${fmtMYR(f.requested.increase)}` },
+                { label: 'الراتب المطلوب بعد الزيادة', value: fmtMYR(f.requested.newSalary) },
+                f.approved ? { label: 'الزيادة المعتمدة', value: `${f.approved.percent}% = ${fmtMYR(f.approved.increase)}` } : null,
+                f.approved ? { label: 'الراتب الجديد المعتمد', value: fmtMYR(f.approved.newSalary) } : null,
+              ]
+            })(),
             request.start_date ? { label: 'من تاريخ', value: request.start_date } : null,
             request.end_date ? { label: 'إلى تاريخ', value: request.end_date } : null,
             request.days_count ? { label: 'عدد الأيام', value: `${request.days_count} يوم` } : null,
@@ -1588,7 +1748,7 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
         {/* Description */}
         <div style={{ background: S.card, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: S.muted, marginBottom: 6 }}>تفاصيل الطلب</div>
-          <div style={{ fontSize: 13, color: S.white, lineHeight: 1.8, whiteSpace: 'pre-line' }}>{request.description}</div>
+          <div style={{ fontSize: 13, color: S.white, lineHeight: 1.8, whiteSpace: 'pre-line' }}>{withCurrentRepaymentText(request.description)}</div>
         </div>
 
         {/* طلب الاستقالة: حالة مدة الإشعار والقرار النهائي */}
@@ -1703,11 +1863,23 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                       <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>النسبة المعتمدة (%)</div>
                       <input style={{ ...inp, marginBottom: 4 }} type="number" min={0.5} max={20} step="0.5"
                         value={approvedPercent} onChange={e => setApprovedPercent(e.target.value)} placeholder="0" />
-                      {request.raise_snapshot && (
-                        <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>
-                          المطلوب: {request.raise_percent}% · المتوقع: {request.raise_snapshot.expected_percent}% — الراتب الجديد بهذه النسبة: MYR {(Math.round(request.raise_snapshot.current_salary * (1 + (parseFloat(approvedPercent) || 0) / 100) * 100) / 100).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                      )}
+                      {request.raise_snapshot && (() => {
+                        const base = salaryNow ?? request.raise_snapshot.current_salary
+                        const next = round2(base * (1 + (parseFloat(approvedPercent) || 0) / 100))
+                        return (
+                          <>
+                            <div style={{ fontSize: 11, color: S.muted, marginBottom: 12, lineHeight: 1.8 }}>
+                              المطلوب: {request.raise_percent}% · المتوقع: {request.raise_snapshot.expected_percent}%<br />
+                              الراتب الحالي {fmtMYR(base)} + الزيادة {fmtMYR(round2(next - base))} = الراتب الجديد {fmtMYR(next)}
+                            </div>
+                            {salaryNow != null && Math.abs(salaryNow - request.raise_snapshot.current_salary) > 0.01 && (
+                              <div style={{ background: S.amberB, border: `1px solid ${S.amber}55`, color: S.amber, borderRadius: 10, padding: '9px 12px', fontSize: 12, fontWeight: 700, marginBottom: 12 }}>
+                                ⚠️ تغيّر راتب الموظف بعد تقديم الطلب: كان {fmtMYR(request.raise_snapshot.current_salary)} وصار {fmtMYR(salaryNow)}. النسبة تُحسب على الراتب الحالي.
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => updateStatus('approved')} disabled={updating}
                           style={{ ...btnSuccess, flex: 1 }}>
@@ -1806,7 +1978,37 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
           <div style={{ marginBottom: 16 }}>
             {isSalaryRaise && (
               <div style={{ background: S.greenB, border: `1px solid ${S.green}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 12.5, color: S.green, lineHeight: 1.7 }}>
-                اعتُمدت الزيادة بنسبة {request.raise_approved_percent ?? request.raise_percent}% (الراتب الجديد MYR {(request.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). لا تُطبَّق تلقائياً على الراتب: سجّلها من ملف الموظف (زيادة راتب) ثم اضغط «تأكيد الاكتمال».
+                اعتُمدت الزيادة بنسبة {approvedRaisePercent}% (الراتب الجديد المعتمد {fmtMYR(request.amount || 0)}). لم تُطبَّق على الراتب بعد.
+              </div>
+            )}
+            {isSalaryRaise && recordedRaise && (
+              <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 12.5, color: S.white, lineHeight: 1.8 }}>
+                سُجّلت زيادة لهذا الموظف بمبلغ {fmtMYR(Number(recordedRaise.amount))} تسري من {String(recordedRaise.effective_date).slice(0, 10)}، وصار الراتب {fmtMYR(Number(recordedRaise.salary_after))}. راجعها ثم أكّد الاكتمال.
+              </div>
+            )}
+            {isSalaryRaise && recordedRaise === null && (
+              <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 12.5, color: S.white, marginBottom: 10 }}>الراتب الحالي: <strong>{salaryNow != null ? fmtMYR(salaryNow) : '...'}</strong></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>مبلغ الزيادة (MYR)</div>
+                    <input style={inp} type="number" min={0} step="0.01" value={raiseAmount === '' ? (suggestedRaise || '') : raiseAmount} onChange={e => setRaiseAmount(e.target.value)} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 6 }}>تاريخ السريان</div>
+                    <input style={inp} type="date" value={raiseDate} onChange={e => setRaiseDate(e.target.value)} />
+                  </div>
+                </div>
+                {salaryNow != null && (
+                  <div style={{ fontSize: 12.5, color: S.green, fontWeight: 700, marginBottom: 6 }}>الراتب الجديد: {fmtMYR(round2(salaryNow + raiseAmountValue))}</div>
+                )}
+                {salaryNow != null && request.amount && Math.abs(round2(salaryNow + raiseAmountValue) - request.amount) > 0.01 && (
+                  <div style={{ fontSize: 12, color: S.amber, fontWeight: 700, marginBottom: 6 }}>⚠️ يختلف عن الراتب الجديد المعتمد في الطلب ({fmtMYR(request.amount)}). راجع المبلغ، فربما تغيّر الراتب بعد الاعتماد.</div>
+                )}
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 10, lineHeight: 1.7 }}>تسري على كامل شهر تاريخ السريان وما بعده (من أكتوبر 2026). الأشهر المعتمدة لا تتأثر.</div>
+                <button onClick={applyRaiseAndComplete} disabled={updating || salaryNow == null} style={{ ...btnSuccess, width: '100%', opacity: updating || salaryNow == null ? 0.6 : 1 }}>
+                  <Flag size={15} /> {updating ? 'جاري التطبيق...' : 'تطبيق الزيادة وإكمال الطلب'}
+                </button>
               </div>
             )}
             {isSalaryAdvance && canTakeAction && (
@@ -1819,10 +2021,12 @@ ${request.rejection_reason ? '<p class="section-title">Rejection Reason</p><tabl
                 </div>
               </>
             )}
-            <button onClick={() => updateStatus('completed')} disabled={updating}
-              style={{ ...btnSuccess, width: '100%' }}>
-              <Flag size={15} /> {isSalaryAdvance ? `اعتماد وخصم MYR ${(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'تأكيد الاكتمال'}
-            </button>
+            {(isSalaryAdvance || !!recordedRaise) && (
+              <button onClick={() => updateStatus('completed')} disabled={updating}
+                style={{ ...btnSuccess, width: '100%' }}>
+                <Flag size={15} /> {isSalaryAdvance ? `اعتماد وخصم MYR ${(parseFloat(approvedAmount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'تأكيد الاكتمال'}
+              </button>
+            )}
           </div>
         )}
 
@@ -1920,7 +2124,7 @@ export default function EmployeeRequestsPage() {
           ${request.amount ? '<tr><td>Amount</td><td style="font-size:16px;font-weight:900;color:#C9A84C;">MYR ' + request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td></tr>' : ''}
         </table>
         <p class="section-title">Request Details</p>
-        <table><tr><td colspan="2"><div class="description">${request.description || '—'}</div></td></tr></table>
+        <table><tr><td colspan="2"><div class="description">${withCurrentRepaymentText(request.description) || '—'}</div></td></tr></table>
         <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:40px;">
           <div style="border-top:1px solid #ccc;padding-top:6px;text-align:center;font-size:11px;color:#666;">Employee Signature</div>
           <div style="border-top:1px solid #ccc;padding-top:6px;text-align:center;font-size:11px;color:#666;">Manager Signature</div>
@@ -2347,7 +2551,11 @@ export default function EmployeeRequestsPage() {
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
-                        {req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{req.request_type === 'salary_advance' && req.status === 'pending' && req.approved_amount != null && <span style={{ display: 'block', fontSize: 11, color: S.green }}>محفوظ: {req.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}</span>
+                        {raiseFigures(req) ? (() => {
+                          const f = raiseFigures(req)!
+                          const shown = f.approved || f.requested
+                          return <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>+{fmtMYR(shown.increase)}<span style={{ display: 'block', fontSize: 11, color: S.muted }}>{fmtMYR(shown.base)} ← {fmtMYR(shown.newSalary)}</span></span>
+                        })() : req.amount ? <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>MYR {req.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{req.request_type === 'salary_advance' && req.status === 'pending' && req.approved_amount != null && <span style={{ display: 'block', fontSize: 11, color: S.green }}>محفوظ: {req.approved_amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}</span>
                           : req.days_count ? <span style={{ color: S.blue, fontWeight: 700, fontSize: 13 }}>{req.days_count} يوم</span>
                           : <span style={{ color: S.muted }}>—</span>}
                       </td>

@@ -4,6 +4,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../../../components/AuthProvider'
 import { createBrowserClient } from '@supabase/ssr'
+import { recordSalaryRaise } from '../../../../lib/salaryRaise'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -460,37 +461,12 @@ function SalaryIncreaseModal({ employee, adminId, onClose, onSaved }: {
     if (!confirm(`تأكيد: زيادة راتب ${employee.name} بمبلغ ${amountNum} MYR بتاريخ ${effectiveDate}؟\n\nالراتب الحالي: ${(employee.salary || 0).toLocaleString()} MYR\nالراتب الجديد: ${newSalary.toLocaleString()} MYR`)) return
 
     setSaving(true)
-    // ✅ نسجّل الزيادة في سجل تاريخي منفصل (salary_increases) قبل تحديث الراتب نفسه — لكي يبقى لدينا
-    // سجل تدقيق كامل بكل زيادة حدثت (متى، بكم، من اعتمدها)، وليس فقط الرقم النهائي الحالي
-    const { error: insError } = await supabase.from('salary_increases').insert([{
-      employee_id: employee.id,
-      amount: amountNum,
-      effective_date: effectiveDate,
-      salary_before: employee.salary || 0,
-      salary_after: newSalary,
-      created_by: adminId || null,
-      notes: notes || null,
-    }])
-    if (insError) { alert('خطأ في تسجيل الزيادة: ' + insError.message); setSaving(false); return }
-
-    // ✅ الراتب في جدول employee_compensation المقفول
-    const { error: updError } = await supabase.from('employee_compensation')
-      .upsert({ employee_id: employee.id, salary: newSalary, updated_at: new Date().toISOString() }, { onConflict: 'employee_id' })
-    if (updError) { alert('خطأ في تحديث الراتب: ' + updError.message); setSaving(false); return }
-
-    // ✅ نعكس الزيادة فورًا على سجلات الرواتب غير المعتمدة من شهر السريان فصاعدًا (من أكتوبر 2026 كحد أدنى، كقاعدة صفحة الرواتب).
-    // صفحة «راتبي» تقرأ الراتب الأساسي المخزَّن في سجل الشهر، وهذا السجل لا يتحدّث إلا عند فتح الأدمن لكشف ذلك الشهر —
-    // فكانت الزيادة لا تظهر للموظف حتى يفتح الأدمن الرواتب. الأشهر المعتمدة/المدفوعة لا تُمَس، والسجلات ذات الأساسي صفر
-    // (لم يبدأ / موقوف) تبقى كما هي. ظهور المبلغ المستحق النهائي يتجدد أيضًا عند فتح كشف الشهر.
-    const effYM = effectiveDate.slice(0, 7) < '2026-10' ? '2026-10' : effectiveDate.slice(0, 7)
-    const { data: openMonths } = await supabase.from('payroll_months').select('id, year, month').not('status', 'in', '("finalized","paid")')
-    const openIds = (openMonths || []).filter(m => `${m.year}-${String(m.month).padStart(2, '0')}` >= effYM).map(m => m.id)
-    if (openIds.length > 0) {
-      const { error: recError } = await supabase.from('payroll_records')
-        .update({ basic_salary: newSalary, updated_at: new Date().toISOString() })
-        .eq('employee_id', employee.id).in('payroll_month_id', openIds).gt('basic_salary', 0)
-      if (recError) alert('تم تسجيل الزيادة، لكن تعذّر تحديث كشوف الرواتب المفتوحة: ' + recError.message + ' — افتح صفحة الرواتب للشهر ليتحدّث الكشف.')
-    }
+    const result = await recordSalaryRaise(supabase, {
+      employeeId: employee.id, currentSalary: employee.salary || 0, amount: amountNum,
+      effectiveDate, createdBy: adminId || null, notes: notes || null,
+    })
+    if ('error' in result) { alert(result.error); setSaving(false); return }
+    if (result.warning) alert(result.warning)
 
     setSaving(false)
     onSaved()

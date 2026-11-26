@@ -49,9 +49,14 @@ const SECTIONS = [
   { key: 'upstairs',label: 'Upstairs',      labelAr: 'الطابق العلوي',           icon: '🌅', color: C.amber },
 ]
 
-const BRANCH_NAMES: Record<string, { ar: string; en: string; location: string }> = {
-  '783bc0ec-16f5-4e6c-9148-9c30b12d42c2': { ar: 'اوركيد هاوس', en: 'Orchid House', location: 'Lorong Raja Uda' },
-  '9375998c-0a98-48c8-be7a-485e0c616ae1': { ar: 'اوركيد  KLCC', en: 'Orchid KLCC ', location: 'Lorong Yap Kwan Seng' },
+// menu: منيو الفرع في دليل بدلكس (يُسبَق بلغة الزائر ar أو en) — نفس الروابط المستخدمة في موقع المطعم
+const BRANCH_NAMES: Record<string, { ar: string; en: string; location: string; area: string; menu: string }> = {
+  '783bc0ec-16f5-4e6c-9148-9c30b12d42c2': { ar: 'أوركيد هاوس', en: 'Orchid House', location: 'Lorong Raja Uda', area: 'Kampung Baru', menu: 'directory/orchid/house' },
+  '9375998c-0a98-48c8-be7a-485e0c616ae1': { ar: 'أوركيد كي إل سي سي', en: 'Orchid KLCC', location: 'Lorong Yap Kwan Seng', area: 'KLCC', menu: 'directory/orchid/klcc' },
+}
+const branchMenuUrl = (path: string) => {
+  const arabic = typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('ar')
+  return `https://app.bidlx.com/${arabic ? 'ar' : 'en'}/${path}`
 }
 
 // ✅ جديد: سياسات خاصة بفرع أوركيد هاوس فقط (سعة كل قسم + قيد وقت الطابق العلوي) — لا تنطبق على KLCC
@@ -234,32 +239,48 @@ export default function BookingPage() {
   const selectedSection = SECTIONS.find(s => s.key === section)
 
   // ══ Done ══
+  // العميل يرسل لقطة من هذه الشاشة للمطعم، فالفرع (صورته واسمه) في أعلى البطاقة ومعه منيو الفرع نفسه
+  const doneBranch = selectedBranch ? BRANCH_NAMES[selectedBranch.id] : undefined
+  const doneBranchName = doneBranch?.en || selectedBranch?.name || ''
   if (phase === 'done') return (
     <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'system-ui' }}>
       <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}} @keyframes glow{0%,100%{box-shadow:0 0 20px ${C.glow}}50%{box-shadow:0 0 40px rgba(59,159,229,.4)}}`}</style>
       <div style={{ maxWidth: 460, width: '100%', textAlign: 'center', animation: 'fadeUp .6s ease' }}>
-        <div style={{ fontSize: 72, marginBottom: 20 }}>🌸</div>
-        <div style={{ background: C.bg2, borderRadius: 24, border: `1px solid ${C.border2}`, padding: '36px 28px', animation: 'glow 2s ease infinite' }}>
+        <div style={{ background: C.bg2, borderRadius: 24, border: `1px solid ${C.border2}`, overflow: 'hidden', animation: 'glow 2s ease infinite' }}>
+          <div style={{ position: 'relative', height: 150, background: `linear-gradient(135deg, ${C.blue1}33, ${C.bg3})` }}>
+            {selectedBranch?.image_url && (
+              <img src={selectedBranch.image_url} alt={doneBranchName} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            )}
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '34px 16px 10px', background: 'linear-gradient(180deg, transparent, rgba(5,10,18,.78) 45%, rgba(5,10,18,.95))' }}>
+              <div style={{ color: C.white, fontSize: 24, fontWeight: 900, lineHeight: 1.25 }}>{doneBranchName}</div>
+              {doneBranch && <div dir="rtl" style={{ color: C.white2, fontSize: 15, fontWeight: 700, marginTop: 2 }}>{doneBranch.ar}</div>}
+              <div style={{ color: C.silver, fontSize: 12, marginTop: 5 }}>
+                <Icon size={11}>📍</Icon> {doneBranch ? `${doneBranch.location}, ${doneBranch.area}` : selectedBranch?.location}
+              </div>
+            </div>
+          </div>
+          <div style={{ padding: '16px 20px 20px' }}>
           {/* ✅ Fix: الشاشة كانت بتقول "Booking Confirmed" مع إن الحجز لسه "pending" فعليًا لحد ما فريق
               الحجوزات يراجعه ويوافق عليه — النص بقى يعكس الحالة الحقيقية، بالعربي والإنجليزي */}
-          <div style={{ color: C.blue1, fontSize: 11, fontWeight: 700, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 10 }}>Request Sent!</div>
-          <h2 style={{ color: C.white, fontSize: 22, fontWeight: 900, marginBottom: 8 }}>Thank you, {form.name.split(' ')[0]}!</h2>
-          <p style={{ color: C.silver2, fontSize: 14, marginBottom: 28, lineHeight: 1.7 }}>
+          <div style={{ color: C.blue1, fontSize: 11, fontWeight: 700, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 6 }}>Request Sent!</div>
+          <h2 style={{ color: C.white, fontSize: 22, fontWeight: 900, margin: '0 0 4px' }}>Thank you, {form.name.split(' ')[0]}!</h2>
+          <p style={{ color: C.silver2, fontSize: 12.5, margin: '0 0 12px', lineHeight: 1.6 }}>
             Your request has been sent to our bookings team. We'll contact you shortly to confirm your reservation.
             <br />تم إرسال طلبكم إلى قسم الحجوزات، وسيتم التواصل معكم في أقرب وقت لتأكيد الحجز.
           </p>
-          <div style={{ background: 'rgba(59,159,229,.08)', border: `1px solid ${C.border2}`, borderRadius: 16, padding: 20, marginBottom: 20 }}>
-            <div style={{ color: C.silver2, fontSize: 10, letterSpacing: 3, marginBottom: 8 }}>BOOKING REFERENCE</div>
-            <div style={{ color: C.blue1, fontSize: 36, fontWeight: 900, letterSpacing: 6 }}>#{bookingRef}</div>
+          <div style={{ background: 'rgba(59,159,229,.08)', border: `1px solid ${C.border2}`, borderRadius: 16, padding: '10px 16px', marginBottom: 12 }}>
+            <div style={{ color: C.silver2, fontSize: 10, letterSpacing: 3, marginBottom: 2 }}>BOOKING REFERENCE</div>
+            <div style={{ color: C.blue1, fontSize: 30, fontWeight: 900, letterSpacing: 5 }}>#{bookingRef}</div>
           </div>
-          <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: 16, textAlign: 'left' }}>
+          <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: '6px 14px', textAlign: 'left' }}>
             {[
+              { icon: '🏪', label: 'Branch · الفرع', value: doneBranchName },
               { icon: '📍', label: 'Section', value: selectedSection?.label },
               { icon: '📅', label: 'Date', value: new Date(form.date).toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
               { icon: '🕐', label: 'Time', value: form.time },
               { icon: '👥', label: 'Guests', value: `${form.guests} guests` },
             ].map((r, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 0', borderBottom: i < 3 ? `1px solid ${C.border}` : 'none' }}>
+              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '5px 0', borderBottom: i < 4 ? `1px solid ${C.border}` : 'none' }}>
                 <Icon size={18}>{r.icon}</Icon>
                 <div>
                   <div style={{ color: C.silver2, fontSize: 10 }}>{r.label}</div>
@@ -268,7 +289,15 @@ export default function BookingPage() {
               </div>
             ))}
           </div>
-          <p style={{ color: C.silver2, fontSize: 12, marginTop: 20 }}>Confirmation sent to <strong style={{ color: C.white }}>{form.email}</strong></p>
+          {doneBranch && (
+            <a href={branchMenuUrl(doneBranch.menu)} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'block', marginTop: 12, background: `linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius: 14, padding: '10px 16px', color: C.white, textDecoration: 'none', fontWeight: 800, fontSize: 14, lineHeight: 1.7, boxShadow: `0 6px 20px ${C.glow}` }}>
+              {doneBranch.en} Menu
+              <span dir="rtl" style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>منيو {doneBranch.ar}</span>
+            </a>
+          )}
+          <p style={{ color: C.silver2, fontSize: 12, margin: '12px 0 0' }}>Confirmation sent to <strong style={{ color: C.white }}>{form.email}</strong></p>
+          </div>
         </div>
         <div style={{ marginTop: 22 }}><BookingFooter /></div>
       </div>

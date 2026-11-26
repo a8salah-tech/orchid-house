@@ -50,13 +50,23 @@ const SECTIONS = [
 ]
 
 // menu: منيو الفرع في دليل بدلكس (يُسبَق بلغة الزائر ar أو en) — نفس الروابط المستخدمة في موقع المطعم
-const BRANCH_NAMES: Record<string, { ar: string; en: string; location: string; area: string; menu: string }> = {
+type BranchInfo = { ar: string; en: string; location: string; area: string; menu: string }
+const BRANCH_NAMES: Record<string, BranchInfo> = {
   '783bc0ec-16f5-4e6c-9148-9c30b12d42c2': { ar: 'أوركيد هاوس', en: 'Orchid House', location: 'Lorong Raja Uda', area: 'Kampung Baru', menu: 'directory/orchid/house' },
   '9375998c-0a98-48c8-be7a-485e0c616ae1': { ar: 'أوركيد كي إل سي سي', en: 'Orchid KLCC', location: 'Lorong Yap Kwan Seng', area: 'KLCC', menu: 'directory/orchid/klcc' },
 }
 const branchMenuUrl = (path: string) => {
   const arabic = typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('ar')
   return `https://app.bidlx.com/${arabic ? 'ar' : 'en'}/${path}`
+}
+function BranchMenuButton({ branch }: { branch: BranchInfo }) {
+  return (
+    <a href={branchMenuUrl(branch.menu)} target="_blank" rel="noopener noreferrer"
+      style={{ display: 'block', textAlign: 'center', background: `linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius: 14, padding: '10px 16px', color: C.white, textDecoration: 'none', fontWeight: 800, fontSize: 14, lineHeight: 1.7, boxShadow: `0 6px 20px ${C.glow}` }}>
+      {branch.en} Menu
+      <span dir="rtl" style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>منيو {branch.ar}</span>
+    </a>
+  )
 }
 
 // ✅ جديد: سياسات خاصة بفرع أوركيد هاوس فقط (سعة كل قسم + قيد وقت الطابق العلوي) — لا تنطبق على KLCC
@@ -70,10 +80,6 @@ const SECTION_POLICY: Record<string, { en: string; ar: string }> = {
 }
 type Phase = 'branch' | 'date' | 'section' | 'details' | 'done'
 type Branch = { id: string; name: string; location: string; image_url?: string | null }
-// ✅ جديد: عرض المنيو + الوجبات العائلية داخل صفحة الحجز — أوركيد هاوس فقط
-type MenuCategory = { id: string; name: string; name_en?: string | null; sort_order?: number | null }
-type MenuItem = { id: string; name: string; name_en?: string | null; price: number; image_url: string | null; category_id: string }
-const FAMILY_SET_CATEGORY_ID = '99020816-226e-414c-9f16-32a6bbafb487'
 // صور الأقسام (Indoor/Outdoor/Upstairs) التي يرفعها المدير من صفحة "🏪 صور الفروع"
 type SectionPhoto = { branch_id: string; section: string; image_url: string | null }
 // ✅ جديد: الأيام المُغلقة للحجز لكل فرع — يديرها مدير النظام فقط من صفحة "حجوزات العملاء"
@@ -96,27 +102,13 @@ export default function BookingPage() {
   useEffect(() => { if (bookingDate) setForm(p => ({ ...p, date: bookingDate })) }, [bookingDate])
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // ✅ منيو أوركيد هاوس (كل الأصناف + قوائم الفئات) وصور الأقسام — تُجلب مرة واحدة، fail-open
-  const [allMenuItems, setAllMenuItems] = useState<MenuItem[]>([])
-  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([])
+  // ✅ صور الأقسام — تُجلب مرة واحدة، fail-open
   const [sectionPhotos, setSectionPhotos] = useState<SectionPhoto[]>([])
-  // ✅ جديد: الفئة المفتوحة حاليًا في "قائمة الطعام" — الضغط على الفئة يعرض أصنافها
-  const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null)
-  const familyItems = allMenuItems.filter(it => it.category_id === FAMILY_SET_CATEGORY_ID)
 
   async function fetchBranches() {
     // ✅ select('*') بدل تحديد الأعمدة: fail-open لو عمود image_url لسه ما اتضافش (قبل تشغيل SQL)
     const { data } = await sb.from('branches').select('*').eq('is_active', true).order('name', { ascending: false })
     setBranches(data || [])
-  }
-
-  async function fetchOrchidHouseMenuPreview() {
-    const [catsRes, itemsRes] = await Promise.all([
-      sb.from('menu_categories').select('id,name,name_en,sort_order').eq('is_active', true).eq('branch_id', ORCHID_HOUSE_ID).order('sort_order'),
-      sb.from('menu_items').select('id,name,name_en,price,image_url,category_id').eq('is_active', true).eq('is_available', true).eq('branch_id', ORCHID_HOUSE_ID),
-    ])
-    if (catsRes.data) setMenuCategories(catsRes.data as MenuCategory[])
-    if (itemsRes.data) setAllMenuItems(itemsRes.data as MenuItem[])
   }
 
   async function fetchSectionPhotos() {
@@ -148,7 +140,7 @@ export default function BookingPage() {
     return closedDays.some(d => d.branch_id === branchId && d.closed_date === date)
   }
 
-  useEffect(() => { fetchBranches(); fetchOrchidHouseMenuPreview(); fetchSectionPhotos(); fetchClosedDays(); fetchClosedSections() }, [])
+  useEffect(() => { fetchBranches(); fetchSectionPhotos(); fetchClosedDays(); fetchClosedSections() }, [])
 
   // دعم زر الرجوع في المتصفح
   useEffect(() => {
@@ -289,14 +281,7 @@ export default function BookingPage() {
               </div>
             ))}
           </div>
-          {doneBranch && (
-            <a href={branchMenuUrl(doneBranch.menu)} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', marginTop: 12, background: `linear-gradient(135deg,${C.blue1},${C.blue2})`, borderRadius: 14, padding: '10px 16px', color: C.white, textDecoration: 'none', fontWeight: 800, fontSize: 14, lineHeight: 1.7, boxShadow: `0 6px 20px ${C.glow}` }}>
-              {doneBranch.en} Menu
-              <span dir="rtl" style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>منيو {doneBranch.ar}</span>
-            </a>
-          )}
-          <p style={{ color: C.silver2, fontSize: 12, margin: '12px 0 0' }}>Confirmation sent to <strong style={{ color: C.white }}>{form.email}</strong></p>
+          {doneBranch && <div style={{ marginTop: 12 }}><BranchMenuButton branch={doneBranch} /></div>}
           </div>
         </div>
         <div style={{ marginTop: 22 }}><BookingFooter /></div>
@@ -311,7 +296,7 @@ export default function BookingPage() {
 
       {/* Header */}
       <div style={{ background: C.bg3, padding: '20px', borderBottom: `1px solid ${C.border}`, textAlign: 'center' }}>
-        <div style={{ fontSize: 28, fontWeight: 900, color: C.white }}>ORCHID <span style={{ color: C.blue1 }}>HOUSE</span></div>
+        <div style={{ fontSize: 28, fontWeight: 900, color: C.white }}>ORCHID <span style={{ color: C.blue1 }}>GROUP</span></div>
         <div style={{ fontSize: 13, color: C.silver2, marginTop: 4 }}>Table Reservation</div>
       </div>
 
@@ -465,76 +450,10 @@ export default function BookingPage() {
               </div>
             )}
 
-            {/* ✅ جديد: نظرة على المنيو + الوجبات العائلية — أوركيد هاوس فقط */}
-            {selectedBranch?.id === ORCHID_HOUSE_ID && (menuCategories.length > 0 || familyItems.length > 0) && (
+            {/* منيو الفرع المختار من دليل بدلكس — للفرعين */}
+            {selectedBranch && BRANCH_NAMES[selectedBranch.id] && (
               <div style={{ marginTop: 18 }}>
-                {familyItems.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>🍽️ Family Set Meals · الوجبات العائلية</h3>
-                    <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
-                      {familyItems.map(it => (
-                        <div key={it.id} style={{ minWidth: 150, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', flexShrink: 0 }}>
-                          <div style={{ width: '100%', height: 100, background: `linear-gradient(135deg, ${C.blue1}25, ${C.bg3})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {it.image_url
-                              ? <img src={it.image_url} alt={it.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                              : <span style={{ fontSize: 28 }}>🍛</span>}
-                          </div>
-                          <div style={{ padding: '10px 12px' }}>
-                            <div style={{ fontWeight: 700, fontSize: 12.5, color: C.white, marginBottom: 2 }}>{it.name_en || it.name}</div>
-                            <div style={{ fontSize: 11, color: C.silver2, marginBottom: 4 }}>{it.name}</div>
-                            <div style={{ fontSize: 13, fontWeight: 800, color: C.blue1 }}>RM {Number(it.price).toFixed(2)}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {menuCategories.length > 0 && (
-                  <div>
-                    <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>📋 Our Menu · قائمة الطعام</h3>
-                    <p style={{ fontSize: 11, color: C.silver2, marginBottom: 10 }}>Tap a category to preview its dishes · اضغط على أي فئة لعرض أصنافها</p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {menuCategories.map(c => {
-                        const isOpen = expandedCategoryId === c.id
-                        return (
-                          <button key={c.id} onClick={() => setExpandedCategoryId(isOpen ? null : c.id)}
-                            style={{ background: isOpen ? C.blue1 + '25' : C.bg2, border: `1px solid ${isOpen ? C.blue1 : C.border}`, borderRadius: 20, padding: '7px 14px', fontSize: 12, color: isOpen ? C.white : C.silver, cursor: 'pointer', fontFamily: 'system-ui', fontWeight: isOpen ? 700 : 400 }}>
-                            {c.name_en || c.name}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    {expandedCategoryId && (() => {
-                      const items = allMenuItems.filter(it => it.category_id === expandedCategoryId)
-                      const cat = menuCategories.find(c => c.id === expandedCategoryId)
-                      return (
-                        <div style={{ marginTop: 12, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 14, padding: 14 }}>
-                          {items.length === 0 ? (
-                            <div style={{ fontSize: 12, color: C.silver2, textAlign: 'center', padding: 8 }}>No dishes listed yet · لا توجد أصناف مضافة بعد</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              {items.map(it => (
-                                <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                  <div style={{ width: 38, height: 38, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: `linear-gradient(135deg, ${C.blue1}25, ${C.bg3})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    {it.image_url
-                                      ? <img src={it.image_url} alt={it.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                      : <span style={{ fontSize: 16 }}>🍽️</span>}
-                                  </div>
-                                  <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.white }}>{it.name_en || it.name}</div>
-                                    <div style={{ fontSize: 11, color: C.silver2 }}>{it.name}</div>
-                                  </div>
-                                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.blue1 }}>RM {Number(it.price).toFixed(2)}</div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div style={{ fontSize: 10, color: C.silver2, marginTop: 10, textAlign: 'center' }}>{cat?.name_en || cat?.name}</div>
-                        </div>
-                      )
-                    })()}
-                  </div>
-                )}
+                <BranchMenuButton branch={BRANCH_NAMES[selectedBranch.id]} />
               </div>
             )}
           </div>

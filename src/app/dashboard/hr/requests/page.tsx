@@ -12,6 +12,8 @@ import { DEPT_MANAGER_ROLES_EXT, DEPT_SUPERVISOR_ROLES, HALL_ASSISTANT_ROLE } fr
 import { Stethoscope, Siren, Utensils, TriangleAlert, Lightbulb, ClipboardList, Clock, TrendingUp, Banknote, DoorOpen, CalendarDays, LogOut, CircleCheck, CircleX, Flag, Hourglass, X, Info, Send, Plus, Printer, Trash2, Lock, Check, ChartColumn, ChevronLeft, ChevronRight } from 'lucide-react'
 import { shiftTimesError } from '../../../../lib/shiftTimes'
 import { recordSalaryRaise, round2 } from '../../../../lib/salaryRaise'
+import { addAdvanceToPayroll, payrollPeriodOf, reducedAdvanceDescription } from '../../../../lib/advancePayroll'
+import BulkAdvanceModal from './BulkAdvanceModal'
 
 const createClient = () => createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1038,13 +1040,6 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     isSalaryAdvance ? (isAdmin || isBranchManager) : isSalaryRaise ? !!isAdmin : (isAdmin || isDeptManager)
   )
 
-  // ✅ شهر كشف الرواتب لأي لحظة بتوقيت ماليزيا (لا بساعة جهاز المعتمِد) — السلفة تُضاف لكشف شهر اعتمادها
-  // (وهو الراتب الذي يُسلَّم يوم 10 من الشهر التالي)، وتُطرح عند الحذف من الكشف نفسه
-  function payrollPeriodOf(iso: string) {
-    const [year, month] = new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).split('-').map(Number)
-    return { year, month }
-  }
-
   // ✅ خطة عكس أثر سلفة "completed" على الرواتب: تقرأ فقط ولا تغيّر شيئًا، وترجع رسالة تشرح ما سيحدث.
   // recordId = null يعني لن يُطرح شيء تلقائيًا (شهر معتمَد/مدفوع، أو لا يوجد سجل). error يعني تعذّر التحقق.
   async function planAdvanceReversal(): Promise<{ error: string } | { recordId: string | null; before: number; after: number; message: string } | null> {
@@ -1339,11 +1334,9 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     }
 
     // ✅ لو المبلغ المعتمد أقل من المطلوب، نضيف سطر توضيحي في وصف الطلب (يبان في الاستمارة المطبوعة)
-    let updatedDescription: string | null = null
-    if (finalAdvance != null && request.amount && finalAdvance < request.amount - 0.001) {
-      const note = `\n\n— اعتمد ${approvedBy || 'الإدارة'} مبلغ MYR ${finalAdvance.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} من أصل MYR ${request.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} المطلوبة.`
-      if (!(request.description || '').includes('اعتمد ')) updatedDescription = (request.description || '') + note
-    }
+    const updatedDescription = finalAdvance != null
+      ? reducedAdvanceDescription(request.description, approvedBy, finalAdvance, request.amount)
+      : null
 
     // ✅ زيادة الراتب: النسبة المعتمدة (قد تختلف عن المطلوبة) تُثبَّت مع الراتب الجديد المقابل لها
     let raiseUpdate: { raise_approved_percent: number; amount: number } | null = null
@@ -1457,53 +1450,9 @@ function RequestDetailModal({ request, currentUser, isAdmin, isDeptManager, isSu
     if (newStatus === 'completed' && request.status !== 'completed' && request.request_type === 'salary_advance' && request.amount) {
       // ✅ المبلغ المخصوم = المبلغ المعتمد (لو المعتمِد قلّله)، وإلا المبلغ المطلوب
       const advanceAmt = finalAdvance != null ? finalAdvance : request.amount
-      const { month: targetMonth, year: targetYear } = payrollPeriodOf(new Date().toISOString())
-
-      // 1) إيجاد شهر الرواتب المطابق، أو إنشاؤه لو لم يكن موجودًا بعد
-      let { data: payrollMonth } = await supabase.from('payroll_months')
-        .select('id').eq('month', targetMonth).eq('year', targetYear).maybeSingle()
-      if (!payrollMonth) {
-        const { data: newMonth } = await supabase.from('payroll_months')
-          .insert([{ month: targetMonth, year: targetYear, status: 'draft' }])
-          .select('id').single()
-        payrollMonth = newMonth
-      }
-
-      if (payrollMonth) {
-        // 2) إيجاد سجل راتب الموظف لهذا الشهر، أو إنشاؤه لو لم يكن موجودًا بعد
-        const { data: existingRecord } = await supabase.from('payroll_records')
-          .select('id, advance').eq('payroll_month_id', payrollMonth.id).eq('employee_id', request.employee_id).maybeSingle()
-
-        if (existingRecord) {
-          // ✅ نزيد على القيمة الحالية (لا نستبدلها) لحماية أي سلفة سابقة معتمدة لنفس الشهر
-          await supabase.from('payroll_records').update({
-            advance: (existingRecord.advance || 0) + advanceAmt,
-          }).eq('id', existingRecord.id)
-        } else {
-          // ✅ الراتب اتنقل لجدول employee_compensation المقفول (مدير النظام فقط). لتعبئة السجل الجديد
-          // نستخدم دالة app_employee_base_pay — مقصورة على مدير النظام أو صاحب صلاحية "الرواتب".
-          // لو المعتمِد مدير فرع (بلا صلاحية رواتب): basic_salary=0 ويُصلَّح عند توليد الرواتب من صفحة الرواتب.
-          const { data: bp } = await supabase.rpc('app_employee_base_pay', { p_emp: request.employee_id })
-          const empData = Array.isArray(bp) ? bp[0] : bp
-          await supabase.from('payroll_records').insert([{
-            payroll_month_id: payrollMonth.id, employee_id: request.employee_id,
-            basic_salary: empData?.salary || 0, insurance: empData?.insurance || 0,
-            working_days: 30, days_worked: 30,
-            overtime_days: 0, overtime_hours: 0,
-            allowance_1: 0, allowance_1_label: 'Allowance 1',
-            allowance_2: 0, allowance_2_label: 'Allowance 2',
-            allowance_3: 0, allowance_3_label: 'Allowance 3',
-            absence_days: 0, late_hours: 0, early_exit_hours: 0,
-            tax: 0,
-            deduction_1: 0, deduction_1_label: 'Deduction 1',
-            deduction_2: 0, deduction_2_label: 'Deduction 2',
-            deduction_3: 0, deduction_3_label: 'Deduction 3',
-            advance: advanceAmt, advance_balance: 0, carried_forward: 0,
-            amount_due: 0, amount_paid: 0,
-            work_insurance: empData?.work_insurance || 0,
-          }])
-        }
-      }
+      const payrollError = await addAdvanceToPayroll(supabase, request.employee_id, advanceAmt, payrollPeriodOf(new Date().toISOString()))
+      // لغير مدير النظام تتكفل قاعدة البيانات بالخصم (db/advance_to_payroll_fix.sql) وتُرفض كتابة المتصفح، فلا ننبّههم
+      if (payrollError && isAdmin) alert('اكتمل الطلب، لكن تعذّر خصم السلفة من الراتب: ' + payrollError + ' — أضفها يدويًا في خانة «سلفة».')
     }
 
     // ✅ عكس أثر السلفة: لو الطلب كان "completed" من قبل (أي أن مبلغه أُضيف بالفعل للرواتب)
@@ -2083,6 +2032,8 @@ export default function EmployeeRequestsPage() {
   const [filterBranch, setFilterBranch] = useState('all')
   const [branches, setBranches] = useState<{id:string;name:string}[]>([])
   const [search, setSearch] = useState('')
+  const [showBulkAdvance, setShowBulkAdvance] = useState(false)
+  const [pageSize, setPageSize] = useState(20)
   // ✅ جديد: اختيار شهر محدد لطباعة تقرير سلف الراتب - فاضي معناه كل الشهور (السلوك القديم)
   const [printAdvancesMonth, setPrintAdvancesMonth] = useState('')
   // ✅ جديد: فرع محدد + شهر محدد لطباعة "استمارات" السلفة الفردية دفعة واحدة (كل موظف في صفحة مستقلة)
@@ -2341,6 +2292,10 @@ export default function EmployeeRequestsPage() {
   const branchScopedRequests = (filterBranch === 'all' ? requests : requests.filter(r => r.employees?.branch_id === filterBranch))
     // طلبات الاستقالة سرّية: صاحبها ومدير النظام ومدير الصالة/المطبخ (لقسمه) فقط
     .filter(r => r.request_type !== 'resignation' || isAdmin || seesResignations || r.employee_id === currentUser?.id)
+  // «اعتماد الكل»: السلف غير المكتملة في الفرع المختار — لمدير النظام، ولا يعتمد طلب نفسه
+  const openAdvances = isAdmin ? branchScopedRequests.filter(r => r.request_type === 'salary_advance'
+    && (r.status === 'pending' || r.status === 'approved') && r.employee_id !== currentUser?.id && r.amount > 0) : []
+
   const thisMonth = new Date().toISOString().slice(0, 7)
   const monthReqs = branchScopedRequests.filter(r => r.created_at?.startsWith(thisMonth))
   const statusCounts = Object.keys(STATUS_CONFIG).reduce((acc, s) => {
@@ -2365,13 +2320,12 @@ export default function EmployeeRequestsPage() {
     return matchStatus && matchType && matchEmp && matchSearch
   })
 
-  // ✅ تقسيم القائمة لصفحات: ١٠٠ طلب في الصفحة. رقم الصفحة مربوط بمفتاح الفلاتر، فأي تغيير في الفلتر يرجّع للصفحة الأولى تلقائيًا
-  const REQ_PAGE_SIZE = 100
-  const filterKey = [search, filterStatus, filterType, filterEmp, filterBranch].join('|')
+  // ✅ تقسيم القائمة لصفحات (20 أو 50 أو 100). رقم الصفحة مربوط بمفتاح الفلاتر، فأي تغيير في الفلتر يرجّع للصفحة الأولى تلقائيًا
+  const filterKey = [search, filterStatus, filterType, filterEmp, filterBranch, pageSize].join('|')
   const [pageState, setPageState] = useState<{ key: string; page: number }>({ key: '', page: 0 })
-  const totalPages = Math.max(1, Math.ceil(filtered.length / REQ_PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const curPage = Math.min(pageState.key === filterKey ? pageState.page : 0, totalPages - 1)
-  const pagedRequests = filtered.slice(curPage * REQ_PAGE_SIZE, (curPage + 1) * REQ_PAGE_SIZE)
+  const pagedRequests = filtered.slice(curPage * pageSize, (curPage + 1) * pageSize)
   const goPage = (p: number) => setPageState({ key: filterKey, page: Math.max(0, Math.min(totalPages - 1, p)) })
 
   return (
@@ -2403,6 +2357,9 @@ export default function EmployeeRequestsPage() {
   <button onClick={() => setShowSalaryAdvance(true)} style={btnSecondary}><Banknote size={15} /> {isAr ? 'سلفة راتب' : 'Salary Advance'}</button>
   {employees.some(e => e.id === currentUser?.id) && (
     <button onClick={() => setShowResignation(true)} style={btnDanger}><LogOut size={15} /> {isAr ? 'طلب استقالة' : 'Resignation'}</button>
+  )}
+  {openAdvances.length > 0 && (
+    <button onClick={() => setShowBulkAdvance(true)} style={btnSuccess}><CircleCheck size={15} /> {isAr ? 'اعتماد الكل للسلف' : 'Approve All Advances'} ({openAdvances.length})</button>
   )}
   {(isAdmin || isBranchManager) && (
     <>
@@ -2489,6 +2446,9 @@ export default function EmployeeRequestsPage() {
             {employees.map(e => <option key={e.id} value={e.id}>{e.name}{e.name_en ? ' ' + e.name_en : ''}</option>)}
           </select>
         )}
+        <select style={{ ...inp, width: 'auto' }} value={pageSize} onChange={e => setPageSize(Number(e.target.value))} aria-label={isAr ? 'عدد الطلبات في الصفحة' : 'Requests per page'}>
+          {[20, 50, 100].map(n => <option key={n} value={n}>{isAr ? `عرض ${n}` : `Show ${n}`}</option>)}
+        </select>
         {(search || filterStatus !== 'all' || filterType !== 'all' || filterEmp !== 'all' || filterBranch !== 'all') && (
           <button onClick={() => { setSearch(''); setFilterStatus('all'); setFilterType('all'); setFilterEmp('all'); setFilterBranch('all') }}
             style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${S.red}`, background: S.redB, color: S.red, cursor: 'pointer', fontSize: 12, fontFamily: 'Tajawal, sans-serif' }}>
@@ -2574,10 +2534,10 @@ export default function EmployeeRequestsPage() {
               </tbody>
             </table>
           </div>
-          {filtered.length > REQ_PAGE_SIZE && (
+          {filtered.length > pageSize && (
             <div style={{ padding: '12px 20px', borderTop: `1px solid ${S.border}`, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <button onClick={() => goPage(curPage - 1)} disabled={curPage === 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage === 0 ? S.muted : S.white, cursor: curPage === 0 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}><ChevronRight size={14} /> السابق</button>
-              <span style={{ fontSize: 13, color: S.muted }}>صفحة {curPage + 1} من {totalPages} · {curPage * REQ_PAGE_SIZE + 1}–{Math.min((curPage + 1) * REQ_PAGE_SIZE, filtered.length)} من {filtered.length}</span>
+              <span style={{ fontSize: 13, color: S.muted }}>صفحة {curPage + 1} من {totalPages} · {curPage * pageSize + 1}–{Math.min((curPage + 1) * pageSize, filtered.length)} من {filtered.length}</span>
               <button onClick={() => goPage(curPage + 1)} disabled={curPage >= totalPages - 1} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '7px 16px', borderRadius: 10, border: `1px solid ${S.border}`, background: 'transparent', color: curPage >= totalPages - 1 ? S.muted : S.white, cursor: curPage >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 13, fontFamily: 'Tajawal, sans-serif' }}>التالي <ChevronLeft size={14} /></button>
             </div>
           )}
@@ -2596,6 +2556,17 @@ export default function EmployeeRequestsPage() {
 {showSalaryAdvance && employees.find(e => e.id === currentUser?.id) && (
   <SalaryAdvanceModal employee={employees.find(e => e.id === currentUser?.id)!} onClose={() => setShowSalaryAdvance(false)} onSaved={() => { setShowSalaryAdvance(false); fetchAll() }} />
 )}
+      {showBulkAdvance && (
+        <BulkAdvanceModal advances={openAdvances}
+          completedThisMonth={requests.filter(r => {
+            if (r.request_type !== 'salary_advance' || r.status !== 'completed' || !r.approved_at) return false
+            const done = payrollPeriodOf(r.approved_at), now = payrollPeriodOf(new Date().toISOString())
+            return done.month === now.month && done.year === now.year
+          }).map(r => r.employee_id)}
+          approvedBy={currentUser?.name ? `${currentUser.name}${currentUser.name_en ? ' (' + currentUser.name_en + ')' : ''}` : ''}
+          scopeLabel={filterBranch === 'all' ? 'كل الفروع' : branches.find(b => b.id === filterBranch)?.name || ''}
+          onClose={() => setShowBulkAdvance(false)} onDone={() => { setShowBulkAdvance(false); fetchAll() }} />
+      )}
       {selected && <RequestDetailModal request={selected} currentUser={currentUser || undefined} isAdmin={isAdmin} isDeptManager={isDeptManager || isHallAssistant} isSupervisor={isSupervisor} isBranchManager={isBranchManager} onClose={() => setSelected(null)} onUpdate={() => { setSelected(null); fetchAll() }} onDelete={() => { setSelected(null); fetchAll() }} />}
     </div>
   )
